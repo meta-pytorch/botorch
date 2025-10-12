@@ -292,8 +292,9 @@ class MatheronPathModel(DeterministicModel):
         self.sample_shape = Size() if sample_shape is None else sample_shape
         self.ensemble_as_batch = ensemble_as_batch
 
-        # NOTE circular import in pathwise/utils.py otherwise
-        from botorch.sampling.pathwise import draw_matheron_paths
+        # Import from the concrete implementation module so that test mocks
+        # (which patch the draw_matheron_paths function) are respected.
+        from botorch.sampling.pathwise.posterior_samplers import draw_matheron_paths
 
         # Generate the Matheron path once during initialization
         if seed is not None:
@@ -322,7 +323,12 @@ class MatheronPathModel(DeterministicModel):
             return self._path(X).unsqueeze(-1)
         elif isinstance(self.model, ModelList):
             # For model list, stack the path outputs
-            return torch.stack(self._path(X), dim=-1)
+            path_outputs = self._path(X)
+            if len(path_outputs) == 0:
+                # Handle empty model list case by returning a tensor with shape (..., 0)
+                batch_shape = X.shape[:-1]  # batch_shape x n
+                return torch.empty(*batch_shape, 0, dtype=X.dtype, device=X.device)
+            return torch.stack(path_outputs, dim=-1)
         else:
             # For multi-output models
             return self._path(X.unsqueeze(-3)).transpose(-1, -2)

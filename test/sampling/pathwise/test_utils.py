@@ -18,6 +18,8 @@ from botorch.sampling.pathwise.utils import (
     get_output_transform,
     get_train_inputs,
     get_train_targets,
+)
+from botorch.sampling.pathwise.utils.transforms import (
     InverseLengthscaleTransform,
     OutcomeUntransformer,
 )
@@ -147,3 +149,243 @@ class TestGetters(BotorchTestCase):
             self.assertEqual(len(target_list), len(self.models))
             for model, Y in zip(self.models, target_list):
                 self.assertTrue(Y.equal(get_train_targets(model)))
+
+
+class TestUtilsHelpers(BotorchTestCase):
+    def setUp(self):
+        super().setUp()
+        with torch.random.fork_rng():
+            torch.random.manual_seed(0)
+            train_X = torch.rand(5, 2)
+            train_Y = torch.randn(5, 2)
+
+        self.models = []
+        for num_outputs in (1, 2):
+            self.models.append(
+                SingleTaskGP(
+                    train_X=train_X,
+                    train_Y=train_Y[:, :num_outputs],
+                    input_transform=Normalize(d=2),
+                    outcome_transform=Standardize(m=num_outputs),
+                )
+            )
+
+            self.models.append(
+                SingleTaskVariationalGP(
+                    train_X=train_X,
+                    train_Y=train_Y[:, :num_outputs],
+                    input_transform=Normalize(d=2),
+                    outcome_transform=Standardize(m=num_outputs),
+                )
+            )
+
+    def test_sparse_block_diag_with_linear_operator(self):
+        """Test sparse_block_diag with LinearOperator input"""
+        from botorch.sampling.pathwise.utils.helpers import sparse_block_diag
+        from linear_operator.operators import DiagLinearOperator
+
+        # Create a LinearOperator block
+        diag_values = torch.tensor([1.0, 2.0, 3.0])
+        linear_op_block = DiagLinearOperator(diag_values)
+
+        # Create a regular tensor block
+        tensor_block = torch.tensor([[4.0, 5.0], [6.0, 7.0]])
+
+        # Test with LinearOperator in blocks
+        blocks = [linear_op_block, tensor_block]
+        result = sparse_block_diag(blocks)
+
+        # Verify the result
+        self.assertTrue(result.is_sparse)
+        dense_result = result.to_dense()
+
+        # Check that the blocks are arranged diagonally
+        expected_shape = (5, 5)  # 3x3 + 2x2
+        self.assertEqual(dense_result.shape, expected_shape)
+
+    def test_untransform_shape_with_input_transform(self):
+        """Test untransform_shape with InputTransform."""
+        from botorch.models.transforms.input import Normalize
+        from botorch.sampling.pathwise.utils.helpers import untransform_shape
+
+        # Create an InputTransform
+        transform = Normalize(d=2)
+
+        # Create a test shape
+        shape = torch.Size([10, 2])
+
+        # Test the untransform_shape function
+        result_shape = untransform_shape(transform, shape)
+
+        # Should return the same shape since InputTransform doesn't change
+        # dimensionality
+        self.assertEqual(result_shape, shape)
+
+    def test_get_kernel_num_inputs_error_case(self):
+        """Test get_kernel_num_inputs error case."""
+        from botorch.sampling.pathwise.utils.helpers import get_kernel_num_inputs
+        from gpytorch.kernels import RBFKernel
+
+        # Create a kernel with no active_dims or ard_num_dims
+        kernel = RBFKernel()
+
+        # Test the error case
+        with self.assertRaisesRegex(ValueError, "`num_ambient_inputs` must be passed"):
+            get_kernel_num_inputs(kernel, num_ambient_inputs=None)
+
+    def test_get_train_inputs_original_train_inputs(self):
+        """Test _get_train_inputs_Model with _original_train_inputs."""
+        from unittest.mock import patch
+
+        from botorch.sampling.pathwise.utils.helpers import get_train_inputs
+
+        # Use one of the models from setUp
+        model = self.models[0]
+
+        # Create a mock _original_train_inputs
+        original_X = torch.rand(5, 2)
+
+        # Test with _original_train_inputs set and transformed=False
+        with patch.object(model, "_original_train_inputs", original_X):
+            result = get_train_inputs(model, transformed=False)
+            self.assertTrue(result[0].equal(original_X))
+
+    def test_get_train_targets_multitask_variational(self):
+        """Test _get_train_targets_SingleTaskVariationalGP with multitask."""
+        from botorch.models import SingleTaskVariationalGP
+        from botorch.sampling.pathwise.utils.helpers import get_train_targets
+
+        # Create a variational model with multiple outputs
+        with torch.random.fork_rng():
+            torch.random.manual_seed(0)
+            train_X = torch.rand(5, 2)
+            train_Y = torch.randn(5, 2)  # 2 outputs
+
+        variational_model = SingleTaskVariationalGP(
+            train_X=train_X,
+            train_Y=train_Y,
+            outcome_transform=Standardize(m=2),
+        )
+
+        # This should test the multitask branch (num_outputs > 1)
+        result = get_train_targets(variational_model, transformed=False)
+        self.assertIsInstance(result, torch.Tensor)
+        # Check that the result has the correct shape
+        self.assertEqual(result.shape, train_Y.shape)
+
+    def test_append_transform_with_existing_transform(self):
+        """Test append_transform when other transform exists"""
+        from botorch.models.transforms.input import Normalize
+        from botorch.sampling.pathwise.utils.helpers import append_transform
+        from botorch.sampling.pathwise.utils.transforms import ChainedTransform
+
+        # Create a mock module that has TransformedModuleMixin interface
+        class MockModule:
+            def __init__(self):
+                self.existing_transform = Normalize(d=2)
+
+        module = MockModule()
+        new_transform = Normalize(d=3)
+
+        # This should trigger line where ChainedTransform is created
+        append_transform(module, "existing_transform", new_transform)
+
+        # Verify ChainedTransform was created
+        self.assertIsInstance(module.existing_transform, ChainedTransform)
+        self.assertEqual(len(module.existing_transform.transforms), 2)
+
+    def test_untransform_shape_with_none_transform(self):
+        """Test untransform_shape with None transform"""
+        from botorch.sampling.pathwise.utils.helpers import untransform_shape
+
+        shape = torch.Size([10, 2])
+        result_shape = untransform_shape(None, shape)
+
+        # Should return the same shape when transform is None
+        self.assertEqual(result_shape, shape)
+
+    def test_untransform_shape_with_untrained_outcome_transform(self):
+        """Test untransform_shape with untrained OutcomeTransform"""
+        from botorch.models.transforms.outcome import OutcomeTransform
+        from botorch.sampling.pathwise.utils.helpers import untransform_shape
+
+        # Create a mock OutcomeTransform that is not trained
+        class MockUntrainedOutcomeTransform(OutcomeTransform):
+            def __init__(self):
+                super().__init__()
+                self._is_trained = False
+
+            def forward(self, Y, Yvar=None):
+                return Y, Yvar
+
+            def untransform(self, Y, Yvar=None):
+                return Y, Yvar
+
+        transform = MockUntrainedOutcomeTransform()
+        shape = torch.Size([10, 2])
+
+        result_shape = untransform_shape(transform, shape)
+        # Should return the same shape when transform is not trained
+        self.assertEqual(result_shape, shape)
+
+    def test_get_kernel_num_inputs_with_default(self):
+        """Test get_kernel_num_inputs with default value"""
+        from botorch.sampling.pathwise.utils.helpers import get_kernel_num_inputs
+        from gpytorch.kernels import RBFKernel
+
+        # Create a kernel with no active_dims or ard_num_dims
+        kernel = RBFKernel()
+
+        # Test with default value (should return default)
+        result = get_kernel_num_inputs(kernel, num_ambient_inputs=None, default=5)
+        self.assertEqual(result, 5)
+
+        # Test with num_ambient_inputs (should return num_ambient_inputs)
+        result = get_kernel_num_inputs(kernel, num_ambient_inputs=3, default=5)
+        self.assertEqual(result, 3)
+
+    def test_module_dict_mixin_update(self):
+        """Test ModuleDictMixin update method"""
+        from botorch.sampling.pathwise.utils.mixins import ModuleDictMixin
+        from torch.nn import Linear, Module
+
+        # Create a concrete class that uses ModuleDictMixin
+        class TestModuleDictClass(Module, ModuleDictMixin):
+            def __init__(self):
+                Module.__init__(self)
+                ModuleDictMixin.__init__(self, attr_name="modules")
+
+        test_obj = TestModuleDictClass()
+
+        new_modules = {"linear1": Linear(2, 3), "linear2": Linear(3, 1)}
+        test_obj.update(new_modules)
+
+        # Verify modules were added
+        self.assertIn("linear1", test_obj)
+        self.assertIn("linear2", test_obj)
+        self.assertEqual(len(test_obj), 2)
+
+    def test_untransform_shape_edge_case(self):
+        """Test untransform_shape edge case"""
+        from botorch.models.transforms.outcome import OutcomeTransform
+        from botorch.sampling.pathwise.utils.helpers import untransform_shape
+
+        # Create a mock OutcomeTransform that returns different shape
+        class MockShapeChangingTransform(OutcomeTransform):
+            def __init__(self):
+                super().__init__()
+                self._is_trained = True
+
+            def forward(self, Y, Yvar=None):
+                return Y, Yvar
+
+            def untransform(self, Y, Yvar=None):
+                # Return a tensor with different shape
+                return Y.repeat(1, 2), Yvar  # Double the last dimension
+
+        transform = MockShapeChangingTransform()
+        shape = torch.Size([10, 2])
+
+        result_shape = untransform_shape(transform, shape)
+        # Should return the transformed shape (doubled last dimension)
+        self.assertEqual(result_shape, torch.Size([10, 4]))

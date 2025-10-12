@@ -42,6 +42,7 @@ from botorch.models.transforms.outcome import OutcomeTransform, Standardize
 from botorch.models.utils.assorted import get_task_value_remapping
 from botorch.models.utils.gpytorch_modules import (
     get_covar_module_with_dim_scaled_prior,
+    get_gaussian_likelihood_with_lognormal_prior,
     MIN_INFERRED_NOISE_LEVEL,
 )
 from botorch.posteriors.multitask import MultitaskGPPosterior
@@ -55,7 +56,6 @@ from gpytorch.distributions.multivariate_normal import MultivariateNormal
 from gpytorch.kernels.index_kernel import IndexKernel
 from gpytorch.kernels.multitask_kernel import MultitaskKernel
 from gpytorch.likelihoods.gaussian_likelihood import FixedNoiseGaussianLikelihood
-from gpytorch.likelihoods.hadamard_gaussian_likelihood import HadamardGaussianLikelihood
 from gpytorch.likelihoods.likelihood import Likelihood
 from gpytorch.likelihoods.multitask_gaussian_likelihood import (
     MultitaskGaussianLikelihood,
@@ -115,7 +115,6 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
         all_tasks: list[int] | None = None,
         outcome_transform: OutcomeTransform | _DefaultType | None = DEFAULT,
         input_transform: InputTransform | None = None,
-        validate_task_values: bool = True,
     ) -> None:
         r"""Multi-Task GP model using an ICM kernel.
 
@@ -158,9 +157,6 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
                 instantiation of the model.
             input_transform: An input transform that is applied in the model's
                 forward pass.
-            validate_task_values: If True, validate that the task values supplied in the
-                input are expected tasks values. If false, unexpected task values
-                will be mapped to the first output_task if supplied.
 
         Example:
             >>> X1, X2 = torch.rand(10, 2), torch.rand(20, 2)
@@ -193,7 +189,7 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
                 "This is not allowed as it will lead to errors during model training."
             )
         all_tasks = all_tasks or all_tasks_inferred
-        self.num_tasks = len(all_tasks_inferred)
+        self.num_tasks = len(all_tasks)
         if outcome_transform == DEFAULT:
             outcome_transform = Standardize(m=1, batch_shape=train_X.shape[:-2])
         if outcome_transform is not None:
@@ -212,20 +208,10 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
         self._output_tasks = output_tasks
         self._num_outputs = len(output_tasks)
 
+        # TODO (T41270962): Support task-specific noise levels in likelihood
         if likelihood is None:
             if train_Yvar is None:
-                noise_prior = LogNormalPrior(loc=-4.0, scale=1.0)
-                likelihood = HadamardGaussianLikelihood(
-                    num_tasks=self.num_tasks,
-                    batch_shape=torch.Size(),
-                    noise_prior=noise_prior,
-                    noise_constraint=GreaterThan(
-                        MIN_INFERRED_NOISE_LEVEL,
-                        transform=None,
-                        initial_value=noise_prior.mode,
-                    ),
-                    task_feature_index=task_feature,
-                )
+                likelihood = get_gaussian_likelihood_with_lognormal_prior()
             else:
                 likelihood = FixedNoiseGaussianLikelihood(noise=train_Yvar.squeeze(-1))
 
@@ -263,60 +249,31 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
 
         self.covar_module = data_covar_module * task_covar_module
         task_mapper = get_task_value_remapping(
-            observed_task_values=torch.tensor(
-                all_tasks_inferred, dtype=torch.long, device=train_X.device
-            ),
-            all_task_values=torch.tensor(
-                sorted(all_tasks), dtype=torch.long, device=train_X.device
+            task_values=torch.tensor(
+                all_tasks, dtype=torch.long, device=train_X.device
             ),
             dtype=train_X.dtype,
-            default_task_value=None if output_tasks is None else output_tasks[0],
         )
         self.register_buffer("_task_mapper", task_mapper)
-        self._expected_task_values = set(all_tasks_inferred)
+        self._expected_task_values = set(all_tasks)
         if input_transform is not None:
             self.input_transform = input_transform
         if outcome_transform is not None:
             self.outcome_transform = outcome_transform
-        self._validate_task_values = validate_task_values
         self.to(train_X)
 
     def _map_tasks(self, task_values: Tensor) -> Tensor:
-        """Map raw task values to the task indices used by the model.
+        """Map task values to contiguous integers using the task mapper.
 
         Args:
-            task_values: A tensor of task values.
+            task_values: A tensor of task indices to be mapped.
 
         Returns:
-            A tensor of task indices with the same shape as the input
-                tensor.
+            A tensor of mapped task indices.
         """
-        long_task_values = task_values.long()
-        if self._validate_task_values:
-            if self._task_mapper is None:
-                if not (
-                    torch.all(0 <= task_values)
-                    and torch.all(task_values < self.num_tasks)
-                ):
-                    raise ValueError(
-                        "Expected all task features in `X` to be between 0 and "
-                        f"self.num_tasks - 1. Got {task_values}."
-                    )
-            else:
-                unexpected_task_values = set(
-                    long_task_values.unique().tolist()
-                ).difference(self._expected_task_values)
-                if len(unexpected_task_values) > 0:
-                    raise ValueError(
-                        "Received invalid raw task values. Expected raw value to be in"
-                        f" {self._expected_task_values}, but got unexpected task"
-                        f" values: {unexpected_task_values}."
-                    )
-                task_values = self._task_mapper[long_task_values]
-        elif self._task_mapper is not None:
-            task_values = self._task_mapper[long_task_values]
-
-        return task_values
+        if self._task_mapper is None:
+            return task_values.to(dtype=self.train_targets.dtype)
+        return self._task_mapper[task_values].to(dtype=self.train_targets.dtype)
 
     def _split_inputs(self, x: Tensor) -> tuple[Tensor, Tensor, Tensor]:
         r"""Extracts features before task feature, task indices, and features after
@@ -330,7 +287,7 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
             3-element tuple containing
 
             - A  `q x d` or `b x q x d` tensor with features before the task feature
-            - A  `q` or `b x q x 1` tensor with mapped task indices
+            - A  `q` or `b x q` tensor with mapped task indices
             - A  `q x d` or `b x q x d` tensor with features after the task feature
         """
         batch_shape = x.shape[:-2]
@@ -370,7 +327,7 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
             raise ValueError(f"Must have that -{d} <= task_feature <= {d}")
         task_feature = task_feature % (d + 1)
         all_tasks = (
-            train_X[..., task_feature].to(dtype=torch.long).unique(sorted=True).tolist()
+            train_X[..., task_feature].unique(sorted=True).to(dtype=torch.long).tolist()
         )
         return all_tasks, task_feature, d
 

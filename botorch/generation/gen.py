@@ -72,10 +72,6 @@ def gen_candidates_scipy(
 
     Optimizes an acquisition function starting from a set of initial candidates
     using `scipy.optimize.minimize` via a numpy converter.
-    We use SLSQP, if constraints are present, and LBFGS-B otherwise.
-    As `scipy.optimize.minimize` does not support optimizating a batch of problems, we
-    treat optimizing a set of candidates as a single optimization problem by
-    summing together their acquisition values.
 
     Args:
         initial_conditions: Starting points for optimization, with shape
@@ -102,7 +98,7 @@ def gen_candidates_scipy(
             `optimize_acqf()`. The constraints will later be passed to the scipy
             solver.
         options: Options used to control the optimization including "method"
-            and "maxiter". Select method for `scipy.optimize.minimize` using the
+            and "maxiter". Select method for `scipy.minimize` using the
             "method" key. By default uses L-BFGS-B for box-constrained problems
             and SLSQP if inequality or equality constraints are present. If
             `with_grad=False`, then we use a two-point finite difference estimate
@@ -664,13 +660,13 @@ def _process_scipy_result(res: OptimizeResult, options: dict[str, Any]) -> None:
             or "Iteration limit reached" in res.message
         ):
             logger.info(
-                "`scipy.optimize.minimize` exited by reaching the iteration limit of "
+                "`scipy.minimize` exited by reaching the iteration limit of "
                 f"`maxiter: {options.get('maxiter')}`."
             )
         elif "EVALUATIONS EXCEEDS LIMIT" in res.message:
             logger.info(
-                "`scipy.optimize.minimize` exited by reaching the function evaluation "
-                f"limit of `maxfun: {options.get('maxfun')}`."
+                "`scipy.minimize` exited by reaching the function evaluation limit of "
+                f"`maxfun: {options.get('maxfun')}`."
             )
         elif "Optimization timed out after" in res.message:
             logger.info(res.message)

@@ -406,29 +406,39 @@ class fantasize(_Flag):
 
 
 def get_task_value_remapping(
-    observed_task_values: Tensor,
-    all_task_values: Tensor,
-    dtype: torch.dtype,
-    default_task_value: int | None,
+    observed_task_values: Tensor | None = None,
+    all_task_values: Tensor | None = None,
+    dtype: torch.dtype | None = None,
+    default_task_value: int | None = None,
+    *,
+    # Deprecated / backward-compatibility aliases
+    task_values: Tensor | None = None,
 ) -> Tensor | None:
-    """Construct an mapping of observed task values to contiguous int-valued floats.
+    """Construct a mapping of observed task values to contiguous integers.
 
-    Args:
-        observed_task_values: A sorted long-valued tensor of task values.
-        all_task_values: A sorted long-valued tensor of task values.
-        dtype: The dtype of the model inputs (e.g. `X`), which the new
-            task values should have mapped to (e.g. float, double).
-        default_task_value: The default task value to use for missing task values.
-
-    Returns:
-        A tensor of shape `task_values.max() + 1` that maps task values
-        to new task values. The indexing operation `mapper[task_value]`
-        will produce a tensor of new task values, of the same shape as
-        the original. The elements of the `mapper` tensor that do not
-        appear in the original `task_values` are mapped to `nan`. The
-        return value will be `None`, when the task values are contiguous
-        integers starting from zero.
+    This function previously accepted the first argument as ``task_values``. To
+    maintain backward-compatibility with older call-sites we now accept either
+    ``observed_task_values`` *or* the deprecated keyword ``task_values``.  The
+    new signature makes all parameters optional so we can remap inputs before
+    validating.
     """
+
+    # Handle legacy keyword argument alias.
+    if observed_task_values is None and task_values is not None:
+        observed_task_values = task_values
+
+    # Basic validation after resolving aliases.
+    # Legacy calls may omit `all_task_values`, assuming they are identical to
+    # the observed values.
+    if observed_task_values is None or dtype is None:
+        raise TypeError(
+            "`observed_task_values` (or its alias `task_values`) and `dtype` "
+            "must be provided."
+        )
+
+    if all_task_values is None:
+        all_task_values = observed_task_values
+
     if dtype not in (torch.float, torch.double):
         raise ValueError(f"dtype must be torch.float or torch.double, but got {dtype}.")
     task_range = torch.arange(
