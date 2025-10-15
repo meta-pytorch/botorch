@@ -14,11 +14,16 @@ from botorch.acquisition.objective import ScalarizedPosteriorTransform
 from botorch.exceptions.errors import UnsupportedError
 from botorch.models.transforms.input import Normalize
 from botorch.utils.testing import BotorchTestCase
-from botorch_community.models.prior_fitted_network import PFNModel
+from botorch_community.models.prior_fitted_network import (
+    BoundedRiemannPosterior,
+    MultivariatePFNModel,
+    PFNModel,
+)
 from botorch_community.models.utils.prior_fitted_network import (
     download_model,
     ModelPaths,
 )
+from botorch_community.posteriors.riemann import MultivariateRiemannPosterior
 from pfns.model.transformer_config import CrossEntropyConfig, TransformerConfig
 from pfns.train import MainConfig, OptimizerConfig
 from torch import nn, Tensor
@@ -134,6 +139,14 @@ class TestPriorFittedNetwork(BotorchTestCase):
 
         self.assertEqual(posterior.probabilities.shape, torch.Size([100]))
         self.assertEqual(posterior.mean.shape, torch.Size([1]))
+
+        # prepare_data
+        X = torch.rand(5, 3, **tkwargs)
+        X, train_X, train_Y, orig_X_shape = pfn._prepare_data(X)
+        self.assertEqual(X.shape, torch.Size([1, 5, 3]))
+        self.assertEqual(train_X.shape, torch.Size([1, 10, 3]))
+        self.assertEqual(train_Y.shape, torch.Size([1, 10, 1]))
+        self.assertEqual(orig_X_shape, torch.Size([5, 3]))
 
     def test_input_transform(self):
         model = PFNModel(
@@ -260,3 +273,138 @@ class TestPriorFittedNetworkUtils(BotorchTestCase):
         self.assertEqual(mock_exists.call_count, 2)
         mock_torch_load.assert_called_once()
         self.assertEqual(model, fake_model)
+
+
+class TestMultivariatePFN(BotorchTestCase):
+    def setUp(self):
+        train_X = torch.rand(10, 3)
+        train_Y = torch.rand(10, 1)
+        self.pfn = MultivariatePFNModel(train_X, train_Y, DummyPFN())
+
+    def test_posterior(self):
+        X = torch.rand(1, 3)
+        post = self.pfn.posterior(X)
+        self.assertNotIsInstance(post, MultivariateRiemannPosterior)
+        X = torch.rand(4, 3)
+        R = torch.rand(1, 4, 4)
+        with patch(
+            "botorch_community.models.prior_fitted_network.MultivariatePFNModel"
+            ".estimate_correlations",
+            return_value=R,
+        ):
+            post = self.pfn.posterior(X)
+        self.assertIsInstance(post, MultivariateRiemannPosterior)
+        self.assertTrue(torch.equal(post.correlation_matrix, R.squeeze(0)))
+
+    def test_estimate_covariances(self):
+        b = 3
+        q = 4
+        cond_val = torch.rand(b, q)
+        cond_mean = torch.rand(b, q, q)
+        var = torch.ones(b, q)
+        mean = torch.rand(b, q)
+        # Fill in particular values for the [1, 1, 2] entries
+        mean[1, 1] = 2.0
+        mean[1, 2] = 3.0
+        cond_mean[1, 2, 1] = 3.0
+        cond_mean[1, 1, 2] = 4.0
+        cond_mean[1, 1, 1] = 2.1
+        cond_mean[1, 2, 2] = 3.1
+        cond_val[1, 1] = 3.0
+        cond_val[1, 2] = 4.0
+        with patch(
+            "botorch_community.models.prior_fitted_network.MultivariatePFNModel."
+            "_map_psd"
+        ) as mock_map_psd:
+            self.pfn._estimate_covariances(
+                cond_mean=cond_mean, cond_val=cond_val, mean=mean, var=var
+            )
+        cov = mock_map_psd.call_args[0][0]
+        # Compare to analytical value of 10
+        self.assertEqual(torch.round(cov[1, 1, 2], decimals=2).item(), 10.0)
+        self.assertEqual(torch.round(cov[1, 2, 1], decimals=2).item(), 10.0)
+
+    def test_compute_conditional_means(self):
+        probabilities = torch.zeros(3, 2, 1000)
+        probabilities[0, 0, 9] = 1.0
+        probabilities[0, 1, 19] = 1.0
+        probabilities[1, 0, 29] = 1.0
+        probabilities[1, 1, 39] = 1.0
+        probabilities[2, 0, 49] = 1.0
+        probabilities[2, 1, 59] = 1.0
+        marginals = BoundedRiemannPosterior(
+            borders=self.pfn.borders,
+            probabilities=probabilities,
+        )
+        return_value = torch.zeros(3 * 2, 2, 1000)
+        return_value[..., 100] = 1.0
+        X = torch.ones(3, 2, 5)
+        X[:, 1, :] = 2.0
+        with patch(
+            "botorch_community.models.prior_fitted_network.MultivariatePFNModel."
+            "pfn_predict",
+            return_value=return_value,
+        ) as mock_pfn_predict:
+            self.pfn._compute_conditional_means(
+                X=X,
+                train_X=torch.zeros(3, 4, 5),
+                train_Y=torch.zeros(3, 4, 1),
+                marginals=marginals,
+            )
+        res = mock_pfn_predict.call_args[1]
+        self.assertTrue(torch.equal(res["X"], torch.cat([X, X])))
+        X1 = torch.zeros(1, 5, 5)
+        X1[:, -1, :] = 1.0
+        X2 = torch.zeros(1, 5, 5)
+        X2[:, -1, :] = 2.0
+        self.assertTrue(
+            torch.equal(res["train_X"], torch.cat([X1, X2, X1, X2, X1, X2], dim=0))
+        )
+        a = []
+        for i in range(6):
+            Y = torch.zeros(1, 5, 1)
+            Y[0, -1, 0] = (i + 1) * 0.01
+            a.append(Y)
+        self.assertTrue(
+            torch.equal(torch.round(res["train_Y"], decimals=2), torch.cat(a, dim=0))
+        )
+
+    def test_estimate_correlations(self):
+        probabilities = torch.ones(2, 3, 1000)
+        probabilities = probabilities / probabilities.sum(dim=-1, keepdim=True)
+        marginals = BoundedRiemannPosterior(
+            borders=self.pfn.borders,
+            probabilities=probabilities,
+        )
+        cond_mean = 0.5 * (1 + torch.rand(2, 3, 3))
+        with patch(
+            "botorch_community.models.prior_fitted_network.MultivariatePFNModel."
+            "_compute_conditional_means",
+            return_value=(cond_mean, 0.9 * torch.ones(2, 3)),
+        ):
+            R = self.pfn.estimate_correlations(
+                X=torch.ones(2, 3, 5),
+                train_X=torch.zeros(2, 4, 5),
+                train_Y=torch.zeros(2, 4, 1),
+                marginals=marginals,
+            )
+        self.assertAllClose(torch.diagonal(R, dim1=-2, dim2=-1), torch.ones(2, 3))
+        # Test with no batch dimension
+        marginals = BoundedRiemannPosterior(
+            borders=self.pfn.borders,
+            probabilities=probabilities[0, ...],
+        )
+        cond_mean = cond_mean[:1, ...]
+        with patch(
+            "botorch_community.models.prior_fitted_network.MultivariatePFNModel."
+            "_compute_conditional_means",
+            return_value=(cond_mean, 0.9 * torch.ones(1, 3)),
+        ):
+            R = self.pfn.estimate_correlations(
+                X=torch.ones(1, 3, 5),
+                train_X=torch.zeros(1, 4, 5),
+                train_Y=torch.zeros(1, 4, 1),
+                marginals=marginals,
+            )
+        self.assertEqual(R.shape, torch.Size([1, 3, 3]))
+        self.assertAllClose(torch.diagonal(R, dim1=-2, dim2=-1), torch.ones(1, 3))

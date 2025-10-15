@@ -26,7 +26,10 @@ from botorch_community.models.utils.prior_fitted_network import (
     download_model,
     ModelPaths,
 )
-from botorch_community.posteriors.riemann import BoundedRiemannPosterior
+from botorch_community.posteriors.riemann import (
+    BoundedRiemannPosterior,
+    MultivariateRiemannPosterior,
+)
 from gpytorch.likelihoods.gaussian_likelihood import FixedNoiseGaussianLikelihood
 from pfns.train import MainConfig  # @manual=//pytorch/PFNs:PFNs
 from torch import Tensor
@@ -144,7 +147,7 @@ class PFNModel(Model):
         Args:
             X: A b? x q? x d`-dim Tensor, where `d` is the dimension of the
                 feature space.
-            output_indices: **Currenlty not supported for PFNModel.**
+            output_indices: **Currently not supported for PFNModel.**
             observation_noise: **Currently not supported for PFNModel**.
             posterior_transform: **Currently not supported for PFNModel**.
 
@@ -165,10 +168,7 @@ class PFNModel(Model):
         if posterior_transform is not None:
             raise UnsupportedError("posterior_transform is not supported for PFNModel.")
 
-        orig_X_shape = X.shape  # X has shape b? x q? x d
-        X = self.prepare_X(X)  # shape (b, q, d)
-        train_X = match_batch_shape(self.transformed_X, X)  # shape (b, n, d)
-        train_Y = match_batch_shape(self.train_Y, X)  # shape (b, n, 1)
+        X, train_X, train_Y, orig_X_shape = self._prepare_data(X)
 
         probabilities = self.pfn_predict(
             X=X, train_X=train_X, train_Y=train_Y
@@ -177,27 +177,34 @@ class PFNModel(Model):
             *orig_X_shape[:-1], -1
         )  # (b?, q?, num_buckets)
 
-        # Get posterior with the right dtype
-        borders = self.pfn.criterion.borders.to(X.dtype)
         return BoundedRiemannPosterior(
-            borders=borders,
+            borders=self.borders,
             probabilities=probabilities,
         )
 
-    def prepare_X(self, X: Tensor) -> Tensor:
+    def _prepare_data(self, X: Tensor) -> tuple[Tensor, Tensor, Tensor, torch.Size]:
+        orig_X_shape = X.shape  # X has shape b? x q? x d
         if len(X.shape) > 3:
             raise UnsupportedError(f"X must be at most 3-d, got {X.shape}.")
         while len(X.shape) < 3:
             X = X.unsqueeze(0)
 
         X = self.transform_inputs(X)  # shape (b , q, d)
-        return X
+
+        train_X = match_batch_shape(self.transformed_X, X)  # shape (b, n, d)
+        train_Y = match_batch_shape(self.train_Y, X)  # shape (b, n, 1)
+        return X, train_X, train_Y, orig_X_shape
 
     def pfn_predict(self, X: Tensor, train_X: Tensor, train_Y: Tensor) -> Tensor:
         """
-        X has shape (b, q, d)
-        train_X has shape (b, n, d)
-        train_Y has shape (b, n, 1)
+        Make a prediction using the PFN model on X given training data.
+
+        Args:
+            X: has shape (b, q, d)
+            train_X: has shape (b, n, d)
+            train_Y: has shape (b, n, 1)
+
+        Returns: probabilities (b, q, num_buckets) for Riemann posterior.
         """
         if not self.batch_first:
             X = X.transpose(0, 1)  # shape (q, b, d)
@@ -216,3 +223,229 @@ class PFNModel(Model):
 
         probabilities = logits.softmax(dim=-1)  # shape (b, q, num_buckets)
         return probabilities
+
+    @property
+    def borders(self):
+        return self.pfn.criterion.borders.to(self.train_X.dtype)
+
+
+class MultivariatePFNModel(PFNModel):
+    """A multivariate PFN model that returns a joint posterior over q batch inputs.
+
+    For this to work correctly it is necessary that the underlying model return a
+    posterior for the latent f, not the noisy observed y.
+    """
+
+    def posterior(
+        self,
+        X: Tensor,
+        output_indices: Optional[list[int]] = None,
+        observation_noise: Union[bool, Tensor] = False,
+        posterior_transform: Optional[PosteriorTransform] = None,
+    ) -> Union[BoundedRiemannPosterior, MultivariateRiemannPosterior]:
+        """Computes the posterior over model outputs at the provided points.
+
+        Will produce a MultivariateRiemannPosterior that fits a joint structure
+        over the q batch dimension of X. This will require an additional forward
+        pass through the PFN model, and some approximation.
+
+        If q = 1 or there is no q dimension, will return a BoundedRiemannPosterior
+        and behave the same as PFNModel.
+
+        Args:
+            X: A b? x q? x d`-dim Tensor, where `d` is the dimension of the
+                feature space.
+            output_indices: **Currently not supported for PFNModel.**
+            observation_noise: **Currently not supported for PFNModel**.
+            posterior_transform: **Currently not supported for PFNModel**.
+
+        Returns:
+            A posterior representing a batch of b? x q? distributions.
+        """
+        marginals = super().posterior(
+            X=X,
+            output_indices=output_indices,
+            observation_noise=observation_noise,
+            posterior_transform=posterior_transform,
+        )
+        if len(X.shape) == 1 or X.shape[-2] == 1:
+            # No q dimension, or q=1
+            return marginals
+        X, train_X, train_Y, orig_X_shape = self._prepare_data(X)
+        # Estimate correlation structure, making another forward pass.
+        R = self.estimate_correlations(
+            X=X,
+            train_X=train_X,
+            train_Y=train_Y,
+            marginals=marginals,
+        )  # (b, q, q)
+        R = R.view(*orig_X_shape[:-2], X.shape[-2], X.shape[-2])  # (b?, q, q)
+        return MultivariateRiemannPosterior(
+            borders=self.borders,
+            probabilities=marginals.probabilities,
+            correlation_matrix=R,
+        )
+
+    def estimate_correlations(
+        self,
+        X: Tensor,
+        train_X: Tensor,
+        train_Y: Tensor,
+        marginals: BoundedRiemannPosterior,
+    ) -> Tensor:
+        """
+        Estimate a correlation matrix R across the q batch of points in X.
+        Will do a forward pass through the PFN model with batch size O(q^2).
+
+        For every x_q in [x_1, ..., x_Q]:
+           1. Add x_q to train_X, with y_q the 90th percentile value for f(x_q)
+           2. Evaluate p(f(x_i)) for all points.
+
+        Uses bivariate normal conditioning formulae, and so will be approximate.
+
+        Args:
+            X: evaluation point, shape (b, q, d)
+            train_X: Training X, shape (b, n, d)
+            train_Y: Training Y, shape (b, n, 1)
+            marginals: A posterior object with marginal posteriors for f(X), but no
+                correlation structure yet added. posterior.probabilities has
+                shape (b?, q, num_buckets).
+
+        Returns: A (b, q, q) correlation matrix
+        """
+        # Compute conditional distributions with a forward pass
+        cond_mean, cond_val = self._compute_conditional_means(
+            X=X,
+            train_X=train_X,
+            train_Y=train_Y,
+            marginals=marginals,
+        )
+        # Get marginal moments
+        var = marginals.variance.squeeze(-1)  # (b?, q)
+        mean = marginals.mean.squeeze(-1)  # (b?, q)
+        if len(var.shape) == 1:
+            var = var.unsqueeze(0)  # (b, q)
+            mean = mean.unsqueeze(0)  # (b, q)
+        # Estimate covariances from conditional distributions
+        cov = self._estimate_covariances(
+            cond_mean=cond_mean,
+            cond_val=cond_val,
+            mean=mean,
+            var=var,
+        )
+        # Convert to correlation matrix
+        S = 1 / torch.sqrt(torch.diagonal(cov, dim1=-2, dim2=-1))  # (b, q)
+        S = S.unsqueeze(-1).expand(cov.shape)  # (b, q, q)
+        R = S * cov * S.transpose(-1, -2)  # (b, q, q)
+        return R
+
+    def _compute_conditional_means(
+        self,
+        X: Tensor,
+        train_X: Tensor,
+        train_Y: Tensor,
+        marginals: BoundedRiemannPosterior,
+    ) -> tuple[Tensor, Tensor]:
+        """
+        Compute conditional means between pairs of points in X.
+
+        Conditioning is done with an additional forward pass through the model. The
+        returned conditional mean will be of shape (b, q, q), with entry [b, i, j] the
+        conditional mean of j given i set to the conditioning value.
+
+        Args:
+            X: evaluation point, shape (b, q, d)
+            train_X: Training X, shape (b, n, d)
+            train_Y: Training Y, shape (b, n, 1)
+            marginals: A posterior object with marginal posteriors for f(X), but no
+                correlation structure yet added. posterior.probabilities has
+                shape (b?, q, num_buckets).
+
+        Returns: conditional means (b, q, q), and values used for conditioning (b, q).
+        """
+        b, q, d = X.shape
+        n = train_X.shape[-2]
+        post_shape = marginals.probabilities.shape[:-1]
+        # Find the 90th percentile of each eval point.
+        cond_val = marginals.icdf(
+            torch.full(post_shape, 0.9, device=X.device, dtype=X.dtype).unsqueeze(0)
+        )  # (1, b?, q, 1)
+        cond_val = cond_val.view(b, q)  # (b, q)
+        # Construct conditional training data.
+        # train_X will have shape (b, q, n+1, d), to have a conditional observation
+        # for each point. train_Y will have shape (b, q, n+1, 1).
+        train_X = train_X.unsqueeze(1).expand(b, q, n, d)
+        cond_X = X.unsqueeze(-2)  # (b, q, 1, d)
+        train_X = torch.cat((train_X, cond_X), dim=-2)  # (b, q, n+1, d)
+        train_Y = train_Y.unsqueeze(1).expand(b, q, n, 1)
+        cond_Y = cond_val.unsqueeze(-1).unsqueeze(-1)  # (b, q, 1, 1)
+        train_Y = torch.cat((train_Y, cond_Y), dim=-2)  # (b, q, n+1, 1)
+        # Construct eval points
+        eval_X = X.unsqueeze(1).expand(b, q, q, d)
+        # Squeeze everything into necessary 2 batch dims, and do PFN forward pass
+        cond_probabilities = self.pfn_predict(
+            X=eval_X.reshape(b * q, q, d),
+            train_X=train_X.reshape(b * q, n + 1, d),
+            train_Y=train_Y.reshape(b * q, n + 1, 1),
+        )  # (b * q, q, num_buckets)
+        # Object for conditional posteriors
+        cond_posterior = BoundedRiemannPosterior(
+            borders=self.borders,
+            probabilities=cond_probabilities,
+        )
+        # Get conditional means
+        cond_mean = cond_posterior.mean.squeeze(-1)  # (b * q, q)
+        cond_mean = cond_mean.unsqueeze(0).view(b, q, q)
+        return cond_mean, cond_val
+
+    def _estimate_covariances(
+        self,
+        cond_mean: Tensor,
+        cond_val: Tensor,
+        mean: Tensor,
+        var: Tensor,
+    ) -> Tensor:
+        """
+        Estimate covariances from conditional distributions.
+
+        Part one: Compute noise variance implied by conditional distributions
+        E[f_j | y_j=y] = E[f_j] + var[f_j]/(var[f_j] + noise_var) * (y - E[f_j])
+        Let Z_jj = (E[f_j | y_j=y] - E[f_j]) / (y - E[f_j]).
+        Note that Z is in (0, 1].
+        Then, noise_var_j = var[f_j](1/Z_jj - 1).
+
+        Part two: Compute covariances for all pairs
+        E[f_j|y_i=y] = E[f_j]+cov[f_j, f_i]/(var[f_i] + noise_var_i) * (y - E[f_i])
+        Let Z_ij = (E[f_j | y_i=y] - E[f_j]) / (y - E[f_i]).
+        Then, cov[f_j, f_i] = Z * (var[f_i] + noise_var)
+
+        Args:
+            cond_mean: (b, q, q) means of dim -1 conditioned on dim -2
+            cond_val: (b, q) conditioned y value.
+            var: (b, q) marginal variances
+            mean: (b, q) marginal means
+
+        Returns: Covariance matrix
+        """
+        Z = (cond_mean - mean.unsqueeze(-2).expand(cond_mean.shape)) / (
+            cond_val - mean
+        ).unsqueeze(-1)  # (b, q, q)
+        # Z[i, j] is for j cond. on i
+        noise_var = torch.clamp(
+            var * (1 / torch.diagonal(Z, dim1=-2, dim2=-1) - 1), min=1e-8
+        )  # (b, q)
+        cov = Z * (var + noise_var).unsqueeze(-1)  # (b, q, q)
+        # Symmetrize
+        cov = 0.5 * (cov + cov.transpose(-1, -2))
+        cov = self._map_psd(cov)
+        return cov
+
+    def _map_psd(self, A):
+        """
+        Map A (assumed symmetric) to the nearest PSD matrix.
+        """
+        if torch.linalg.eigvals(A).real.min() < 0:
+            L, Q = torch.linalg.eigh(A)
+            L = torch.clamp(L, min=1e-6)
+            A = Q @ torch.diag_embed(L) @ Q.transpose(-1, -2)
+        return A

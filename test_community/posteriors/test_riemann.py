@@ -6,7 +6,10 @@
 
 import torch
 from botorch.utils.testing import BotorchTestCase
-from botorch_community.posteriors.riemann import BoundedRiemannPosterior
+from botorch_community.posteriors.riemann import (
+    BoundedRiemannPosterior,
+    MultivariateRiemannPosterior,
+)
 
 
 class TestRiemannPosterior(BotorchTestCase):
@@ -215,3 +218,37 @@ class TestRiemannPosterior(BotorchTestCase):
             self.assertTrue(
                 torch.allclose(posterior.icdf(value=value).squeeze(), true_res)
             )
+
+
+class TestMultivariateRiemannPosterior(BotorchTestCase):
+    def test_multivariate_rsample(self):
+        borders = torch.linspace(0, 1, 101)
+        probabilities = torch.ones(2, 3, 100)
+        probabilities = probabilities / probabilities.sum(-1, keepdim=True)
+        correlation_matrix = torch.cat(
+            [
+                torch.eye(3, 3).unsqueeze(0),
+                torch.tensor(
+                    [[1.0, 0.9, 0.0], [0.9, 1.0, 0.0], [0.0, 0.0, 1.0]]
+                ).unsqueeze(0),
+            ],
+            dim=0,
+        )
+        posterior = MultivariateRiemannPosterior(
+            borders=borders,
+            probabilities=probabilities,
+            correlation_matrix=correlation_matrix,
+        )
+        base_samples = torch.rand(5000, 2, 3)
+        samples = posterior.rsample_from_base_samples(
+            torch.Size([5000, 2, 3]), base_samples
+        )
+        self.assertEqual(samples.shape, torch.Size([5000, 2, 3, 1]))
+        # Uncorrelated samples
+        self.assertTrue(
+            torch.abs(torch.corrcoef(samples[:, 0, :].squeeze().T)[0, 1]).item() < 0.2
+        )
+        # Correlated samples
+        self.assertTrue(
+            torch.abs(torch.corrcoef(samples[:, 1, :].squeeze().T)[0, 1]).item() > 0.8
+        )

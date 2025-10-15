@@ -16,6 +16,7 @@ import torch
 from botorch.posteriors.posterior import Posterior
 from botorch.sampling.get_sampler import _get_sampler_mvn, GetSampler
 from botorch.sampling.normal import NormalMCSampler
+from gpytorch.distributions.multivariate_normal import MultivariateNormal
 from torch import Tensor
 
 
@@ -207,6 +208,55 @@ class BoundedRiemannPosterior(Posterior):
         # reshape back to (b', b?, q, 1)
         result = result.movedim(-1, 0).unsqueeze(-1)
         return result
+
+
+class MultivariateRiemannPosterior(BoundedRiemannPosterior):
+    def __init__(self, borders, probabilities, correlation_matrix) -> None:
+        """
+        A multi-variate bounded Riemann posterior using a Gaussian copula.
+
+        Uses BoundedRiemannPosterior for marginal distributions, and then MVN
+        correlation structure via the Gaussian copula.
+
+        Args:
+            borders: A tensor of shape `(num_buckets + 1,)` defining the boundaries of
+                the buckets. Must be monotonically increasing.
+            probabilities: A tensor of shape `(b?, q, num_buckets)` defining the
+                probability mass in each bucket. Must sum to 1 in the last dim.
+            correlation_matrix: The Guassian correlation matrix, (b?, q, q).
+        """
+        super().__init__(borders=borders, probabilities=probabilities)
+        self.correlation_matrix = correlation_matrix
+
+    def rsample_from_base_samples(
+        self, sample_shape: torch.Size, base_samples: Tensor
+    ) -> Tensor:
+        """
+        Sample from the posterior using base samples.
+
+        base_samples are N(0, I) samples, as this posterior is registered
+        with the IIDNormalSampler below. This is also necessary for the use
+        of the Gaussian copula.
+
+        Args:
+            sample_shape: Shape of samples.
+            base_samples: (nsamp, b?, q) standard normal samples.
+
+        Returns: Samples from copula, shape (nsamp, b?, q, 1)
+        """
+        # Construct MVN
+        mvn = MultivariateNormal(
+            mean=torch.zeros_like(self.mean.squeeze(-1)),
+            covariance_matrix=self.correlation_matrix,
+        )
+        # Draw samples
+        samples = mvn.rsample(
+            sample_shape=sample_shape, base_samples=base_samples
+        ).squeeze(-1)  # (nsamp, b?, q)
+        # Convert N(0, 1) marginals to Uniform samples.
+        U = torch.distributions.Normal(0, 1).cdf(samples)  # (nsamp, b?, q)
+        Z = self.icdf(U)  # (nsamp, b?, q, 1)
+        return Z
 
 
 @GetSampler.register(BoundedRiemannPosterior)
