@@ -17,6 +17,7 @@ from botorch import settings
 from botorch.exceptions import InputDataError, InputDataWarning
 from botorch.settings import _Flag
 from gpytorch import settings as gpt_settings
+from gpytorch.likelihoods.gaussian_likelihood import FixedNoiseGaussianLikelihood
 from gpytorch.module import Module
 from torch import Tensor
 
@@ -460,3 +461,37 @@ def get_task_value_remapping(
         )
         mapper[observed_task_values] = task_range.to(dtype=dtype)
     return mapper
+
+
+def extract_targets_and_noise_single_output(model) -> tuple[Tensor, Tensor | None]:
+    r"""Extract targets and noise variance for single-output models (m=1).
+
+    Args:
+        model: A GPyTorch model.
+
+    Returns:
+        A tuple of (Y, Yvar) where Y and Yvar have shape [batch_shape] x n x 1.
+    """
+    Y = model.train_targets.unsqueeze(-1)
+    Yvar = None
+    if isinstance(model.likelihood, FixedNoiseGaussianLikelihood):
+        Yvar = model.likelihood.noise_covar.noise.unsqueeze(-1)
+    return Y, Yvar
+
+
+def restore_targets_and_noise_single_output(
+    model, Y: Tensor, Yvar: Tensor | None, strict: bool
+) -> None:
+    r"""Restore targets and noise variance for single-output models (m=1).
+
+    Args:
+        model: A GPyTorch model.
+        Y: Targets tensor in shape [batch_shape] x n x 1.
+        Yvar: Optional noise variance tensor in shape [batch_shape] x n x 1.
+        strict: Whether to strictly enforce shape constraints.
+    """
+    Y = Y.squeeze(-1)
+    if Yvar is not None and isinstance(model.likelihood, FixedNoiseGaussianLikelihood):
+        Yvar = Yvar.squeeze(-1)
+        model.likelihood.noise_covar.noise = Yvar
+    model.set_train_data(targets=Y, strict=strict)
