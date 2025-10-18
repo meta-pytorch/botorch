@@ -21,6 +21,11 @@ Analytic Acquisition Function API
 .. autoclass:: AnalyticAcquisitionFunction
     :members:
 
+Acquisition Function Wrapper API
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.. automodule:: botorch.acquisition.wrapper
+    :members:
+
 Cached Cholesky Acquisition Function API
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 .. automodule:: botorch.acquisition.cached_cholesky
@@ -204,6 +209,11 @@ Penalized Acquisition Function Wrapper
 Prior-Guided Acquisition Function Wrapper
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 .. automodule:: botorch.acquisition.prior_guided
+    :members:
+
+Probabilistic Reparameterization
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.. automodule:: botorch.acquisition.probabilistic_reparameterization
     :members:
 
 Proximal Acquisition Function Wrapper
