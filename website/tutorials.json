@@ -153,6 +153,10 @@
     {
       "id": "composite_mtbo",
       "title": "Composite Bayesian Optimization with Multi-Task Gaussian Processes"
+    },
+    {
+      "id": "fobo",
+      "title": "BO with Derivatives"
     }
   ]
 }
