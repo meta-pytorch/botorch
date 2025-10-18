@@ -36,6 +36,7 @@ import torch
 from botorch.acquisition.objective import PosteriorTransform
 from botorch.exceptions.errors import UnsupportedError
 from botorch.models.gpytorch import GPyTorchModel, MultiTaskGPyTorchModel
+from botorch.models.kernels.positive_index import PositiveIndexKernel
 from botorch.models.model import FantasizeMixin
 from botorch.models.transforms.input import InputTransform
 from botorch.models.transforms.outcome import OutcomeTransform, Standardize
@@ -52,7 +53,6 @@ from gpytorch.distributions.multitask_multivariate_normal import (
     MultitaskMultivariateNormal,
 )
 from gpytorch.distributions.multivariate_normal import MultivariateNormal
-from gpytorch.kernels.index_kernel import IndexKernel
 from gpytorch.kernels.multitask_kernel import MultitaskKernel
 from gpytorch.likelihoods.gaussian_likelihood import FixedNoiseGaussianLikelihood
 from gpytorch.likelihoods.hadamard_gaussian_likelihood import HadamardGaussianLikelihood
@@ -177,7 +177,7 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
             )
         self._validate_tensor_args(X=transformed_X, Y=train_Y, Yvar=train_Yvar)
 
-        # IndexKernel cannot work with negative task features, so we shift them to
+        # PositiveIndexKernel cannot work with negative task features, so we shift them to
         # be positive here.
         if task_feature < 0:
             task_feature += transformed_X.shape[-1]
@@ -237,7 +237,10 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
         super().__init__(
             train_inputs=train_X, train_targets=train_Y, likelihood=likelihood
         )
-        self.mean_module = mean_module or ConstantMean()
+        self.mean_module = mean_module or MultitaskMean(
+            base_means=ConstantMean(batch_shape=train_X.shape[:-2]),
+            num_tasks=self.num_tasks,
+        )
         if covar_module is None:
             data_covar_module = get_covar_module_with_dim_scaled_prior(
                 ard_num_dims=self.num_non_task_features,
@@ -254,10 +257,10 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
                 data_covar_module.active_dims = self._base_idxr
 
         self._rank = rank if rank is not None else self.num_tasks
-        task_covar_module = IndexKernel(
+        task_covar_module = PositiveIndexKernel(
             num_tasks=self.num_tasks,
             rank=self._rank,
-            prior=task_covar_prior,
+            task_prior=task_covar_prior,
             active_dims=[task_feature],
         )
 
@@ -349,9 +352,24 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
 
         # Get features before task feature, task indices, and features after task the
         # feature, with the feature mapping applied to the task indices.
-        x = torch.cat(self._split_inputs(x), dim=-1)
-        mean_x = self.mean_module(x)
-        covar_x = self.covar_module(x)
+        x_before, task_idcs, x_after = self._split_inputs(x)
+
+        # For mean computation with MultitaskMean, use only non-task features
+        if isinstance(self.mean_module, MultitaskMean):
+            x_mean = torch.cat([x_before, x_after], dim=-1)
+            mean_x = self.mean_module(x_mean)
+            # mean_x has shape [..., n, num_tasks]
+            # Extract the appropriate task mean for each point
+            task_idcs_long = task_idcs.squeeze(-1).long()
+            mean_x = mean_x.gather(-1, task_idcs_long.unsqueeze(-1)).squeeze(-1)
+        else:
+            # For non-MultitaskMean, include task indices as before
+            x_mean = torch.cat([x_before, task_idcs, x_after], dim=-1)
+            mean_x = self.mean_module(x_mean)
+
+        # For covariance, always include task indices
+        x_covar = torch.cat([x_before, task_idcs, x_after], dim=-1)
+        covar_x = self.covar_module(x_covar)
         return MultivariateNormal(mean_x, covar_x)
 
     @classmethod
