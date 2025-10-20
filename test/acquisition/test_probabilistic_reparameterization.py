@@ -2,7 +2,11 @@ import itertools
 from typing import Any
 
 import torch
-from botorch.acquisition import LogExpectedImprovement, qLogExpectedImprovement
+from botorch.acquisition import (
+    AcquisitionFunction,
+    LogExpectedImprovement,
+    qLogExpectedImprovement,
+)
 from botorch.acquisition.probabilistic_reparameterization import (
     AnalyticProbabilisticReparameterization,
     AnalyticProbabilisticReparameterizationInputTransform,
@@ -218,6 +222,18 @@ class TestProbabilisticReparameterizationInputTransform(BotorchTestCase):
 
         expected_shape = [5 * 6 * 2 * 3, 1, bounds.shape[-1]]
         self.assertEqual(X_transformed_analytic.shape, torch.Size(expected_shape))
+
+        tf_analytic_discrete = AnalyticProbabilisticReparameterizationInputTransform(
+            one_hot_bounds=bounds,
+            integer_indices=[0, 1, 2, 3],
+            categorical_features=categorical_features,
+            **self.analytic_params,
+        )
+        X_transformed_analytic_discrete = tf_analytic_discrete.transform(X)
+        expected_shape = [2 * 2 * 5 * 6 * 2 * 3, 1, bounds.shape[-1]]
+        self.assertEqual(
+            X_transformed_analytic_discrete.shape, torch.Size(expected_shape)
+        )
 
         tf_mc = MCProbabilisticReparameterizationInputTransform(
             one_hot_bounds=bounds,
@@ -480,9 +496,21 @@ class TestProbabilisticReparameterization(BotorchTestCase):
             },
         )
 
-    def test_probabilistic_reparameterization_binary(
+    def test_probabilistic_reparameterization(self):
+        for base_acq_func_cls in (LogExpectedImprovement, qLogExpectedImprovement):
+            with self.subTest("binary", base_acq_func_cls=base_acq_func_cls):
+                self._test_probabilistic_reparameterization_binary(
+                    base_acq_func_cls=base_acq_func_cls
+                )
+
+            with self.subTest("categorical", base_acq_func_cls=base_acq_func_cls):
+                self._test_probabilistic_reparameterization_categorical(
+                    base_acq_func_cls=base_acq_func_cls
+                )
+
+    def _test_probabilistic_reparameterization_binary(
         self,
-        base_acq_func_cls=LogExpectedImprovement,
+        base_acq_func_cls: AcquisitionFunction,
     ):
         torch.manual_seed(0)
         f = AckleyMixed(dim=6, randomize_optimum=False)
@@ -499,6 +527,11 @@ class TestProbabilisticReparameterization(BotorchTestCase):
             integer_indices=f.discrete_inds,
             **self.acqf_params,
         )
+
+        # test that a purely continuous problem raises an error
+        with self.assertRaises(NotImplementedError):
+            continuous_params = pr_acq_func_params | {"integer_indices": None}
+            AnalyticProbabilisticReparameterization(**continuous_params)
 
         pr_analytic_acq_func = AnalyticProbabilisticReparameterization(
             **pr_acq_func_params
@@ -555,14 +588,9 @@ class TestProbabilisticReparameterization(BotorchTestCase):
         self.assertAllClose(candidate_mc, candidate_exhaustive, rtol=0.1)
         self.assertAllClose(acq_values_mc, acq_values_exhaustive, rtol=0.1)
 
-    def test_probabilistic_reparameterization_binary_qLogEI(self):
-        self.test_probabilistic_reparameterization_binary(
-            base_acq_func_cls=qLogExpectedImprovement,
-        )
-
-    def test_probabilistic_reparameterization_categorical(
+    def _test_probabilistic_reparameterization_categorical(
         self,
-        base_acq_func_cls=LogExpectedImprovement,
+        base_acq_func_cls: AcquisitionFunction,
     ):
         torch.manual_seed(0)
         # we use Ackley here to ensure the categorical features are the
@@ -675,8 +703,3 @@ class TestProbabilisticReparameterization(BotorchTestCase):
         self.assertAllClose(acq_values_analytic, acq_values_exhaustive, rtol=0.1)
         self.assertAllClose(candidate_mc, candidate_exhaustive, rtol=0.1)
         self.assertAllClose(acq_values_mc, acq_values_exhaustive, rtol=0.1)
-
-    def test_probabilistic_reparameterization_categorical_qLogEI(self):
-        self.test_probabilistic_reparameterization_categorical(
-            base_acq_func_cls=qLogExpectedImprovement,
-        )

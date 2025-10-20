@@ -929,7 +929,7 @@ class AbstractProbabilisticReparameterization(AbstractAcquisitionFunctionWrapper
         """
         if categorical_features is None and integer_indices is None:
             raise NotImplementedError(
-                "categorical_features or integer indices must be provided."
+                "Categorical features or integer indices must be provided."
             )
         super().__init__(acq_function=acq_function)
         self.batch_limit = batch_limit
