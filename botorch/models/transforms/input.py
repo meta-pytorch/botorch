@@ -1962,7 +1962,24 @@ class AbstractProbabilisticReparameterizationInputTransform(InputTransform, ABC)
         self.transform_on_eval = transform_on_eval
         self.transform_on_fantasize = transform_on_fantasize
         discrete_indices = []
+        categorical_start_idx = (
+            one_hot_bounds.shape[1]
+            if self.categorical_features is None
+            else min(self.categorical_features.keys())
+        )
         if integer_indices is not None and len(integer_indices) > 0:
+            error_msg = (
+                f"{self.__class__.__name__} requires that the integer "
+                "parameters are to the right of continuous parameters, and the "
+                "left of categorical parameters."
+            )
+            leftmost_int, rightmost_int = min(integer_indices), max(integer_indices)
+            if categorical_start_idx - rightmost_int != 1:
+                # continuous parameters between ints and cats, or overlapping indices
+                raise ValueError(error_msg)
+            if set(range(leftmost_int, rightmost_int + 1)) != set(integer_indices):
+                # non-contiguous integer indices
+                raise ValueError(error_msg)
             self.register_buffer(
                 "integer_indices", torch.tensor(integer_indices, dtype=torch.long)
             )
@@ -1971,9 +1988,8 @@ class AbstractProbabilisticReparameterizationInputTransform(InputTransform, ABC)
             self.integer_indices = None
         self.categorical_features = categorical_features
         if self.categorical_features is not None:
-            self.categorical_start_idx = min(self.categorical_features.keys())
             # check that the trailing dimensions are categoricals
-            end = self.categorical_start_idx
+            end = categorical_start_idx
             err_msg = (
                 f"{self.__class__.__name__} requires that the categorical "
                 "parameters are the rightmost elements."
@@ -2255,6 +2271,12 @@ class AnalyticProbabilisticReparameterizationInputTransform(
         Returns:
             A `batch_shape x n_discrete x n x d`-dim tensor of rounded inputs.
         """
+        if X.shape[-3] > 1:
+            raise ValueError(
+                "Probabilistic reparameterization does not support batch "
+                "sizes greater than 1."
+            )
+
         n_discrete = self.discrete_indices.shape[0]
         all_discrete_options = self.all_discrete_options.view(
             *([1] * (X.ndim - 3)), self.all_discrete_options.shape[0], *X.shape[-2:]
@@ -2344,6 +2366,12 @@ class MCProbabilisticReparameterizationInputTransform(
         Returns:
             A `batch_shape x mc_samples x n x d`-dim tensor of rounded inputs.
         """
+        if X.shape[-3] > 1:
+            raise ValueError(
+                "Probabilistic reparameterization does not support batch "
+                "sizes greater than 1."
+            )
+
         X_expanded = X.expand(*X.shape[:-3], self.mc_samples, *X.shape[-2:]).clone()
         X_prob = self.get_rounding_prob(X=X)
         if self.integer_indices is not None:
