@@ -798,10 +798,17 @@ class MCProbabilisticReparameterizationInputTransform(
         Returns:
             A boolean indicating if the other transform is equivalent.
         """
+        if hasattr(self, "base_samples") and hasattr(other, "base_samples"):
+            equal_base_samples = torch.equal(self.base_samples, other.base_samples)
+        else:
+            equal_base_samples = not hasattr(self, "base_samples") and not hasattr(
+                other, "base_samples"
+            )
         return (
             super().equals(other=other)
             and (self.resample == other.resample)
-            and torch.equal(self.base_samples, other.base_samples)
+            and (self.mc_samples == other.mc_samples)
+            and equal_base_samples
         )
 
 
@@ -1103,7 +1110,8 @@ class AnalyticProbabilisticReparameterization(AbstractProbabilisticReparameteriz
         if self.one_hot_to_numeric is not None:
             X_discrete_all = self.one_hot_to_numeric(X_discrete_all)
         if X.shape[-2] != 1:
-            raise NotImplementedError
+            # PR does not support batch > 1. This is caught by the input transform
+            raise NotImplementedError  # pragma: no cover
 
         # save the probabilities
         if "unnormalize" in self.input_transform:

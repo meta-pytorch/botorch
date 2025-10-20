@@ -111,6 +111,15 @@ class TestProbabilisticReparameterizationInputTransform(BotorchTestCase):
                 **transform_params,
             )
 
+        # no gaps allowed between categorical features
+        with self.assertRaisesRegex(ValueError, "rightmost"):
+            pr_transform_cls(
+                one_hot_bounds=bounds,
+                integer_indices=integer_indices,
+                categorical_features={4: 2, 7: 2},
+                **transform_params,
+            )
+
         # integer features must be between continuous and categorical
         with self.assertRaisesRegex(ValueError, "integer"):
             pr_transform_cls(
@@ -246,6 +255,58 @@ class TestProbabilisticReparameterizationInputTransform(BotorchTestCase):
             ].all()
         )
         self.assertAllClose(X_transformed_mc[..., -1].mean().item(), 0.95, atol=0.10)
+
+    def test_probabilistic_reparameterization_transform_equality(self):
+        bounds = self.one_hot_bounds
+        integer_indices = [2, 3]
+        categorical_features = {4: 2, 6: 3}
+
+        all_tf_kwargs = (
+            dict(
+                one_hot_bounds=bounds,
+                integer_indices=integer_indices,
+                categorical_features=categorical_features,
+            )
+            | self.mc_params
+            | {"resample": False}
+        )
+
+        tf_mc1 = MCProbabilisticReparameterizationInputTransform(**all_tf_kwargs)
+        tf_mc2 = MCProbabilisticReparameterizationInputTransform(**all_tf_kwargs)
+        self.assertTrue(tf_mc1.equals(tf_mc2))
+
+        updated_tf_kwargs = all_tf_kwargs | {"resample": True}
+        tf_mc3 = MCProbabilisticReparameterizationInputTransform(**updated_tf_kwargs)
+        self.assertFalse(tf_mc1.equals(tf_mc3))
+
+        updated_tf_kwargs = all_tf_kwargs | {"integer_indices": [3]}
+        tf_mc4 = MCProbabilisticReparameterizationInputTransform(**updated_tf_kwargs)
+        self.assertFalse(tf_mc1.equals(tf_mc4))
+
+        all_tf_kwargs_analytic = (
+            dict(
+                one_hot_bounds=bounds,
+                integer_indices=integer_indices,
+                categorical_features=categorical_features,
+            )
+            | self.analytic_params
+        )
+        tf_analytic1 = AnalyticProbabilisticReparameterizationInputTransform(
+            **all_tf_kwargs_analytic
+        )
+        tf_analytic2 = AnalyticProbabilisticReparameterizationInputTransform(
+            **all_tf_kwargs_analytic
+        )
+        self.assertTrue(tf_analytic1.equals(tf_analytic2))
+        self.assertFalse(tf_analytic1.equals(tf_mc1))
+
+        # test comparison of base_samples
+        X = torch.rand(
+            4, 1, 1, bounds.shape[1], dtype=torch.float64, device=self.device
+        )
+        tf_mc1.transform(X)
+        tf_mc2.transform(X)
+        self.assertFalse(tf_mc1.equals(tf_mc2))
 
 
 class TestGetProbabilisticReparameterizationInputTransform(BotorchTestCase):
