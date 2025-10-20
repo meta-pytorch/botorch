@@ -9,9 +9,7 @@ from __future__ import annotations
 from collections import OrderedDict
 
 from botorch.models.transforms.input import (
-    AnalyticProbabilisticReparameterizationInputTransform,
     ChainedInputTransform,
-    MCProbabilisticReparameterizationInputTransform,
     Normalize,
     OneHotToNumeric,
     Round,
@@ -122,85 +120,5 @@ def get_rounding_input_transform(
         )
     tf = ChainedInputTransform(**tfs)
     tf.to(dtype=one_hot_bounds.dtype, device=one_hot_bounds.device)
-    tf.eval()
-    return tf
-
-
-def get_probabilistic_reparameterization_input_transform(
-    one_hot_bounds: Tensor,
-    integer_indices: list[int] | None = None,
-    categorical_features: dict[int, int] | None = None,
-    use_analytic: bool = False,
-    mc_samples: int = 128,
-    resample: bool = False,
-    tau: float = 0.1,
-) -> ChainedInputTransform:
-    r"""Construct InputTransform for Probabilistic Reparameterization.
-
-    Note: this is intended to be used only for acquisition optimization
-    in via the AnalyticProbabilisticReparameterization and
-    MCProbabilisticReparameterization classes. This is not intended to be
-    attached to a botorch Model.
-
-    See [Daulton2022bopr]_ for details.
-
-    Args:
-        one_hot_bounds: The raw search space bounds where categoricals are
-            encoded in one-hot representation and the integer parameters
-            are not normalized.
-        integer_indices: The indices of the integer parameters
-        categorical_features: A dictionary mapping indices to cardinalities
-            for the categorical features.
-        use_analytic: A boolean indicating whether to use analytic
-            probabilistic reparameterization.
-        mc_samples: The number of MC samples for MC probabilistic
-            reparameterization.
-        resample: A boolean indicating whether to resample with MC
-            probabilistic reparameterization on each forward pass.
-        tau: The temperature parameter used to determine the probabilities.
-
-    Returns:
-        The probabilistic reparameterization input transformation.
-    """
-    tfs = OrderedDict()
-    if integer_indices is not None and len(integer_indices) > 0:
-        # unnormalize to integer space
-        tfs["unnormalize"] = Normalize(
-            d=one_hot_bounds.shape[1],
-            bounds=one_hot_bounds,
-            indices=integer_indices,
-            transform_on_train=False,
-            transform_on_eval=True,
-            transform_on_fantasize=False,
-            reverse=True,
-        )
-    if use_analytic:
-        tfs["round"] = AnalyticProbabilisticReparameterizationInputTransform(
-            one_hot_bounds=one_hot_bounds,
-            integer_indices=integer_indices,
-            categorical_features=categorical_features,
-            tau=tau,
-        )
-    else:
-        tfs["round"] = MCProbabilisticReparameterizationInputTransform(
-            one_hot_bounds=one_hot_bounds,
-            integer_indices=integer_indices,
-            categorical_features=categorical_features,
-            resample=resample,
-            mc_samples=mc_samples,
-            tau=tau,
-        )
-    if integer_indices is not None and len(integer_indices) > 0:
-        # normalize to unit cube
-        tfs["normalize"] = Normalize(
-            d=one_hot_bounds.shape[1],
-            bounds=one_hot_bounds,
-            indices=integer_indices,
-            transform_on_train=False,
-            transform_on_eval=True,
-            transform_on_fantasize=False,
-            reverse=False,
-        )
-    tf = ChainedInputTransform(**tfs)
     tf.eval()
     return tf
