@@ -1916,7 +1916,7 @@ class AbstractProbabilisticReparameterizationInputTransform(InputTransform, ABC)
     optimization).
     1. These are unnormalized back to the raw input space.
     2. The discrete values are created.
-    3. All values are normalized to the unitcube.
+    3. All values are normalized to the unit cube.
     """
 
     def __init__(
@@ -2112,7 +2112,7 @@ class AnalyticProbabilisticReparameterizationInputTransform(
     optimization).
     1. These are unnormalized back to the raw input space.
     2. The discrete values are created.
-    3. All values are normalized to the unitcube.
+    3. All values are normalized to the unit cube.
     """
 
     def __init__(
@@ -2316,8 +2316,8 @@ class MCProbabilisticReparameterizationInputTransform(
     would typically be normalized to the unit cube (e.g. during candidate
     optimization).
     1. These are unnormalized back to the raw input space.
-    2. The discrete ordinal valeus are sampled.
-    3. All values are normalized to the unitcube.
+    2. The discrete ordinal values are sampled.
+    3. All values are normalized to the unit cube.
     """
 
     def __init__(
