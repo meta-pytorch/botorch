@@ -39,8 +39,6 @@ from botorch.utils.safe_math import (
 from botorch.utils.transforms import (
     average_over_ensemble_models,
     concatenate_pending_points,
-    is_ensemble,
-    match_batch_shape,
     t_batch_mode_transform,
 )
 from torch import Tensor
@@ -439,32 +437,12 @@ class qLogNoisyExpectedHypervolumeImprovement(
         self.tau_max = tau_max
         self.fat = fat
 
-    @concatenate_pending_points
     @t_batch_mode_transform()
     @average_over_ensemble_models
     def forward(self, X: Tensor) -> Tensor:
-        X_full = torch.cat([match_batch_shape(self.X_baseline, X), X], dim=-2)
-        # NOTE: To ensure that we correctly sample `f(X)` from the joint distribution
-        # `f((X_baseline, X)) ~ P(f | D)`, it is critical to compute the joint posterior
-        # over X *and* X_baseline -- which also contains pending points whenever there
-        # are any --  since the baseline and pending values `f(X_baseline)` are
-        # generally pre-computed and cached before the `forward` call, see the docs of
-        # `cache_pending` for details.
-        # TODO: Improve the efficiency by not re-computing the X_baseline-X_baseline
-        # covariance matrix, but only the covariance of
-        # 1) X and X, and
-        # 2) X and X_baseline.
-        posterior = self.model.posterior(X_full)
-        # Account for possible one-to-many transform and the model batch dimensions in
-        # ensemble models.
-        event_shape_lag = 1 if is_ensemble(self.model) else 2
-        n_w = (
-            posterior._extended_shape()[X_full.dim() - event_shape_lag]
-            // X_full.shape[-2]
-        )
-        q_in = X.shape[-2] * n_w
-        self._set_sampler(q_in=q_in, posterior=posterior)
-        samples = self._get_f_X_samples(posterior=posterior, q_in=q_in)
+        # Get samples from the posterior, and manually concatenate pending points that
+        # have not yet been cached. Shared with qNEHVI.
+        samples, X = self._compute_posterior_samples_and_concat_pending(X)
         # Add previous nehvi from pending points.
         nehvi = self._compute_log_qehvi(samples=samples, X=X)
         if self.incremental_nehvi:

@@ -14,13 +14,13 @@ import time
 import warnings
 from collections.abc import Callable
 from functools import partial
-from typing import Any, NoReturn
+from typing import Any, Mapping, NoReturn
 
 import numpy as np
 import numpy.typing as npt
 import torch
 from botorch.acquisition import AcquisitionFunction
-from botorch.exceptions.errors import OptimizationGradientError
+from botorch.exceptions.errors import OptimizationGradientError, UnsupportedError
 from botorch.exceptions.warnings import OptimizationWarning
 from botorch.generation.utils import _remove_fixed_features_from_optimization
 from botorch.logging import logger
@@ -31,11 +31,26 @@ from botorch.optim.parameter_constraints import (
     make_scipy_nonlinear_inequality_constraints,
 )
 from botorch.optim.stopping import ExpMAStoppingCriterion
-from botorch.optim.utils import columnwise_clamp, fix_features
-from botorch.optim.utils.timeout import minimize_with_timeout
+from botorch.optim.utils import (
+    check_scipy_version_at_least,
+    columnwise_clamp,
+    fix_features,
+    minimize_with_timeout,
+)
 from scipy.optimize import OptimizeResult
+from threadpoolctl import threadpool_limits
 from torch import Tensor
 from torch.optim import Optimizer
+
+if check_scipy_version_at_least(minor=13) and not check_scipy_version_at_least(
+    minor=17
+):
+    # We only import the batched lbfgs_b code here, as it might otherwise
+    # lead to import errors, if the wrong scipy version is used
+    from botorch.optim.batched_lbfgs_b import (
+        fmin_l_bfgs_b_batched,
+        translate_bounds_for_lbfgsb,
+    )
 
 TGenCandidates = Callable[[Tensor, AcquisitionFunction, Any], tuple[Tensor, Tensor]]
 
@@ -49,8 +64,9 @@ def gen_candidates_scipy(
     equality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
     nonlinear_inequality_constraints: list[tuple[Callable, bool]] | None = None,
     options: dict[str, Any] | None = None,
-    fixed_features: dict[int, float | None] | None = None,
+    fixed_features: Mapping[int, float | Tensor] | None = None,
     timeout_sec: float | None = None,
+    use_parallel_mode: bool | None = None,
 ) -> tuple[Tensor, Tensor]:
     r"""Generate a set of candidates using `scipy.optimize.minimize`.
 
@@ -91,14 +107,25 @@ def gen_candidates_scipy(
             and SLSQP if inequality or equality constraints are present. If
             `with_grad=False`, then we use a two-point finite difference estimate
             of the gradient.
-        fixed_features: This is a dictionary of feature indices to values, where
+        fixed_features: Mapping[int, float | Tensor] | None,
             all generated candidates will have features fixed to these values.
-            If the dictionary value is None, then that feature will just be
-            fixed to the clamped value and not optimized. Assumes values to be
-            compatible with lower_bounds and upper_bounds!
+            If passing tensors as values, they should have either shape `b` or
+            `b x q` to fix the same feature to different values in the batch.
+            Assumes values to be compatible with lower_bounds and upper_bounds!
         timeout_sec: Timeout (in seconds) for `scipy.optimize.minimize` routine -
             if provided, optimization will stop after this many seconds and return
             the best solution found so far.
+        use_parallel_mode: If None uses the parallel implementation of l-bfgs-b,
+            if possible.
+            If True, forces the use of the parallel implementation and fails if not
+            possible.
+            If using parallel mode, each item in the batch dimension is treated as a
+            separate optimization problem, we enforce the shape of the initial
+            conditions to be `b x q x d` or `q x d`, and we assume the
+            `acquisition_function` does not treat elements differently in the batch
+            dimension (it is simply a batched function).
+            If False, forces the use of the serial implementation through
+            `scipy.optimize.minimize`.
 
     Returns:
         2-element tuple containing
@@ -119,70 +146,249 @@ def gen_candidates_scipy(
                 upper_bounds=bounds[1],
             )
     """
+    if use_parallel_mode:
+        if initial_conditions.ndim not in (2, 3):
+            raise UnsupportedError(
+                "Initial conditions must have either 2 or 3 dimensions. "
+                f"Received shape {initial_conditions.shape}"
+            )
     options = options or {}
     options = {**options, "maxiter": options.get("maxiter", 2000)}
 
-    # if there are fixed features we may optimize over a domain of lower dimension
-    reduced_domain = False
-    if fixed_features:
-        # if there are no constraints, things are straightforward
-        if not (
-            inequality_constraints
-            or equality_constraints
-            or nonlinear_inequality_constraints
-        ):
-            reduced_domain = True
-        # if there are we need to make sure features are fixed to specific values
-        else:
-            reduced_domain = None not in fixed_features.values()
+    original_initial_conditions_shape = initial_conditions.shape
 
-    if reduced_domain:
-        _no_fixed_features = _remove_fixed_features_from_optimization(
-            fixed_features=fixed_features,
-            acquisition_function=acquisition_function,
-            initial_conditions=initial_conditions,
+    if initial_conditions.ndim == 2:
+        initial_conditions = initial_conditions.unsqueeze(0)
+
+    initial_conditions_all_features = initial_conditions
+    if fixed_features:
+        initial_conditions = initial_conditions[
+            ...,
+            [i for i in range(initial_conditions.shape[-1]) if i not in fixed_features],
+        ]
+        if isinstance(lower_bounds, Tensor):
+            lower_bounds = lower_bounds[
+                [i for i in range(len(lower_bounds)) if i not in fixed_features]
+            ]
+        if isinstance(upper_bounds, Tensor):
+            upper_bounds = upper_bounds[
+                [i for i in range(len(upper_bounds)) if i not in fixed_features]
+            ]
+
+    clamped_candidates = columnwise_clamp(
+        X=initial_conditions,
+        lower=lower_bounds,
+        upper=upper_bounds,
+        raise_on_violation=True,
+    )
+
+    def f(x):
+        return -acquisition_function(x)
+
+    is_constrained = (
+        nonlinear_inequality_constraints
+        or equality_constraints
+        or inequality_constraints
+    )
+    method = options.get("method", "SLSQP" if is_constrained else "L-BFGS-B")
+    with_grad = options.get("with_grad", True)
+    minimize_options = {
+        k: v
+        for k, v in options.items()
+        if k
+        not in [
+            "method",
+            "callback",
+            "with_grad",
+            "max_optimization_problem_aggregation_size",
+        ]
+    }
+
+    why_not_fast_path = get_reasons_against_fast_path(
+        method=method,
+        with_grad=with_grad,
+        minimize_options=minimize_options,
+        timeout_sec=timeout_sec,
+    )
+
+    f_np_wrapper = _get_f_np_wrapper(
+        clamped_candidates.shape,
+        initial_conditions.device,
+        initial_conditions.dtype,
+        with_grad,
+    )
+
+    if not why_not_fast_path and use_parallel_mode is not False:
+        if is_constrained:
+            raise RuntimeWarning("Method L-BFGS-B cannot handle constraints.")
+
+        batched_x0 = _arrayify(clamped_candidates).reshape(len(clamped_candidates), -1)
+
+        l_bfgs_b_bounds = translate_bounds_for_lbfgsb(
             lower_bounds=lower_bounds,
             upper_bounds=upper_bounds,
-            inequality_constraints=inequality_constraints,
-            equality_constraints=equality_constraints,
-            nonlinear_inequality_constraints=nonlinear_inequality_constraints,
+            num_features=clamped_candidates.shape[-1],
+            q=clamped_candidates.shape[1],
         )
-        # call the routine with no fixed_features
-        clamped_candidates, batch_acquisition = gen_candidates_scipy(
-            initial_conditions=_no_fixed_features.initial_conditions,
-            acquisition_function=_no_fixed_features.acquisition_function,
-            lower_bounds=_no_fixed_features.lower_bounds,
-            upper_bounds=_no_fixed_features.upper_bounds,
-            inequality_constraints=_no_fixed_features.inequality_constraints,
-            equality_constraints=_no_fixed_features.equality_constraints,
-            nonlinear_inequality_constraints=_no_fixed_features.nonlinear_inequality_constraints,  # noqa: E501
-            options=options,
-            fixed_features=None,
-            timeout_sec=timeout_sec,
+
+        with threadpool_limits(limits=1, user_api="blas"):
+            xs, fs, results = fmin_l_bfgs_b_batched(
+                func=partial(f_np_wrapper, f=f, fixed_features=fixed_features),
+                # args is not necessary, done via the partial instead
+                x0=batched_x0,
+                # method=method, # method is not necessary as it is only l-bfgs-b
+                # jac=with_grad, this is assumed to be true
+                bounds=l_bfgs_b_bounds,
+                # constraints=constraints,
+                callback=options.get("callback", None),
+                pass_batch_indices=True,
+                **minimize_options,
+            )
+        for res in results:
+            _process_scipy_result(res=res, options=options)
+
+    else:
+        # In this case we optimize multiple initial conditions in a single
+        # problem, up to max_optimization_problem_aggregation_size at a time.
+        max_optimization_problem_aggregation_size = options.get(
+            "max_optimization_problem_aggregation_size", len(clamped_candidates)
         )
-        clamped_candidates = _no_fixed_features.acquisition_function._construct_X_full(
-            clamped_candidates
+
+        if use_parallel_mode is not False:
+            msg = (
+                "Not using the parallel implementation of l-bfgs-b, as: "
+                + ", and ".join(why_not_fast_path)
+            )
+            if use_parallel_mode:
+                raise NotImplementedError(msg)
+            else:
+                logger.debug(msg)
+
+        if (
+            fixed_features
+            and any(
+                torch.is_tensor(ff) and ff.ndim > 0 for ff in fixed_features.values()
+            )
+            and max_optimization_problem_aggregation_size != 1
+        ):
+            raise UnsupportedError(
+                "Batch shaped fixed features are not "
+                "supported, when optimizing more than one optimization "
+                "problem at a time."
+            )
+
+        all_xs = []
+        split_candidates = clamped_candidates.split(
+            max_optimization_problem_aggregation_size
         )
-        return clamped_candidates, batch_acquisition
+        for i, candidates_ in enumerate(split_candidates):
+            if fixed_features:
+                fixed_features_ = {
+                    k: ff[i : i + 1].item()
+                    # from the test above, we know that we only treat one candidate
+                    # at a time thus we can use index i
+                    if torch.is_tensor(ff) and ff.ndim > 0
+                    else ff
+                    for k, ff in fixed_features.items()
+                }
+            else:
+                fixed_features_ = None
+
+            _no_fixed_features = _remove_fixed_features_from_optimization(
+                fixed_features=fixed_features_,
+                acquisition_function=acquisition_function,
+                initial_conditions=None,
+                d=initial_conditions_all_features.shape[-1],
+                lower_bounds=None,
+                upper_bounds=None,
+                inequality_constraints=inequality_constraints,
+                equality_constraints=equality_constraints,
+                nonlinear_inequality_constraints=nonlinear_inequality_constraints,
+            )
+            bounds = make_scipy_bounds(
+                X=candidates_,
+                lower_bounds=lower_bounds,
+                upper_bounds=upper_bounds,
+            )
+
+            f_np_wrapper_ = partial(
+                f_np_wrapper,
+                fixed_features=fixed_features_,
+            )
+
+            x0 = candidates_.flatten()
+
+            constraints = make_scipy_linear_constraints(
+                shapeX=candidates_.shape,
+                inequality_constraints=_no_fixed_features.inequality_constraints,
+                equality_constraints=_no_fixed_features.equality_constraints,
+            )
+            if _no_fixed_features.nonlinear_inequality_constraints:
+                # Make sure `batch_limit` is 1 for now.
+                if not (len(candidates_.shape) == 3 and candidates_.shape[0] == 1):
+                    raise ValueError(
+                        "`batch_limit` must be 1 when non-linear inequality "
+                        "constraints are given."
+                    )
+                nl_ineq_constraints = (
+                    _no_fixed_features.nonlinear_inequality_constraints
+                )
+                constraints += make_scipy_nonlinear_inequality_constraints(
+                    nonlinear_inequality_constraints=nl_ineq_constraints,
+                    f_np_wrapper=f_np_wrapper_,
+                    x0=x0,
+                    shapeX=candidates_.shape,
+                )
+
+            x0 = _arrayify(x0)
+
+            res = minimize_with_timeout(
+                fun=f_np_wrapper_,
+                args=(f,),
+                x0=x0,
+                method=method,
+                jac=with_grad,
+                bounds=bounds,
+                constraints=constraints,
+                callback=options.get("callback", None),
+                options=minimize_options,
+                timeout_sec=timeout_sec / len(split_candidates)
+                if timeout_sec is not None
+                else None,
+            )
+            _process_scipy_result(res=res, options=options)
+            xs = res.x.reshape(candidates_.shape)
+            all_xs.append(xs)
+        xs = np.concatenate(all_xs)
+
+    candidates = torch.from_numpy(xs).view_as(clamped_candidates).to(initial_conditions)
+
     clamped_candidates = columnwise_clamp(
-        X=initial_conditions, lower=lower_bounds, upper=upper_bounds
+        X=candidates, lower=lower_bounds, upper=upper_bounds, raise_on_violation=True
     )
 
-    shapeX = clamped_candidates.shape
-    x0 = clamped_candidates.view(-1)
-    bounds = make_scipy_bounds(
-        X=initial_conditions, lower_bounds=lower_bounds, upper_bounds=upper_bounds
+    clamped_candidates = fix_features(
+        X=clamped_candidates,
+        fixed_features=fixed_features,
+        replace_current_value=False,
     )
-    constraints = make_scipy_linear_constraints(
-        shapeX=shapeX,
-        inequality_constraints=inequality_constraints,
-        equality_constraints=equality_constraints,
-    )
+    clamped_candidates = clamped_candidates.reshape(original_initial_conditions_shape)
 
-    with_grad = options.get("with_grad", True)
+    with torch.no_grad():
+        batch_acquisition = acquisition_function(clamped_candidates)
+
+    return clamped_candidates, batch_acquisition
+
+
+def _get_f_np_wrapper(shapeX, device, dtype, with_grad):
     if with_grad:
 
-        def f_np_wrapper(x: npt.NDArray, f: Callable):
+        def f_np_wrapper(
+            x: npt.NDArray,
+            f: Callable,
+            fixed_features: Mapping[int, float | Tensor] | None,
+            batch_indices: list[int] | None = None,
+        ) -> tuple[float | np.NDArray, np.NDArray]:
             """Given a torch callable, compute value + grad given a numpy array."""
             if np.isnan(x).any():
                 raise RuntimeError(
@@ -191,86 +397,115 @@ def gen_candidates_scipy(
                 )
             X = (
                 torch.from_numpy(x)
-                .to(initial_conditions)
-                .view(shapeX)
+                .to(device=device, dtype=dtype)
+                # We reshape in this way, as in parallel mode the batch dimension might
+                # change during optimization: some examples might finish earlier than
+                # others.
+                .view(-1, *shapeX[1:])
                 .contiguous()
                 .requires_grad_(True)
             )
-            X_fix = fix_features(X, fixed_features=fixed_features)
-            loss = f(X_fix).sum()
+            if fixed_features is not None:
+                if batch_indices is not None:
+                    this_fixed_features = {
+                        k: ff[batch_indices]
+                        if torch.is_tensor(ff) and ff.ndim > 0
+                        else ff
+                        for k, ff in fixed_features.items()
+                    }
+                else:
+                    this_fixed_features = fixed_features
+            else:
+                this_fixed_features = None
+
+            X_fix = fix_features(
+                X, fixed_features=this_fixed_features, replace_current_value=False
+            )
+            # we compute the loss on the whole batch, under the assumption that f
+            # treats multiple inputs in the 0th dimension as independent
+            # inputs in a batch
+            losses = f(X_fix)
+            loss = losses.sum()
             # compute gradient w.r.t. the inputs (does not accumulate in leaves)
             gradf = _arrayify(torch.autograd.grad(loss, X)[0].contiguous().view(-1))
+            gradf = gradf.reshape(*x.shape)
             if np.isnan(gradf).any():
                 msg = (
                     f"{np.isnan(gradf).sum()} elements of the {x.size} element "
                     "gradient array `gradf` are NaN. "
                     "This often indicates numerical issues."
                 )
-                if initial_conditions.dtype != torch.double:
+                if x.dtype != torch.double:
                     msg += " Consider using `dtype=torch.double`."
                 raise OptimizationGradientError(msg, current_x=x)
-            fval = loss.detach().item()
+            fval = (
+                losses.detach().view(-1).cpu().numpy()
+                if batch_indices is not None
+                else loss.detach().item()
+            )  # the view(-1) seems necessary as f might return a single scalar
             return fval, gradf
 
     else:
-
-        def f_np_wrapper(x: npt.NDArray, f: Callable):
-            X = torch.from_numpy(x).to(initial_conditions).view(shapeX).contiguous()
+        # This function (that is used if no grads are avail) can also be batched,
+        # we just did not batch it so far as the priority is not as high.
+        def f_np_wrapper(
+            x: npt.NDArray, f: Callable, fixed_features: dict[int, float] | None
+        ):
+            X = (
+                torch.from_numpy(x)
+                .to(device=device, dtype=dtype)
+                .view(-1, *shapeX[1:])
+                .contiguous()
+            )
             with torch.no_grad():
-                X_fix = fix_features(X=X, fixed_features=fixed_features)
+                X_fix = fix_features(
+                    X=X, fixed_features=fixed_features, replace_current_value=False
+                )
                 loss = f(X_fix).sum()
             fval = loss.detach().item()
             return fval
 
-    if nonlinear_inequality_constraints:
-        # Make sure `batch_limit` is 1 for now.
-        if not (len(shapeX) == 3 and shapeX[0] == 1):
-            raise ValueError(
-                "`batch_limit` must be 1 when non-linear inequality constraints "
-                "are given."
-            )
-        constraints += make_scipy_nonlinear_inequality_constraints(
-            nonlinear_inequality_constraints=nonlinear_inequality_constraints,
-            f_np_wrapper=f_np_wrapper,
-            x0=x0,
-            shapeX=shapeX,
+    return f_np_wrapper
+
+
+def get_reasons_against_fast_path(
+    method: str,
+    with_grad: bool,
+    minimize_options: dict[str, Any],
+    timeout_sec: float | None,
+) -> list[str]:
+    # this if-statement is a homage to pytorch's nn.MultiheadAttentionby by @swolchok
+    why_not_fast_path = []
+    if not method == "L-BFGS-B":
+        why_not_fast_path.append(f"method={method}, method needs to be L-BFGS-B")
+    if not with_grad:
+        why_not_fast_path.append("with_grad=False, it needs to be True")
+    if extra_keys := set(minimize_options.keys()) - {
+        "maxiter",
+        "disp",
+        "iprint",
+        "max_cor",
+        "ftol",
+        "pgtol",
+        "factr",
+        "tol",
+        "maxls",
+    }:
+        why_not_fast_path.append(f"options={extra_keys} are not accepted")
+    if timeout_sec is not None:
+        why_not_fast_path.append(f"timeout_sec={timeout_sec}, it needs to be None")
+    if not check_scipy_version_at_least(minor=13) or check_scipy_version_at_least(
+        minor=17
+    ):  # pragma: no cover
+        # In SciPy 1.15.0, the fortran implementation of L-BFGS-B was
+        # translated to C changing its interface slightly.
+        # Additionally, we don't know what the future might hold in scipy,
+        # thus we use this function to use less optimized code for too new
+        # scipy versions.
+        why_not_fast_path.append(
+            "Scipy version is not in the range from 1.13.0 to 1.15.x."
         )
-    x0 = _arrayify(x0)
-
-    def f(x):
-        return -acquisition_function(x)
-
-    method = options.get("method", "SLSQP" if constraints else "L-BFGS-B")
-    res = minimize_with_timeout(
-        fun=f_np_wrapper,
-        args=(f,),
-        x0=x0,
-        method=method,
-        jac=with_grad,
-        bounds=bounds,
-        constraints=constraints,
-        callback=options.get("callback", None),
-        options={
-            k: v
-            for k, v in options.items()
-            if k not in ["method", "callback", "with_grad"]
-        },
-        timeout_sec=timeout_sec,
-    )
-    _process_scipy_result(res=res, options=options)
-
-    candidates = fix_features(
-        X=torch.from_numpy(res.x).to(initial_conditions).reshape(shapeX),
-        fixed_features=fixed_features,
-    )
-
-    clamped_candidates = columnwise_clamp(
-        X=candidates, lower=lower_bounds, upper=upper_bounds, raise_on_violation=True
-    )
-    with torch.no_grad():
-        batch_acquisition = acquisition_function(clamped_candidates)
-
-    return clamped_candidates, batch_acquisition
+    return why_not_fast_path
 
 
 def gen_candidates_torch(
@@ -281,7 +516,7 @@ def gen_candidates_torch(
     optimizer: type[Optimizer] = torch.optim.Adam,
     options: dict[str, float | str] | None = None,
     callback: Callable[[int, Tensor, Tensor], NoReturn] | None = None,
-    fixed_features: dict[int, float | None] | None = None,
+    fixed_features: Mapping[int, float | Tensor] | None = None,
     timeout_sec: float | None = None,
 ) -> tuple[Tensor, Tensor]:
     r"""Generate a set of candidates using a `torch.optim` optimizer.
@@ -303,9 +538,10 @@ def gen_candidates_torch(
             the loss and gradients, but before calling the optimizer.
         fixed_features: This is a dictionary of feature indices to values, where
             all generated candidates will have features fixed to these values.
-            If the dictionary value is None, then that feature will just be
-            fixed to the clamped value and not optimized. Assumes values to be
-            compatible with lower_bounds and upper_bounds!
+            If a float is passed it is fixed across [b,q], if a tensor is passed:
+            it might either be of shape [b,q] or [b], in which case the same value
+            is used across the q dimension.
+            Assumes values to be compatible with lower_bounds and upper_bounds!
         timeout_sec: Timeout (in seconds) for optimization. If provided,
             `gen_candidates_torch` will stop after this many seconds and return
             the best solution found so far.
@@ -331,39 +567,19 @@ def gen_candidates_torch(
     """
     start_time = time.monotonic()
     options = options or {}
-
-    # if there are fixed features we may optimize over a domain of lower dimension
-    if fixed_features:
-        subproblem = _remove_fixed_features_from_optimization(
-            fixed_features=fixed_features,
-            acquisition_function=acquisition_function,
-            initial_conditions=initial_conditions,
-            lower_bounds=lower_bounds,
-            upper_bounds=upper_bounds,
-            inequality_constraints=None,
-            equality_constraints=None,
-            nonlinear_inequality_constraints=None,
-        )
-
-        # call the routine with no fixed_features
-        elapsed = time.monotonic() - start_time
-        clamped_candidates, batch_acquisition = gen_candidates_torch(
-            initial_conditions=subproblem.initial_conditions,
-            acquisition_function=subproblem.acquisition_function,
-            lower_bounds=subproblem.lower_bounds,
-            upper_bounds=subproblem.upper_bounds,
-            optimizer=optimizer,
-            options=options,
-            callback=callback,
-            fixed_features=None,
-            timeout_sec=timeout_sec - elapsed if timeout_sec else None,
-        )
-        clamped_candidates = subproblem.acquisition_function._construct_X_full(
-            clamped_candidates
-        )
-        return clamped_candidates, batch_acquisition
+    # We remove max_optimization_problem_aggregation_size as it does not affect
+    # the 1st order optimizers implemented in this method.
+    # Here, it does not matter whether one combines multiple optimizations into
+    # one or not.
+    options.pop("max_optimization_problem_aggregation_size", None)
     _clamp = partial(columnwise_clamp, lower=lower_bounds, upper=upper_bounds)
-    clamped_candidates = _clamp(initial_conditions).requires_grad_(True)
+    clamped_candidates = _clamp(initial_conditions)
+    if fixed_features:
+        clamped_candidates = clamped_candidates[
+            ...,
+            [i for i in range(clamped_candidates.shape[-1]) if i not in fixed_features],
+        ]
+    clamped_candidates = clamped_candidates.requires_grad_(True)
     _optimizer = optimizer(params=[clamped_candidates], lr=options.get("lr", 0.025))
 
     i = 0
@@ -374,7 +590,7 @@ def gen_candidates_torch(
         with torch.no_grad():
             X = _clamp(clamped_candidates).requires_grad_(True)
 
-        loss = -acquisition_function(X).sum()
+        loss = -acquisition_function(fix_features(X, fixed_features)).sum()
         grad = torch.autograd.grad(loss, X)[0]
         if callback:
             callback(i, loss, grad)
@@ -385,7 +601,7 @@ def gen_candidates_torch(
             return loss
 
         _optimizer.step(assign_grad)
-        stop = stopping_criterion.evaluate(fvals=loss.detach())
+        stop = stopping_criterion(fvals=loss.detach())
         if timeout_sec is not None:
             runtime = time.monotonic() - start_time
             if runtime > timeout_sec:
@@ -393,6 +609,7 @@ def gen_candidates_torch(
                 logger.info(f"Optimization timed out after {runtime} seconds.")
 
     clamped_candidates = _clamp(clamped_candidates)
+    clamped_candidates = fix_features(clamped_candidates, fixed_features)
     with torch.no_grad():
         batch_acquisition = acquisition_function(clamped_candidates)
 

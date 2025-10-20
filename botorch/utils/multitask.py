@@ -24,23 +24,28 @@ def separate_mtmvn(mvn: MultitaskMultivariateNormal) -> list[MultivariateNormal]
     # T150340766 Upstream as a class method on gpytorch MultitaskMultivariateNormal.
     full_covar = mvn.lazy_covariance_matrix
     num_data, num_tasks = mvn.mean.shape[-2:]
-    if mvn._interleaved:
-        data_indices = torch.arange(
-            0, num_data * num_tasks, num_tasks, device=full_covar.device
-        ).view(-1, 1, 1)
-        task_indices = torch.arange(num_tasks, device=full_covar.device)
-    else:
-        data_indices = torch.arange(num_data, device=full_covar.device).view(-1, 1, 1)
-        task_indices = torch.arange(
-            0, num_data * num_tasks, num_data, device=full_covar.device
-        )
-    slice_ = (data_indices + task_indices).transpose(-1, -3)
-    data_covars = full_covar[..., slice_, slice_.transpose(-1, -2)]
+
     mvns = []
     for c in range(num_tasks):
-        mvns.append(
-            MultivariateNormal(
-                mvn.mean[..., c], to_linear_operator(data_covars[..., c, :, :])
+        # Compute indices for task c's data points
+        if mvn._interleaved:
+            # For interleaved: task c data points are at positions
+            # c, c+num_tasks, c+2*num_tasks, ...
+            task_indices = torch.arange(
+                c, num_data * num_tasks, num_tasks, device=full_covar.device
             )
+        else:
+            # For non-interleaved: task c data points are at positions
+            # c*num_data to (c+1)*num_data
+            task_indices = torch.arange(
+                c * num_data, (c + 1) * num_data, device=full_covar.device
+            )
+
+        # Extract covariance submatrix for task c
+        task_covar = full_covar[..., task_indices, :]
+        task_covar = task_covar[..., :, task_indices]
+
+        mvns.append(
+            MultivariateNormal(mvn.mean[..., c], to_linear_operator(task_covar))
         )
     return mvns

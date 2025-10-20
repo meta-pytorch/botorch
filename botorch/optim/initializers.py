@@ -256,7 +256,7 @@ def gen_batch_initial_conditions(
     generator: Callable[[int, int, int | None], Tensor] | None = None,
     fixed_X_fantasies: Tensor | None = None,
 ) -> Tensor:
-    r"""Generate a batch of initial conditions for random-restart optimziation.
+    r"""Generate a batch of initial conditions for random-restart optimization.
 
     TODO: Support t-batches of initial conditions.
 
@@ -410,7 +410,9 @@ def gen_batch_initial_conditions(
                         dim=0,
                     )
             # Keep X on CPU for consistency & to limit GPU memory usage.
-            X_rnd = fix_features(X_rnd, fixed_features=fixed_features).cpu()
+            X_rnd = fix_features(
+                X_rnd, fixed_features=fixed_features, replace_current_value=True
+            ).cpu()
 
             # Append the fixed fantasies to the randomly generated points
             if fixed_X_fantasies is not None:
@@ -927,7 +929,9 @@ def gen_value_function_initial_conditions(
     ).to(resampled)
     # full set of raw samples
     X_rnd = torch.cat([resampled, randomized], dim=0)
-    X_rnd = fix_features(X_rnd, fixed_features=fixed_features)
+    X_rnd = fix_features(
+        X_rnd, fixed_features=fixed_features, replace_current_value=True
+    )
 
     # evaluate the raw samples
     with torch.no_grad():

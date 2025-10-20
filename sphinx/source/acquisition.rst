@@ -42,6 +42,11 @@ Monte-Carlo Acquisition Function API
 .. autoclass:: MCAcquisitionFunction
     :members:
 
+Multi-Output Acquisition Function API
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.. automodule:: botorch.acquisition.multioutput_acquisition
+    :members:
+
 Base Classes for Multi-Objective Acquisition Function API
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 .. automodule:: botorch.acquisition.multi_objective.base

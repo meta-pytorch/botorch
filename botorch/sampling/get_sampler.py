@@ -107,11 +107,19 @@ def _get_sampler_derived(
 def _get_sampler_list(
     posterior: PosteriorList, sample_shape: torch.Size, *, seed: int | None = None
 ) -> MCSampler:
-    r"""Get the `ListSampler` with the appropriate list of samplers."""
-    samplers = [
-        get_sampler(posterior=p, sample_shape=sample_shape, seed=seed)
-        for p in posterior.posteriors
-    ]
+    r"""Get the `ListSampler` with the appropriate list of samplers.
+
+    NOTE: Does not dispatch to Sobol sampling for normal posteriors due to
+    correlations between samplers. Instead uses `IIDNormalSampler`. See the following
+    issue for details: https://github.com/meta-pytorch/botorch/issues/2658
+    """
+    samplers = []
+    for p in posterior.posteriors:
+        sampler = get_sampler(posterior=p, sample_shape=sample_shape, seed=seed)
+        if isinstance(sampler, SobolQMCNormalSampler):
+            sampler = IIDNormalSampler(sample_shape=sample_shape, seed=seed)
+        samplers.append(sampler)
+
     return ListSampler(*samplers)
 
 

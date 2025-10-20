@@ -102,6 +102,10 @@ website/static/files/
 docs/tutorials/*
 !docs/tutorials/index.mdx
 
+# Generated for community noteboooks
+docs/notebooks_community/*
+!docs/notebooks_community/index.mdx
+
 ## Generated for Sphinx
 website/pages/api/
 website/static/js/*

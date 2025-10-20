@@ -1,7 +1,7 @@
 blank_issues_enabled: false
 contact_links:
   - name: General Support & Discussions
-    url: https://github.com/pytorch/botorch/discussions
+    url: https://github.com/meta-pytorch/botorch/discussions
     about: Please use discussions for general support requests and to ask broader questions related to BoTorch. This includes any support request that does not require changes to BoTorch source code.
   - name: Bug Bounty Program
     url: https://bugbounty.meta.com/

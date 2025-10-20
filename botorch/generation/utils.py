@@ -72,7 +72,8 @@ class _NoFixedFeatures:
 def _remove_fixed_features_from_optimization(
     fixed_features: dict[int, float | None],
     acquisition_function: AcquisitionFunction,
-    initial_conditions: Tensor,
+    initial_conditions: Tensor | None,
+    d: int,
     lower_bounds: float | Tensor | None,
     upper_bounds: float | Tensor | None,
     inequality_constraints: list[tuple[Tensor, Tensor, float]] | None,
@@ -89,12 +90,11 @@ def _remove_fixed_features_from_optimization(
     Args:
         fixed_features: This is a dictionary of feature indices to values, where
             all generated candidates will have features fixed to these values.
-            If the dictionary value is None, then that feature will just be
-            fixed to the clamped value and not optimized. Assumes values to be
-            compatible with lower_bounds and upper_bounds!
+            Assumes values to be compatible with lower_bounds and upper_bounds!
         acquisition_function: Acquisition function over the original domain being
             maximized.
         initial_conditions: Starting points for optimization w.r.t. the complete domain.
+        d: Dimensionality of the original domain.
         lower_bounds: Minimum values for each column of initial_conditions.
         upper_bounds: Minimum values for each column of initial_conditions.
         inequality constraints: A list of tuples (indices, coefficients, rhs),
@@ -112,17 +112,23 @@ def _remove_fixed_features_from_optimization(
     Returns:
         _NoFixedFeatures dataclass object.
     """
+    if not fixed_features:
+        return _NoFixedFeatures(
+            acquisition_function=acquisition_function,
+            initial_conditions=initial_conditions,
+            lower_bounds=lower_bounds,
+            upper_bounds=upper_bounds,
+            inequality_constraints=inequality_constraints,
+            equality_constraints=equality_constraints,
+            nonlinear_inequality_constraints=nonlinear_inequality_constraints,
+        )
     # sort the keys for consistency
     sorted_keys = sorted(fixed_features)
     sorted_values = []
     for key in sorted_keys:
-        if fixed_features[key] is None:
-            val = initial_conditions[..., [key]]
-        else:
-            val = fixed_features[key]
+        val = fixed_features[key]
         sorted_values.append(val)
 
-    d = initial_conditions.shape[-1]
     acquisition_function = FixedFeatureAcquisitionFunction(
         acq_function=acquisition_function,
         d=d,
@@ -132,7 +138,8 @@ def _remove_fixed_features_from_optimization(
 
     # extract initial_conditions, bounds at unfixed indices
     unfixed_indices = sorted(set(range(d)) - set(sorted_keys))
-    initial_conditions = initial_conditions[..., unfixed_indices]
+    if initial_conditions is not None:
+        initial_conditions = initial_conditions[..., unfixed_indices]
     if isinstance(lower_bounds, Tensor):
         lower_bounds = lower_bounds[..., unfixed_indices]
     if isinstance(upper_bounds, Tensor):

@@ -119,7 +119,11 @@ class SyntheticTestFunction(BaseTestProblem, ABC):
 
     @property
     def optimal_value(self) -> float:
-        r"""The global minimum (maximum if negate=True) of the function."""
+        r"""The global optimum of the function.
+
+        This can be either the minimum or maximum depending the value of
+        `self.is_minimization_problem`.
+        """
         if self._optimal_value is not None:
             return -self._optimal_value if self.negate else self._optimal_value
         else:
@@ -250,6 +254,7 @@ class Cosine8(SyntheticTestFunction):
     _bounds = [(-1.0, 1.0) for _ in range(8)]
     _optimal_value = 0.8
     _optimizers = [tuple(0.0 for _ in range(8))]
+    _is_minimization_by_default = False
 
     def _evaluate_true(self, X: Tensor) -> Tensor:
         return torch.sum(0.1 * torch.cos(5 * math.pi * X) - X.pow(2), dim=-1)
@@ -930,6 +935,7 @@ class Labs(SyntheticTestFunction):
     """
 
     _check_grad_at_opt = False
+    _is_minimization_by_default = False
 
     def __init__(
         self,
@@ -1058,6 +1064,7 @@ class ConstrainedGramacy(ConstrainedSyntheticTestFunction):
     _bounds = [(0.0, 1.0), (0.0, 1.0)]
     _optimizers = [(0.1954, 0.4044)]
     _optimal_value = 0.5998  # approximate from [Gramacy2016]_
+    _worst_feasible_value = 1.732051  # Computed from 100 SLSQP restarts
 
     def _evaluate_true(self, X: Tensor) -> Tensor:
         """
@@ -1116,6 +1123,10 @@ class ConstrainedHartmann(Hartmann, ConstrainedSyntheticTestFunction):
         self.constraint_noise_std = self._validate_constraint_noise(
             constraint_noise_std
         )
+        if dim == 3:
+            self._worst_feasible_value = -0.0002735  # Computed from 100 SLSQP restarts
+        elif dim == 6:
+            self._worst_feasible_value = -0.0001346  # Computed from 100 SLSQP restarts
 
     def _evaluate_slack_true(self, X: Tensor) -> Tensor:
         return -X.norm(dim=-1, keepdim=True) + 1
@@ -1161,6 +1172,10 @@ class ConstrainedHartmannSmooth(Hartmann, ConstrainedSyntheticTestFunction):
         self.constraint_noise_std = self._validate_constraint_noise(
             constraint_noise_std
         )
+        if dim == 3:
+            self._worst_feasible_value = -0.0002735  # Computed from 100 SLSQP restarts
+        elif dim == 6:
+            self._worst_feasible_value = -0.0001346  # Computed from 100 SLSQP restarts
 
     def _evaluate_slack_true(self, X: Tensor) -> Tensor:
         return -X.pow(2).sum(dim=-1, keepdim=True) + 1
@@ -1178,6 +1193,7 @@ class PressureVessel(ConstrainedSyntheticTestFunction):
     num_constraints = 4
     _bounds = [(0.0, 10.0), (0.0, 10.0), (10.0, 50.0), (150.0, 200.0)]
     _optimal_value = 6059.946341  # from [CoelloCoello2002constraint]
+    _worst_feasible_value = 240526.7248  # Computed from 100 SLSQP restarts
 
     def _evaluate_true(self, X: Tensor) -> Tensor:
         x1, x2, x3, x4 = X.unbind(-1)
@@ -1218,6 +1234,7 @@ class WeldedBeamSO(ConstrainedSyntheticTestFunction):
     num_constraints = 6
     _bounds = [(0.125, 10.0), (0.1, 10.0), (0.1, 10.0), (0.1, 10.0)]
     _optimal_value = 1.728226  # from [CoelloCoello2002constraint]
+    _worst_feasible_value = 19.01859  # Computed from 100 SLSQP restarts
 
     def _evaluate_true(self, X: Tensor) -> Tensor:
         x1, x2, x3, x4 = X.unbind(-1)
@@ -1273,6 +1290,7 @@ class TensionCompressionString(ConstrainedSyntheticTestFunction):
     num_constraints = 4
     _bounds = [(0.01, 1.0), (0.01, 1.0), (0.01, 20.0)]
     _optimal_value = 0.012681  # from [CoelloCoello2002constraint]
+    _worst_feasible_value = 0.306081  # Computed from 100 SLSQP restarts
 
     def _evaluate_true(self, X: Tensor) -> Tensor:
         x1, x2, x3 = X.unbind(-1)
@@ -1314,6 +1332,7 @@ class SpeedReducer(ConstrainedSyntheticTestFunction):
         (5.0, 5.5),
     ]
     _optimal_value = 2996.3482  # from [Lemonge2010constrained]
+    _worst_feasible_value = 6117.3420  # Computed from 100 SLSQP restarts
 
     def _evaluate_true(self, X: Tensor) -> Tensor:
         x1, x2, x3, x4, x5, x6, x7 = X.unbind(-1)
@@ -1371,6 +1390,7 @@ class KeaneBumpFunction(ConstrainedSyntheticTestFunction):
         40: -0.826624404,
         50: -0.83078783,
     }
+    _worst_feasible_value = 0.0  # Computed from 100 SLSQP restarts
 
     def __init__(
         self,

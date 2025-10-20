@@ -122,6 +122,7 @@ class TestGenerationUtils(BotorchTestCase):
                 fixed_features=fixed_features,
                 acquisition_function=acqf,
                 initial_conditions=initial_conditions,
+                d=initial_conditions.shape[-1],
                 lower_bounds=lower_bounds,
                 upper_bounds=upper_bounds,
                 inequality_constraints=inequality_constraints,

@@ -39,19 +39,6 @@ from torch import Size, Tensor
 from torch.nn.functional import pad
 
 
-def _get_mcmc_samples(num_samples: int, dim: int, infer_noise: bool, **tkwargs):
-    mcmc_samples = {
-        "lengthscale": 1 + torch.rand(num_samples, 1, dim, **tkwargs),
-        "outputscale": 1 + torch.rand(num_samples, **tkwargs),
-        "mean": torch.randn(num_samples, **tkwargs),
-    }
-    if infer_noise:
-        mcmc_samples["noise"] = torch.rand(num_samples, 1, **tkwargs)
-    mcmc_samples["lengthscale"] = mcmc_samples["lengthscale"]
-
-    return mcmc_samples
-
-
 def get_model(
     train_X: Tensor,
     train_Y: Tensor,
@@ -93,8 +80,8 @@ def get_fully_bayesian_model(
     train_X: Tensor,
     train_Y: Tensor,
     num_models: int,
-    standardize_model: bool,
-    infer_noise: bool,
+    standardize_model: bool = False,
+    infer_noise: bool = True,
     **tkwargs: Any,
 ) -> SaasFullyBayesianSingleTaskGP:
     num_objectives = train_Y.shape[-1]
@@ -120,6 +107,20 @@ def get_fully_bayesian_model(
     model.load_mcmc_samples(mcmc_samples)
 
     return model
+
+
+def _get_mcmc_samples(
+    num_samples: int, dim: int, infer_noise: bool, **tkwargs
+) -> dict[str, Tensor]:
+    mcmc_samples = {
+        "lengthscale": 1 + torch.rand(num_samples, 1, dim, **tkwargs),
+        "outputscale": 1 + torch.rand(num_samples, **tkwargs),
+        "mean": torch.randn(num_samples, **tkwargs),
+    }
+    if infer_noise:
+        mcmc_samples["noise"] = torch.rand(num_samples, 1, **tkwargs)
+
+    return mcmc_samples
 
 
 def get_fully_bayesian_model_list(

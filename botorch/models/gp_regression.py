@@ -63,7 +63,7 @@ class SingleTaskGP(BatchedMultiOutputGPyTorchModel, ExactGP, FantasizeMixin):
     noise. Importantly, The model works best when covariates are normalized to the unit
     cube and outcomes are standardized (zero mean, unit variance). For a detailed
     discussion on the hyperparameter priors, see
-    https://github.com/pytorch/botorch/discussions/2451.
+    https://github.com/meta-pytorch/botorch/discussions/2451.
 
     This model works in batch mode (each batch having its own hyperparameters).
     When the training observations include multiple outputs, this model will use
@@ -90,30 +90,20 @@ class SingleTaskGP(BatchedMultiOutputGPyTorchModel, ExactGP, FantasizeMixin):
 
         >>> import torch
         >>> from botorch.models.gp_regression import SingleTaskGP
-        >>> from botorch.models.transforms.outcome import Standardize
         >>>
         >>> train_X = torch.rand(20, 2, dtype=torch.float64)
         >>> train_Y = torch.sin(train_X).sum(dim=1, keepdim=True)
-        >>> outcome_transform = Standardize(m=1)
-        >>> inferred_noise_model = SingleTaskGP(
-        ...     train_X, train_Y, outcome_transform=outcome_transform,
-        ... )
+        >>> inferred_noise_model = SingleTaskGP(train_X, train_Y)
 
         Model with a known observation variance of 0.2:
 
         >>> train_Yvar = torch.full_like(train_Y, 0.2)
-        >>> observed_noise_model = SingleTaskGP(
-        ...     train_X, train_Y, train_Yvar,
-        ...     outcome_transform=outcome_transform,
-        ... )
+        >>> observed_noise_model = SingleTaskGP(train_X, train_Y, train_Yvar)
 
         With noise-free observations:
 
         >>> train_Yvar = torch.full_like(train_Y, 1e-6)
-        >>> noise_free_model = SingleTaskGP(
-        ...     train_X, train_Y, train_Yvar,
-        ...     outcome_transform=outcome_transform,
-        ... )
+        >>> noise_free_model = SingleTaskGP(train_X, train_Y, train_Yvar)
     """
 
     train_targets: Tensor

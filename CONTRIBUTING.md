@@ -8,7 +8,7 @@ To get the development installation with all the necessary dependencies for
 linting, testing, and building the documentation, run the following:
 
 ```bash
-git clone https://github.com/pytorch/botorch.git
+git clone https://github.com/meta-pytorch/botorch.git
 cd botorch
 pip install -e ".[dev]"
 ```
@@ -96,7 +96,7 @@ code can be found in the [website](/website/) folder). It is built using
    [Sphinx](http://www.sphinx-doc.org), and embedded into the Docusaurus
    website. The sphinx .rst source files for this live in
    [sphinx/source](/sphinx/source/).
-3. The Jupyter notebook tutorials, parsed by `nbconvert`, and embedded into the
+3. The Jupyter notebook tutorials, parsed and converted to MDX, and embedded into the
    Docusaurus website. These live in [tutorials](/tutorials/).
 
 To build the documentation you will need [Node](https://nodejs.org/en/) >= 8.x
@@ -107,6 +107,8 @@ The following command will both build the docs and serve the site locally:
 ```bash
 ./scripts/build_docs.sh
 ```
+
+See the [website/README.md](website/README.md) for more details.
 
 ## Pull Requests
 

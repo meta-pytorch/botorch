@@ -17,6 +17,7 @@ from botorch.optim.core import (
     scipy_minimize,
     torch_minimize,
 )
+from botorch.optim.stopping import ExpMAStoppingCriterion
 from botorch.utils.testing import BotorchTestCase
 from numpy import allclose
 from scipy.optimize import OptimizeResult
@@ -254,11 +255,11 @@ class TestTorchMinimize(BotorchTestCase):
             self.assertEqual(result.step, len(step_results))
 
             # Test `stopping_criterion`
-            stopping_decisions = iter((False, False, True, False))
+            max3_stopping_criterion = ExpMAStoppingCriterion(maxiter=3, n_window=5)
             result = torch_minimize(
                 closure=closure,
                 parameters=closure.parameters,
-                stopping_criterion=lambda fval: next(stopping_decisions),
+                stopping_criterion=max3_stopping_criterion,
             )
             self.assertEqual(result.step, 3)
             self.assertEqual(result.status, OptimizationStatus.STOPPED)

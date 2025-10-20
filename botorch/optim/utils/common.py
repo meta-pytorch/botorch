@@ -15,6 +15,7 @@ from warnings import warn_explicit, WarningMessage
 
 import numpy as np
 import numpy.typing as npt
+import scipy
 from linear_operator.utils.errors import NanError, NotPSDError
 
 
@@ -60,3 +61,19 @@ def _warning_handler_template(
         return True
 
     return False
+
+
+def check_scipy_version_at_least(minor: int, major: int = 1) -> bool:
+    """
+    Check if SciPy version is at least major.minor.0.
+
+    Parameters
+    ----------
+    major: The major version to at least fulfill, always 1 for our purposes.
+    minor: The minor version as an int.
+
+    Returns
+    -------
+    bool: True if the SciPy version is major.minor.0 or later.
+    """
+    return tuple(map(int, scipy.__version__.split(".")[:2])) >= (major, minor)

@@ -11,8 +11,3 @@ extend-select = D107, D417, D3, D207, D208, D214, D215
 max-line-length = 88
 exclude =
   build, dist, tutorials, website, .eggs
-
-[coverage:report]
-omit =
-    test/*
-    setup.py

@@ -11,8 +11,13 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 
 import torch
-
 from botorch.acquisition import AcquisitionFunction
+from botorch.acquisition.objective import (
+    PosteriorTransform,
+    ScalarizedPosteriorTransform,
+)
+
+from botorch.exceptions.errors import UnsupportedError
 from botorch.models.model import Model
 from botorch.utils.transforms import (
     average_over_ensemble_models,
@@ -34,7 +39,7 @@ class DiscretizedAcquistionFunction(AcquisitionFunction, ABC):
     be implemented by subclasses to define the specific acquisition functions.
     """
 
-    def __init__(self, model: Model) -> None:
+    def __init__(self, model: Model, posterior_transform: PosteriorTransform) -> None:
         r"""
         Initialize the DiscretizedAcquistionFunction
 
@@ -42,9 +47,25 @@ class DiscretizedAcquistionFunction(AcquisitionFunction, ABC):
             model: A fitted model that is used to compute the posterior
                 distribution over the outcomes of interest.
                 The model should be a `PFNModel`.
+            posterior_transform: A ScalarizedPosteriorTransform that can only
+                indicate minimization or maximization of the objective.
         """
-
         super().__init__(model=model)
+        self.maximize = True
+        if posterior_transform is not None:
+            unsupported_error_message = (
+                "Only scalarized posterior transforms with a"
+                "single objective and 0.0 offset are supported."
+            )
+            if (
+                not isinstance(posterior_transform, ScalarizedPosteriorTransform)
+                or (posterior_transform.offset != 0.0)
+                or len(posterior_transform.weights) != 1
+                or posterior_transform.weights[0] not in [-1.0, 1.0]
+            ):
+                raise UnsupportedError(unsupported_error_message)
+
+            self.maximize = posterior_transform.weights[0] == 1.0
 
     @t_batch_mode_transform(expected_q=1)
     @average_over_ensemble_models
@@ -59,9 +80,13 @@ class DiscretizedAcquistionFunction(AcquisitionFunction, ABC):
             A `(b)`-dim Tensor of the acquisition function at the given
             design points `X`.
         """
-        self.to(device=X.device)
-
         discrete_posterior = self.model.posterior(X)
+        if not self.maximize:
+            discrete_posterior.borders = -torch.flip(discrete_posterior.borders, [0])
+            discrete_posterior.probabilities = torch.flip(
+                discrete_posterior.probabilities, [-1]
+            )
+
         result = discrete_posterior.integrate(self.ag_integrate)
         # remove q dimension
         return result.squeeze(-1)
@@ -87,10 +112,6 @@ class DiscretizedAcquistionFunction(AcquisitionFunction, ABC):
         """
         pass  # pragma: no cover
 
-    r"""DiscretizedExpectedImprovement is an acquisition function that computes
-    the expected improvement over the current best observed value for a Riemann
-    distribution."""
-
 
 class DiscretizedExpectedImprovement(DiscretizedAcquistionFunction):
     r"""DiscretizedExpectedImprovement is an acquisition function that
@@ -98,7 +119,12 @@ class DiscretizedExpectedImprovement(DiscretizedAcquistionFunction):
     for a Riemann distribution.
     """
 
-    def __init__(self, model: Model, best_f: Tensor) -> None:
+    def __init__(
+        self,
+        model: Model,
+        best_f: Tensor,
+        posterior_transform: PosteriorTransform | None = None,
+    ) -> None:
         r"""
         Initialize the DiscretizedExpectedImprovement
 
@@ -108,7 +134,7 @@ class DiscretizedExpectedImprovement(DiscretizedAcquistionFunction):
                 The model should be a `PFNModel`.
             best_f: A tensor representing the current best observed value.
         """
-        super().__init__(model)
+        super().__init__(model=model, posterior_transform=posterior_transform)
         self.register_buffer("best_f", torch.as_tensor(best_f))
 
     def ag_integrate(self, lower_bound: Tensor, upper_bound: Tensor) -> Tensor:
@@ -127,11 +153,38 @@ class DiscretizedExpectedImprovement(DiscretizedAcquistionFunction):
             A `(b)`-dim Tensor of acquisition function derivatives at the given
             design points `X`.
         """
-        max_lower_bound_and_f = torch.max(self.best_f, lower_bound)
-        bucket_average = (upper_bound + max_lower_bound_and_f) / 2
-        improvement = bucket_average - self.best_f
+        best_f = self.best_f.to(lower_bound)
 
-        return improvement.clamp_min(0)
+        # Case 1: best_f >= upper_bound, entire interval gives 0 improvement
+        case1_mask = best_f >= upper_bound
+
+        # Case 2: best_f <= lower_bound, entire interval gives improvement
+        case2_mask = best_f <= lower_bound
+
+        # Case 3: lower_bound < best_f < upper_bound, partial improvement
+        case3_mask = ~(case1_mask | case2_mask)
+
+        # Initialize result tensor
+        result = torch.zeros_like(lower_bound)
+
+        # Case 1: result is already 0
+
+        # Case 2: integral = (
+        #    ((upper_bound + lower_bound)/2 - best_f)
+        #     * (upper_bound - lower_bound)
+        # )
+        if case2_mask.any():
+            bucket_width = upper_bound - lower_bound
+            bucket_center = (upper_bound + lower_bound) / 2
+            result = torch.where(
+                case2_mask, (bucket_center - best_f) * bucket_width, result
+            )
+
+        # Case 3: integral = (upper_bound - best_f)²/2
+        if case3_mask.any():
+            result = torch.where(case3_mask, (upper_bound - best_f).pow(2) / 2, result)
+
+        return result.clamp_min(0)
 
 
 class DiscretizedProbabilityOfImprovement(DiscretizedAcquistionFunction):
@@ -140,7 +193,12 @@ class DiscretizedProbabilityOfImprovement(DiscretizedAcquistionFunction):
     for a Riemann distribution.
     """
 
-    def __init__(self, model: Model, best_f: Tensor) -> None:
+    def __init__(
+        self,
+        model: Model,
+        best_f: Tensor,
+        posterior_transform: PosteriorTransform | None = None,
+    ) -> None:
         r"""
         Initialize the DiscretizedProbabilityOfImprovement
 
@@ -151,7 +209,7 @@ class DiscretizedProbabilityOfImprovement(DiscretizedAcquistionFunction):
             best_f: A tensor representing the current best observed value.
         """
 
-        super().__init__(model)
+        super().__init__(model, posterior_transform)
         self.register_buffer("best_f", torch.as_tensor(best_f))
 
     def ag_integrate(self, lower_bound: Tensor, upper_bound: Tensor) -> Tensor:
@@ -174,5 +232,8 @@ class DiscretizedProbabilityOfImprovement(DiscretizedAcquistionFunction):
             A `(b)`-dim Tensor of acquisition function derivatives at the given
             design points `X`.
         """
-        proportion = (upper_bound - self.best_f) / (upper_bound - lower_bound)
-        return proportion.clamp(0, 1)
+        best_f = self.best_f.to(lower_bound)
+        # two separate clamps needed below, as one is a tensor and one a scalar
+        return (
+            (upper_bound - best_f).clamp(min=0.0).clamp(max=upper_bound - lower_bound)
+        )

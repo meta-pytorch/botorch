@@ -2,6 +2,81 @@
 requires = ["setuptools", "setuptools_scm[toml]", "wheel"]
 build-backend = "setuptools.build_meta"
 
+[project]
+name = "botorch"
+description = "Bayesian Optimization in PyTorch"
+authors = [{name = "Meta Platforms, Inc."}]
+license = "MIT"
+license-files = ["LICENSE"]
+readme = "README.md"
+requires-python = ">=3.10"
+keywords = ["Bayesian optimization", "PyTorch"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Scientific/Engineering",
+    "Intended Audience :: Science/Research",
+    "Intended Audience :: Developers",
+]
+dynamic = ["version"]
+
+dependencies = [
+    "typing_extensions",
+    "pyre_extensions",
+    "gpytorch>=1.14",
+    "linear_operator>=0.6",
+    "torch>=2.0.1",
+    "pyro-ppl>=1.8.4",
+    "scipy",
+    "multipledispatch",
+    "threadpoolctl",
+]
+
+[project.optional-dependencies]
+pymoo = [
+    "pymoo",
+]
+
+test = [
+    "pytest",
+    "pytest-cov",
+    "requests",
+    "pymoo",
+    "pfns"
+]
+
+dev = [
+    "botorch[test]",
+    "flake8",
+    "ufmt",
+    "flake8-docstrings",
+    "sphinx",
+    "sphinx-rtd-theme",
+]
+
+tutorials = [
+    "cma",
+    "jupyter",
+    "matplotlib",
+    "memory_profiler",
+    "papermill",
+    "pykeops",
+    "torchvision",
+    "mdformat",
+    "pandas",
+    "lxml",
+    "mdformat-myst",
+    "tabulate",
+]
+
+[project.urls]
+Homepage = "https://botorch.org"
+Documentation = "https://botorch.org"
+Repository = "https://github.com/meta-pytorch/botorch"
+
+[tool.setuptools.packages]
+find = {exclude = ["test", "test.*"]}
+
 [tool.setuptools_scm]
 local_scheme = "node-and-date"
 write_to = "./botorch/version.py"
@@ -11,3 +86,6 @@ first_party_detection = false
 
 [tool.ufmt]
 formatter = "ruff-api"
+
+[tool.coverage.report]
+omit = ["test/*", "test_community/*"]

@@ -64,6 +64,7 @@ from botorch.acquisition.monte_carlo import (
     SampleReducingMCAcquisitionFunction,
 )
 from botorch.acquisition.multi_step_lookahead import qMultiStepLookahead
+from botorch.acquisition.multioutput_acquisition import MultiOutputAcquisitionFunction
 from botorch.acquisition.objective import (
     ConstrainedMCObjective,
     GenericMCObjective,
@@ -142,4 +143,5 @@ __all__ = [
     "ScalarizedPosteriorTransform",
     "get_acquisition_function",
     "get_acqf_input_constructor",
+    "MultiOutputAcquisitionFunction",
 ]

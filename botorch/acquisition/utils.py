@@ -591,7 +591,11 @@ def get_optimal_samples(
     else:
         sample_transform = None
 
-    paths = get_matheron_path_model(model=model, sample_shape=torch.Size([num_optima]))
+    paths = get_matheron_path_model(
+        model=model,
+        sample_shape=torch.Size([num_optima]),
+        ensemble_as_batch=True,
+    )
     optimal_inputs, optimal_outputs = optimize_posterior_samples(
         paths=paths,
         bounds=bounds,

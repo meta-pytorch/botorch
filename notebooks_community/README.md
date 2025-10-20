@@ -8,3 +8,5 @@ Each notebook should include a timestamp of last update, as well as the version
 of BoTorch that was used during execution. Each notebook should also list the
 GitHub handle of its contributors, who may be asked for help in maintaining &
 updating the notebook against future versions for BoTorch and dependencies.
+
+The notebooks are parsed and included in the BoTorch website.

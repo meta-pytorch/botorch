@@ -22,7 +22,7 @@ from botorch.optim.core import (
     scipy_minimize,
     torch_minimize,
 )
-from botorch.optim.stopping import ExpMAStoppingCriterion
+from botorch.optim.stopping import ExpMAStoppingCriterion, StoppingCriterion
 from botorch.optim.utils import get_parameters_and_bounds, TorchAttr
 from botorch.utils.types import DEFAULT
 from gpytorch.mlls.marginal_log_likelihood import MarginalLogLikelihood
@@ -118,7 +118,7 @@ def fit_gpytorch_mll_torch(
     closure: Callable[[], tuple[Tensor, Sequence[Tensor | None]]] | None = None,
     closure_kwargs: dict[str, Any] | None = None,
     step_limit: int | None = None,
-    stopping_criterion: Callable[[Tensor], bool] | None = DEFAULT,  # pyre-ignore [9]
+    stopping_criterion: StoppingCriterion | None = DEFAULT,
     optimizer: Optimizer | Callable[..., Optimizer] = Adam,
     scheduler: _LRScheduler | Callable[..., _LRScheduler] | None = None,
     callback: Callable[[dict[str, Tensor], OptimizationResult], None] | None = None,

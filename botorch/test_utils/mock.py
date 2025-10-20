@@ -17,6 +17,8 @@ from functools import wraps
 from typing import Any, Callable
 from unittest import mock
 
+from botorch.optim.batched_lbfgs_b import fmin_l_bfgs_b_batched
+
 from botorch.optim.initializers import (
     gen_batch_initial_conditions,
     gen_one_shot_kg_initial_conditions,
@@ -45,6 +47,11 @@ def mock_optimize_context_manager(
         kwargs["options"]["maxiter"] = 2
         return minimize_with_timeout(*args, **kwargs)
 
+    def two_iteration_fast_minimize(*args: Any, **kwargs: Any) -> OptimizeResult:
+        # Using two iterations here to allow SLSQP to adapt to constraints.
+        kwargs["maxiter"] = 2
+        return fmin_l_bfgs_b_batched(*args, **kwargs)
+
     def minimal_gen_ics(*args: Any, **kwargs: Any) -> Tensor:
         kwargs["num_restarts"] = 2
         kwargs["raw_samples"] = 4
@@ -65,6 +72,13 @@ def mock_optimize_context_manager(
             mock.patch(
                 "botorch.generation.gen.minimize_with_timeout",
                 wraps=two_iteration_minimize,
+            )
+        )
+
+        mock_generation_fast = es.enter_context(
+            mock.patch(
+                "botorch.generation.gen.fmin_l_bfgs_b_batched",
+                wraps=two_iteration_fast_minimize,
             )
         )
 
@@ -109,6 +123,7 @@ def mock_optimize_context_manager(
         mock_.call_count < 1
         for mock_ in [
             mock_generation,
+            mock_generation_fast,
             mock_fit,
             mock_gen_ics,
             mock_gen_os_ics,

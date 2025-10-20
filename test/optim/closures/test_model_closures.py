@@ -10,7 +10,6 @@ from math import pi
 import torch
 from botorch.models import ModelListGP, SingleTaskGP
 from botorch.models.transforms.input import Normalize
-from botorch.models.transforms.outcome import Standardize
 from botorch.optim.closures.model_closures import (
     get_loss_closure,
     get_loss_closure_with_grads,
@@ -63,7 +62,6 @@ def _get_mlls(
         train_X=train_X,
         train_Y=train_Y,
         input_transform=Normalize(d=1),
-        outcome_transform=Standardize(m=1),
     )
     if wrap_likelihood:
         model.likelihood = WrapperLikelihood(model.likelihood)
@@ -111,9 +109,9 @@ class TestLossClosures(BotorchTestCase):
             with gpytorch_settings.debug(False):  # disables GPyTorch's internal check
                 (b, dbs) = B()
 
-            self.assertTrue(a.allclose(b))
+            self.assertAllClose(a, b)
             for da, db in zip_longest(das, dbs):
-                self.assertTrue(da.allclose(db))
+                self.assertAllClose(da, db)
 
         loader = DataLoader(mll.model.train_targets, len(mll.model.train_targets))
         closure = get_loss_closure_with_grads(mll, params, data_loader=loader)

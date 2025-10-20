@@ -16,6 +16,7 @@ class TestIndexSampler(BotorchTestCase):
         posterior = EnsemblePosterior(
             values=torch.randn(torch.Size((50, 16, 1, 1))).to(self.device)
         )
+        posterior_batch_shape = posterior.batch_shape
         sampler = IndexSampler(sample_shape=torch.Size((128,)))
         samples = sampler(posterior)
         self.assertTrue(samples.shape == torch.Size((128, 50, 1, 1)))
@@ -28,7 +29,12 @@ class TestIndexSampler(BotorchTestCase):
         sampler = IndexSampler(sample_shape=torch.Size((4, 128)), seed=42)
         self.assertTrue(sampler.base_samples is None)
         sampler._construct_base_samples(posterior=posterior)
-        self.assertTrue(sampler.base_samples.shape == torch.Size((4, 128)))
+        (
+            self.assertTrue(
+                sampler.base_samples.shape
+                == (torch.Size((4, 128))) + posterior_batch_shape
+            )
+        )
         self.assertTrue(
             sampler.base_samples.device.type
             == posterior.device.type

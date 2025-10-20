@@ -13,6 +13,7 @@ from botorch.posteriors import GPyTorchPosterior
 from botorch.utils.test_helpers import gen_multi_task_dataset
 from botorch.utils.testing import BotorchTestCase
 from gpytorch.distributions import MultitaskMultivariateNormal, MultivariateNormal
+from gpytorch.kernels import MaternKernel
 from gpytorch.mlls.exact_marginal_log_likelihood import ExactMarginalLogLikelihood
 from linear_operator.operators import LinearOperator
 from linear_operator.operators.interpolated_linear_operator import (
@@ -101,6 +102,16 @@ class ContextualMultiOutputTest(BotorchTestCase):
                 right_interp_indices=task_idcs,
             ).to_dense()
             self.assertAllClose(previous_covar, model.task_covar_module(task_idcs))
+            custom_covar_module = MaternKernel()
+            model_custom_covar = LCEMGP(
+                train_X=train_x,
+                train_Y=train_y,
+                task_feature=task_feature,
+                embs_dim_list=[2],  # increase dim from 1 to 2
+                context_emb_feature=torch.tensor([[0.2], [0.3]]),
+                covar_module=custom_covar_module,
+            )
+            self.assertIsInstance(model_custom_covar.covar_module, MaternKernel)
 
     def test_construct_inputs(self) -> None:
         for with_embedding_inputs, yvar, skip_task_features_in_datasets in zip(

@@ -79,6 +79,8 @@ class TestBaseTestMultiObjectiveProblem(BotorchTestCase):
                 InputDataError, "must match the number of objectives"
             ):
                 f = DummyMOProblem(noise_std=[1.0, 2.0, 3.0], negate=negate)
+            with self.assertRaisesRegex(UnsupportedError, "is_minimization_problem"):
+                f.is_minimization_problem
 
 
 class TestBraninCurrin(

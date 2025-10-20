@@ -16,6 +16,10 @@ from botorch_community.acquisition.bayesian_active_learning import (
     qBayesianVarianceReduction,
     qStatisticalDistanceActiveLearning,
 )
+from botorch_community.acquisition.discretized import (
+    DiscretizedExpectedImprovement,
+    DiscretizedProbabilityOfImprovement,
+)
 from botorch_community.acquisition.scorebo import qSelfCorrectingBayesianOptimization
 
 
@@ -57,12 +61,42 @@ class InputConstructorBaseTestCase(BotorchTestCase):
         self.bounds = 2 * [(0.0, 1.0)]
 
 
+class TestAnalyticalAcquisitionFunctionInputConstructors(InputConstructorBaseTestCase):
+    def test_construct_inputs_best_f(self) -> None:
+        for acqf_cls in [
+            DiscretizedProbabilityOfImprovement,
+            DiscretizedExpectedImprovement,
+        ]:
+            with self.subTest(acqf_cls=acqf_cls):
+                c = get_acqf_input_constructor(acqf_cls)
+                mock_model = self.mock_model
+                kwargs = c(model=mock_model, training_data=self.blockX_blockY)
+                best_f_expected = self.blockX_blockY[0].Y.squeeze().max()
+                self.assertIs(kwargs["model"], mock_model)
+                self.assertIsNone(kwargs["posterior_transform"])
+                self.assertEqual(kwargs["best_f"], best_f_expected)
+                acqf = acqf_cls(**kwargs)
+                self.assertIs(acqf.model, mock_model)
+
+                kwargs = c(
+                    model=mock_model, training_data=self.blockX_blockY, best_f=0.1
+                )
+                self.assertIs(kwargs["model"], mock_model)
+                self.assertIsNone(kwargs["posterior_transform"])
+                self.assertEqual(kwargs["best_f"], 0.1)
+                acqf = acqf_cls(**kwargs)
+                self.assertIs(acqf.model, mock_model)
+
+
 class TestFullyBayesianAcquisitionFunctionInputConstructors(
     InputConstructorBaseTestCase
 ):
     def test_construct_inputs_scorebo(self) -> None:
         func = get_acqf_input_constructor(qSelfCorrectingBayesianOptimization)
-        num_samples, num_optima = 3, 7
+        # num_ensemble controls the ensemble size of the SAAS model
+        # num_optima controls the number of Thompson samples used to infer the
+        # distribution of optima
+        num_ensemble, num_optima = 4, 7
         model = SaasFullyBayesianSingleTaskGP(
             self.blockX_blockY[0].X, self.blockX_blockY[0].Y
         )
@@ -70,14 +104,14 @@ class TestFullyBayesianAcquisitionFunctionInputConstructors(
         model.load_mcmc_samples(
             {
                 "lengthscale": torch.rand(
-                    num_samples,
+                    num_ensemble,
                     1,
                     self.blockX_blockY[0].X.shape[-1],
                     dtype=torch.double,
                 ),
-                "outputscale": torch.rand(num_samples, dtype=torch.double),
-                "mean": torch.randn(num_samples, dtype=torch.double),
-                "noise": torch.rand(num_samples, 1, dtype=torch.double),
+                "outputscale": torch.rand(num_ensemble, dtype=torch.double),
+                "mean": torch.randn(num_ensemble, dtype=torch.double),
+                "noise": torch.rand(num_ensemble, 1, dtype=torch.double),
             }
         )
 
@@ -88,13 +122,15 @@ class TestFullyBayesianAcquisitionFunctionInputConstructors(
             num_optima=num_optima,
             distance_metric="kl_divergence",
         )
-        self.assertEqual(self.blockX_blockY[0].X.dtype, kwargs["optimal_inputs"].dtype)
-        self.assertEqual(len(kwargs["optimal_inputs"]), num_optima)
-        self.assertEqual(len(kwargs["optimal_outputs"]), num_optima)
+        optimal_inputs = kwargs["optimal_inputs"]
+        optimal_outputs = kwargs["optimal_outputs"]
+        self.assertEqual(self.blockX_blockY[0].X.dtype, optimal_inputs.dtype)
+        d = self.blockX_blockY[0].X.shape[-1]
+        self.assertEqual(optimal_inputs.shape, (num_optima, num_ensemble, d))
+        self.assertEqual(optimal_outputs.shape, (num_optima, num_ensemble, 1))
+
         # asserting that, for the non-batch case, the optimal inputs are
         # of shape num_models x N x D and outputs are num_models x N x 1
-        self.assertEqual(len(kwargs["optimal_inputs"].shape), 3)
-        self.assertEqual(len(kwargs["optimal_outputs"].shape), 3)
         self.assertEqual(kwargs["distance_metric"], "kl_divergence")
         qSelfCorrectingBayesianOptimization(**kwargs)
 

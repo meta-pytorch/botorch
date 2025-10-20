@@ -19,7 +19,6 @@ Sampling Strategies
 .. automodule:: botorch.generation.sampling
     :members:
 
-
 Utilities
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

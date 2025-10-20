@@ -9,31 +9,30 @@ from __future__ import annotations
 import math
 
 import torch
-from botorch.posteriors import GPyTorchPosterior, Posterior
-
+from botorch.posteriors import GPyTorchPosterior
 from botorch_community.models.blls import AbstractBLLModel
+from gpytorch.distributions import MultivariateNormal
 
 from torch import Tensor
 
 
-class BLLPosterior(Posterior):
+class BLLPosterior(GPyTorchPosterior):
     def __init__(
         self,
-        posterior: GPyTorchPosterior,
         model: AbstractBLLModel,
+        distribution: MultivariateNormal,
         X: Tensor,
         output_dim: int,
     ):
         """A posterior for Bayesian last layer models.
 
         Args:
-            posterior: A posterior object.
             model: A BLL model
+            distribution: MultivarianteNormal distribution for the posterior.
             X: Input data on which the posterior was computed.
             output_dim: Output dimension of the model.
         """
-        super().__init__()
-        self.posterior = posterior
+        super().__init__(distribution=distribution)
         self.model = model
         self.output_dim = output_dim
         self.X = X
@@ -63,24 +62,3 @@ class BLLPosterior(Posterior):
         sample_shape = torch.Size([1]) if sample_shape is None else sample_shape
         new_shape = sample_shape + samples.shape[-2:]
         return samples.reshape(new_shape)
-
-    @property
-    def mean(self) -> Tensor:
-        """The posterior mean."""
-        # Directly return the mean from the underlying posterior
-        return self.posterior.mean
-
-    @property
-    def variance(self) -> Tensor:
-        """The posterior variance."""
-        # Directly return the variance from the underlying posterior
-        return self.posterior.variance
-
-    @property
-    def device(self) -> torch.device:
-        return self.posterior.device
-
-    @property
-    def dtype(self) -> torch.dtype:
-        """The torch dtype of the distribution."""
-        return self.posterior.dtype

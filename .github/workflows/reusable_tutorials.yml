@@ -47,16 +47,13 @@ jobs:
     - if: ${{ inputs.use_stable_pytorch_gpytorch }}
       name: Install min required PyTorch, GPyTorch, and linear_operator
       run: |
-        python setup.py egg_info
-        req_txt="botorch.egg-info/requires.txt"
-        min_torch_version=$(grep '\btorch[>=]=' ${req_txt} | sed 's/[^0-9.]//g')
-        min_gpytorch_version=$(grep '\bgpytorch[>=]=' ${req_txt} | sed 's/[^0-9.]//g')
-        min_linear_operator_version=$(grep '\blinear_operator[>=]=' ${req_txt} | sed 's/[^0-9.]//g')
+        # Extract minimum versions from pyproject.toml
+        min_torch_version=$(grep '"torch>=' pyproject.toml | sed 's/.*"torch>=\([^"]*\)".*/\1/')
+        min_gpytorch_version=$(grep '"gpytorch>=' pyproject.toml | sed 's/.*"gpytorch>=\([^"]*\)".*/\1/')
+        min_linear_operator_version=$(grep '"linear_operator>=' pyproject.toml | sed 's/.*"linear_operator>=\([^"]*\)".*/\1/')
         uv pip install "numpy<2"  # Numpy >2.0 is not compatible with PyTorch <2.2.
         uv pip install "torch==${min_torch_version}" "gpytorch==${min_gpytorch_version}" "linear_operator==${min_linear_operator_version}" torchvision
     - name: Install BoTorch with tutorials dependencies
-      env:
-        ALLOW_LATEST_GPYTORCH_LINOP: true
       run: |
         uv pip install .[tutorials]
     - if: ${{ inputs.smoke_test }}

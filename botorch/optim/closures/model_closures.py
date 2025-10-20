@@ -24,9 +24,6 @@ from torch import Tensor
 from torch.utils.data import DataLoader
 
 GetLossClosure = Dispatcher("get_loss_closure", encoder=type_bypassing_encoder)
-GetLossClosureWithGrads = Dispatcher(
-    "get_loss_closure_with_grads", encoder=type_bypassing_encoder
-)
 
 
 def get_loss_closure(
@@ -65,64 +62,27 @@ def get_loss_closure_with_grads(
     mll: MarginalLogLikelihood,
     parameters: dict[str, Tensor],
     data_loader: DataLoader | None = None,
-    backward: Callable[[Tensor], None] = Tensor.backward,
-    reducer: Callable[[Tensor], Tensor] | None = Tensor.sum,
-    context_manager: Callable | None = None,
     **kwargs: Any,
-) -> Callable[[], tuple[Tensor, tuple[Tensor, ...]]]:
-    r"""Public API for GetLossClosureWithGrads dispatcher.
+) -> ForwardBackwardClosure:
+    """
+    Add a backward pass to a loss closure obtained by calling
+    `get_loss_closure`, wrapping it in a ``ForwardBackwardClosure``.
 
-    In most cases, this method simply adds a backward pass to a loss closure obtained by
-    calling `get_loss_closure`. For further details, see `get_loss_closure`.
+    For further details, see `get_loss_closure`.
 
     Args:
         mll: A MarginalLogLikelihood instance whose negative defines the loss.
         parameters: A dictionary of tensors whose `grad` fields are to be returned.
-        reducer: Optional callable used to reduce the output of the forward pass.
         data_loader: An optional DataLoader instance for cases where training
             data is passed in rather than obtained from `mll.model`.
-        context_manager: An optional ContextManager used to wrap each forward-backward
-            pass. Defaults to a `zero_grad_ctx` that zeroes the gradients of
-            `parameters` upon entry. None may be passed as an alias for `nullcontext`.
+        kwargs: Keyword arguments passed to `get_loss_closure`.
 
     Returns:
         A closure that takes zero positional arguments and returns the reduced and
         negated value of `mll` along with the gradients of `parameters`.
     """
-    return GetLossClosureWithGrads(
-        mll,
-        type(mll.likelihood),
-        type(mll.model),
-        data_loader,
-        parameters=parameters,
-        reducer=reducer,
-        backward=backward,
-        context_manager=context_manager,
-        **kwargs,
-    )
-
-
-@GetLossClosureWithGrads.register(object, object, object, object)
-def _get_loss_closure_with_grads_fallback(
-    mll: MarginalLogLikelihood,
-    _likelihood_type: object,
-    _model_type: object,
-    data_loader: DataLoader | None,
-    parameters: dict[str, Tensor],
-    reducer: Callable[[Tensor], Tensor] = Tensor.sum,
-    backward: Callable[[Tensor], None] = Tensor.backward,
-    context_manager: Callable = None,  # pyre-ignore [9]
-    **kwargs: Any,
-) -> ForwardBackwardClosure:
-    r"""Wraps a `loss_closure` with a ForwardBackwardClosure."""
     loss_closure = get_loss_closure(mll, data_loader=data_loader, **kwargs)
-    return ForwardBackwardClosure(
-        forward=loss_closure,
-        backward=backward,
-        parameters=parameters,
-        reducer=reducer,
-        context_manager=context_manager,
-    )
+    return ForwardBackwardClosure(forward=loss_closure, parameters=parameters)
 
 
 @GetLossClosure.register(MarginalLogLikelihood, object, object, DataLoader)

@@ -6,14 +6,12 @@
 
 import torch
 
-from botorch.posteriors import GPyTorchPosterior
 from botorch.utils.testing import BotorchTestCase
 from botorch_community.models.vblls import VBLLModel
 from botorch_community.posteriors.bll_posterior import BLLPosterior
-from gpytorch.distributions import MultitaskMultivariateNormal
+from gpytorch.distributions import MultitaskMultivariateNormal, MultivariateNormal
 from linear_operator.operators import to_linear_operator
-
-from torch.distributions import MultivariateNormal
+from torch.distributions import Normal
 
 
 def _get_vbll_model(num_inputs: int = 2, num_hidden: int = 3, **tkwargs) -> VBLLModel:
@@ -43,11 +41,10 @@ class TestBLLPosterior(BotorchTestCase):
         cov_diag = torch.tensor([0.1, 0.2, 0.3], **self.tkwargs)
         cov = torch.diag(cov_diag)
 
-        mvn_dist = MultivariateNormal(mean, cov)
-        self.gpt_posterior = GPyTorchPosterior(mvn_dist)
+        self.distribution = MultivariateNormal(mean, cov)
 
         self.bll_posterior = BLLPosterior(
-            posterior=self.gpt_posterior,
+            distribution=self.distribution,
             model=self.model,
             X=self.X,
             output_dim=self.model.num_outputs,
@@ -55,7 +52,7 @@ class TestBLLPosterior(BotorchTestCase):
 
     def test_initialization(self):
         """Test that BLLPosterior initializes correctly."""
-        self.assertEqual(self.bll_posterior.posterior, self.gpt_posterior)
+        self.assertEqual(self.bll_posterior.distribution, self.distribution)
         self.assertEqual(self.bll_posterior.model, self.model)
         self.assertEqual(self.bll_posterior.output_dim, self.output_dim)
         self.assertTrue(torch.equal(self.bll_posterior.X, self.X))
@@ -63,8 +60,6 @@ class TestBLLPosterior(BotorchTestCase):
     def test_rsample_default(self):
         """Test rsample method with default sample_shape."""
         samples = self.bll_posterior.rsample()
-
-        # Check shape: should be [1, num_X, output_dim]
         expected_shape = torch.Size([1, self.num_X, 1])
         self.assertEqual(samples.shape, expected_shape)
 
@@ -72,24 +67,18 @@ class TestBLLPosterior(BotorchTestCase):
         """Test rsample method with custom sample_shape."""
         for sample_shape in ([3], [2, 3]):
             samples = self.bll_posterior.rsample(sample_shape=torch.Size(sample_shape))
-
-            # Check shape: should be [sample_shape, num_X, output_dim]
             expected_shape = torch.Size(sample_shape + [self.num_X, 1])
             self.assertEqual(samples.shape, expected_shape)
 
     def test_mean(self):
         """Test mean property."""
         mean = self.bll_posterior.mean
-
-        # Check shape: should be [num_X, output_dim]
         expected_shape = torch.Size([self.num_X, 1])
         self.assertEqual(mean.shape, expected_shape)
 
     def test_variance(self):
         """Test variance property."""
         variance = self.bll_posterior.variance
-
-        # Check shape: should be [num_X, output_dim]
         expected_shape = torch.Size([self.num_X, 1])
         self.assertEqual(variance.shape, expected_shape)
 
@@ -100,6 +89,86 @@ class TestBLLPosterior(BotorchTestCase):
     def test_dtype(self):
         """Test dtype property."""
         self.assertEqual(self.bll_posterior.dtype, self.tkwargs["dtype"])
+
+    def test_mvn_property(self):
+        """Test the inherited mvn property."""
+        self.assertIs(self.bll_posterior.mvn, self.distribution)
+
+    def test_base_sample_shape(self):
+        """Test the inherited base_sample_shape property."""
+        expected_shape = (
+            self.distribution.batch_shape + self.distribution.base_sample_shape
+        )
+        self.assertEqual(self.bll_posterior.base_sample_shape, expected_shape)
+
+    def test_batch_range(self):
+        """Test the inherited batch_range property."""
+        self.assertEqual(self.bll_posterior.batch_range, (0, -1))
+
+    def test_extended_shape(self):
+        """Test the inherited _extended_shape method."""
+        sample_shape = torch.Size([4, 2])
+        extended_shape = self.bll_posterior._extended_shape(sample_shape)
+        base_shape = (
+            self.bll_posterior.batch_shape
+            + self.bll_posterior.event_shape
+            + torch.Size([self.output_dim])
+        )
+        expected_shape = sample_shape + base_shape
+        self.assertEqual(extended_shape, expected_shape)
+
+    def test_rsample_from_base_samples(self):
+        """Test the inherited rsample_from_base_samples method."""
+        sample_shapes = [torch.Size([4]), torch.Size([2, 3])]
+        for sample_shape in sample_shapes:
+            base_sample_shape = self.bll_posterior.base_sample_shape
+            base_samples = torch.randn(sample_shape + base_sample_shape, **self.tkwargs)
+
+            samples = self.bll_posterior.rsample_from_base_samples(
+                sample_shape=sample_shape, base_samples=base_samples
+            )
+            expected_shape = self.bll_posterior._extended_shape(sample_shape)
+            self.assertEqual(samples.shape, expected_shape)
+
+    def test_quantile(self):
+        """Test the inherited quantile method."""
+        value_single = torch.tensor(0.5, **self.tkwargs)
+        quantiles_single = self.bll_posterior.quantile(value_single)
+        self.assertTrue(torch.allclose(quantiles_single, self.bll_posterior.mean))
+
+        value_multi = torch.tensor([0.25, 0.5, 0.75], **self.tkwargs)
+        quantiles_multi = self.bll_posterior.quantile(value_multi)
+        marginal = Normal(
+            loc=self.bll_posterior.mean, scale=self.bll_posterior.variance.sqrt()
+        )
+        expected_quantiles = marginal.icdf(
+            value_multi.view(-1, 1, 1)
+        )  # [3] -> [3, 1, 1]
+        self.assertEqual(
+            quantiles_multi.shape, torch.Size([3, self.num_X, self.output_dim])
+        )
+        self.assertTrue(torch.allclose(quantiles_multi, expected_quantiles))
+
+    def test_density(self):
+        """Test the inherited density method."""
+        marginal = Normal(
+            loc=self.bll_posterior.mean, scale=self.bll_posterior.variance.sqrt()
+        )
+        value_single = torch.tensor(1.0, **self.tkwargs)
+        density_single = self.bll_posterior.density(value_single)
+        expected_density_single = marginal.log_prob(value_single).exp()
+        self.assertTrue(torch.allclose(density_single, expected_density_single))
+
+        value_multi = torch.tensor([1.0, 2.0, 3.0], **self.tkwargs)
+        density_multi = self.bll_posterior.density(value_multi)
+        expected_density_multi = marginal.log_prob(
+            value_multi.view(-1, 1, 1)
+        ).exp()  # [3] -> [3, 1, 1]
+
+        self.assertTrue(torch.allclose(density_multi, expected_density_multi))
+        self.assertEqual(
+            density_multi.shape, torch.Size([3, self.num_X, self.output_dim])
+        )
 
     def test_multi_output(self):
         """Test with multiple output dimensions."""
@@ -118,11 +187,9 @@ class TestBLLPosterior(BotorchTestCase):
         mean = torch.rand(3, 2, **self.tkwargs)
         variance = 1 + torch.rand(3, 2, **self.tkwargs)
         covar = variance.view(-1).diag()
-        mvn = MultitaskMultivariateNormal(mean, to_linear_operator(covar))
-        gpt_posterior = GPyTorchPosterior(mvn)
-
+        distribution = MultitaskMultivariateNormal(mean, to_linear_operator(covar))
         bll_posterior = BLLPosterior(
-            posterior=gpt_posterior, model=model, X=self.X, output_dim=output_dim
+            distribution=distribution, model=model, X=self.X, output_dim=output_dim
         )
 
         # Test rsample
@@ -158,3 +225,8 @@ class TestBLLPosterior(BotorchTestCase):
         # check variance values
         expected_variance = variance
         self.assertTrue(torch.allclose(multi_variance, expected_variance))
+
+        self.assertEqual(bll_posterior.batch_range, (0, -2))
+        value = torch.tensor(0.5, **self.tkwargs)
+        quantiles = bll_posterior.quantile(value)
+        self.assertTrue(torch.allclose(quantiles, bll_posterior.mean))

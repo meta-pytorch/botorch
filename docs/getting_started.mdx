@@ -38,7 +38,7 @@ conda install botorch -c gpytorch -c conda-forge
 </Tabs>
 
 For more installation options and detailed instructions, please see the
-[Project Readme](https://github.com/pytorch/botorch/blob/main/README.md)
+[Project Readme](https://github.com/meta-pytorch/botorch/blob/main/README.md)
 on GitHub.
 
 ## Basic Components
@@ -49,7 +49,7 @@ Here's a quick run down of the main components of a Bayesian Optimization loop.
     ```python
     import torch
     from botorch.models import SingleTaskGP
-    from botorch.models.transforms import Normalize, Standardize
+    from botorch.models.transforms import Normalize
     from botorch.fit import fit_gpytorch_mll
     from gpytorch.mlls import ExactMarginalLogLikelihood
 
@@ -62,7 +62,6 @@ Here's a quick run down of the main components of a Bayesian Optimization loop.
         train_X=train_X,
         train_Y=train_Y,
         input_transform=Normalize(d=2),
-        outcome_transform=Standardize(m=1),
     )
     mll = ExactMarginalLogLikelihood(gp.likelihood, gp)
     fit_gpytorch_mll(mll)
@@ -89,7 +88,7 @@ Here's a quick run down of the main components of a Bayesian Optimization loop.
 ## Tutorials
 
 Our Jupyter notebook tutorials help you get off the ground with BoTorch.
-View and download them [here](tutorials).
+View and download them [here](tutorials/index.mdx).
 
 
 ## API Reference
@@ -101,5 +100,5 @@ For an in-depth reference of the various BoTorch internals, see our
 ## Contributing
 
 You'd like to contribute to BoTorch? Great! Please see
-[here](https://github.com/pytorch/botorch/blob/main/CONTRIBUTING.md)
+[here](https://github.com/meta-pytorch/botorch/blob/main/CONTRIBUTING.md)
 for how to help out.

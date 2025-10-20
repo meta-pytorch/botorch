@@ -631,14 +631,15 @@ class HitAndRunPolytopeSampler(PolytopeSampler):
                 "or bounds."
             )
         # Normalize constraints to avoid the following issue:
-        # https://github.com/pytorch/botorch/issues/1225
+        # https://github.com/meta-pytorch/botorch/issues/1225
         offset, scale = None, None
         if inequality_constraints or equality_constraints:
             if bounds is None:
                 warnings.warn(
                     "HitAndRunPolytopeSampler did not receive `bounds`, which can "
                     "lead to non-uniform sampling if the parameter ranges are very "
-                    "different (see https://github.com/pytorch/botorch/issues/1225).",
+                    "different (see "
+                    "https://github.com/meta-pytorch/botorch/issues/1225).",
                     UserInputWarning,
                     stacklevel=3,
                 )
@@ -857,7 +858,7 @@ def normalize_sparse_linear_constraints(
                 "support the kind of 'inter-point constraints' that are supported by "
                 "`optimize_acqf()`. To achieve this behavior, you need define the "
                 "problem on the joint space over `q` points and impose use constraints,"
-                "see https://github.com/pytorch/botorch/issues/2468#issuecomment-2287706461"  # noqa: E501
+                "see https://github.com/meta-pytorch/botorch/issues/2468#issuecomment-2287706461"  # noqa: E501
             )
         lower, upper = bounds[:, index]
         s = upper - lower
@@ -916,7 +917,7 @@ def get_polytope_samples(
     NOTE: This method does not support the kind of "inter-point constraints" that
     are supported by `optimize_acqf()`. To achieve this behavior, you need define the
     problem on the joint space over `q` points and impose use constraints, see:
-    https://github.com/pytorch/botorch/issues/2468#issuecomment-2287706461
+    https://github.com/meta-pytorch/botorch/issues/2468#issuecomment-2287706461
 
     Args:
         n: The number of samples.
@@ -996,6 +997,11 @@ def sparse_to_dense_constraints(
     return A, b
 
 
+# This is only used in get_optimal_samples, which in turn is only used in the input
+# constructors of
+# 1) qJointEntropySearch,
+# 2) qSelfCorrectingBayesianOptimization, and
+# 3) qTestSetInformationGain.
 def optimize_posterior_samples(
     paths: GenericDeterministicModel,
     bounds: Tensor,
@@ -1037,7 +1043,7 @@ def optimize_posterior_samples(
         bounds=bounds,
     )
     # queries all samples on all candidates - output shape
-    # raw_samples * num_optima * num_models
+    # raw_samples x num_optima x num_models
     candidate_queries = path_func(candidate_set)
     argtop_k = torch.topk(candidate_queries, num_restarts, dim=-1).indices
     X_top_k = candidate_set[argtop_k, :]
@@ -1050,14 +1056,15 @@ def optimize_posterior_samples(
         path_func,
         lower_bounds=bounds[0],
         upper_bounds=bounds[1],
+        use_parallel_mode=False,
     )
     f_opt, arg_opt = f_top_k.max(dim=-1, keepdim=True)
 
     # For each sample (and possibly for every model in the batch of models), this
     # retrieves the argmax. We flatten, pick out the indices and then reshape to
     # the original batch shapes (so instead of pickig out the argmax of a
-    # (3, 7, num_restarts, D)) along the num_restarts dim, we pick it out of a
-    # (21, num_restarts, D)
+    # (num_optima, num_models, num_restarts, D)-shaped Tensor along the num_restarts
+    # dim, we pick it out of (num_optima * num_models, num_restarts, D)
     final_shape = candidate_queries.shape[:-1]
     X_opt = X_top_k.reshape(final_shape.numel(), num_restarts, -1)[
         torch.arange(final_shape.numel()), arg_opt.flatten()

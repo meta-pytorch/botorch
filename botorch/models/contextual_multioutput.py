@@ -19,9 +19,11 @@ import torch
 from botorch.models.multitask import MultiTaskGP
 from botorch.models.transforms.input import InputTransform
 from botorch.models.transforms.outcome import OutcomeTransform
+from botorch.models.utils.gpytorch_modules import get_covar_module_with_dim_scaled_prior
 from botorch.utils.datasets import MultiTaskDataset, SupervisedDataset
 from botorch.utils.types import _DefaultType, DEFAULT
 from gpytorch.constraints import Interval
+from gpytorch.distributions import MultivariateNormal
 from gpytorch.kernels.rbf_kernel import RBFKernel
 from gpytorch.likelihoods.likelihood import Likelihood
 from gpytorch.module import Module
@@ -107,6 +109,13 @@ class LCEMGP(MultiTaskGP):
             outcome_transform=outcome_transform,
             input_transform=input_transform,
         )
+        # Overwriting the covar_module created in the parent class
+        if covar_module is None:
+            self.covar_module = get_covar_module_with_dim_scaled_prior(
+                ard_num_dims=self.num_non_task_features
+            )
+        else:
+            self.covar_module = covar_module
         self.device = train_X.device
         if all_tasks is None:
             all_tasks_tensor = train_X[:, task_feature].unique()
@@ -188,6 +197,10 @@ class LCEMGP(MultiTaskGP):
         Returns:
             Task covariance matrix of shape (b x n x n).
         """
+        # NOTE: This can probably be re-written more efficiently using
+        # IndexKernel (or an IndexKernel subclass) and the `evaluate_task_covar`
+        # and then have the forward pass evaluate a ProductKernel of the two.
+
         # This is a tensor of shape (num_tasks x num_tasks).
         covar_matrix = self._eval_context_covar().to_dense()
         # Here, we index into the base covar matrix to extract
@@ -207,6 +220,20 @@ class LCEMGP(MultiTaskGP):
         return (
             covar_matrix[base_idx].transpose(-1, -2).gather(index=expanded_idx, dim=-2)
         )
+
+    def forward(self, x: Tensor) -> MultivariateNormal:
+        if self.training:
+            x = self.transform_inputs(x)
+        x_basic_lead, task_idcs, x_basic_trail = self._split_inputs(x)
+        x_basic = torch.cat([x_basic_lead, x_basic_trail], dim=-1)
+        # Compute base mean and covariance
+        mean_x = self.mean_module(x_basic)
+        covar_x = self.covar_module(x_basic)
+        # Compute task covariances
+        covar_i = self.task_covar_module(task_idcs)
+        # Combine the two in an ICM fashion
+        covar = covar_x.mul(covar_i)
+        return MultivariateNormal(mean_x, covar)
 
     @classmethod
     def construct_inputs(

@@ -10,8 +10,12 @@ import warnings
 from unittest import mock
 
 import torch
-from botorch.acquisition import qExpectedImprovement, qKnowledgeGradient
-from botorch.exceptions.errors import OptimizationGradientError
+from botorch.acquisition import (
+    LogExpectedImprovement,
+    qExpectedImprovement,
+    qKnowledgeGradient,
+)
+from botorch.exceptions.errors import OptimizationGradientError, UnsupportedError
 from botorch.exceptions.warnings import OptimizationWarning
 from botorch.fit import fit_gpytorch_mll
 from botorch.generation.gen import (
@@ -70,7 +74,11 @@ class TestBaseCandidateGeneration(BotorchTestCase):
 
 class TestGenCandidates(TestBaseCandidateGeneration):
     def test_gen_candidates(
-        self, gen_candidates=gen_candidates_scipy, options=None, timeout_sec=None
+        self,
+        gen_candidates=gen_candidates_scipy,
+        options=None,
+        timeout_sec=None,
+        **kwargs_for_gen_candidates,
     ):
         options = options or {}
         options = {**options, "maxiter": options.get("maxiter", 5)}
@@ -94,6 +102,7 @@ class TestGenCandidates(TestBaseCandidateGeneration):
                     "upper_bounds": 1,
                     "options": options or {},
                     "timeout_sec": timeout_sec,
+                    **kwargs_for_gen_candidates,
                 }
                 if gen_candidates is gen_candidates_torch:
                     kwargs["callback"] = mock.MagicMock()
@@ -109,77 +118,93 @@ class TestGenCandidates(TestBaseCandidateGeneration):
     def test_gen_candidates_torch(self):
         self.test_gen_candidates(gen_candidates=gen_candidates_torch)
 
-    def test_gen_candidates_with_none_fixed_features(
-        self,
-        gen_candidates=gen_candidates_scipy,
-        options=None,
-    ):
-        options = options or {}
-        options = {**options, "maxiter": 5}
-        for double in (True, False):
-            self._setUp(double=double, expand=True)
-            acqfs = [
-                qExpectedImprovement(self.model, best_f=self.f_best),
-                qKnowledgeGradient(
-                    self.model, num_fantasies=4, current_value=self.f_best
-                ),
-            ]
-            for acqf in acqfs:
-                ics = self.initial_conditions
-                if isinstance(acqf, qKnowledgeGradient):
-                    ics = ics.repeat(5, 1)
-                candidates, _ = gen_candidates(
-                    initial_conditions=ics,
-                    acquisition_function=acqf,
-                    lower_bounds=0,
-                    upper_bounds=1,
-                    fixed_features={1: None},
-                    options=options or {},
-                )
-                if isinstance(acqf, qKnowledgeGradient):
-                    candidates = acqf.extract_candidates(candidates)
-                candidates = candidates.squeeze(0)
-                self.assertTrue(-EPS <= candidates[0] <= 1 + EPS)
-                self.assertTrue(candidates[1].item() == 1.0)
-
-    def test_gen_candidates_torch_with_none_fixed_features(self):
-        self.test_gen_candidates_with_none_fixed_features(
-            gen_candidates=gen_candidates_torch
-        )
-
     def test_gen_candidates_with_fixed_features(
         self, gen_candidates=gen_candidates_scipy, options=None, timeout_sec=None
     ):
         options = options or {}
         options = {**options, "maxiter": 5}
         for double in (True, False):
-            self._setUp(double=double, expand=True)
-            acqfs = [
-                qExpectedImprovement(self.model, best_f=self.f_best),
-                qKnowledgeGradient(
-                    self.model, num_fantasies=4, current_value=self.f_best
-                ),
-            ]
-            for acqf in acqfs:
-                ics = self.initial_conditions
-                if isinstance(acqf, qKnowledgeGradient):
-                    ics = ics.repeat(5, 1)
-                candidates, _ = gen_candidates(
-                    initial_conditions=ics,
-                    acquisition_function=acqf,
-                    lower_bounds=0,
-                    upper_bounds=1,
-                    fixed_features={1: 0.25},
-                    options=options,
-                    timeout_sec=timeout_sec,
-                )
+            with self.subTest(double=double):
+                self._setUp(double=double, expand=True)
+                acqfs = [
+                    qExpectedImprovement(self.model, best_f=self.f_best),
+                    qKnowledgeGradient(
+                        self.model, num_fantasies=4, current_value=self.f_best
+                    ),
+                    LogExpectedImprovement(self.model, best_f=self.f_best),
+                ]
+                for acqf in acqfs:
+                    with self.subTest(acqf=type(acqf).__name__):
+                        ics = self.initial_conditions
+                        if isinstance(acqf, qKnowledgeGradient):
+                            ics = ics.repeat(5, 1)
 
-                if isinstance(acqf, qKnowledgeGradient):
-                    candidates = acqf.extract_candidates(candidates)
+                        # Test with float fixed feature
+                        with self.subTest(fixed_feature_type="float"):
+                            candidates, _ = gen_candidates(
+                                initial_conditions=ics,
+                                acquisition_function=acqf,
+                                lower_bounds=0,
+                                upper_bounds=1,
+                                fixed_features={1: 0.25},
+                                options=options,
+                                timeout_sec=timeout_sec,
+                            )
 
-                candidates = candidates.squeeze(0)
-                self.assertTrue(-EPS <= candidates[0] <= 1 + EPS)
-                self.assertTrue(candidates[1].item() == 0.25)
+                            self.assertEqual(
+                                candidates.shape,
+                                ics.shape,
+                                msg=f"{candidates.shape} != {ics.shape}",
+                            )
+
+                            if isinstance(acqf, qKnowledgeGradient):
+                                candidates = acqf.extract_candidates(candidates)
+                            candidate = candidates.squeeze(0)
+                            self.assertEqual(candidate.shape, (2,))
+                            self.assertTrue(-EPS <= candidate[0] <= 1 + EPS)
+                            self.assertTrue(candidate[1].item() == 0.25)
+
+                        # Preparations for batched fixed features
+
+                        if timeout_sec is not None:
+                            options["max_optimization_problem_aggregation_size"] = 1
+
+                        if not options.get("with_grad", True):
+                            options["max_optimization_problem_aggregation_size"] = 1
+
+                        # Test with tensor fixed features
+                        with self.subTest(fixed_feature_type="tensor"):
+                            batch_fixed_features = {
+                                1: torch.tensor([0.25, 0.5, 0.75], device=self.device)
+                            }
+                            candidates, _ = gen_candidates(
+                                initial_conditions=ics[None].repeat(3, 1, 1),
+                                acquisition_function=acqf,
+                                lower_bounds=0,
+                                upper_bounds=1,
+                                fixed_features=batch_fixed_features,
+                                options=options,
+                                timeout_sec=timeout_sec,
+                            )
+
+                            self.assertTrue(
+                                candidates.shape == (3, *ics.shape),
+                                msg=f"{candidates.shape} != {(3, *ics.shape)}",
+                            )
+
+                            if isinstance(acqf, qKnowledgeGradient):
+                                candidates = acqf.extract_candidates(candidates)
+                            candidates = candidates.squeeze(1)
+                            self.assertTrue(
+                                candidates.shape == (3, 2),
+                                f"{candidates.shape} != {(3, 2)}",
+                            )
+
+                            self.assertTrue((-EPS <= candidates).all())
+                            self.assertTrue((candidates <= 1 + EPS).all())
+                            self.assertTrue(
+                                (candidates[:, 1] == batch_fixed_features[1]).all()
+                            )
 
     def test_gen_candidates_with_fixed_features_and_timeout(self):
         with self.assertLogs("botorch", level="INFO") as logs:
@@ -279,6 +304,15 @@ class TestGenCandidates(TestBaseCandidateGeneration):
             )
             self.assertTrue("Optimization timed out" in logs.output[-1])
 
+    def test_gen_candidates_throws_error_when_forcing_parallel_and_timeout(self):
+        # Check that no warnings are raised & log produced on hitting timeout.
+        with self.assertRaisesRegex(NotImplementedError, "Not using"):
+            self.test_gen_candidates(
+                options={"method": "L-BFGS-B"},
+                timeout_sec=0.001,
+                use_parallel_mode=True,
+            )
+
     def test_gen_candidates_torch_timeout_behavior(self):
         # Check that no warnings are raised & log produced on hitting timeout.
         with warnings.catch_warnings(record=True) as ws, self.assertLogs(
@@ -306,7 +340,9 @@ class TestGenCandidates(TestBaseCandidateGeneration):
             gen_candidates_scipy(
                 initial_conditions=test_ics,
                 acquisition_function=MockAcquisitionFunction(),
+                timeout_sec=1.0,
             )
+        mock_minimize.assert_called()
         expected_warning_raised = any(
             issubclass(w.category, OptimizationWarning)
             and expected_msg in str(w.message)
@@ -332,7 +368,7 @@ class TestGenCandidates(TestBaseCandidateGeneration):
                     )
 
             # test NaN in `x`
-            test_ics = torch.tensor([0.0, 0.0, float("nan")], **ckwargs)
+            test_ics = torch.tensor([[0.0, 0.0, float("nan")]], **ckwargs)
             with self.assertRaisesRegex(RuntimeError, "array `x` are NaN."):
                 gen_candidates_scipy(
                     initial_conditions=test_ics,
@@ -348,11 +384,6 @@ class TestGenCandidates(TestBaseCandidateGeneration):
         )
 
         self.test_gen_candidates_with_fixed_features(
-            gen_candidates=gen_candidates_scipy,
-            options={"disp": False, "with_grad": False},
-        )
-
-        self.test_gen_candidates_with_none_fixed_features(
             gen_candidates=gen_candidates_scipy,
             options={"disp": False, "with_grad": False},
         )
@@ -384,6 +415,37 @@ class TestGenCandidates(TestBaseCandidateGeneration):
                 options={"method": "Newton-CG"},
                 lower_bounds=0,
                 upper_bounds=1,
+            )
+
+    def test_parallel_optimization_unsupported_error(self):
+        self._setUp(double=True, expand=True)
+        acqf = qExpectedImprovement(self.model, best_f=self.f_best)
+        initial_conditions = torch.rand(3, 2, 2, 4, device=self.device)
+        with self.assertRaisesRegex(
+            UnsupportedError, "Initial conditions must have either 2 or 3 dimensions."
+        ):
+            gen_candidates_scipy(
+                initial_conditions=initial_conditions,
+                acquisition_function=acqf,
+                use_parallel_mode=True,
+            )
+
+    def test_gen_candidates_scipy_errors_on_batch_shaped_fixed_features(self):
+        self._setUp(double=False, expand=True)
+        qEI = qExpectedImprovement(self.model, best_f=self.f_best)
+        batch_fixed_features = {1: torch.tensor([[0.25], [1.0]], device=self.device)}
+        with self.assertRaisesRegex(
+            UnsupportedError,
+            "Batch shaped fixed features are not supported",
+        ):
+            gen_candidates_scipy(
+                initial_conditions=self.initial_conditions[None].repeat(2, 1, 1),
+                acquisition_function=qEI,
+                lower_bounds=0,
+                upper_bounds=1,
+                fixed_features=batch_fixed_features,
+                use_parallel_mode=False,
+                options={"max_optimization_problem_aggregation_size": 2},
             )
 
 

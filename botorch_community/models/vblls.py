@@ -24,7 +24,6 @@ import torch.nn as nn
 
 from botorch.logging import logger
 from botorch.posteriors import Posterior
-from botorch.posteriors.gpytorch import GPyTorchPosterior
 from botorch_community.models.blls import AbstractBLLModel
 
 from botorch_community.models.vbll_helper import DenseNormal, Normal, Regression
@@ -486,8 +485,8 @@ class VBLLModel(AbstractBLLModel):
         posterior = self.model(X).predictive
 
         # Extract mean and variance
-        mean = posterior.mean.squeeze()
-        variance = posterior.variance.squeeze()
+        mean = posterior.mean.squeeze(dim=-1)
+        variance = posterior.variance.squeeze(dim=-1)
         cov = torch.diag_embed(variance)
 
         K = self.num_outputs
@@ -503,11 +502,10 @@ class VBLLModel(AbstractBLLModel):
             mean = mean.squeeze(0)
             cov = cov.squeeze(0)
 
-        # pass as MultivariateNormal to GPyTorchPosterior
-        mvn_dist = MultivariateNormal(mean, cov)
-        post_pred = GPyTorchPosterior(mvn_dist)
+        # pass as MultivariateNormal to BLLPosterior
+        distribution = MultivariateNormal(mean, cov)
         return BLLPosterior(
-            posterior=post_pred, model=self, X=X, output_dim=self.num_outputs
+            model=self, distribution=distribution, X=X, output_dim=self.num_outputs
         )
 
     def __str__(self) -> str:

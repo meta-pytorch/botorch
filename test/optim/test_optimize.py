@@ -9,7 +9,7 @@ import re
 import warnings
 from functools import partial
 from itertools import product
-from typing import Any
+from typing import Any, Callable
 from unittest import mock
 
 import numpy as np
@@ -51,8 +51,10 @@ from botorch.optim.optimize import (
 from botorch.optim.parameter_constraints import (
     _arrayify,
     _make_f_and_grad_nonlinear_inequality_constraints,
+    project_to_feasible_space_via_slsqp,
 )
 from botorch.optim.utils.timeout import minimize_with_timeout
+from botorch.test_utils.mock import mock_optimize
 from botorch.utils.testing import BotorchTestCase, MockAcquisitionFunction
 from scipy.optimize import OptimizeResult
 from torch import Tensor
@@ -448,6 +450,97 @@ class TestOptimizeAcqf(BotorchTestCase):
                     batch_initial_conditions=torch.zeros((1, 1, 3)),
                     sequential=True,
                 )
+
+    @mock.patch(
+        "botorch.optim.optimize.gen_candidates_scipy", wraps=gen_candidates_scipy
+    )
+    def test_optimize_acq_function_sequence(
+        self,
+        mock_gen_candidates_scipy,
+    ):
+        acq_function_sequence = [MockAcquisitionFunction() for _ in range(3)]
+        bounds = torch.tensor([[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]])
+        # Validation
+        with self.assertRaisesRegex(
+            ValueError,
+            "Either `acq_function` or `acq_function_sequence` must be specified",
+        ):
+            optimize_acqf(
+                acq_function=None,
+                bounds=bounds,
+                q=3,
+                num_restarts=2,
+                raw_samples=10,
+                sequential=True,
+                acq_function_sequence=None,
+            )
+        with self.assertRaisesRegex(
+            ValueError,
+            "acq_function_sequence requires sequential optimization",
+        ):
+            optimize_acqf(
+                acq_function=mock.MagicMock(),
+                bounds=bounds,
+                q=3,
+                num_restarts=2,
+                raw_samples=10,
+                sequential=False,
+                acq_function_sequence=acq_function_sequence,
+            )
+        with self.assertRaisesRegex(
+            ValueError,
+            "acq_function_sequence must have length q",
+        ):
+            optimize_acqf(
+                acq_function=mock.MagicMock(),
+                bounds=bounds,
+                q=2,
+                num_restarts=2,
+                raw_samples=10,
+                sequential=True,
+                acq_function_sequence=acq_function_sequence,
+            )
+        with self.assertRaisesRegex(
+            ValueError,
+            "acq_function_sequence requires q > 1",
+        ):
+            optimize_acqf(
+                acq_function=mock.MagicMock(),
+                bounds=bounds,
+                q=1,
+                num_restarts=2,
+                raw_samples=10,
+                sequential=True,
+                acq_function_sequence=acq_function_sequence[:1],
+            )
+        # Test that uses sequence of acquisitions
+        acq_function = mock.MagicMock()
+        acq_function.X_pending = None
+        acq_function_sequence[2].X_pending = torch.ones(2, 3)
+        _ = optimize_acqf(
+            acq_function=acq_function,
+            bounds=bounds,
+            q=3,
+            num_restarts=2,
+            raw_samples=10,
+            sequential=True,
+            acq_function_sequence=acq_function_sequence,
+        )
+        self.assertEqual(mock_gen_candidates_scipy.call_count, 3)
+        self.assertEqual(acq_function_sequence[0]._call_args["set_X_pending"], [None])
+        for i in range(1, 2):
+            set_X_args = acq_function_sequence[i]._call_args["set_X_pending"]
+            self.assertEqual(len(set_X_args), 2)
+            self.assertEqual(len(set_X_args[0]), i)
+            self.assertIsNone(set_X_args[1])
+        set_X_args = acq_function_sequence[2]._call_args["set_X_pending"]
+        self.assertEqual(len(set_X_args), 2)
+        self.assertEqual(len(set_X_args[0]), 4)
+        self.assertTrue(
+            torch.equal(set_X_args[0][:2, :], torch.ones(2, 3))
+        )  # base X_pending
+        self.assertTrue(torch.equal(set_X_args[1], torch.ones(2, 3)))  # reset
+        acq_function.assert_not_called()
 
     @mock.patch(
         "botorch.generation.gen.minimize_with_timeout",
@@ -1223,12 +1316,15 @@ class TestOptimizeAcqf(BotorchTestCase):
             )
             return candidates
 
+    @mock.patch("botorch.optim.optimize.project_to_feasible_space_via_slsqp")
     @mock.patch("botorch.optim.optimize.gen_batch_initial_conditions")
     def test_optimize_acqf_all_infeasible_candidates(
-        self, mock_gen_batch_initial_conditions
+        self, mock_gen_batch_initial_conditions, mock_project
     ) -> None:
         # Check for error when all batches of candidates are infeasible w.r.t
-        # parameter constraints.
+        # parameter constraints and projecting fails (e.g. returns the same
+        # points)
+        mock_project.side_effect = lambda X, **kwargs: X
         q = 3
         num_restarts = 2
         for dtype in (torch.float, torch.double):
@@ -1263,44 +1359,496 @@ class TestOptimizeAcqf(BotorchTestCase):
             )
             self.assertTrue(torch.equal(candidates, ics[1]))
 
+    def _setup_projection_test(
+        self,
+        d: int,
+        dtype: torch.dtype,
+    ) -> tuple[MockAcquisitionFunction, torch.Tensor]:
+        """Helper method to set up common projection test components."""
+        mock_acq_function = MockAcquisitionFunction()
+        bounds = torch.zeros(2, d, dtype=dtype, device=self.device)
+        bounds[1] = 2
+        return mock_acq_function, bounds
+
+    def _verify_projection_called_and_constraints_satisfied(
+        self,
+        mock_project_slsqp: mock.Mock,
+        candidates: torch.Tensor,
+        bounds: torch.Tensor,
+        constraint_checks: list[Callable] | None = None,
+    ) -> None:
+        """Helper method to verify calls and constraint satisfaction."""
+        # Verify that project_to_feasible_space_via_slsqp was called
+        mock_project_slsqp.assert_called_once()
+
+        # Verify that projected candidates are within bounds
+        self.assertTrue(torch.all(candidates >= bounds[0] - 1e-6))
+        self.assertTrue(torch.all(candidates <= bounds[1] + 1e-6))
+
+        # Run custom constraint checks if provided
+        if constraint_checks:
+            for check in constraint_checks:
+                check(candidates)
+
+    def _run_optimize_acqf_with_projection(
+        self,
+        mock_minimize: mock.Mock,
+        mock_acq_function: MockAcquisitionFunction,
+        bounds: Tensor,
+        infeasible_candidates: Tensor,
+        q: int,
+        inequality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
+        equality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
+        nonlinear_inequality_constraints: list[tuple[Callable, bool]] | None = None,
+        should_raise_error: bool = False,
+        error_regex: str | None = None,
+        post_processing_func: Callable[[Tensor], Tensor] | None = None,
+    ) -> Tensor | None:
+        """Helper method to run optimize_acqf with common setup."""
+        # Mock scipy minimize to return infeasible candidates
+        mock_minimize.return_value = OptimizeResult(
+            x=infeasible_candidates.view(-1).cpu().numpy(),
+            success=True,
+            status=0,
+        )
+
+        kwargs = {
+            "acq_function": mock_acq_function,
+            "bounds": bounds,
+            "q": q,
+            "num_restarts": 1,
+            "raw_samples": 2,
+            "batch_initial_conditions": torch.rand(
+                1, q, bounds.shape[1], dtype=bounds.dtype, device=self.device
+            ),
+            "post_processing_func": post_processing_func,
+        }
+
+        if inequality_constraints is not None:
+            kwargs["inequality_constraints"] = inequality_constraints
+        if equality_constraints is not None:
+            kwargs["equality_constraints"] = equality_constraints
+        if nonlinear_inequality_constraints is not None:
+            kwargs["nonlinear_inequality_constraints"] = (
+                nonlinear_inequality_constraints
+            )
+            kwargs["options"] = {"batch_limit": 1}
+            kwargs["ic_generator"] = lambda *args, **kwargs: torch.rand(
+                1, q, bounds.shape[1], dtype=bounds.dtype, device=self.device
+            )
+        if should_raise_error:
+            with self.assertRaisesRegex(CandidateGenerationError, error_regex):
+                optimize_acqf(**kwargs)
+        else:
+            candidates, _ = optimize_acqf(**kwargs)
+            return candidates
+
+    @mock.patch(
+        "botorch.optim.optimize.project_to_feasible_space_via_slsqp",
+        wraps=project_to_feasible_space_via_slsqp,
+    )
+    @mock.patch("botorch.generation.gen.minimize_with_timeout")
+    def test_optimize_acqf_projection_applied(
+        self, mock_minimize: mock.Mock, mock_project_slsqp: mock.Mock
+    ) -> None:
+        """Test that project_to_feasible_space_via_slsqp is correctly applied."""
+        for dtype in (torch.float, torch.double):
+            mock_project_slsqp.reset_mock()
+            # Create infeasible candidates that violate constraint x[0] + x[1] >= 1.5
+            infeasible_candidates = torch.tensor(
+                [[0.5, 0.5], [0.3, 0.7]], device=self.device, dtype=dtype
+            )
+
+            mock_acq_function, bounds = self._setup_projection_test(d=2, dtype=dtype)
+
+            # Define constraints: x[0] + x[1] >= 1.5
+            inequality_constraints = [
+                (
+                    torch.tensor([0, 1], dtype=torch.long, device=self.device),
+                    torch.tensor([1.0, 1.0], dtype=dtype, device=self.device),
+                    1.5,
+                )
+            ]
+
+            candidates = self._run_optimize_acqf_with_projection(
+                mock_minimize,
+                mock_acq_function,
+                bounds,
+                infeasible_candidates,
+                q=2,
+                inequality_constraints=inequality_constraints,
+            )
+
+            def check_inequality_constraint(candidates):
+                for i in range(candidates.shape[0]):
+                    constraint_value = candidates[i, 0] + candidates[i, 1]
+                    self.assertGreaterEqual(constraint_value, 1.5 - 1e-6)
+
+            self._verify_projection_called_and_constraints_satisfied(
+                mock_project_slsqp=mock_project_slsqp,
+                candidates=candidates,
+                bounds=bounds,
+                constraint_checks=[check_inequality_constraint],
+            )
+
+    @mock.patch(
+        "botorch.optim.parameter_constraints.project_to_feasible_space_via_slsqp"
+    )
+    @mock.patch("botorch.generation.gen.minimize_with_timeout")
+    def test_optimize_acqf_projection_not_applied_with_nonlinear_constraints(
+        self, mock_minimize: mock.Mock, mock_project_slsqp: mock.Mock
+    ) -> None:
+        """Test that projection is not applied when nonlinear constraints exist."""
+        for dtype in (torch.float, torch.double):
+            mock_project_slsqp.reset_mock()
+            infeasible_candidates = torch.tensor(
+                [[0.5, 0.5]], dtype=dtype, device=self.device
+            )
+
+            mock_acq_function, bounds = self._setup_projection_test(d=2, dtype=dtype)
+
+            # Define both linear and nonlinear constraints
+            inequality_constraints = [
+                (
+                    torch.tensor([0, 1], dtype=torch.long, device=self.device),
+                    torch.tensor([1.0, 1.0], dtype=dtype, device=self.device),
+                    1.5,
+                )
+            ]
+
+            def callable_constraint(x):
+                return x.sum(dim=-1)
+
+            nonlinear_inequality_constraints = [(callable_constraint, True)]
+
+            # Test that optimization should raise error due to infeasible candidates
+            # when nonlinear constraints are present (projection not applied)
+            self._run_optimize_acqf_with_projection(
+                mock_minimize,
+                mock_acq_function,
+                bounds,
+                infeasible_candidates,
+                q=1,
+                inequality_constraints=inequality_constraints,
+                nonlinear_inequality_constraints=nonlinear_inequality_constraints,
+                should_raise_error=True,
+                error_regex="infeasible candidates",
+            )
+
+            # Verify that project_to_feasible_space_via_slsqp was NOT called
+            mock_project_slsqp.assert_not_called()
+
+    @mock.patch(
+        "botorch.optim.optimize.project_to_feasible_space_via_slsqp",
+        wraps=project_to_feasible_space_via_slsqp,
+    )
+    @mock.patch("botorch.generation.gen.minimize_with_timeout")
+    def test_optimize_acqf_projection_with_equality_constraints(
+        self, mock_minimize: mock.Mock, mock_project_slsqp: mock.Mock
+    ) -> None:
+        """Test projection with equality constraints."""
+        # Create candidates that violate equality constraint x[0] + x[1] = 1.5
+        for dtype in (torch.float, torch.double):
+            mock_project_slsqp.reset_mock()
+            infeasible_candidates = torch.tensor(
+                [[1.0, 1.0]], dtype=dtype, device=self.device
+            )
+
+            mock_acq_function, bounds = self._setup_projection_test(d=2, dtype=dtype)
+
+            # Define equality constraint: x[0] + x[1] = 1.5
+            equality_constraints = [
+                (
+                    torch.tensor([0, 1], dtype=torch.long, device=self.device),
+                    torch.tensor([1.0, 1.0], dtype=dtype, device=self.device),
+                    1.5,
+                )
+            ]
+
+            candidates = self._run_optimize_acqf_with_projection(
+                mock_minimize,
+                mock_acq_function,
+                bounds,
+                infeasible_candidates,
+                q=1,
+                equality_constraints=equality_constraints,
+            )
+
+            def check_equality_constraint(candidates):
+                constraint_value = (candidates[0, 0] + candidates[0, 1]).item()
+                self.assertAllClose(constraint_value, 1.5, atol=1e-6)
+
+            self._verify_projection_called_and_constraints_satisfied(
+                mock_project_slsqp=mock_project_slsqp,
+                candidates=candidates,
+                bounds=bounds,
+                constraint_checks=[check_equality_constraint],
+            )
+
+    @mock.patch(
+        "botorch.optim.optimize.project_to_feasible_space_via_slsqp",
+        wraps=project_to_feasible_space_via_slsqp,
+    )
+    @mock.patch("botorch.generation.gen.minimize_with_timeout")
+    def test_optimize_acqf_projection_inequality_constraints_only(
+        self, mock_minimize: mock.Mock, mock_project_slsqp: mock.Mock
+    ) -> None:
+        """Test projection with inequality constraints only."""
+        for dtype in (torch.float, torch.double):
+            mock_project_slsqp.reset_mock()
+            # Create infeasible candidates that violate multiple inequality constraints
+            infeasible_candidates = torch.tensor(
+                [[0.2, 0.3, 0.4], [0.1, 0.5, 0.6]], dtype=dtype, device=self.device
+            )
+
+            mock_acq_function, bounds = self._setup_projection_test(d=3, dtype=dtype)
+
+            # Define multiple inequality constraints:
+            # x[0] + x[1] >= 1.0 and x[1] + x[2] >= 1.2
+            inequality_constraints = [
+                (
+                    torch.tensor([0, 1], dtype=torch.long, device=self.device),
+                    torch.tensor([1.0, 1.0], dtype=dtype, device=self.device),
+                    1.0,
+                ),
+                (
+                    torch.tensor([1, 2], dtype=torch.long, device=self.device),
+                    torch.tensor([1.0, 1.0], dtype=dtype, device=self.device),
+                    1.2,
+                ),
+            ]
+
+            candidates = self._run_optimize_acqf_with_projection(
+                mock_minimize,
+                mock_acq_function,
+                bounds,
+                infeasible_candidates,
+                q=2,
+                inequality_constraints=inequality_constraints,
+            )
+
+            def check_inequality_constraints(candidates):
+                for i in range(candidates.shape[0]):
+                    # First constraint: x[0] + x[1] >= 1.0
+                    constraint1_value = (candidates[i, 0] + candidates[i, 1]).item()
+                    self.assertGreaterEqual(constraint1_value, 1.0 - 1e-6)
+
+                    # Second constraint: x[1] + x[2] >= 1.2
+                    constraint2_value = (candidates[i, 1] + candidates[i, 2]).item()
+                    self.assertGreaterEqual(constraint2_value, 1.2 - 1e-6)
+
+            self._verify_projection_called_and_constraints_satisfied(
+                mock_project_slsqp=mock_project_slsqp,
+                candidates=candidates,
+                bounds=bounds,
+                constraint_checks=[check_inequality_constraints],
+            )
+        # test that post_processing_func is applied after projection
+        candidates = self._run_optimize_acqf_with_projection(
+            mock_minimize,
+            mock_acq_function,
+            bounds,
+            infeasible_candidates,
+            q=2,
+            inequality_constraints=[
+                (
+                    torch.tensor([0, 1], dtype=torch.long, device=self.device),
+                    torch.tensor([1.0, 1.0], dtype=dtype, device=self.device),
+                    2.5,
+                )
+            ],
+            post_processing_func=lambda x: x.ceil(),
+        )
+        expected_candidates = torch.ones_like(candidates)
+        expected_candidates[:, :2] = 2
+        self.assertTrue(torch.equal(candidates, expected_candidates))
+
+    @mock.patch(
+        "botorch.optim.optimize.project_to_feasible_space_via_slsqp",
+        wraps=project_to_feasible_space_via_slsqp,
+    )
+    @mock.patch("botorch.generation.gen.minimize_with_timeout")
+    def test_optimize_acqf_projection_mixed_constraints(
+        self, mock_minimize: mock.Mock, mock_project_slsqp: mock.Mock
+    ) -> None:
+        """Test projection with both inequality and equality constraints."""
+        for dtype in (torch.float, torch.double):
+            mock_project_slsqp.reset_mock()
+            # Create infeasible candidates that violate both types of constraints
+            infeasible_candidates = torch.tensor(
+                [[0.5, 1.2, 0.8], [1.1, 0.7, 1.0]], dtype=dtype, device=self.device
+            )
+
+            mock_acq_function, bounds = self._setup_projection_test(d=3, dtype=dtype)
+
+            # Define mixed constraints:
+            # Inequality: x[0] + x[2] >= 2.0
+            # Equality: x[0] + x[1] + x[2] = 3.5
+            inequality_constraints = [
+                (
+                    torch.tensor([0, 2], dtype=torch.long, device=self.device),
+                    torch.tensor([1.0, 1.0], dtype=dtype, device=self.device),
+                    2.0,
+                )
+            ]
+            equality_constraints = [
+                (
+                    torch.tensor([0, 1, 2], dtype=torch.long, device=self.device),
+                    torch.tensor([1.0, 1.0, 1.0], dtype=dtype, device=self.device),
+                    3.5,
+                )
+            ]
+
+            candidates = self._run_optimize_acqf_with_projection(
+                mock_minimize,
+                mock_acq_function,
+                bounds,
+                infeasible_candidates,
+                q=2,
+                inequality_constraints=inequality_constraints,
+                equality_constraints=equality_constraints,
+            )
+
+            def check_mixed_constraints(candidates):
+                for i in range(candidates.shape[0]):
+                    # Inequality constraint: x[0] + x[2] >= 2.0
+                    inequality_value = candidates[i, 0] + candidates[i, 2]
+                    self.assertGreaterEqual(inequality_value, 2.0 - 1e-6)
+
+                    # Equality constraint: x[0] + x[1] + x[2] = 3.5
+                    equality_value = (
+                        candidates[i, 0] + candidates[i, 1] + candidates[i, 2]
+                    ).item()
+                    self.assertAllClose(equality_value, 3.5, atol=1e-6)
+
+            self._verify_projection_called_and_constraints_satisfied(
+                mock_project_slsqp, candidates, bounds, [check_mixed_constraints]
+            )
+
 
 class TestAllOptimizers(BotorchTestCase):
-    def test_raises_with_negative_fixed_features(self) -> None:
-        cases = {
+    @mock_optimize
+    def test_negative_fixed_features(self) -> None:
+        optim_funcs = {
             "optimize_acqf": partial(
                 optimize_acqf,
                 acq_function=MockAcquisitionFunction(),
-                fixed_features={-1: 0.0},
-                q=1,
+                q=5,
             ),
             "optimize_acqf_cyclic": partial(
                 optimize_acqf_cyclic,
                 acq_function=MockAcquisitionFunction(),
-                fixed_features={-1: 0.0},
-                q=1,
+                q=3,
             ),
             "optimize_acqf_mixed": partial(
                 optimize_acqf_mixed,
                 acq_function=MockAcquisitionFunction(),
-                fixed_features_list=[{-1: 0.0}],
-                q=1,
+                q=5,
             ),
             "optimize_acqf_list": partial(
                 optimize_acqf_list,
                 acq_function_list=[MockAcquisitionFunction()],
-                fixed_features={-1: 0.0},
             ),
         }
 
-        for name, func in cases.items():
-            with self.subTest(name), self.assertRaisesRegex(
-                ValueError, "must be >= 0."
-            ):
-                func(
-                    bounds=torch.tensor([[0.0, 0.0], [1.0, 1.0]], device=self.device),
-                    num_restarts=4,
-                    raw_samples=16,
-                )
+        cases = [
+            {
+                "num_features": 2,
+                "fixed_features_match": [
+                    {"orig_idx": 0, "neg_idx": -2, "val": 0.1},
+                ],
+            },
+            {
+                "num_features": 2,
+                "fixed_features_match": [
+                    {"orig_idx": 1, "neg_idx": -1, "val": 0.1},
+                ],
+            },
+            {
+                "num_features": 5,
+                "fixed_features_match": [
+                    {"orig_idx": 0, "neg_idx": -5, "val": 0.1},
+                    {"orig_idx": 3, "neg_idx": 3, "val": 0.2},
+                    {"orig_idx": 4, "neg_idx": -1, "val": 0.3},
+                ],
+            },
+            {
+                "num_features": 7,
+                "fixed_features_match": [
+                    {"orig_idx": 0, "neg_idx": -7, "val": 0.1},
+                    {"orig_idx": 1, "neg_idx": -6, "val": 0.2},
+                    {"orig_idx": 2, "neg_idx": -5, "val": 0.3},
+                    {"orig_idx": 3, "neg_idx": -4, "val": 0.4},
+                    {"orig_idx": 4, "neg_idx": -3, "val": 0.5},
+                    {"orig_idx": 5, "neg_idx": -2, "val": 0.6},
+                ],
+            },
+            {
+                "num_features": 3,
+                "fixed_features_match": [
+                    {"orig_idx": 0, "neg_idx": 0, "val": 0.1},
+                    {"orig_idx": 1, "neg_idx": 1, "val": 0.2},
+                ],
+            },
+        ]
+
+        for name, func in optim_funcs.items():
+            for case in cases:
+                num_features = case["num_features"]
+                fixed_features_match = case["fixed_features_match"]
+
+                # optimize_acqf_mixed raises an error if fixed_features_list
+                # is the same length as num_features
+                if name == "optimize_acqf_mixed":
+                    if len(fixed_features_match) == num_features:
+                        fixed_features_match.pop(0)
+
+                # Common opt args
+                common_kwargs = {
+                    "bounds": torch.tensor(
+                        [[0.0] * num_features, [1.0] * num_features], device=self.device
+                    ),
+                    "num_restarts": 2,
+                    "raw_samples": 10,
+                }
+
+                # Verify that this is the correct mapping of indices
+                test_list = list(range(num_features))
+                for a in fixed_features_match:
+                    self.assertEqual(test_list[a["orig_idx"]], test_list[a["neg_idx"]])
+
+                # Create fixed_features with non-negative indices and negative indices
+                nonneg_fixed_features = {
+                    a["orig_idx"]: a["val"] for a in fixed_features_match
+                }
+                neg_fixed_features = {
+                    a["neg_idx"]: a["val"] for a in fixed_features_match
+                }
+
+                # Setup separate kwargs for the two fixed_features
+                nonneg_func_kwargs = common_kwargs.copy()
+                neg_func_kwargs = common_kwargs.copy()
+
+                # If optimize_acqf_mixed, then need to pass fixed_features_list
+                if name in ["optimize_acqf_mixed"]:
+                    nonneg_func_kwargs["fixed_features_list"] = [nonneg_fixed_features]
+                    neg_func_kwargs["fixed_features_list"] = [neg_fixed_features]
+                else:
+                    nonneg_func_kwargs["fixed_features"] = nonneg_fixed_features
+                    neg_func_kwargs["fixed_features"] = neg_fixed_features
+
+                # Run the optimization with both fixed_features
+                nonneg_x, acq = func(**nonneg_func_kwargs)
+                neg_x, acq = func(**neg_func_kwargs)
+
+                # Verify that the fixed_features are the same and equal to val
+                # for the original index values
+                nonneg_x = nonneg_x[0]
+                neg_x = neg_x[0]
+
+                for a in fixed_features_match:
+                    self.assertAlmostEqual(nonneg_x[a["orig_idx"]], a["val"], places=4)
+                    self.assertAlmostEqual(neg_x[a["orig_idx"]], a["val"], places=4)
 
 
 class TestOptimizeAcqfCyclic(BotorchTestCase):
@@ -1471,15 +2019,18 @@ class TestOptimizeAcqfList(BotorchTestCase):
                 mock_optimize_acqf_mixed.side_effect = side_effect
                 orig_candidates = candidate_rvs[0].clone()
                 # Wrap the set_X_pending method for checking that call arguments
-                with mock.patch.object(
-                    MockAcquisitionFunction,
-                    "set_X_pending",
-                    wraps=mock_acq_function_1.set_X_pending,
-                ) as mock_set_X_pending_1, mock.patch.object(
-                    MockAcquisitionFunction,
-                    "set_X_pending",
-                    wraps=mock_acq_function_2.set_X_pending,
-                ) as mock_set_X_pending_2:
+                with (
+                    mock.patch.object(
+                        MockAcquisitionFunction,
+                        "set_X_pending",
+                        wraps=mock_acq_function_1.set_X_pending,
+                    ) as mock_set_X_pending_1,
+                    mock.patch.object(
+                        MockAcquisitionFunction,
+                        "set_X_pending",
+                        wraps=mock_acq_function_2.set_X_pending,
+                    ) as mock_set_X_pending_2,
+                ):
                     candidates, _ = optimize_acqf_list(
                         acq_function_list=mock_acq_function_list[:num_acqf],
                         bounds=bounds,
@@ -1754,6 +2305,77 @@ class TestOptimizeAcqfMixed(BotorchTestCase):
                 bounds=torch.stack([torch.zeros(3), 4 * torch.ones(3)]),
                 num_restarts=2,
                 raw_samples=10,
+            )
+
+    def test_optimize_acqf_mixed_inter_point_inequality_constraints(self):
+        mock_acq_function = MockAcquisitionFunction()
+        with self.assertRaisesRegex(
+            UnsupportedError,
+            expected_regex="Inter-point constraints are not supported for sequential "
+            "optimization. But the 0th linear inequality constraint is defined "
+            "as inter-point.",
+        ):
+            optimize_acqf_mixed(
+                acq_function=mock_acq_function,
+                q=1,
+                fixed_features_list=[{0: 0.0}],
+                bounds=torch.stack([torch.zeros(3), 4 * torch.ones(3)]),
+                num_restarts=2,
+                raw_samples=10,
+                inequality_constraints=[
+                    (  # Inter-point constraint: X[0, 0] - X[1, 0] >= 0
+                        torch.tensor([[0, 0], [1, 0]], dtype=torch.long),
+                        torch.tensor([1.0, -1.0]),
+                        0.0,
+                    )
+                ],
+            )
+
+    def test_optimize_acqf_mixed_inter_point_equality_constraints(self):
+        mock_acq_function = MockAcquisitionFunction()
+        with self.assertRaisesRegex(
+            UnsupportedError,
+            expected_regex="Inter-point constraints are not supported for sequential "
+            "optimization. But the 0th linear equality constraint is defined "
+            "as inter-point.",
+        ):
+            optimize_acqf_mixed(
+                acq_function=mock_acq_function,
+                q=1,
+                fixed_features_list=[{0: 0.0}],
+                bounds=torch.stack([torch.zeros(3), 4 * torch.ones(3)]),
+                num_restarts=2,
+                raw_samples=10,
+                equality_constraints=[
+                    (  # Inter-point constraint: X[0, 0] - X[1, 0] == 0
+                        torch.tensor([[0, 0], [1, 0]], dtype=torch.long),
+                        torch.tensor([1.0, -1.0]),
+                        0.0,
+                    )
+                ],
+            )
+
+    def test_optimize_acqf_mixed_inter_point_nonlinear_constraints(self):
+        mock_acq_function = MockAcquisitionFunction()
+        with self.assertRaisesRegex(
+            UnsupportedError,
+            expected_regex="Inter-point constraints are not supported for sequential "
+            "optimization. But the 0th non-linear inequality constraint is defined "
+            "as inter-point.",
+        ):
+            optimize_acqf_mixed(
+                acq_function=mock_acq_function,
+                q=1,
+                fixed_features_list=[{0: 0.0}],
+                bounds=torch.stack([torch.zeros(3), 4 * torch.ones(3)]),
+                num_restarts=2,
+                raw_samples=10,
+                nonlinear_inequality_constraints=[
+                    (  # Inter-point constraint: sum of all points >= 0
+                        lambda X: X.sum(dim=(-1, -2)),
+                        False,  # False indicates inter-point constraint
+                    )
+                ],
             )
 
     def test_optimize_acqf_mixed_return_best_only_q2(self):

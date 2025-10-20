@@ -27,8 +27,6 @@ jobs:
       with:
         python-version: "3.13"
     - name: Install dependencies
-      env:
-        ALLOW_LATEST_GPYTORCH_LINOP: true
       run: |
         uv pip install git+https://github.com/cornellius-gp/linear_operator.git
         uv pip install git+https://github.com/cornellius-gp/gpytorch.git

@@ -353,7 +353,7 @@ class MVaR(MultiOutputRiskMeasureMCObjective):
         Y_pruned = Y[mask]
         for y_ in Y_pruned:
             starting_idcs = [unique_outcomes[i].get(y_[i].item(), 0) for i in range(m)]
-            slices = [slice(s_idx, None) for s_idx in starting_idcs]
+            slices = tuple(slice(s_idx, None) for s_idx in starting_idcs)
             counter_tensor[slices] += 1
 
         # Get the count alpha-level points should have.

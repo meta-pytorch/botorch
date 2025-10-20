@@ -265,6 +265,7 @@ class qKnowledgeGradient(MCAcquisitionFunction, OneShotAcquisitionFunction):
             current_model=self.model,
             options={**kwargs.get("options", {}), **kwargs.get("scipy_options", {})},
         )
+        # initial_conditions shape: num_restarts x num_fantasies x n x q x d.
 
         _, values = gen_candidates_scipy(
             initial_conditions=initial_conditions,
@@ -272,6 +273,7 @@ class qKnowledgeGradient(MCAcquisitionFunction, OneShotAcquisitionFunction):
             lower_bounds=bounds[0],
             upper_bounds=bounds[1],
             options=kwargs.get("scipy_options"),
+            use_parallel_mode=False,
         )
         # get the maximizer for each batch
         values, _ = torch.max(values, dim=0)

@@ -13,6 +13,7 @@ from types import NoneType
 from typing import Any
 
 import torch
+
 from botorch.models.approximate_gp import ApproximateGPyTorchModel
 from botorch.models.transforms.input import InputTransform
 from botorch.sampling.pathwise.features import KernelEvaluationMap
@@ -24,6 +25,7 @@ from botorch.sampling.pathwise.utils import (
     TInputTransform,
 )
 from botorch.utils.dispatcher import Dispatcher
+from botorch.utils.transforms import is_ensemble
 from botorch.utils.types import DEFAULT
 from gpytorch.kernels.kernel import Kernel
 from gpytorch.likelihoods import _GaussianLikelihoodBase, Likelihood
@@ -79,6 +81,7 @@ def _gaussian_update_exact(
     noise_covariance: Tensor | LinearOperator | None = None,
     scale_tril: Tensor | LinearOperator | None = None,
     input_transform: TInputTransform | None = None,
+    is_ensemble: bool = False,
 ) -> GeneralizedLinearPath:
     # Prepare Cholesky factor of `Cov(y, y)` and noise sample values as needed
     if isinstance(noise_covariance, (NoneType, ZeroLinearOperator)):
@@ -103,7 +106,9 @@ def _gaussian_update_exact(
         points=points,
         input_transform=input_transform,
     )
-    return GeneralizedLinearPath(feature_map=feature_map, weight=weight.squeeze(-1))
+    return GeneralizedLinearPath(
+        feature_map=feature_map, weight=weight.squeeze(-1), is_ensemble=is_ensemble
+    )
 
 
 @GaussianUpdate.register(ExactGP, _GaussianLikelihoodBase)
@@ -134,6 +139,7 @@ def _gaussian_update_ExactGP(
         noise_covariance=noise_covariance,
         scale_tril=scale_tril,
         input_transform=get_input_transform(model),
+        is_ensemble=is_ensemble(model),
     )
 
 
@@ -194,4 +200,5 @@ def _gaussian_update_ApproximateGP_VariationalStrategy(
         sample_values=sample_values,
         scale_tril=L,
         input_transform=input_transform,
+        is_ensemble=is_ensemble(model),
     )

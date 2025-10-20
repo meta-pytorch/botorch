@@ -106,6 +106,12 @@ class MaxValueBase(AcquisitionFunction, ABC):
         """
         super().__init__(model=model)
 
+        # NOTE The _init_model is used to create the fantasy model and draw max-value
+        # samples. The self.model is overwritten in qMaxValueEntropy.set_X_pending
+        # and its multi-fidelity version by a fantasy model with batch_size fantasies.
+        # For these acqfs, the fantasy model is used throughout the forward pass.
+        # qLowerBound methods do not do this.
+        self._init_model = model
         if model.num_outputs > 1:
             raise UnsupportedError(
                 f"Multi-output models are not supported by {self.__class__.__name__}."
@@ -127,7 +133,10 @@ class MaxValueBase(AcquisitionFunction, ABC):
         self.use_gumbel = use_gumbel
         self.maximize = maximize
         self.weight = 1.0 if maximize else -1.0
-        self.set_X_pending(X_pending)
+
+        # NOTE X_pending is not really needed to make the parallelism work here,
+        # it just makes the approximation of the max values slightly more accurate.
+        self._sample_max_values(num_samples=num_mv_samples, X_pending=X_pending)
 
     @t_batch_mode_transform(expected_q=1)
     @average_over_ensemble_models
@@ -156,21 +165,6 @@ class MaxValueBase(AcquisitionFunction, ABC):
         # Average over fantasies, ig is of shape `num_fantasies x batch_shape x (m)`.
         return ig.mean(dim=0)
 
-    def set_X_pending(self, X_pending: Tensor | None = None) -> None:
-        r"""Set pending design points.
-
-        Set "pending points" to inform the acquisition function of the candidate
-        points that have been generated but are pending evaluation.
-
-        Args:
-            X_pending: `n x d` Tensor with `n` `d`-dim design points that have
-                been submitted for evaluation but have not yet been evaluated.
-        """
-        if X_pending is not None:
-            X_pending = X_pending.detach().clone()
-        self._sample_max_values(num_samples=self.num_mv_samples, X_pending=X_pending)
-        self.X_pending = X_pending
-
     def _sample_max_values(
         self, num_samples: int, X_pending: Tensor | None = None
     ) -> None:
@@ -197,7 +191,8 @@ class MaxValueBase(AcquisitionFunction, ABC):
 
         with torch.no_grad():
             if X_pending is not None:
-                # Append X_pending to candidate set
+                # Append X_pending to candidate set - heuristic since X_pending is
+                # presumably a good point to sample from
                 X_pending = match_batch_shape(X_pending, self.candidate_set)
                 candidate_set = torch.cat([self.candidate_set, X_pending], dim=0)
 
@@ -209,7 +204,7 @@ class MaxValueBase(AcquisitionFunction, ABC):
                 pass
 
             self.posterior_max_values = sample_max_values(
-                model=self.model,
+                model=self._init_model,
                 candidate_set=candidate_set,
                 num_samples=num_samples,
                 posterior_transform=self.posterior_transform,
@@ -305,7 +300,7 @@ class qMaxValueEntropy(MaxValueBase, MCSamplerMixin):
             sample_shape=torch.Size([num_fantasies])
         )
         self.num_fantasies = num_fantasies
-        self.set_X_pending(X_pending)  # this did not happen in the super constructor
+        self.set_X_pending(X_pending)
 
     def set_X_pending(self, X_pending: Tensor | None = None) -> None:
         r"""Set pending points.
@@ -318,20 +313,16 @@ class qMaxValueEntropy(MaxValueBase, MCSamplerMixin):
             X_pending: `m x d` Tensor with `m` `d`-dim design points that have
                 been submitted for evaluation but have not yet been evaluated.
         """
-        try:
-            init_model = self._init_model
-        except AttributeError:
-            # Short-circuit (this allows calling the super constructor)
-            return
         if X_pending is not None:
+            self.X_pending = X_pending.detach()
             # fantasize the model and use this as the new model
-            self.model = init_model.fantasize(
-                X=X_pending,
+            self.model = self._init_model.fantasize(
+                X=X_pending.detach(),
                 sampler=self.fantasies_sampler,
             )
         else:
-            self.model = init_model
-        super().set_X_pending(X_pending)
+            self.X_pending = None
+            self.model = self._init_model
 
     # NOTE: This may not work with m > 1, and currently the only supported use
     # cases are with m=1.
@@ -471,6 +462,47 @@ class qLowerBoundMaxValueEntropy(MaxValueBase):
         >>> candidates, _ = optimize_acqf(qGIBBON, bounds, q=5)
     """
 
+    def __init__(
+        self,
+        model: Model,
+        candidate_set: Tensor,
+        num_mv_samples: int = 10,
+        posterior_transform: PosteriorTransform | None = None,
+        use_gumbel: bool = True,
+        maximize: bool = True,
+        X_pending: Tensor | None = None,
+        train_inputs: Tensor | None = None,
+    ) -> None:
+        r"""Lower bound max-value entropy search acquisition function (GIBBON).
+
+        Args:
+            model: A fitted single-outcome model.
+            candidate_set: A `n x d` Tensor including `n` candidate points to
+                discretize the design space. Max values are sampled from the
+                (joint) model posterior over these points.
+            num_mv_samples: Number of max value samples.
+            posterior_transform: A PosteriorTransform. If using a multi-output model,
+                a PosteriorTransform that transforms the multi-output posterior into a
+                single-output posterior is required.
+            use_gumbel: If True, use Gumbel approximation to sample the max values.
+            maximize: If True, consider the problem a maximization problem.
+            X_pending: A `m x d`-dim Tensor of `m` design points that have been
+                submitted for function evaluation but have not yet been evaluated.
+            train_inputs: A `n_train x d` Tensor that the model has been fitted on.
+                Not required if the model is an instance of a GPyTorch ExactGP model.
+        """
+        super().__init__(
+            model=model,
+            candidate_set=candidate_set,
+            num_mv_samples=num_mv_samples,
+            posterior_transform=posterior_transform,
+            use_gumbel=use_gumbel,
+            maximize=maximize,
+            X_pending=X_pending,
+            train_inputs=train_inputs,
+        )
+        self.set_X_pending(X_pending)
+
     def _compute_information_gain(
         self, X: Tensor, mean_M: Tensor, variance_M: Tensor, covar_mM: Tensor
     ) -> Tensor:
@@ -499,10 +531,10 @@ class qLowerBoundMaxValueEntropy(MaxValueBase):
 
         # compute the mean_m, variance_m with noisy observation
         posterior_m = self.model.posterior(
-            X, observation_noise=True, posterior_transform=self.posterior_transform
+            X,
+            observation_noise=True,
+            posterior_transform=self.posterior_transform,
         )
-        mean_m = self.weight * posterior_m.mean.squeeze(-1)
-        # batch_shape x 1
         variance_m = posterior_m.variance.clamp_min(CLAMP_LB).squeeze(-1)
         # batch_shape x 1
         check_no_nans(variance_m)
@@ -520,7 +552,7 @@ class qLowerBoundMaxValueEntropy(MaxValueBase):
         # prepare max value quantities required by GIBBON
         mvs = torch.transpose(self.posterior_max_values, 0, 1)
         # 1 x s_M
-        normalized_mvs = (mvs - mean_m) / stdv
+        normalized_mvs = (mvs - mean_M) / stdv
         # batch_shape x s_M
 
         cdf_mvs = normal.cdf(normalized_mvs).clamp_min(CLAMP_LB)
@@ -688,13 +720,12 @@ class qMultiFidelityMaxValueEntropy(qMaxValueEntropy):
         self.expand = expand
         self.project = project
         self._cost_sampler = None
-
         # @TODO make sure fidelity_dims align in project, expand & cost_aware_utility
         # It seems very difficult due to the current way of handling project/expand
 
         # resample max values after initializing self.project
         # so that the max value samples are at the highest fidelity
-        self._sample_max_values(num_samples=self.num_mv_samples)
+        self._sample_max_values(num_samples=self.num_mv_samples, X_pending=X_pending)
 
     @property
     def cost_sampler(self):
@@ -779,6 +810,7 @@ class qMultiFidelityLowerBoundMaxValueEntropy(qMultiFidelityMaxValueEntropy):
         num_fantasies: int = 16,
         num_mv_samples: int = 10,
         num_y_samples: int = 128,
+        X_pending: Tensor | None = None,
         posterior_transform: PosteriorTransform | None = None,
         use_gumbel: bool = True,
         maximize: bool = True,
@@ -804,6 +836,8 @@ class qMultiFidelityLowerBoundMaxValueEntropy(qMultiFidelityMaxValueEntropy):
             posterior_transform: A PosteriorTransform. If using a multi-output model,
                 a PosteriorTransform that transforms the multi-output posterior into a
                 single-output posterior is required.
+            X_pending: A `m x d`-dim Tensor of `m` design points that have been
+                submitted for function evaluation but have not yet been evaluated.
             use_gumbel: If True, use Gumbel approximation to sample the max values.
             maximize: If True, consider the problem a maximization problem.
             cost_aware_utility: A CostAwareUtility computing the cost-transformed
@@ -834,6 +868,16 @@ class qMultiFidelityLowerBoundMaxValueEntropy(qMultiFidelityMaxValueEntropy):
             cost_aware_utility=cost_aware_utility,
             project=project,
         )
+
+    def set_X_pending(self, X_pending: Tensor | None = None) -> None:
+        """
+        For the non-lower bound methods, X_pending creates a new fantasy model
+        with a batch shape of (num_fantasies, batch_shape, m). Lower bound methods
+        don't operate with the same logic, so we don't need to create a new fantasy
+        model. Moreover, this causes shape issues in the forward pass due to
+        tensor broadcasting inconsistencies.
+        """
+        AcquisitionFunction.set_X_pending(self, X_pending)
 
     def _compute_information_gain(
         self, X: Tensor, mean_M: Tensor, variance_M: Tensor, covar_mM: Tensor
@@ -885,7 +929,7 @@ def _sample_max_value_Thompson(
         maximize: If True, consider the problem a maximization problem.
 
     Returns:
-        A `num_samples x num_fantasies` Tensor of posterior max value samples.
+        A `num_samples x 1` Tensor of posterior max value samples.
     """
     posterior = model.posterior(candidate_set, posterior_transform=posterior_transform)
     weight = 1.0 if maximize else -1.0
@@ -893,7 +937,7 @@ def _sample_max_value_Thompson(
     # samples is num_samples x (num_fantasies) x n
     max_values, _ = samples.max(dim=-1)
     if len(samples.shape) == 2:
-        max_values = max_values.unsqueeze(-1)  # num_samples x num_fantasies
+        max_values = max_values.unsqueeze(-1)  # num_samples x 1
 
     return max_values
 
@@ -957,8 +1001,8 @@ def _sample_max_value_Gumbel(
     a = q50 + b * log(log(2.0))
 
     # inverse sampling from the fitted Gumbel CDF distribution
-    sample_shape = (num_samples, num_fantasies)
+    sample_shape = (num_samples, 1)
     eps = torch.rand(*sample_shape, device=device, dtype=dtype)
     max_values = a - b * eps.log().mul(-1.0).log()
 
-    return max_values  # num_samples x num_fantasies
+    return max_values  # num_samples x 1

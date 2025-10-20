@@ -154,9 +154,6 @@ def batch_cross_validation(
         >>> train_Y = torch.rand_like(train_X)
         >>> cv_folds = gen_loo_cv_folds(train_X, train_Y)
         >>> input_transform = Normalize(d=train_X.shape[-1])
-        >>> outcome_transform = Standardize(
-        ...     m=train_Y.shape[-1], batch_shape=cv_folds.train_Y.shape[:-2]
-        ... )
         >>>
         >>> cv_results = batch_cross_validation(
         ...    model_cls=SingleTaskGP,
@@ -164,7 +161,6 @@ def batch_cross_validation(
         ...    cv_folds=cv_folds,
         ...    model_init_kwargs={
         ...        "input_transform": input_transform,
-        ...        "outcome_transform": outcome_transform,
         ...    },
         ... )
     """

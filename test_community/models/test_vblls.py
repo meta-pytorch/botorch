@@ -353,18 +353,28 @@ class TestVBLLModel(BotorchTestCase):
         model = VBLLModel(
             in_features=d, hidden_features=4, out_features=1, num_layers=1
         )
-        X, y = _reg_data_singletask(d)
+        X_train, y_train = _reg_data_singletask(d)
         optim_settings = _get_fast_training_settings()
+        model.fit(X_train, y_train, optimization_settings=optim_settings)
 
-        model.fit(X, y, optimization_settings=optim_settings)
+        valid_inputs = [
+            torch.rand(3, d, dtype=torch.float64),  # (3, d)
+            torch.rand(1, 3, d, dtype=torch.float64),  # (1, 3, d)
+            torch.rand(2, 3, d, dtype=torch.float64),  # (2, 3, d)
+            torch.rand(1, d, dtype=torch.float64),  # (1, d)
+        ]
 
-        for batch_shape in (torch.Size([2]), torch.Size()):
-            X = torch.rand(batch_shape + torch.Size([3, d]), dtype=torch.float64)
-            expected_shape = batch_shape + torch.Size([3, 1])
+        for X_test in valid_inputs:
+            if X_test.ndim == 1:
+                expected_shape = torch.Size([1, 1])  # (1 sample, 1 output)
+            elif X_test.ndim == 2:
+                expected_shape = torch.Size([X_test.shape[0], 1])
+            else:
+                batch_shape = X_test.shape[:-2]
+                expected_shape = batch_shape + torch.Size([X_test.shape[-2], 1])
 
-            post = model.posterior(X)
+            post = model.posterior(X_test)
 
-            # check that the posterior is an instance of BLLPosterior
             self.assertIsInstance(
                 post,
                 BLLPosterior,
@@ -379,15 +389,14 @@ class TestVBLLModel(BotorchTestCase):
                 f"but got {post.mean.shape}.",
             )
 
-            # variance prediction
             self.assertEqual(
                 post.variance.shape,
                 expected_shape,
                 f"Expected variance predictions to have shape {expected_shape},"
-                f"but got {post.mean.shape}.",
+                f" but got {post.variance.shape}.",
             )
 
-        # test invalid shape
+        # validate that posterior fails when x.dim > 3
         X = torch.rand(torch.Size([2, 5]) + torch.Size([3, d]), dtype=torch.float64)
 
         with self.assertRaises(ValueError):

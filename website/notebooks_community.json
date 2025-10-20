@@ -1,0 +1,18 @@
+[
+  {
+    "id": "clf_constrained_bo",
+    "title": "BO with Binary Black-box Constraint"
+  },
+  {
+    "id": "hentropy_search",
+    "title": "H-Entropy Search"
+  },
+  {
+    "id": "multi_source_bo",
+    "title": "Multi-Information Source BO with Augmented GP"
+  },
+  {
+    "id": "vbll_thompson_sampling",
+    "title": "Variational Bayesian Last Layers for BO"
+  }
+]

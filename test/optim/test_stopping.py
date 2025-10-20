@@ -7,15 +7,11 @@
 from __future__ import annotations
 
 import torch
-from botorch.optim.stopping import ExpMAStoppingCriterion, StoppingCriterion
+from botorch.optim.stopping import ExpMAStoppingCriterion
 from botorch.utils.testing import BotorchTestCase
 
 
 class TestStoppingCriterion(BotorchTestCase):
-    def test_abstract_raises(self):
-        with self.assertRaises(TypeError):
-            StoppingCriterion()
-
     def test_exponential_moving_average(self):
         for dtype in (torch.float, torch.double):
             tkwargs = {"device": self.device, "dtype": dtype}
@@ -25,8 +21,8 @@ class TestStoppingCriterion(BotorchTestCase):
             self.assertEqual(sc.maxiter, 2)
             self.assertEqual(sc.n_window, 10)
             self.assertEqual(sc.rel_tol, 1e-5)
-            self.assertFalse(sc.evaluate(fvals=torch.ones(1, **tkwargs)))
-            self.assertTrue(sc.evaluate(fvals=torch.zeros(1, **tkwargs)))
+            self.assertFalse(sc(fvals=torch.ones(1, **tkwargs)))
+            self.assertTrue(sc(fvals=torch.zeros(1, **tkwargs)))
 
             # test convergence
             n_window = 4
@@ -43,7 +39,7 @@ class TestStoppingCriterion(BotorchTestCase):
                 if not minimize:
                     f_vals = -f_vals
                 for i, fval in enumerate(f_vals):
-                    if sc.evaluate(fval):
+                    if sc(fval):
                         self.assertEqual(i, 10)
                         break
                 # test multiple components
@@ -55,6 +51,16 @@ class TestStoppingCriterion(BotorchTestCase):
                     df = -df
                 f_vals = torch.stack([f_vals, f_vals + df], dim=-1)
                 for i, fval in enumerate(f_vals):
-                    if sc.evaluate(fval):
+                    if sc(fval):
                         self.assertEqual(i, 10)
                         break
+
+                # Test reset functionality - verify state after use, reset, and reuse
+                self.assertGreater(sc.iter, 0)
+                self.assertIsNotNone(sc._prev_fvals)
+                sc.reset()
+                self.assertEqual(sc.iter, 0)
+                self.assertIsNone(sc._prev_fvals)
+                # Verify criterion works after reset
+                self.assertFalse(sc(f_vals[0]))
+                self.assertEqual(sc.iter, 1)

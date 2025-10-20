@@ -30,6 +30,7 @@ class DummyMixedTestProblem(BaseTestProblem):
     discrete_inds = [0]
     categorical_inds = [2]
     _bounds = [(0.0, 1.0), (2.0, 3.0), (0.0, 2.0), (3.0, 4.0)]
+    _is_minimization_by_default = False
 
     def _evaluate_true(self, X: Tensor) -> Tensor:
         return -X.pow(2).sum(dim=-1)
@@ -113,6 +114,7 @@ class TestBaseTestProblems(BotorchTestCase):
             problem = DummyTestProblem()
             self.assertIsNone(problem.noise_std)
             self.assertFalse(problem.negate)
+            self.assertTrue(problem.is_minimization_problem)
             bnds_expected = torch.tensor([(0, 2), (1, 3)], dtype=torch.float)
             self.assertTrue(torch.equal(problem.bounds, bnds_expected))
             problem = problem.to(device=self.device, dtype=dtype)
@@ -125,10 +127,12 @@ class TestBaseTestProblems(BotorchTestCase):
             problem = DummyTestProblem(negate=True, noise_std=0.1)
             self.assertEqual(problem.noise_std, 0.1)
             self.assertTrue(problem.negate)
+            self.assertFalse(problem.is_minimization_problem)
 
     def test_mixed_base_test_problem(self):
         for dtype in (torch.float, torch.double):
             problem = DummyMixedTestProblem()
+            self.assertFalse(problem.is_minimization_problem)
             problem = problem.to(device=self.device, dtype=dtype)
             X = torch.rand(2, 4, device=self.device, dtype=dtype)
             with self.assertRaisesRegex(

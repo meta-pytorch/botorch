@@ -11,12 +11,13 @@
     "write-heading-ids": "docusaurus write-heading-ids"
   },
   "devDependencies": {
-    "@docusaurus/module-type-aliases": "3.6.3",
-    "@docusaurus/types": "3.6.3"
+    "@docusaurus/module-type-aliases": "3.8.1-canary-6401",
+    "@docusaurus/types": "3.8.1-canary-6401"
   },
+  "//": "TODO: T239136996 Unpin Docusaurus canary after 3.8.2 or 3.9 is released",
   "dependencies": {
-    "@docusaurus/core": "^3.6.3",
-    "@docusaurus/preset-classic": "^3.6.3",
+    "@docusaurus/core": "^3.8.1-canary-6401",
+    "@docusaurus/preset-classic": "^3.8.1-canary-6401",
     "bl": "^6.0.0",
     "clsx": "^1.1.1",
     "plotly.js": "^2.8.1",
@@ -24,6 +25,8 @@
     "react-dom": "^18.3.1",
     "react-plotly.js": "^2.5.1",
     "rehype-katex": "7",
-    "remark-math": "6"
+    "remark-math": "6",
+    "on-headers": "^1.1.0",
+    "webpack-dev-server": "^5.2.1"
   }
 }

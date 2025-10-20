@@ -14,7 +14,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Iterable, Iterator, Protocol
 
 import torch
-from botorch.exceptions.errors import InputDataError
+from botorch.exceptions.errors import InputDataError, UnsupportedError
 from pyre_extensions import none_throws
 from torch import Tensor
 from torch.nn import Module
@@ -125,6 +125,8 @@ class BaseTestProblem(Module, ABC):
     continuous_inds: list[int] = []  # Float-valued range parameters (bounds inclusive)
     discrete_inds: list[int] = []  # Ordered integer parameters (bounds inclusive)
     categorical_inds: list[int] = []  # Unordered integer parameters (bounds inclusive)
+    # Whether the problem is a minimization problem by default, with `negate=False`.
+    _is_minimization_by_default: bool = True
 
     def __init__(
         self,
@@ -213,6 +215,17 @@ class BaseTestProblem(Module, ABC):
         """
         pass  # pragma: no cover
 
+    @property
+    def is_minimization_problem(self) -> bool:
+        r"""Whether the problem is a minimization problem, after accounting
+        for the `negate` option.
+        """
+        return (
+            self._is_minimization_by_default
+            if not self.negate
+            else not self._is_minimization_by_default
+        )
+
 
 class ConstrainedBaseTestProblem(BaseTestProblem, ABC):
     r"""Base class for test functions with constraints.
@@ -226,6 +239,7 @@ class ConstrainedBaseTestProblem(BaseTestProblem, ABC):
     num_constraints: int
     _check_grad_at_opt: bool = False
     constraint_noise_std: None | float | list[float] = None
+    _worst_feasible_value: float | None = None
 
     def evaluate_slack(self, X: Tensor, noise: bool = True) -> Tensor:
         r"""Evaluate the constraint slack on a set of points.
@@ -300,6 +314,26 @@ class ConstrainedBaseTestProblem(BaseTestProblem, ABC):
         """
         pass  # pragma: no cover
 
+    @property
+    def worst_feasible_value(self) -> float:
+        r"""The worst feasible value of the objective function. This is useful when
+        evaluating the performance of different optimization methods as this value
+        can be assigned to all infeasible trials. This has the desirable property that
+        any feasible trial has better performance than an infeasible trial.
+        """
+        if isinstance(self, MultiObjectiveTestProblem):
+            return 0.0  # Can return 0.0 for MOO since this is the smallest possible HV
+        elif self._worst_feasible_value is not None:
+            return (
+                -self._worst_feasible_value
+                if self.negate
+                else self._worst_feasible_value
+            )
+        raise NotImplementedError(
+            f"Problem {self.__class__.__name__} does not specify the "
+            "worst feasible value."
+        )
+
 
 class MultiObjectiveTestProblem(BaseTestProblem, ABC):
     r"""Base class for multi-objective test functions.
@@ -350,6 +384,13 @@ class MultiObjectiveTestProblem(BaseTestProblem, ABC):
     def gen_pareto_front(self, n: int) -> Tensor:
         r"""Generate `n` pareto optimal points."""
         raise NotImplementedError
+
+    @property
+    def is_minimization_problem(self) -> bool:
+        raise UnsupportedError(
+            "`is_minimization_problem` is not a valid property for "
+            "multi-objective problems. "
+        )
 
 
 class SeedingMixin(ABC):

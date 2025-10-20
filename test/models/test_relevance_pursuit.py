@@ -34,7 +34,6 @@ from botorch.models.robust_relevance_pursuit_model import (
     RobustRelevancePursuitSingleTaskGP,
 )
 from botorch.models.transforms.input import Normalize
-from botorch.models.transforms.outcome import Standardize
 from botorch.test_functions.base import constant_outlier_generator, CorruptedTestProblem
 
 from botorch.test_functions.synthetic import Ackley
@@ -122,7 +121,6 @@ class TestRobustGP(BotorchTestCase):
             mean_module=ZeroMean(),
             covar_module=kernel,
             input_transform=Normalize(d=X.shape[-1]),
-            outcome_transform=Standardize(m=Y.shape[-1]),
             likelihood=likelihood,
         )
         model.to(dtype=X.dtype, device=self.device)

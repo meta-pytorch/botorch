@@ -6,16 +6,7 @@
 
 from __future__ import annotations
 
-from typing import Callable
-
-import numpy as np
-
 import torch
-from botorch.acquisition.multi_objective.objective import (
-    IdentityMCMultiOutputObjective,
-    MCMultiOutputObjective,
-)
-from botorch.models.model import Model
 from torch import Tensor
 
 # maximum tensor size for simple pareto computation
@@ -56,13 +47,14 @@ def is_non_dominated(
     if n > 1000 or n**2 * Y.shape[:-2].numel() * el_size / 8 > MAX_BYTES:
         return _is_non_dominated_loop(Y, maximize=maximize, deduplicate=deduplicate)
 
+    is_all_nan = Y.isnan().all(dim=-1)  # edge case: all elements are NaN
     Y1 = Y.unsqueeze(-3)
     Y2 = Y.unsqueeze(-2)
     if maximize:
         dominates = (Y1 >= Y2).all(dim=-1) & (Y1 > Y2).any(dim=-1)
     else:
         dominates = (Y1 <= Y2).all(dim=-1) & (Y1 < Y2).any(dim=-1)
-    nd_mask = ~(dominates.any(dim=-1))
+    nd_mask = ~(dominates.any(dim=-1)) & ~is_all_nan
     if deduplicate:
         # remove duplicates
         # find index of first occurrence  of each unique element
@@ -131,166 +123,3 @@ def _is_non_dominated_loop(
         return is_efficient_dedup
 
     return is_efficient
-
-
-try:
-    from pymoo.algorithms.moo.nsga2 import NSGA2
-    from pymoo.core.problem import Problem
-    from pymoo.optimize import minimize
-    from pymoo.termination.max_gen import MaximumGenerationTermination
-
-    class BotorchPymooProblem(Problem):
-        def __init__(
-            self,
-            n_var: int,
-            n_obj: int,
-            xl: np.ndarray,
-            xu: np.ndarray,
-            model: Model,
-            dtype: torch.dtype,
-            device: torch.device,
-            ref_point: Tensor | None = None,
-            objective: MCMultiOutputObjective | None = None,
-            constraints: list[Callable[[Tensor], Tensor]] | None = None,
-        ) -> None:
-            """PyMOO problem for optimizing the model posterior mean using NSGA-II.
-
-            This is instantiated and used within `optimize_with_nsgaii` to define
-            the optimization problem to interface with pymoo.
-
-            This assumes maximization of all objectives.
-
-            Args:
-                n_var: The number of tunable parameters (`d`).
-                n_obj: The number of objectives.
-                xl: A `d`-dim np.ndarray of lower bounds for each tunable parameter.
-                xu: A `d`-dim np.ndarray of upper bounds for each tunable parameter.
-                model: A fitted model.
-                dtype: The torch dtype.
-                device: The torch device.
-                ref_point: A list or tensor with `m` elements representing the reference
-                    point (in the outcome space), which is treated as a lower bound
-                    on the objectives, after applying `objective` to the samples.
-                objective: The MCMultiOutputObjective under which the samples are
-                    evaluated. Defaults to `IdentityMultiOutputObjective()`.
-                constraints: A list of callables, each mapping a Tensor of dimension
-                    `sample_shape x batch-shape x q x m` to a Tensor of dimension
-                    `sample_shape x batch-shape x q`, where negative values imply
-                    feasibility. The acquisition function will compute expected feasible
-                    hypervolume.
-            """
-            num_constraints = 0 if constraints is None else len(constraints)
-            if ref_point is not None:
-                num_constraints += ref_point.shape[0]
-            super().__init__(
-                n_var=n_var,
-                n_obj=n_obj,
-                n_ieq_constr=num_constraints,
-                xl=xl,
-                xu=xu,
-                type_var=np.double,
-            )
-            self.botorch_model = model
-            self.botorch_ref_point = ref_point
-            self.botorch_objective = (
-                IdentityMCMultiOutputObjective() if objective is None else objective
-            )
-            self.botorch_constraints = constraints
-            self.torch_dtype = dtype
-            self.torch_device = device
-
-        def _evaluate(self, x: np.ndarray, out: dict[str, np.ndarray]) -> None:
-            """Evaluate x with respect to the objective/constraints."""
-            X = torch.from_numpy(x).to(dtype=self.torch_dtype, device=self.torch_device)
-            with torch.no_grad():
-                # eval in batch mode, since all we need is the mean and this helps
-                # avoid ill-conditioning
-                y = self.botorch_model.posterior(X=X.unsqueeze(-2)).mean.squeeze(-2)
-            obj = self.botorch_objective(y)
-            # negate the objectives, since we want to maximize this function
-            out["F"] = -obj.cpu().numpy()
-            constraint_vals = None
-            if self.botorch_constraints is not None:
-                constraint_vals = torch.stack(
-                    [c(y) for c in self.botorch_constraints], dim=-1
-                )
-            if self.botorch_ref_point is not None:
-                # add constraints for the ref point
-                ref_constraints = self.botorch_ref_point - obj
-                if constraint_vals is not None:
-                    constraint_vals = torch.cat(
-                        [constraint_vals, ref_constraints], dim=-1
-                    )
-                else:
-                    constraint_vals = ref_constraints
-            if constraint_vals is not None:
-                out["G"] = constraint_vals.cpu().numpy()
-
-    def optimize_with_nsgaii(
-        model: Model,
-        bounds: Tensor,
-        num_objectives: int,
-        ref_point: list[float] | Tensor | None = None,
-        objective: MCMultiOutputObjective | None = None,
-        constraints: list[Callable[[Tensor], Tensor]] | None = None,
-        population_size: int = 250,
-        max_gen: int | None = None,
-        seed: int | None = None,
-    ) -> tuple[Tensor, Tensor]:
-        """Optimize the posterior mean via NSGA-II, returning the Pareto set and front.
-
-        This assumes maximization of all objectives.
-
-        Args:
-            model: A fitted model.
-            bounds: A `2 x d` tensor of lower and upper bounds for each column of `X`.
-            num_objectives: The number of objectives.
-            ref_point: A list or tensor with `m` elements representing the reference
-                point (in the outcome space), which is treated as a lower bound
-                on the objectives, after applying `objective` to the samples.
-            objective: The MCMultiOutputObjective under which the samples are
-                evaluated. Defaults to `IdentityMultiOutputObjective()`.
-            constraints: A list of callables, each mapping a Tensor of dimension
-                `sample_shape x batch-shape x q x m` to a Tensor of dimension
-                `sample_shape x batch-shape x q`, where negative values imply
-                feasibility. The acquisition function will compute expected feasible
-                hypervolume.
-            population_size: the population size for NSGA-II.
-            max_gen: The number of iterations for NSGA-II. If None, this uses the
-                default termination condition in pymoo for NSGA-II.
-            seed: The random seed for NSGA-II.
-
-        Returns:
-            A two-element tuple containing the pareto set X and pareto frontier Y.
-        """
-        tkwargs = {"dtype": bounds.dtype, "device": bounds.device}
-        if ref_point is not None:
-            ref_point = torch.as_tensor(ref_point, **tkwargs)
-        pymoo_problem = BotorchPymooProblem(
-            n_var=bounds.shape[-1],
-            n_obj=num_objectives,
-            xl=bounds[0].cpu().numpy(),
-            xu=bounds[1].cpu().numpy(),
-            model=model,
-            ref_point=ref_point,
-            objective=objective,
-            constraints=constraints,
-            **tkwargs,
-        )
-        algorithm = NSGA2(pop_size=population_size, eliminate_duplicates=True)
-        res = minimize(
-            problem=pymoo_problem,
-            algorithm=algorithm,
-            termination=None
-            if max_gen is None
-            else MaximumGenerationTermination(n_max_gen=max_gen),
-            seed=seed,
-            verbose=False,
-        )
-        X = torch.tensor(res.X, **tkwargs)
-        # multiply by negative one to return the correct sign for maximization
-        Y = -torch.tensor(res.F, **tkwargs)
-        pareto_mask = is_non_dominated(Y, deduplicate=True)
-        return X[pareto_mask], Y[pareto_mask]
-except ImportError:  # pragma: no cover
-    pass

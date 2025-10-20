@@ -293,6 +293,7 @@ def t_batch_mode_transform(
                     f"Expected X to be `batch_shape x q={expected_q} x d`, but"
                     f" got X with shape {X.shape}."
                 )
+            X_original_shape = X.shape
             # add t-batch dim
             X = X if X.dim() > 2 else X.unsqueeze(0)
             output = method(acqf, X, *args, **kwargs)
@@ -306,6 +307,13 @@ def t_batch_mode_transform(
                     "X, or the `model.batch_shape` in the case of acquisition "
                     "functions using batch models; but got output with shape "
                     f"{output.shape} for X with shape {X.shape}."
+                    + (
+                        ""
+                        if X_original_shape == X.shape
+                        else f" Note that `X.shape` was originally {X_original_shape} "
+                        "before the `t_batch_mode_transform` decorator added a batch "
+                        "dimension."
+                    )
                 )
             return output
 
@@ -414,8 +422,3 @@ def match_batch_shape(X: Tensor, Y: Tensor) -> Tensor:
 
     """
     return X.expand(X.shape[: -(Y.dim())] + Y.shape[:-2] + X.shape[-2:])
-
-
-def convert_to_target_pre_hook(module, *args):
-    r"""Pre-hook for automatically calling `.to(X)` on module prior to `forward`"""
-    module.to(args[0][0])

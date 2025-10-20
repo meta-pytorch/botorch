@@ -8,19 +8,22 @@ import warnings
 
 import torch
 from botorch.acquisition.objective import ScalarizedPosteriorTransform
+
 from botorch.exceptions.errors import UnsupportedError
+from botorch.models import SingleTaskGP
 from botorch.models.deterministic import (
     AffineDeterministicModel,
     DeterministicModel,
     FixedSingleSampleModel,
     GenericDeterministicModel,
+    MatheronPathModel,
     PosteriorMeanModel,
 )
-from botorch.models.gp_regression import SingleTaskGP
 from botorch.models.transforms.input import Normalize
 from botorch.models.transforms.outcome import Standardize
 from botorch.posteriors.ensemble import EnsemblePosterior
 from botorch.utils.testing import BotorchTestCase
+from torch import Size
 
 
 class DummyDeterministicModel(DeterministicModel):
@@ -58,7 +61,8 @@ class TestDeterministicModels(BotorchTestCase):
 
         model = GenericDeterministicModel(f)
         self.assertEqual(model.num_outputs, 1)
-        X = torch.rand(3, 2)
+        d = 2
+        X = torch.rand(3, d)
         # basic test
         p = model.posterior(X)
         self.assertIsInstance(p, EnsemblePosterior)
@@ -80,6 +84,25 @@ class TestDeterministicModels(BotorchTestCase):
         self.assertIsInstance(subset_model, GenericDeterministicModel)
         p_sub = subset_model.posterior(X)
         self.assertTrue(torch.equal(p_sub.mean, X[..., [0]]))
+
+        # testing batched model
+        batch_shape = torch.Size([2, 4])
+        batch_coefficients = torch.rand(*batch_shape, 1, d)
+
+        def batched_f(X):
+            return (X * batch_coefficients).sum(dim=-1, keepdim=True)
+
+        model = GenericDeterministicModel(batched_f, batch_shape=batch_shape)
+        Y = model(X)
+        self.assertEqual(Y.shape, torch.Size([2, 4, 3, 1]))
+
+        # testing with wrong batch shape
+        model = GenericDeterministicModel(batched_f, batch_shape=torch.Size([2]))
+
+        with self.assertRaisesRegex(
+            ValueError, "GenericDeterministicModel was initialized with batch_shape="
+        ):
+            model(X)
 
     def test_AffineDeterministicModel(self):
         # test error on bad shape of a
@@ -201,3 +224,55 @@ class TestDeterministicModels(BotorchTestCase):
 
         # the following line should execute fine
         fss_model_double.posterior(test_X_float)
+
+
+class TestMatheronPathModel(BotorchTestCase):
+    def test_MatheronPathModel(self) -> None:
+        """Test MatheronPathModel basic class attributes and properties."""
+        tkwargs = {"device": self.device, "dtype": torch.double}
+
+        # Setup test model
+        train_X = torch.rand(5, 2, **tkwargs)
+        train_Y = torch.rand(5, 1, **tkwargs)
+        model = SingleTaskGP(train_X, train_Y)
+
+        # Test basic class instantiation and attributes
+        path_model = MatheronPathModel(model=model)
+        self.assertIsInstance(path_model, DeterministicModel)
+        self.assertEqual(path_model.num_outputs, model.num_outputs)
+        self.assertEqual(path_model.batch_shape, model.batch_shape)
+        self.assertFalse(path_model._is_ensemble)
+
+        # Test with sample_shape
+        sample_shape = Size([3])
+        path_model = MatheronPathModel(model=model, sample_shape=sample_shape)
+        self.assertTrue(path_model._is_ensemble)
+        expected_batch_shape = sample_shape + model.batch_shape
+        self.assertEqual(path_model.batch_shape, expected_batch_shape)
+
+        # Test basic forward pass
+        test_X = torch.rand(4, 2, **tkwargs)
+        output = path_model(test_X)
+        expected_shape = torch.Size([3, 4, 1])
+        self.assertEqual(output.shape, expected_shape)
+
+        # Test that output is deterministic (same inputs give same outputs)
+        output2 = path_model(test_X)
+        self.assertTrue(torch.equal(output, output2))
+
+        # Test seed functionality, same seed should produce same outputs
+        seed = 123
+        path_model1 = MatheronPathModel(model=model, seed=seed)
+        path_model2 = MatheronPathModel(model=model, seed=seed)
+        test_X = torch.rand(4, 2, **tkwargs)
+        self.assertTrue(torch.equal(path_model1(test_X), path_model2(test_X)))
+
+        # Not setting seed should produce different outputs
+        path_model1 = MatheronPathModel(model=model, seed=None)
+        path_model2 = MatheronPathModel(model=model, seed=None)
+        test_X = torch.rand(1, 2, **tkwargs)
+        self.assertFalse(torch.equal(path_model1(test_X), path_model2(test_X)))
+
+        # Different seeds should produce different outputs
+        path_model3 = MatheronPathModel(model=model, seed=456)
+        self.assertFalse(torch.equal(path_model1(test_X), path_model3(test_X)))

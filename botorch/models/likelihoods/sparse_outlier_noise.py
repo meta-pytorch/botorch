@@ -365,7 +365,7 @@ class SparseOutlierNoise(Noise, RelevancePursuitMixin):
         # and GPyTorch generally pass the training inputs to the likelihood, e.g.:
         # 1) in fit_gpytorch_mll:
         # (
-        #   github.com/pytorch/botorch/blob/3ca48d0ac5865a017ac6b2294807b432d6472bcf/
+        #   github.com/meta-pytorch/botorch/blob/3ca48d0ac5865a017ac6b2294807b432d6472bcf/
         #   botorch/optim/closures/model_closures.py#L185
         # )
         # 2) in the exact prediction strategy:
@@ -377,7 +377,7 @@ class SparseOutlierNoise(Noise, RelevancePursuitMixin):
         # 3) In the model's `posterior` method, if `observation_noise` is True, in which
         # case the test inputs will be passed to the likelihood:
         # (
-        #    https://github.com/pytorch/botorch/blob/
+        #    https://github.com/meta-pytorch/botorch/blob/
         #    4190f74363757ad97bfb0b437402b749ae50ba4c/
         #    botorch/models/gpytorch.py#L198
         # )

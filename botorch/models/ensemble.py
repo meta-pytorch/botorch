@@ -24,6 +24,19 @@ from torch import Tensor
 class EnsembleModel(Model, ABC):
     """Abstract base class for ensemble models."""
 
+    def __init__(self, weights: Tensor | None = None):
+        """Initialize the ensemble model.
+
+        Args:
+            weights: Optional weights for the ensemble members.
+                If None, the model weights will default to uniform in the
+                corresponding mixture posterior.
+        """
+        super().__init__()
+        # buffer `weights` is generally a name occupied by another module,
+        # so we have to be more specific here
+        self.ensemble_weights = weights
+
     @abstractmethod
     def forward(self, X: Tensor) -> Tensor:
         r"""Compute the (ensemble) model output at X.
@@ -82,7 +95,7 @@ class EnsembleModel(Model, ABC):
             values, _ = self.outcome_transform.untransform(values, X=X)
         if output_indices is not None:
             values = values[..., output_indices]
-        posterior = EnsemblePosterior(values=values)
+        posterior = EnsemblePosterior(values=values, weights=self.ensemble_weights)
         if posterior_transform is not None:
             return posterior_transform(posterior)
         else:

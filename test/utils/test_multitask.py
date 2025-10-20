@@ -7,7 +7,6 @@
 
 import torch
 from botorch.utils.multitask import separate_mtmvn
-
 from botorch.utils.testing import BotorchTestCase
 from gpytorch.distributions import MultitaskMultivariateNormal
 from gpytorch.distributions.multivariate_normal import MultivariateNormal

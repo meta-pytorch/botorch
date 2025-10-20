@@ -142,7 +142,7 @@ class AugmentedRosenbrock(SyntheticTestFunction):
 
     def __init__(
         self,
-        dim=3,
+        dim: int = 3,
         noise_std: float | None = None,
         negate: bool = False,
         dtype: torch.dtype = torch.double,
@@ -160,7 +160,9 @@ class AugmentedRosenbrock(SyntheticTestFunction):
             )
         self.dim = dim
         self.continuous_inds = list(range(dim))
-        self._bounds = [(-5.0, 10.0) for _ in range(self.dim)]
+        self._bounds = [(-5.0, 10.0) for _ in range(self.dim - 2)] + [
+            (0.0, 1.0) for _ in range(2)
+        ]
         self._optimizers = [tuple(1.0 for _ in range(self.dim))]
         super().__init__(noise_std=noise_std, negate=negate, dtype=dtype)
 
@@ -169,7 +171,7 @@ class AugmentedRosenbrock(SyntheticTestFunction):
         X_next = X[..., 1:-2]
         t1 = 100 * (X_next - X_curr.pow(2) + 0.1 * (1 - X[..., -2:-1])).pow(2)
         t2 = (X_curr - 1 + 0.1 * (1 - X[..., -1:]).pow(2)).pow(2)
-        return -((t1 + t2).sum(dim=-1))
+        return (t1 + t2).sum(dim=-1)
 
 
 class WingWeightMultiFidelity(SyntheticTestFunction):

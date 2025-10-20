@@ -53,7 +53,7 @@ CLAMP_LB = torch.finfo(torch.float32).eps
 FULLY_BAYESIAN_ERROR_MSG = (
     "JES is not yet available with Fully Bayesian GPs. Track the issue, "
     "which regards conditioning on a number of optima on a collection "
-    "of models, in detail at https://github.com/pytorch/botorch/issues/1680"
+    "of models, in detail at https://github.com/meta-pytorch/botorch/issues/1680"
 )
 
 

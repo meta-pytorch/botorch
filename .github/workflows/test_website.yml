@@ -1,0 +1,26 @@
+name: Test Website
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+    paths:
+      - "tutorials/**"
+      - "notebooks_community/**"
+      - "docs/**"
+      - "scripts/**"
+      - "website/**"
+  workflow_dispatch:
+
+jobs:
+  website:
+    name: Test building website
+    uses: ./.github/workflows/publish_website.yml
+    with:
+      dry_run: true
+      run_tutorials: false
+    permissions:
+      contents: write
+      pages: write
+      id-token: write

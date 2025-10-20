@@ -2,6 +2,62 @@
 
 The release log for BoTorch.
 
+## [0.15.1] -- Aug 12, 2025
+This is a compatibility release, coming only one week after 0.15.0.
+
+#### New features
+* Enable optimizing a sequence of acquisition functions in `optimize_acqf` (#2931).
+
+## [0.15.0] -- Aug 5, 2025
+
+#### New Features
+* NP Regression Model w/ LIG Acquisition (#2683).
+* Fully Bayesian Matern GP with dimension scaling prior (#2855).
+* Option for input warping in non-linear fully Bayesian GPs (#2858).
+* Support for `condition_on_observations` in `FullyBayesianMultiTaskGP` (#2871).
+* Improvements to `optimize_acqf_mixed_alternating`:
+  * Support categoricals in alternating optimization (#2866).
+  * Batch mixed optimization (#2895).
+  * Non-equidistant discrete dimensions for `optimize_acqf_mixed_alternating` (#2923).
+  * Update syntax for categoricals in `optimize_acqf_mixed_alternating` (#2942).
+  * Equality constraints for `optimize_acqf_mixed_alternating` (#2944).
+* Multi-output acquisition functions and related utilities:
+  * Multi-Output Acquisition Functions (#2935).
+  * Utility for greedily selecting an approximate hypervolume maximizing subset (#2936).
+  * Update optimize with NSGA-II (#2937).
+  * Add utility for running pymoo NSGA-II (#2868).
+* Batched L-BFGS-B for more efficient acquisition function optimization (#2870, #2892).
+* Pathwise Thompson sampling for ensemble models (#2877).
+* ROBOT tutorial notebook (#2883).
+* Add community notebooks to the botorch.org website (#2913).
+
+#### Bug Fixes
+* Fix model paths in prior fitted networks (#2843).
+* Fix a bug where input transforms were not applied in fully Bayesian models in train mode (#2859).
+* Fix local `Y` vs global `Y_Train` in `generate_batch` function in TURBO tutorial (#2862).
+* Fix CUDA support for `FullyBayesianMTGP` (#2875).
+* Fix edge case with NaNs in `is_non_dominated` (#2925).
+* Normalize for correct fidelity in `qLowerBoundMaxValueEntropy` (#2930).
+* Bug: Botorch_community `VBLLModel` posterior doesn't work with single value tensor (#2929).
+* Fix variance shape bug in Riemann posterior (#2939).
+* Fix input constructor for `LogProbabilityOfFeasibility` (#2945).
+* Fix `AugmentedRosenbrock` problem and expand testing for optimizers (#2950).
+
+#### Other Changes
+* Improved documentation for `optimize_acqf` (#2865).
+* Fully Bayesian Multi-Task GP cleanup (#2869).
+* `average_over_ensemble_models` decorator for acquisition functions (#2873).
+* Changes to I-BNN tutorial (#2889).
+* Allow batched fixed features in gen_candidates_scipy and gen_candidates_torch (#2893)
+* Refactor of `MultiTask` / `FullyBayesianMultiTaskGP` to use `ProductKernel` and `IndexKernel` (#2908).
+* Various changes to PFNs to improve Ax compatibility (#2915, #2940).
+* Eliminate expensive indexing in `separate_mtmvn` (#2920).
+* Added reset method to `StoppingCriterion` (#2927).
+* Simplify closure dispatch (#2947).
+* Add BaseTestProblem.is_minimization_problem property (#2949).
+* Simplify NdarrayOptimizationClosure (#2951).
+
+
 ## [0.14.0] -- May 6, 2025
 
 #### Highlights

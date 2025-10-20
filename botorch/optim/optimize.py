@@ -35,7 +35,10 @@ from botorch.optim.initializers import (
     gen_one_shot_kg_initial_conditions,
     TGenInitialConditions,
 )
-from botorch.optim.parameter_constraints import evaluate_feasibility
+from botorch.optim.parameter_constraints import (
+    evaluate_feasibility,
+    project_to_feasible_space_via_slsqp,
+)
 from botorch.optim.stopping import ExpMAStoppingCriterion
 from torch import Tensor
 
@@ -65,7 +68,7 @@ class OptimizeAcqfInputs:
     See docstring for `optimize_acqf` for explanation of parameters.
     """
 
-    acq_function: AcquisitionFunction
+    acq_function: AcquisitionFunction | None
     bounds: Tensor
     q: int
     num_restarts: int
@@ -85,6 +88,7 @@ class OptimizeAcqfInputs:
     return_full_tree: bool = False
     retry_on_optimization_warning: bool = True
     ic_gen_kwargs: dict = dataclasses.field(default_factory=dict)
+    acq_function_sequence: list[AcquisitionFunction] | None = None
 
     @property
     def full_tree(self) -> bool:
@@ -93,6 +97,10 @@ class OptimizeAcqfInputs:
         )
 
     def __post_init__(self) -> None:
+        if self.acq_function is None and self.acq_function_sequence is None:
+            raise ValueError(
+                "Either `acq_function` or `acq_function_sequence` must be specified."
+            )
         if self.inequality_constraints is None and not (
             self.bounds.ndim == 2 and self.bounds.shape[0] == 2
         ):
@@ -163,10 +171,15 @@ class OptimizeAcqfInputs:
                     "`batch_initial_conditions` is None`."
                 )
 
-        if self.fixed_features is not None and any(
-            (k < 0 for k in self.fixed_features)
-        ):
-            raise ValueError("All indices (keys) in `fixed_features` must be >= 0.")
+        if self.acq_function_sequence is not None:
+            if not self.sequential:
+                raise ValueError(
+                    "acq_function_sequence requires sequential optimization."
+                )
+            if len(self.acq_function_sequence) != self.q:
+                raise ValueError("acq_function_sequence must have length q.")
+            if self.q < 2:
+                raise ValueError("acq_function_sequence requires q > 1.")
 
     def get_ic_generator(self) -> TGenInitialConditions:
         if self.ic_generator is not None:
@@ -225,7 +238,7 @@ def _validate_sequential_inputs(opt_inputs: OptimizeAcqfInputs) -> None:
                 )
 
     # TODO: Validate constraints if provided:
-    # https://github.com/pytorch/botorch/pull/1231
+    # https://github.com/meta-pytorch/botorch/pull/1231
     if opt_inputs.batch_initial_conditions is not None:
         raise UnsupportedError(
             "`batch_initial_conditions` is not supported for sequential "
@@ -264,29 +277,47 @@ def _optimize_acqf_sequential_q(
         else None
     )
     candidate_list, acq_value_list = [], []
-    base_X_pending = opt_inputs.acq_function.X_pending
+    if opt_inputs.acq_function_sequence is None:
+        acq_function_sequence = [opt_inputs.acq_function]
+    else:
+        acq_function_sequence = opt_inputs.acq_function_sequence
+    base_X_pending = [acqf.X_pending for acqf in acq_function_sequence]
+    n_acq = len(acq_function_sequence)
 
-    new_inputs = dataclasses.replace(
-        opt_inputs,
-        q=1,
-        batch_initial_conditions=None,
-        return_best_only=True,
-        sequential=False,
-        timeout_sec=timeout_sec,
-    )
+    new_kwargs = {
+        "q": 1,
+        "batch_initial_conditions": None,
+        "return_best_only": True,
+        "sequential": False,
+        "timeout_sec": timeout_sec,
+        "acq_function_sequence": None,
+    }
+    new_inputs = dataclasses.replace(opt_inputs, **new_kwargs)
+
     for i in range(opt_inputs.q):
+        if n_acq > 1:
+            acq_function = acq_function_sequence[i]
+            new_kwargs["acq_function"] = acq_function
+            new_inputs = dataclasses.replace(opt_inputs, **new_kwargs)
+        if len(candidate_list) > 0:
+            candidates = torch.cat(candidate_list, dim=-2)
+            new_inputs.acq_function.set_X_pending(
+                torch.cat([base_X_pending[i % n_acq], candidates], dim=-2)
+                if base_X_pending[i % n_acq] is not None
+                else candidates
+            )
         candidate, acq_value = _optimize_acqf_batch(new_inputs)
 
         candidate_list.append(candidate)
         acq_value_list.append(acq_value)
-        candidates = torch.cat(candidate_list, dim=-2)
-        new_inputs.acq_function.set_X_pending(
-            torch.cat([base_X_pending, candidates], dim=-2)
-            if base_X_pending is not None
-            else candidates
-        )
+
         logger.info(f"Generated sequential candidate {i + 1} of {opt_inputs.q}")
-    opt_inputs.acq_function.set_X_pending(base_X_pending)
+        model_name = type(new_inputs.acq_function.model).__name__
+        logger.debug(f"Used model {model_name} for candidate generation.")
+    candidates = torch.cat(candidate_list, dim=-2)
+    # Re-set X_pendings on the acquisitions to base values
+    for acqf, X_pending in zip(acq_function_sequence, base_X_pending):
+        acqf.set_X_pending(X_pending)
     return candidates, torch.stack(acq_value_list)
 
 
@@ -367,7 +398,18 @@ def _optimize_acqf_batch(opt_inputs: OptimizeAcqfInputs) -> tuple[Tensor, Tensor
     def _optimize_batch_candidates() -> tuple[Tensor, Tensor, list[Warning]]:
         batch_candidates_list: list[Tensor] = []
         batch_acq_values_list: list[Tensor] = []
+
         batched_ics = batch_initial_conditions.split(batch_limit)
+        if opt_inputs.fixed_features is None:
+            batched_fixed_features = {}
+        else:
+            batched_fixed_features = {
+                k: ff.split(batch_limit)
+                if torch.is_tensor(ff) and ff.numel() > 1
+                else [ff] * len(batched_ics)
+                for k, ff in opt_inputs.fixed_features.items()
+            }
+
         opt_warnings = []
         timeout_sec = (
             opt_inputs.timeout_sec / len(batched_ics)
@@ -393,7 +435,7 @@ def _optimize_acqf_batch(opt_inputs: OptimizeAcqfInputs) -> tuple[Tensor, Tensor
                     lower_bounds=lower_bounds,
                     upper_bounds=upper_bounds,
                     options=gen_options,
-                    fixed_features=opt_inputs.fixed_features,
+                    fixed_features={k: v[i] for k, v in batched_fixed_features.items()},
                     timeout_sec=timeout_sec,
                     **gen_kwargs,
                 )
@@ -474,15 +516,47 @@ def _optimize_acqf_batch(opt_inputs: OptimizeAcqfInputs) -> tuple[Tensor, Tensor
 
     # SLSQP can sometimes fail to produce a feasible candidate. Check for
     # feasibility and error out if necessary.
+    # if there are equality constraints, project the candidate to the feasible set
+    equality_constraints = gen_kwargs.get("equality_constraints")
+    inequality_constraints = gen_kwargs.get("inequality_constraints")
+    nonlinear_inequality_constraints = gen_kwargs.get(
+        "nonlinear_inequality_constraints"
+    )
     is_feasible = evaluate_feasibility(
         X=batch_candidates,
-        inequality_constraints=gen_kwargs.get("inequality_constraints"),
-        equality_constraints=gen_kwargs.get("equality_constraints"),
-        nonlinear_inequality_constraints=gen_kwargs.get(
-            "nonlinear_inequality_constraints"
-        ),
+        inequality_constraints=inequality_constraints,
+        equality_constraints=equality_constraints,
+        nonlinear_inequality_constraints=nonlinear_inequality_constraints,
     )
     infeasible = ~is_feasible
+    if nonlinear_inequality_constraints is None and infeasible.any():
+        projected_candidates = project_to_feasible_space_via_slsqp(
+            X=batch_candidates[infeasible],
+            bounds=opt_inputs.bounds,
+            equality_constraints=equality_constraints,
+            inequality_constraints=inequality_constraints,
+        )
+        if opt_inputs.post_processing_func is not None:
+            projected_candidates = opt_inputs.post_processing_func(projected_candidates)
+        batch_candidates[infeasible] = projected_candidates
+        # recompute AF values for projected points
+        with torch.no_grad():
+            batch_acq_values[infeasible] = torch.cat(
+                [
+                    opt_inputs.acq_function(cand)
+                    for cand in projected_candidates.split(batch_limit, dim=0)
+                ],
+                dim=0,
+            )
+        # re-evaluate feasibility
+        is_feasible = evaluate_feasibility(
+            X=batch_candidates,
+            inequality_constraints=inequality_constraints,
+            equality_constraints=equality_constraints,
+            nonlinear_inequality_constraints=nonlinear_inequality_constraints,
+        )
+        infeasible = ~is_feasible
+
     if (opt_inputs.return_best_only and (not is_feasible.any())) or infeasible.all():
         raise CandidateGenerationError(
             f"The optimizer produced infeasible candidates. "
@@ -506,7 +580,7 @@ def _optimize_acqf_batch(opt_inputs: OptimizeAcqfInputs) -> tuple[Tensor, Tensor
 
 
 def optimize_acqf(
-    acq_function: AcquisitionFunction,
+    acq_function: AcquisitionFunction | None,
     bounds: Tensor,
     q: int,
     num_restarts: int,
@@ -521,6 +595,7 @@ def optimize_acqf(
     return_best_only: bool = True,
     gen_candidates: TGenCandidates | None = None,
     sequential: bool = False,
+    acq_function_sequence: list[AcquisitionFunction] | None = None,
     *,
     ic_generator: TGenInitialConditions | None = None,
     timeout_sec: float | None = None,
@@ -598,8 +673,7 @@ def optimize_acqf(
             is set to 1, which will be done automatically if not specified in
             `options`.
         fixed_features: A map `{feature_index: value}` for features that
-            should be fixed to a particular value during generation. All indices
-            should be non-negative.
+            should be fixed to a particular value during generation.
         post_processing_func: A function that post-processes an optimization
             result appropriately (i.e., according to `round-trip`
             transformations).
@@ -616,6 +690,10 @@ def optimize_acqf(
             inputs. Default: `gen_candidates_scipy`
         sequential: If False, uses joint optimization, otherwise uses sequential
             optimization for optimizing multiple joint candidates (q > 1).
+        acq_function_sequence: A list of acquisition functions to be optimized
+            sequentially. Must be of length q>1, and requires sequential=True. Used
+            for ensembling candidates from different acquisition functions. If
+            omitted, use `acq_function` to generate all `q` candidates.
         ic_generator: Function for generating initial conditions. Not needed when
             `batch_initial_conditions` are provided. Defaults to
             `gen_one_shot_kg_initial_conditions` for `qKnowledgeGradient` acquisition
@@ -657,6 +735,13 @@ def optimize_acqf(
     # using a default of None simplifies unit testing
     if gen_candidates is None:
         gen_candidates = gen_candidates_scipy
+
+    # Negative indices in fixed features
+    if fixed_features is not None:
+        fixed_features = {
+            idx % bounds.shape[-1]: val for idx, val in fixed_features.items()
+        }
+
     opt_acqf_inputs = OptimizeAcqfInputs(
         acq_function=acq_function,
         bounds=bounds,
@@ -678,6 +763,7 @@ def optimize_acqf(
         return_full_tree=return_full_tree,
         retry_on_optimization_warning=retry_on_optimization_warning,
         ic_gen_kwargs=ic_gen_kwargs,
+        acq_function_sequence=acq_function_sequence,
     )
     return _optimize_acqf(opt_inputs=opt_acqf_inputs)
 
@@ -743,8 +829,7 @@ def optimize_acqf_cyclic(
             with each tuple encoding an inequality constraint of the form
             `\sum_i (X[indices[i]] * coefficients[i]) = rhs`
         fixed_features: A map `{feature_index: value}` for features that
-            should be fixed to a particular value during generation. All indices
-            should be non-negative.
+            should be fixed to a particular value during generation.
         post_processing_func: A function that post-processes an optimization
             result appropriately (i.e., according to `round-trip`
             transformations).
@@ -783,6 +868,12 @@ def optimize_acqf_cyclic(
         >>>     qEI, bounds, 3, 15, 256, cyclic_options={"maxiter": 4}
         >>> )
     """
+    # Negative indices in fixed features
+    if fixed_features is not None:
+        fixed_features = {
+            idx % bounds.shape[-1]: val for idx, val in fixed_features.items()
+        }
+
     opt_inputs = OptimizeAcqfInputs(
         acq_function=acq_function,
         bounds=bounds,
@@ -815,7 +906,7 @@ def optimize_acqf_cyclic(
     if q > 1:
         cyclic_options = cyclic_options or {}
         stopping_criterion = ExpMAStoppingCriterion(**cyclic_options)
-        stop = stopping_criterion.evaluate(fvals=acq_vals)
+        stop = stopping_criterion(fvals=acq_vals)
         base_X_pending = acq_function.X_pending
         idxr = torch.ones(q, dtype=torch.bool, device=opt_inputs.bounds.device)
         while not stop:
@@ -836,7 +927,7 @@ def optimize_acqf_cyclic(
                 candidates[i] = candidate_i
                 acq_vals[i] = acq_val_i
                 idxr[i] = 1
-            stop = stopping_criterion.evaluate(fvals=acq_vals)
+            stop = stopping_criterion(fvals=acq_vals)
         acq_function.set_X_pending(base_X_pending)
     return candidates, acq_vals
 
@@ -893,12 +984,10 @@ def optimize_acqf_list(
             is set to 1, which will be done automatically if not specified in
             `options`.
         fixed_features: A map `{feature_index: value}` for features that should
-            be fixed to a particular value during generation. All indices
-            (`feature_index`) should be non-negative.
+            be fixed to a particular value during generation.
         fixed_features_list: A list of maps `{feature_index: value}`. The i-th
             item represents the fixed_feature for the i-th optimization. If
             `fixed_features_list` is provided, `optimize_acqf_mixed` is invoked.
-            All indices (`feature_index`) should be non-negative.
         post_processing_func: A function that post-processes an optimization
             result appropriately (i.e., according to `round-trip`
             transformations).
@@ -1001,6 +1090,9 @@ def optimize_acqf_mixed(
     For q > 1 this function always performs sequential greedy optimization (with
     proper conditioning on generated candidates).
 
+    NOTE: This method does not support the kind of "inter-point constraints" that
+    are supported by `optimize_acqf()`.
+
     Args:
         acq_function: An AcquisitionFunction
         bounds: A `2 x d` tensor of lower and upper bounds for each column of `X`
@@ -1012,8 +1104,7 @@ def optimize_acqf_mixed(
         raw_samples: Number of samples for initialization. This is required
             if `batch_initial_conditions` is not specified.
         fixed_features_list: A list of maps `{feature_index: value}`. The i-th
-            item represents the fixed_feature for the i-th optimization. All
-            indices (`feature_index`) should be non-negative.
+            item represents the fixed_feature for the i-th optimization.
         options: Options for candidate generation.
         inequality constraints: A list of tuples (indices, coefficients, rhs),
             with each tuple encoding an inequality constraint of the form
@@ -1023,19 +1114,12 @@ def optimize_acqf_mixed(
             `\sum_i (X[indices[i]] * coefficients[i]) = rhs`
         nonlinear_inequality_constraints: A list of tuples representing the nonlinear
             inequality constraints. The first element in the tuple is a callable
-            representing a constraint of the form `callable(x) >= 0`. In case of an
-            intra-point constraint, `callable()`takes in an one-dimensional tensor of
-            shape `d` and returns a scalar. In case of an inter-point constraint,
-            `callable()` takes a two dimensional tensor of shape `q x d` and again
-            returns a scalar. The second element is a boolean, indicating if it is an
+            representing a constraint of the form `callable(x) >= 0`. The `callable()`
+            takes in an one-dimensional tensor of shape `d` and returns a scalar.
+            The second element is a boolean, indicating if it is an
             intra-point or inter-point constraint (`True` for intra-point. `False` for
-            inter-point). For more information on intra-point vs inter-point
-            constraints, see the docstring of the `inequality_constraints` argument to
-            `optimize_acqf()`. The constraints will later be passed to the scipy
-            solver. You need to pass in `batch_initial_conditions` in this case.
-            Using non-linear inequality constraints also requires that `batch_limit`
-            is set to 1, which will be done automatically if not specified in
-            `options`.
+            inter-point). Since inter-point constraints are not supported by this
+            method, this has to be `True` and raises an error if being `False`.
         post_processing_func: A function that post-processes an optimization
             result appropriately (i.e., according to `round-trip`
             transformations).
@@ -1070,6 +1154,27 @@ def optimize_acqf_mixed(
         - a tensor of associated acquisition values of dim `num_restarts`
             if `return_best_only=False` else a scalar acquisition value.
     """
+    const_err_message = (
+        "Inter-point constraints are not supported for sequential optimization. "
+        "But the {}th {} constraint is defined as inter-point."
+    )
+    # Check for existence of inter-point constraints
+    # Code adapted from _validate_sequential_inputs
+    if inequality_constraints is not None:
+        for i, (indices, _, _) in enumerate(inequality_constraints):
+            if indices.ndim > 1:
+                raise UnsupportedError(const_err_message.format(i, "linear inequality"))
+    if equality_constraints is not None:
+        for i, (indices, _, _) in enumerate(equality_constraints):
+            if indices.ndim > 1:
+                raise UnsupportedError(const_err_message.format(i, "linear equality"))
+    if nonlinear_inequality_constraints is not None:
+        for i, (_, intra_point) in enumerate(nonlinear_inequality_constraints):
+            if not intra_point:
+                raise UnsupportedError(
+                    const_err_message.format(i, "non-linear inequality")
+                )
+
     if not return_best_only and q > 1:
         raise NotImplementedError("`return_best_only=False` is only supported for q=1.")
 
@@ -1230,8 +1335,7 @@ def optimize_acqf_discrete(
     """
     if isinstance(acq_function, OneShotAcquisitionFunction):
         raise UnsupportedError(
-            "Discrete optimization is not supported for"
-            "one-shot acquisition functions."
+            "Discrete optimization is not supported for one-shot acquisition functions."
         )
     if X_avoid is not None and unique:
         choices = _filter_invalid(X=choices, X_avoid=X_avoid)

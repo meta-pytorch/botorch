@@ -235,8 +235,8 @@ class TestDatasets(BotorchTestCase):
                     self.assertIs(dataset._X, dataset2._X)
                     self.assertIs(dataset._Y, dataset2._Y)
                     self.assertIs(dataset._Yvar, dataset2._Yvar)
-                    self.assertIs(dataset.feature_names, dataset2.feature_names)
-                    self.assertIs(dataset.outcome_names, dataset2.outcome_names)
+                    self.assertEqual(dataset.feature_names, dataset2.feature_names)
+                    self.assertEqual(dataset.outcome_names, dataset2.outcome_names)
                 # test with mask
                 mask = torch.tensor([0, 1, 1], dtype=torch.bool)
                 if supervised:
@@ -729,3 +729,17 @@ class TestDatasets(BotorchTestCase):
                     )
                 else:
                     self.assertIsNone(context_dt2.metric_decomposition)
+
+    def test_contextual_dataset_equality(self) -> None:
+        context_dt, _ = make_contextual_dataset(has_yvar=True, contextual_outcome=True)
+        clone = context_dt.clone()
+        self.assertEqual(context_dt, clone)
+        for yvar, outcome in (
+            (True, False),
+            (False, True),
+            (False, False),
+        ):
+            new_dt, _ = make_contextual_dataset(
+                has_yvar=yvar, contextual_outcome=outcome
+            )
+            self.assertNotEqual(context_dt, new_dt)

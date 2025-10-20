@@ -224,18 +224,19 @@ class PyroModel:
         The prior has a mean value of 1 for each concentration and is very
         concentrated around the mean.
         """
+        d = len(self.indices) if self.indices is not None else self.ard_num_dims
         c0 = pyro.sample(
             "c0",
             pyro.distributions.LogNormal(
-                torch.tensor([0.0] * self.ard_num_dims, **tkwargs),
-                torch.tensor([0.1**0.5] * self.ard_num_dims, **tkwargs),
+                torch.tensor([0.0] * d, **tkwargs),
+                torch.tensor([0.1**0.5] * d, **tkwargs),
             ),
         )
         c1 = pyro.sample(
             "c1",
             pyro.distributions.LogNormal(
-                torch.tensor([0.0] * self.ard_num_dims, **tkwargs),
-                torch.tensor([0.1**0.5] * self.ard_num_dims, **tkwargs),
+                torch.tensor([0.0] * d, **tkwargs),
+                torch.tensor([0.1**0.5] * d, **tkwargs),
             ),
         )
 
@@ -904,13 +905,14 @@ class AbstractFullyBayesianSingleTaskGP(ExactGP, BatchedMultiOutputGPyTorchModel
 
 
 class FullyBayesianSingleTaskGP(AbstractFullyBayesianSingleTaskGP):
-    r"""A fully Bayesian single-task GP model with the SAAS prior.
+    r"""A fully Bayesian single-task GP model.
 
     This model assumes that the inputs have been normalized to [0, 1]^d and that
     the output has been standardized to have zero mean and unit variance. You can
     either normalize and standardize the data before constructing the model or use
-    an `input_transform` and `outcome_transform`. A dimension-scaled model
-    [Hvarfner2024vanilla]_ with a Matern-5/2 kernel is used by default.
+    an `input_transform` and `outcome_transform`. A model with a Matern-5/2 kernel
+    and dimension-scaled priors on the hyperparameters from [Hvarfner2024vanilla]_
+    is used by default.
 
     You are expected to use `fit_fully_bayesian_model_nuts` to fit this model as it
     isn't compatible with `fit_gpytorch_mll`.

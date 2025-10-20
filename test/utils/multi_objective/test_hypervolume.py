@@ -8,7 +8,11 @@ from __future__ import annotations
 
 import torch
 from botorch.exceptions.errors import BotorchError, BotorchTensorDimensionError
-from botorch.utils.multi_objective.hypervolume import Hypervolume, infer_reference_point
+from botorch.utils.multi_objective.hypervolume import (
+    get_hypervolume_maximizing_subset,
+    Hypervolume,
+    infer_reference_point,
+)
 from botorch.utils.testing import BotorchTestCase
 
 EPS = 1e-4
@@ -300,3 +304,64 @@ class TestGetReferencePoint(BotorchTestCase):
                     pareto_Y=Y[:0],
                     max_ref_point=torch.tensor([float("nan"), -1e5], **tkwargs),
                 )
+
+
+class TestGetHypervolumeMaximizingSubset(BotorchTestCase):
+    def test_get_hypervolume_maximizing_subset(self) -> None:
+        # test invalid shapes
+        ref_point = torch.torch.zeros(2)
+        for invalid_y in (torch.zeros(2), torch.zeros(1, 1, 2)):
+            with self.assertRaisesRegex(
+                NotImplementedError,
+                r"Only two dimensions are supported \(no additional\) batch dims.",
+            ):
+                get_hypervolume_maximizing_subset(n=1, Y=invalid_y, ref_point=ref_point)
+            # test n > Y.shape[0]
+            with self.assertRaisesRegex(
+                ValueError,
+                r"Y has fewer points \(1\) than the requested subset size \(2\).",
+            ):
+                get_hypervolume_maximizing_subset(
+                    n=2, Y=torch.zeros(1, 2), ref_point=ref_point
+                )
+        for dtype in (torch.float, torch.double):
+            Y = torch.tensor(
+                [
+                    [-13.9599, -24.0326],
+                    [-19.6755, -11.4721],
+                    [-18.7742, -11.9193],
+                    [-16.6614, -12.3283],
+                    [-17.7663, -11.9941],
+                    [-17.4367, -12.2948],
+                    [-19.4244, -11.9158],
+                    [-14.0806, -22.0004],
+                ],
+                dtype=dtype,
+                device=self.device,
+            )
+            ref_point = torch.tensor([-20.0, -20.0], dtype=dtype, device=self.device)
+
+            Y_subset, idcs = get_hypervolume_maximizing_subset(
+                n=3, Y=Y, ref_point=ref_point
+            )
+            self.assertTrue(torch.equal(Y_subset, Y[idcs]))
+            self.assertTrue(
+                torch.equal(
+                    idcs, torch.tensor([3, 4, 1], dtype=torch.long, device=self.device)
+                )
+            )
+            # test without `n` pareto optimal points
+            Y = torch.tensor(
+                [[-5.0, -5.0], [-10.0, -10.0]],
+                dtype=dtype,
+                device=self.device,
+            )
+            Y_subset, idcs = get_hypervolume_maximizing_subset(
+                n=2, Y=Y, ref_point=ref_point
+            )
+            self.assertTrue(torch.equal(Y_subset, Y))
+            self.assertTrue(
+                torch.equal(
+                    idcs, torch.tensor([0, 1], dtype=torch.long, device=self.device)
+                )
+            )

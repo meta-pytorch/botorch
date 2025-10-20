@@ -5,11 +5,11 @@
 <hr/>
 
 [![Support Ukraine](https://img.shields.io/badge/Support-Ukraine-FFD500?style=flat&labelColor=005BBB)](https://opensource.fb.com/support-ukraine)
-[![Lint](https://github.com/pytorch/botorch/workflows/Lint/badge.svg)](https://github.com/pytorch/botorch/actions?query=workflow%3ALint)
-[![Test](https://github.com/pytorch/botorch/workflows/Test/badge.svg)](https://github.com/pytorch/botorch/actions?query=workflow%3ATest)
-[![Docs](https://github.com/pytorch/botorch/workflows/Docs/badge.svg)](https://github.com/pytorch/botorch/actions?query=workflow%3ADocs)
-[![Nightly](https://github.com/pytorch/botorch/actions/workflows/nightly.yml/badge.svg)](https://github.com/pytorch/botorch/actions?query=workflow%3ANightly)
-[![Codecov](https://img.shields.io/codecov/c/github/pytorch/botorch.svg)](https://codecov.io/github/pytorch/botorch)
+[![Lint](https://github.com/meta-pytorch/botorch/workflows/Lint/badge.svg)](https://github.com/meta-pytorch/botorch/actions?query=workflow%3ALint)
+[![Test](https://github.com/meta-pytorch/botorch/workflows/Test/badge.svg)](https://github.com/meta-pytorch/botorch/actions?query=workflow%3ATest)
+[![Docs](https://github.com/meta-pytorch/botorch/workflows/Docs/badge.svg)](https://github.com/meta-pytorch/botorch/actions?query=workflow%3ADocs)
+[![Nightly](https://github.com/meta-pytorch/botorch/actions/workflows/nightly.yml/badge.svg)](https://github.com/meta-pytorch/botorch/actions?query=workflow%3ANightly)
+[![Codecov](https://img.shields.io/codecov/c/github/meta-pytorch/botorch.svg)](https://codecov.io/github/meta-pytorch/botorch)
 
 [![PyPI](https://img.shields.io/pypi/v/botorch.svg)](https://pypi.org/project/botorch)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
@@ -56,8 +56,8 @@ Optimization simply use Ax.
 **Installation Requirements**
 - Python >= 3.10
 - PyTorch >= 2.0.1
-- gpytorch == 1.14
-- linear_operator == 0.6
+- gpytorch >= 1.14
+- linear_operator >= 0.6
 - pyro-ppl >= 1.8.4
 - scipy
 - multiple-dispatch
@@ -74,7 +74,7 @@ pip install botorch
 _Note_: Make sure the `pip` being used is actually the one from the newly created
 Conda environment. If you're using a Unix-based OS, you can use `which pip` to check.
 
-BoTorch [stopped publishing](https://github.com/pytorch/botorch/discussions/2613#discussion-7431533)
+BoTorch [stopped publishing](https://github.com/meta-pytorch/botorch/discussions/2613#discussion-7431533)
 an official Anaconda package to the `pytorch` channel after the 0.12 release. However,
 users can still use the package published to the `conda-forge` channel and install botorch via
 
@@ -86,14 +86,12 @@ conda install botorch -c gpytorch -c conda-forge
 
 If you would like to try our bleeding edge features (and don't mind potentially
 running into the occasional bug here or there), you can install the latest
-development version directly from GitHub. If you want to also install the
-current `gpytorch` and `linear_operator` development versions, you will need
-to ensure that the `ALLOW_LATEST_GPYTORCH_LINOP` environment variable is set:
+development version directly from GitHub. You may also want to install the
+current `gpytorch` and `linear_operator` development versions:
 ```bash
 pip install --upgrade git+https://github.com/cornellius-gp/linear_operator.git
 pip install --upgrade git+https://github.com/cornellius-gp/gpytorch.git
-export ALLOW_LATEST_GPYTORCH_LINOP=true
-pip install --upgrade git+https://github.com/pytorch/botorch.git
+pip install --upgrade git+https://github.com/meta-pytorch/botorch.git
 ```
 
 ### Option 3: Editable/dev install
@@ -107,7 +105,7 @@ before proceeding.
 #### Option 3a: Bare-bones editable install
 
 ```bash
-git clone https://github.com/pytorch/botorch.git
+git clone https://github.com/meta-pytorch/botorch.git
 cd botorch
 pip install -e .
 ```
@@ -115,9 +113,8 @@ pip install -e .
 #### Option 3b: Editable install with development and tutorials dependencies
 
 ```bash
-git clone https://github.com/pytorch/botorch.git
+git clone https://github.com/meta-pytorch/botorch.git
 cd botorch
-export ALLOW_BOTORCH_LATEST=true
 pip install -e ".[dev, tutorials]"
 ```
 
@@ -136,12 +133,12 @@ For more details see our [Documentation](https://botorch.org/docs/introduction) 
   ```python
   import torch
   from botorch.models import SingleTaskGP
-  from botorch.models.transforms import Normalize, Standardize
+  from botorch.models.transforms import Normalize
   from botorch.fit import fit_gpytorch_mll
   from gpytorch.mlls import ExactMarginalLogLikelihood
 
   # Double precision is highly recommended for GPs.
-  # See https://github.com/pytorch/botorch/discussions/1444
+  # See https://github.com/meta-pytorch/botorch/discussions/1444
   train_X = torch.rand(10, 2, dtype=torch.double) * 2
   Y = 1 - (train_X - 0.5).norm(dim=-1, keepdim=True)  # explicit output dimension
   Y += 0.1 * torch.rand_like(Y)
@@ -150,7 +147,6 @@ For more details see our [Documentation](https://botorch.org/docs/introduction) 
       train_X=train_X,
       train_Y=Y,
       input_transform=Normalize(d=2),
-      outcome_transform=Standardize(m=1),
   )
   mll = ExactMarginalLogLikelihood(gp.likelihood, gp)
   fit_gpytorch_mll(mll)

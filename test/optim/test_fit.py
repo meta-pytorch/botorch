@@ -13,7 +13,6 @@ import torch
 from botorch.exceptions.warnings import OptimizationWarning
 from botorch.models import SingleTaskGP
 from botorch.models.transforms.input import Normalize
-from botorch.models.transforms.outcome import Standardize
 from botorch.optim import core, fit
 from botorch.optim.core import OptimizationResult, OptimizationStatus
 from botorch.utils.context_managers import module_rollback_ctx, TensorCheckpoint
@@ -41,7 +40,6 @@ class TestFitGPyTorchMLLScipy(BotorchTestCase):
             train_X=train_X,
             train_Y=train_Y,
             input_transform=Normalize(d=1),
-            outcome_transform=Standardize(m=1),
         )
         self.mlls[SingleTaskGP, 1] = ExactMarginalLogLikelihood(model.likelihood, model)
 
@@ -188,7 +186,6 @@ class TestFitGPyTorchMLLTorch(BotorchTestCase):
             train_X=train_X,
             train_Y=train_Y,
             input_transform=Normalize(d=1),
-            outcome_transform=Standardize(m=1),
         )
         self.mlls[SingleTaskGP, 1] = ExactMarginalLogLikelihood(model.likelihood, model)
 

@@ -90,7 +90,6 @@ class TestFitAPI(BotorchTestCase):
                 train_X=train_X,
                 train_Y=train_Y,
                 input_transform=Normalize(d=1),
-                outcome_transform=Standardize(m=1),
             )
             self.mll = ExactMarginalLogLikelihood(model.likelihood, model)
 
@@ -137,7 +136,6 @@ class TestFitFallback(BotorchTestCase):
                     train_Y=train_Y,
                     train_Yvar=torch.full_like(train_Y, 0.1) if fixed_noise else None,
                     input_transform=Normalize(d=1),
-                    outcome_transform=Standardize(m=output_dim),
                 )
                 self.assertIsInstance(model.covar_module, RBFKernel)
 

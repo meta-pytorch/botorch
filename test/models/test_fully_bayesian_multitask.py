@@ -57,16 +57,18 @@ from gpytorch.means import ConstantMean
 
 EXPECTED_KEYS = [
     "mean_module.raw_constant",
-    "covar_module.raw_outputscale",
-    "covar_module.base_kernel.raw_lengthscale",
-    "covar_module.base_kernel.raw_lengthscale_constraint.lower_bound",
-    "covar_module.base_kernel.raw_lengthscale_constraint.upper_bound",
-    "covar_module.raw_outputscale_constraint.lower_bound",
-    "covar_module.raw_outputscale_constraint.upper_bound",
-    "task_covar_module.covar_factor",
-    "task_covar_module.raw_var",
-    "task_covar_module.raw_var_constraint.lower_bound",
-    "task_covar_module.raw_var_constraint.upper_bound",
+    "covar_module.kernels.1.raw_var",
+    "covar_module.kernels.1.active_dims",
+    "covar_module.kernels.0.base_kernel.raw_lengthscale",
+    "covar_module.kernels.0.base_kernel.raw_lengthscale_constraint.lower_bound",
+    "covar_module.kernels.0.active_dims",
+    "covar_module.kernels.1.raw_var_constraint.upper_bound",
+    "covar_module.kernels.0.base_kernel.raw_lengthscale_constraint.upper_bound",
+    "covar_module.kernels.0.raw_outputscale_constraint.lower_bound",
+    "covar_module.kernels.1.covar_factor",
+    "covar_module.kernels.0.raw_outputscale_constraint.upper_bound",
+    "covar_module.kernels.1.raw_var_constraint.lower_bound",
+    "covar_module.kernels.0.raw_outputscale",
 ]
 EXPECTED_KEYS_NOISE = EXPECTED_KEYS + [
     "likelihood.noise_covar.raw_noise",
@@ -82,13 +84,19 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
         output_tasks: list[int] | None = None,
         infer_noise: bool = False,
         use_outcome_transform: bool = True,
+        observed_task_values: list[int] | None = None,
+        all_tasks: list[int] | None = None,
+        validate_task_values: bool = True,
         **tkwargs,
     ):
         with torch.random.fork_rng():
             torch.manual_seed(0)
             train_X = torch.rand(10, 4, **tkwargs)
+        if observed_task_values is None:
+            observed_task_values = [0, 1]
         task_indices = torch.cat(
-            [torch.zeros(5, 1, **tkwargs), torch.ones(5, 1, **tkwargs)], dim=0
+            [torch.full((5, 1), observed_task_values[i], **tkwargs) for i in (0, 1)],
+            dim=0,
         )
         self.num_tasks = 2
         train_X = torch.cat([train_X, task_indices], dim=1)
@@ -99,6 +107,7 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
             train_Y=train_Y,
             train_Yvar=None if infer_noise else train_Yvar,
             task_feature=4,
+            all_tasks=all_tasks,
             output_tasks=output_tasks,
             rank=task_rank,
             outcome_transform=(
@@ -106,6 +115,7 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
                 if use_outcome_transform
                 else None
             ),
+            validate_task_values=validate_task_values,
         )
         return train_X, train_Y, train_Yvar, model
 
@@ -196,16 +206,7 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
                 train_Yvar=torch.rand(10, **tkwargs),
                 task_feature=4,
             )
-        train_X, train_Y, train_Yvar, model = self._get_data_and_model(**tkwargs)
-        with self.assertRaisesRegex(
-            NotImplementedError, "`all_tasks` argument is not supported"
-        ):
-            SaasFullyBayesianMultiTaskGP(
-                train_X=train_X,
-                train_Y=train_Y,
-                task_feature=-1,
-                all_tasks=[0, 1, 2, 3],
-            )
+        _, _, _, model = self._get_data_and_model(**tkwargs)
         sampler = IIDNormalSampler(sample_shape=torch.Size([2]))
         with self.assertRaisesRegex(
             NotImplementedError, "Fantasize is not implemented!"
@@ -237,12 +238,20 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
         infer_noise: bool = False,
         task_rank: int = 1,
         use_outcome_transform: bool = False,
+        observed_task_values: list[int] | None = None,
+        all_tasks: list[int] | None = None,
+        output_tasks: list[int] | None = None,
+        validate_task_values: bool = True,
     ):
         tkwargs = {"device": self.device, "dtype": dtype}
         train_X, train_Y, train_Yvar, model = self._get_data_and_model(
             infer_noise=infer_noise,
             task_rank=task_rank,
             use_outcome_transform=use_outcome_transform,
+            observed_task_values=observed_task_values,
+            all_tasks=all_tasks,
+            output_tasks=output_tasks,
+            validate_task_values=validate_task_values,
             **tkwargs,
         )
         n = train_X.shape[0]
@@ -254,13 +263,18 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
             train_Y_tf, train_Yvar_tf = model.outcome_transform(
                 Y=train_Y, Yvar=train_Yvar
             )
+        expected_mapped_task_values = torch.zeros(10, **tkwargs)
+        expected_mapped_task_values[5:] = 1
 
         # Test init
         self.assertIsNone(model.mean_module)
         self.assertIsNone(model.covar_module)
         self.assertIsNone(model.likelihood)
         self.assertIsInstance(model.pyro_model, MultitaskSaasPyroModel)
-        self.assertAllClose(train_X, model.pyro_model.train_X)
+        self.assertAllClose(train_X[:, :-1], model.pyro_model.train_X[:, :-1])
+        self.assertAllClose(
+            model.pyro_model.train_X[:, -1], expected_mapped_task_values
+        )
         self.assertAllClose(train_Y_tf, model.pyro_model.train_Y)
         if infer_noise:
             self.assertIsNone(model.pyro_model.train_Yvar)
@@ -274,14 +288,15 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
         fit_fully_bayesian_model_nuts(
             model, warmup_steps=8, num_samples=5, thinning=2, disable_progbar=True
         )
+        data_covar_module, task_covar_module = model.covar_module.kernels
         self.assertEqual(model.batch_shape, torch.Size([3]))
         self.assertIsInstance(model.mean_module, ConstantMean)
         self.assertEqual(model.mean_module.raw_constant.shape, model.batch_shape)
-        self.assertIsInstance(model.covar_module, ScaleKernel)
-        self.assertEqual(model.covar_module.outputscale.shape, model.batch_shape)
-        self.assertIsInstance(model.covar_module.base_kernel, MaternKernel)
+        self.assertIsInstance(data_covar_module, ScaleKernel)
+        self.assertEqual(data_covar_module.outputscale.shape, model.batch_shape)
+        self.assertIsInstance(data_covar_module.base_kernel, MaternKernel)
         self.assertEqual(
-            model.covar_module.base_kernel.lengthscale.shape, torch.Size([3, 1, d])
+            data_covar_module.base_kernel.lengthscale.shape, torch.Size([3, 1, d])
         )
         if infer_noise:
             self.assertIsInstance(model.likelihood, GaussianLikelihood)
@@ -290,7 +305,7 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
             )
         else:
             self.assertIsInstance(model.likelihood, FixedNoiseGaussianLikelihood)
-        self.assertIsInstance(model.task_covar_module, IndexKernel)
+        self.assertIsInstance(task_covar_module, IndexKernel)
         # Predict on some test points
         for batch_shape in [[5], [5, 2], [5, 2, 6]]:
             test_X = torch.rand(*batch_shape, d, **tkwargs)
@@ -328,11 +343,12 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
                 )
 
             # Mean/variance
+            num_outputs = self.num_tasks if output_tasks is None else 1
             expected_shape = (
                 *batch_shape[: MCMC_DIM + 2],
                 *model.batch_shape,
                 *batch_shape[MCMC_DIM + 2 :],
-                self.num_tasks,
+                num_outputs,
             )
             expected_shape = torch.Size(expected_shape)
             mean, var = posterior.mean, posterior.variance
@@ -347,18 +363,14 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
 
             # Marginalized mean/variance
             self.assertEqual(
-                mixture_mean.shape, torch.Size(batch_shape + [self.num_tasks])
+                mixture_mean.shape, torch.Size(batch_shape + [num_outputs])
             )
             self.assertEqual(
-                mixture_variance.shape, torch.Size(batch_shape + [self.num_tasks])
+                mixture_variance.shape, torch.Size(batch_shape + [num_outputs])
             )
             self.assertTrue(mixture_variance.min() > 0.0)
-            self.assertEqual(
-                quantile1.shape, torch.Size(batch_shape + [self.num_tasks])
-            )
-            self.assertEqual(
-                quantile2.shape, torch.Size(batch_shape + [self.num_tasks])
-            )
+            self.assertEqual(quantile1.shape, torch.Size(batch_shape + [num_outputs]))
+            self.assertEqual(quantile2.shape, torch.Size(batch_shape + [num_outputs]))
             self.assertTrue((quantile2 > quantile1).all())
 
             dist = torch.distributions.Normal(
@@ -384,7 +396,7 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
             for ModelListClass, models, expected_outputs in zip(
                 [ModelList, ModelListGP],
                 [[deterministic, model], [model, model]],
-                [3, 4],
+                [num_outputs + 1, num_outputs * 2],
             ):
                 expected_shape = (
                     *batch_shape[: MCMC_DIM + 2],
@@ -406,14 +418,17 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
 
         # Check the keys in the state dict
         true_keys = EXPECTED_KEYS_NOISE if infer_noise else EXPECTED_KEYS
+        extra_keys = []
         if use_outcome_transform:
-            true_keys = true_keys + [
+            extra_keys = [
                 "outcome_transform.stdvs",
                 "outcome_transform._is_trained",
                 "outcome_transform._stdvs_sq",
                 "outcome_transform.means",
             ]
-        self.assertEqual(set(model.state_dict().keys()), set(true_keys))
+        if model._task_mapper is not None:
+            extra_keys.append("_task_mapper")
+        self.assertEqual(set(model.state_dict().keys()), {*true_keys, *extra_keys})
 
         # Check that we can load the state dict.
         state_dict = model.state_dict()
@@ -421,6 +436,9 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
             infer_noise=infer_noise,
             task_rank=task_rank,
             use_outcome_transform=use_outcome_transform,
+            observed_task_values=observed_task_values,
+            all_tasks=all_tasks,
+            output_tasks=output_tasks,
             **tkwargs,
         )
         expected_state_dict = {}
@@ -431,7 +449,14 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
                     for k, v in model.outcome_transform.state_dict().items()
                 }
             )
-        self.assertEqual(m_new.state_dict(), expected_state_dict)
+        if m_new._task_mapper is not None:
+            expected_state_dict.update({"_task_mapper": model._task_mapper})
+        for k, v in m_new.state_dict().items():
+            if k != "_task_mapper":
+                self.assertEqual(expected_state_dict[k], v)
+            else:
+                self.assertTrue(torch.equal(expected_state_dict[k], v))
+        self.assertEqual(expected_state_dict.keys(), m_new.state_dict().keys())
         m_new.load_state_dict(state_dict)
         self.assertEqual(model.state_dict().keys(), m_new.state_dict().keys())
         for k in model.state_dict().keys():
@@ -442,30 +467,41 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
 
         # Make sure the model shapes are set correctly
         self.assertEqual(model.pyro_model.train_X.shape, torch.Size([n, d + 1]))
-        self.assertAllClose(model.pyro_model.train_X, train_X)
+        self.assertAllClose(train_X[:, :-1], model.pyro_model.train_X[:, :-1])
+        self.assertAllClose(
+            model.pyro_model.train_X[:, -1], expected_mapped_task_values
+        )
 
         # Put the model in eval mode with reset=True (reset should be ignored)
         trained_model = model.train(mode=False, reset=True)
         self.assertIs(trained_model, model)
-        self.assertAllClose(train_X, model.pyro_model.train_X)
+        self.assertAllClose(train_X[:, :-1], model.pyro_model.train_X[:, :-1])
+        self.assertAllClose(
+            model.pyro_model.train_X[:, -1], expected_mapped_task_values
+        )
         self.assertIsNotNone(model.mean_module)
         self.assertIsNotNone(model.covar_module)
         self.assertIsNotNone(model.likelihood)
         # Put the model in train mode, without resetting
         trained_model = model.train(reset=False)
         self.assertIs(trained_model, model)
-        self.assertAllClose(train_X, model.pyro_model.train_X)
+        self.assertAllClose(train_X[:, :-1], model.pyro_model.train_X[:, :-1])
+        self.assertAllClose(
+            model.pyro_model.train_X[:, -1], expected_mapped_task_values
+        )
         self.assertIsNotNone(model.mean_module)
         self.assertIsNotNone(model.covar_module)
         self.assertIsNotNone(model.likelihood)
         # Put the model in train mode, with resetting
         trained_model = model.train()
         self.assertIs(trained_model, model)
-        self.assertAllClose(train_X, model.pyro_model.train_X)
+        self.assertAllClose(train_X[:, :-1], model.pyro_model.train_X[:, :-1])
+        self.assertAllClose(
+            model.pyro_model.train_X[:, -1], expected_mapped_task_values
+        )
         self.assertIsNone(model.mean_module)
         self.assertIsNone(model.covar_module)
         self.assertIsNone(model.likelihood)
-        self.assertIsNone(model.task_covar_module)
 
     def test_fit_model_float(self):
         self.test_fit_model(dtype=torch.float)
@@ -475,6 +511,32 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
 
     def test_fit_model_with_outcome_transform(self):
         self.test_fit_model(use_outcome_transform=True)
+
+    def test_fit_model_with_task_mapper(self) -> None:
+        dtype = torch.double
+        tkwargs = {"device": self.device, "dtype": dtype}
+        all_tasks = [0, 1, 2]
+        observed_task_values = [0, 2]
+        output_tasks = [2]
+        _, _, _, model = self._get_data_and_model(
+            infer_noise=True,
+            use_outcome_transform=True,
+            output_tasks=output_tasks,
+            observed_task_values=observed_task_values,
+            all_tasks=all_tasks,
+            validate_task_values=False,
+            **tkwargs,
+        )
+        self.assertTrue(
+            torch.equal(model._task_mapper, torch.tensor([0, 1, 1], **tkwargs))
+        )
+        self.test_fit_model(
+            use_outcome_transform=True,
+            all_tasks=all_tasks,
+            observed_task_values=observed_task_values,
+            output_tasks=output_tasks,
+            validate_task_values=False,
+        )
 
     def test_transforms(self, infer_noise: bool = False):
         tkwargs = {"device": self.device, "dtype": torch.double}
@@ -620,7 +682,7 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
                         )
                     self.assertEqual(acqf(test_X).shape, torch.Size(batch_shape))
 
-    def test_condition_on_observation(self) -> None:
+    def test_condition_on_observations(self) -> None:
         # The following conditioned data shapes should work (output describes):
         # training data shape after cond(batch shape in output is req. in gpytorch)
         # X: num_models x n x d, Y: num_models x n x d --> num_models x n x d
@@ -743,16 +805,16 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
                 **tkwargs,
             )
             model.load_mcmc_samples(mcmc_samples)
-
+            data_covar_module, task_covar_module = model.covar_module.kernels
             self.assertTrue(
                 torch.allclose(
-                    model.covar_module.base_kernel.lengthscale,
+                    data_covar_module.base_kernel.lengthscale,
                     mcmc_samples["lengthscale"],
                 )
             )
             self.assertTrue(
                 torch.allclose(
-                    model.covar_module.outputscale,
+                    data_covar_module.outputscale,
                     mcmc_samples["outputscale"],
                 )
             )
@@ -765,7 +827,7 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
 
             self.assertTrue(
                 torch.allclose(
-                    model.task_covar_module.covar_matrix.to_dense(),
+                    task_covar_module.covar_matrix.to_dense(),
                     matern52_kernel(
                         mcmc_samples["latent_features"],
                         mcmc_samples["task_lengthscale"],
@@ -821,3 +883,18 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
             self.assertEqual(data_dict["task_feature"], task_feature)
             self.assertEqual(data_dict["rank"], 1)
             self.assertTrue("task_covar_prior" not in data_dict)
+
+            task_feature = -1
+            datasets, (train_X, train_Y, train_Yvar) = gen_multi_task_dataset(
+                yvar=None if infer_noise else 0.05, **tkwargs
+            )
+
+            d = train_X.shape[1] - 1
+            model = SaasFullyBayesianMultiTaskGP(
+                train_X=train_X,
+                train_Y=train_Y,
+                train_Yvar=train_Yvar,
+                task_feature=task_feature,
+            )
+            self.assertEqual(model._task_feature, d)
+            self.assertEqual(model.pyro_model.task_feature, d)

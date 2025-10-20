@@ -146,7 +146,7 @@ class InputTransform(Module, ABC):
         """
         if self.transform_on_train:
             # We need to disable learning of bounds / affine coefficients here.
-            # See why: https://github.com/pytorch/botorch/issues/1078.
+            # See why: https://github.com/meta-pytorch/botorch/issues/1078.
             if hasattr(self, "learn_coefficients"):
                 learn_coefficients = self.learn_coefficients
                 self.learn_coefficients = False
@@ -1626,6 +1626,158 @@ class InputPerturbation(InputTransform):
         return p.transpose(-3, -2)  # p is batch_shape x n_p x n x d
 
 
+class NumericToCategoricalEncoding(InputTransform):
+    """Transform categorical parameters from an integer/numeric representation
+    to a vector based representation like one-hot encoding or a descriptor
+    encoding.
+
+    The vector encoding is inserted at the position of the categorical feature
+    in the input tensor. This is demonstrated in the example below in which a
+    categorical feature of cardinality 3 at position 1 in the original
+    representation is one-hot encoded.
+
+    Example:
+
+        >>> import torch
+        >>> from torch.nn.functional import one_hot
+        >>> from functools import partial
+        >>> from botorch.models.transforms.input import NumericToCategoricalEncoding
+        >>> tf = NumericToCategoricalEncoding(
+        ...     dim=3,
+        ...     categorical_features={1: 3},
+        ...     encoders={1: partial(one_hot, num_classes=3)},
+        ... )
+        >>> X = torch.tensor([[0.5, 2, 1.2], [1.1, 0, 0.8]])
+        >>> tf.transform(X)
+        tensor([[0.5000, 0.0000, 0.0000, 1.0000, 1.2000],
+                [1.1000, 1.0000, 0.0000, 0.0000, 0.8000]])
+    """
+
+    def __init__(
+        self,
+        dim: int,
+        categorical_features: dict[int, int],
+        encoders: dict[int, Callable[[Tensor], Tensor]],
+        transform_on_train: bool = True,
+        transform_on_eval: bool = True,
+        transform_on_fantasize: bool = True,
+    ) -> None:
+        r"""Initialize.
+
+        Args:
+            dim: The dimension of the numerically encoded input.
+            categorical_features: A dictionary mapping the index of each
+                categorical feature to its cardinality which has to be
+                greater than 1. This assumes that categoricals
+                are integer encoded.
+            encoders: A dictionary mapping the index of each categorical feature to
+                a callable that encodes the categorical feature into a vector
+                representation.
+            transform_on_train: A boolean indicating whether to apply the
+                transforms in train() mode. Default: False.
+            transform_on_eval: A boolean indicating whether to apply the
+                transform in eval() mode. Default: True.
+            transform_on_fantasize: A boolean indicating whether to apply the
+                transform when called from within a `fantasize` call. Default: False.
+        """
+        super().__init__()
+        self.transform_on_train = transform_on_train
+        self.transform_on_eval = transform_on_eval
+        self.transform_on_fantasize = transform_on_fantasize
+
+        self.encoders = encoders
+        self.categorical_features = categorical_features
+
+        if len(self.categorical_features) == 0:
+            raise ValueError(
+                "At least one categorical feature for encoding must be provided."
+            )
+
+        if (num_cat := len(self.categorical_features)) > dim:
+            raise ValueError(
+                f"The number of categorical features ({num_cat}) exceeds the "
+                f"provided dimension ({dim})."
+            )
+
+        for idx, card in self.categorical_features.items():
+            if card <= 1 or not isinstance(card, int):
+                raise ValueError(
+                    f"Categorical feature at index {idx} has cardinality {card}. "
+                    f"All categorical features must be an integer and have cardinality "
+                    "greater than 1."
+                )
+
+        # check that the encoders match the categorical features
+        if (enc_keys := set(self.encoders)) != (
+            cf_keys := set(self.categorical_features)
+        ):
+            raise ValueError(
+                f"The keys of `encoders` ({enc_keys}) must match the keys of "
+                f"of `categorical_features`  ({cf_keys})."
+            )
+
+        self.ordinal_idx = list(
+            self.categorical_features.keys()
+        )  # indices of categorical features before encoding
+
+        self.numerical_idx = list(
+            set(range(dim)) - set(self.ordinal_idx)
+        )  # indices of numerical features before encoding
+
+        self.new_numerical_idx = []  # indices of numerical features after encoding
+        self.encoded_idx = []  # indices of categorical features after encoding
+
+        offset = 0
+        for idx in range(dim):
+            if idx in self.numerical_idx:
+                self.new_numerical_idx.append(idx + offset)
+            else:
+                card = self.categorical_features[idx]
+                self.encoded_idx.append(
+                    np.arange(
+                        idx + offset, idx + offset + card
+                    ).tolist()  # indices of categorical features after encoding
+                )
+                offset += card - 1  # adjust offset for next categorical feature
+
+    def transform(self, X: Tensor) -> Tensor:
+        r"""Transform the categorical inputs into a vector representation.
+
+        Args:
+            X: A `batch_shape x n x d`-dim tensor of inputs.
+
+        Returns:
+            A `batch_shape x n x d'`-dim tensor with
+            `d' = d + sum(categorical_features.values())` in which the
+            integer-encoded categoricals are transformed to a vector representation.
+        """
+        s = list(X.shape)
+        s[-1] = len(self.numerical_idx) + len(np.concatenate(self.encoded_idx))
+        X_encoded = torch.zeros(size=s, device=X.device, dtype=X.dtype)
+        X_encoded[..., self.new_numerical_idx] = X[..., self.numerical_idx]
+        for i, idx in enumerate(self.categorical_features.keys()):
+            encoded_val = self.encoders[idx](X[..., idx].long()).to(X_encoded)
+            X_encoded[..., self.encoded_idx[i]] = encoded_val
+        return X_encoded
+
+    def equals(self, other: InputTransform) -> bool:
+        r"""Check if another input transform is equivalent.
+
+        Args:
+            other: Another input transform.
+
+        Returns:
+            A boolean indicating if the other transform is equivalent.
+        """
+        return (
+            type(self) is type(other)
+            and (self.transform_on_train == other.transform_on_train)
+            and (self.transform_on_eval == other.transform_on_eval)
+            and (self.transform_on_fantasize == other.transform_on_fantasize)
+            and self.categorical_features == other.categorical_features
+        )
+
+
 class OneHotToNumeric(InputTransform):
     r"""Transform categorical parameters from a one-hot to a numeric representation."""
 
@@ -1650,10 +1802,6 @@ class OneHotToNumeric(InputTransform):
                 transform in eval() mode. Default: True.
             transform_on_fantasize: A boolean indicating whether to apply the
                 transform when called from within a `fantasize` call. Default: False.
-
-        Returns:
-            A `batch_shape x n x d'`-dim tensor of where the one-hot encoded
-            categoricals are transformed to integer representation.
         """
         super().__init__()
         self.transform_on_train = transform_on_train

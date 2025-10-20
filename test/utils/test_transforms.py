@@ -316,8 +316,20 @@ class TestBatchModeTransform(BotorchTestCase):
         self.assertEqual(Xout.shape, torch.Size())
         # test with model batch shape
         c.model = MockModel(MockPosterior(mean=X))
-        with self.assertRaises(AssertionError):
+        with self.assertRaisesRegex(
+            AssertionError,
+            "Expected the output shape to match either the t-batch shape of X",
+        ):
             c.broadcast_batch_shape_method(X)
+
+        # testing more informative error message when the decorator adds the batch dim
+        with self.assertRaisesRegex(
+            AssertionError,
+            "Expected the output shape to match either the t-batch shape of X"
+            r".*Note that `X\.shape` was originally torch\.Size\(\[1, 2\]\) before the "
+            r"`t_batch_mode_transform` decorator added a batch dimension\.",
+        ):
+            c.broadcast_batch_shape_method(X[0])
         c.model = MockModel(MockPosterior(mean=X.repeat(2, *[1] * X.dim())))
         Xout = c.broadcast_batch_shape_method(X)
         self.assertEqual(Xout.shape, c.model.batch_shape)

@@ -39,6 +39,31 @@ const tutorials = () => {
   return tutorialsSidebar;
 };
 
+const notebooks_community = () => {
+  const allNotebookItems = require('./notebooks_community.json');
+  const items = [
+    {
+      type: 'doc',
+      id: 'notebooks_community/index',
+      label: 'Overview',
+    },
+  ];
+  allNotebookItems.map(item => {
+    items.push({
+      type: 'doc',
+      label: item.title,
+      id: `notebooks_community/${item.id}/index`,
+    });
+  });
+  const notebooksSidebar = [{
+    type: 'category',
+    label: 'Community Notebooks',
+    collapsed: false,
+    items: items,
+  },];
+  return notebooksSidebar;
+};
+
 export default {
   "docs": {
     "About": ["introduction", "design_philosophy", "botorch_and_ax", "papers"],
@@ -48,4 +73,5 @@ export default {
     "Multi-Objective Optimization": ["multi_objective"]
   },
   tutorials: tutorials(),
+  "notebooks_community": notebooks_community(),
 }

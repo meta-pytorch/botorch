@@ -21,6 +21,8 @@ References
 
 from __future__ import annotations
 
+import random
+
 import warnings
 from collections.abc import Callable
 from copy import deepcopy
@@ -56,7 +58,9 @@ from botorch.utils.multi_objective.box_decompositions.utils import (
 )
 from botorch.utils.objective import compute_feasibility_indicator
 from botorch.utils.torch import BufferDict
+from botorch.utils.transforms import is_ensemble, match_batch_shape
 from torch import Tensor
+
 
 MIN_Y_RANGE = 1e-7
 
@@ -791,7 +795,7 @@ class NoisyExpectedHypervolumeMixin(CachedCholeskyMCSamplerMixin):
                     BotorchWarning,
                     stacklevel=2,
                 )
-            X_pending = X_pending.detach().clone()
+            self.X_pending = X_pending.detach().clone()
             if self.cache_pending:
                 X_baseline = torch.cat([self._X_baseline, X_pending], dim=-2)
                 # Number of new points is the total number of points minus
@@ -810,16 +814,9 @@ class NoisyExpectedHypervolumeMixin(CachedCholeskyMCSamplerMixin):
                                 .clamp_min(0.0)
                                 .mean()
                             )
-                        # Set to None so that pending points are not concatenated in
-                        # forward.
-                        self.X_pending = None
                         # Set q_in=-1 to so that self.sampler is updated at the next
                         # forward call.
                         self.q_in = -1
-                    else:
-                        self.X_pending = X_pending[-num_new_points:]
-            else:
-                self.X_pending = X_pending
 
     @property
     def _hypervolumes(self) -> Tensor:
@@ -833,3 +830,108 @@ class NoisyExpectedHypervolumeMixin(CachedCholeskyMCSamplerMixin):
             .to(self.ref_point)  # for m > 2, the partitioning is on the CPU
             .view(self._batch_sample_shape)
         )
+
+    def _compute_posterior_samples_and_concat_pending(
+        self, X: Tensor
+    ) -> tuple[Tensor, Tensor]:
+        r"""Get samples from the posterior, and concatenate uncached pending points.
+
+        Args:
+            X: `batch_shape x q x d` X Tensor pased into the `forward` method of an acqf
+
+        Returns:
+            A tuple containing samples of the latent function from the posterior, and
+            the `batch_shape x (q + num_uncached_pending) x d` X tensor including any
+            pending observations that have not been cached.
+        """
+        # Manually concatenate pending points only if:
+        # - pending points are not cached, or
+        # - number of pending points is less than max_iep
+        if self.X_pending is not None:
+            num_pending = self.X_pending.shape[-2]
+            num_X_baseline = self._X_baseline.shape[-2]
+            num_X_baseline_and_cached_pending = self.X_baseline.shape[-2]
+            num_uncached_pending = (
+                (num_pending + num_X_baseline - num_X_baseline_and_cached_pending)
+                if self.cache_pending
+                else num_pending
+            )
+            X_pending_uncached = self.X_pending[
+                ..., num_pending - num_uncached_pending :, :
+            ]
+            X = torch.cat([X, match_batch_shape(X_pending_uncached, X)], dim=-2)
+        X_full = torch.cat([match_batch_shape(self.X_baseline, X), X], dim=-2)
+        # NOTE: To ensure that we correctly sample `f(X)` from the joint distribution
+        # `f((X_baseline, X)) ~ P(f | D)`, it is critical to compute the joint posterior
+        # over X *and* X_baseline -- which also contains pending points whenever there
+        # are any --  since the baseline and pending values `f(X_baseline)` are
+        # generally pre-computed and cached before the `forward` call, see the docs of
+        # `cache_pending` for details.
+        # TODO: Improve the efficiency by not re-computing the X_baseline-X_baseline
+        # covariance matrix, but only the covariance of
+        # 1) X and X, and
+        # 2) X and X_baseline.
+        posterior = self.model.posterior(X_full)
+        # Account for possible one-to-many transform and the MCMC batch dimension in
+        # `SaasFullyBayesianSingleTaskGP`
+        event_shape_lag = 1 if is_ensemble(self.model) else 2
+        n_w = (
+            posterior._extended_shape()[X_full.dim() - event_shape_lag]
+            // X_full.shape[-2]
+        )
+        q_in = X.shape[-2] * n_w
+        self._set_sampler(q_in=q_in, posterior=posterior)
+        return self._get_f_X_samples(posterior=posterior, q_in=q_in), X
+
+
+def get_hypervolume_maximizing_subset(
+    n: int, Y: Tensor, ref_point: Tensor
+) -> tuple[Tensor, Tensor]:
+    """Find an approximately hypervolume-maximizing subset of size `n`.
+
+    This greedily selects points from Y to maximize the hypervolume of
+    the subset sequentially. This has bounded error since hypervolume is
+    submodular.
+
+    Args:
+        n: The size of the subset to return.
+        Y: A `n' x m`-dim tensor of outcomes.
+        ref_point: A `m`-dim tensor containing the reference point.
+
+    Returns:
+        A two-element tuple containing
+            - A `n x m`-dim tensor of outcomes.
+            - A `n`-dim tensor of indices of the outcomes in the original set.
+    """
+    if Y.ndim != 2:
+        raise NotImplementedError(
+            "Only two dimensions are supported (no additional) batch dims."
+        )
+    elif Y.shape[0] < n:
+        raise ValueError(
+            f"Y has fewer points ({Y.shape[0]}) than the requested subset size ({n})."
+        )
+    Y_subset = torch.zeros(0, Y.shape[1], dtype=Y.dtype, device=Y.device)
+    selected_indices = []
+    remaining_idcs = set(range(Y.shape[0]))
+    best_hv = 0.0
+    for _ in range(n):
+        # Add each point and compute the hypervolume
+        best_idx = None
+        for i in remaining_idcs:
+            partitioning = DominatedPartitioning(
+                ref_point=ref_point, Y=torch.cat((Y_subset, Y[i : i + 1]), dim=0)
+            )
+            hv = partitioning.compute_hypervolume().item()
+            if hv > best_hv:
+                best_idx = i
+                best_hv = hv
+        if best_idx is None:
+            # no arm improved HV, so select a random arm. This will only happen if Y is
+            # not a Pareto frontier, where all points are better than the reference
+            # point
+            best_idx = random.choice(list(remaining_idcs))
+        remaining_idcs.remove(best_idx)
+        selected_indices.append(best_idx)
+        Y_subset = torch.cat((Y_subset, Y[best_idx : best_idx + 1]), dim=0)
+    return Y_subset, torch.tensor(selected_indices, dtype=torch.long, device=Y.device)

@@ -59,6 +59,11 @@ Model Fitting Closures
 .. automodule:: botorch.optim.closures.model_closures
     :members:
 
+Batched L-BFGS-B Scipy Port
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: botorch.optim.batched_lbfgs_b
+    :members:
 
 Utilities
 -------------------------------------------

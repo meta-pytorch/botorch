@@ -135,6 +135,11 @@ Non-dominated Partitionings
 .. automodule:: botorch.utils.multi_objective.box_decompositions.non_dominated
 		:members:
 
+Optimize
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.. automodule:: botorch.utils.multi_objective.optimize
+		:members:
+
 Pareto
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 .. automodule:: botorch.utils.multi_objective.pareto

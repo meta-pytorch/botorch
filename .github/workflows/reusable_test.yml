@@ -38,8 +38,6 @@ jobs:
         uv pip install .[test]
     - name: Install dependencies with latest PyTorch & GPyTorch
       if: ${{ inputs.use_latest_pytorch_gpytorch }}
-      env:
-        ALLOW_LATEST_GPYTORCH_LINOP: true
       run: |
         uv pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cpu
         uv pip install git+https://github.com/cornellius-gp/linear_operator.git

@@ -12,6 +12,7 @@ from botorch.optim.utils.acquisition_utils import (
 from botorch.optim.utils.common import (
     _handle_numerical_errors,
     _warning_handler_template,
+    check_scipy_version_at_least,
 )
 from botorch.optim.utils.model_utils import (
     get_data_loader,
@@ -21,17 +22,13 @@ from botorch.optim.utils.model_utils import (
     sample_all_priors,
     TorchAttr,
 )
-from botorch.optim.utils.numpy_utils import (
-    as_ndarray,
-    get_bounds_as_ndarray,
-    get_tensors_as_ndarray_1d,
-    set_tensors_from_ndarray_1d,
-)
+from botorch.optim.utils.numpy_utils import as_ndarray, get_bounds_as_ndarray
 from botorch.optim.utils.timeout import minimize_with_timeout
 
 __all__ = [
     "_handle_numerical_errors",
     "_warning_handler_template",
+    "check_scipy_version_at_least",
     "as_ndarray",
     "columnwise_clamp",
     "fix_features",
@@ -40,10 +37,8 @@ __all__ = [
     "get_data_loader",
     "get_parameters",
     "get_parameters_and_bounds",
-    "get_tensors_as_ndarray_1d",
     "get_X_baseline",
     "minimize_with_timeout",
     "sample_all_priors",
-    "set_tensors_from_ndarray_1d",
     "TorchAttr",
 ]
