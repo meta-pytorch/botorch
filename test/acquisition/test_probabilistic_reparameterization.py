@@ -71,56 +71,63 @@ class TestProbabilisticReparameterizationInputTransform(BotorchTestCase):
             resample=False,
         )
 
-    def test_probabilistic_reparameterization_input_transform_construction(self):
+    def test_probabilistic_reparameterization_transform_construction(self):
+        for use_analytic in (True, False):
+            with self.subTest(use_analytic=use_analytic):
+                self._test_probabilistic_reparameterization_transform_construction(
+                    use_analytic=use_analytic
+                )
+
+    def _test_probabilistic_reparameterization_transform_construction(
+        self, use_analytic: bool
+    ) -> None:
         bounds = self.one_hot_bounds
         integer_indices = [2, 3]
         categorical_features = {4: 2, 6: 3}
+        transform_params = self.analytic_params if use_analytic else self.mc_params
+        pr_transform_cls = (
+            AnalyticProbabilisticReparameterizationInputTransform
+            if use_analytic
+            else MCProbabilisticReparameterizationInputTransform
+        )
 
         # must provide either categorical or discrete features
         with self.assertRaises(ValueError):
-            _ = AnalyticProbabilisticReparameterizationInputTransform(
+            pr_transform_cls(
                 one_hot_bounds=bounds,
-                **self.analytic_params,
-            )
-
-        with self.assertRaises(ValueError):
-            _ = MCProbabilisticReparameterizationInputTransform(
-                one_hot_bounds=bounds,
-                **self.mc_params,
+                **transform_params,
             )
 
         # categorical features must be in the rightmost columns
         with self.assertRaisesRegex(ValueError, "rightmost"):
-            _ = AnalyticProbabilisticReparameterizationInputTransform(
+            pr_transform_cls(
                 one_hot_bounds=bounds,
                 integer_indices=integer_indices,
-                categorical_features={0: 2},
-                **self.analytic_params,
+                categorical_features={4: 2, 6: 1},
+                **transform_params,
             )
-        with self.assertRaisesRegex(ValueError, "rightmost"):
-            _ = MCProbabilisticReparameterizationInputTransform(
+
+        # integer features must be between continuous and categorical
+        with self.assertRaisesRegex(ValueError, "integer"):
+            pr_transform_cls(
                 one_hot_bounds=bounds,
-                integer_indices=integer_indices,
-                categorical_features={0: 2},
-                **self.mc_params,
+                integer_indices=[1, 2],
+                categorical_features=categorical_features,
+                **transform_params,
             )
 
         # correct construction passes without raising errors
-        _ = AnalyticProbabilisticReparameterizationInputTransform(
+        pr_transform_cls(
             one_hot_bounds=bounds,
             integer_indices=integer_indices,
             categorical_features=categorical_features,
-            **self.analytic_params,
-        )
-        _ = MCProbabilisticReparameterizationInputTransform(
-            one_hot_bounds=bounds,
-            integer_indices=integer_indices,
-            categorical_features=categorical_features,
-            **self.mc_params,
+            **transform_params,
         )
 
+    def test_analytic_probabilistic_reparameterization_transform_enumeration(self):
         # analytic generates all discrete options correctly
         # use subset of features so that we can manually generate all options
+        bounds = self.one_hot_bounds
         sub_bounds = bounds[:, [0, 2, 6, 7, 8]]
         sub_integer_indices = [1]
         sub_categorical_features = {2: 3}
@@ -144,7 +151,42 @@ class TestProbabilisticReparameterizationInputTransform(BotorchTestCase):
             expected_all_discrete_options, tf_analytic.all_discrete_options
         )
 
-    def test_probabilistic_reparameterization_input_transform_forward(self):
+    def test_probabilistic_reparameterization_transform_invalid_forward(self):
+        for use_analytic in (True, False):
+            with self.subTest(use_analytic=use_analytic):
+                self._test_probabilistic_reparameterization_transform_invalid_forward(
+                    use_analytic=use_analytic
+                )
+
+    def _test_probabilistic_reparameterization_transform_invalid_forward(
+        self, use_analytic: bool
+    ) -> None:
+        bounds = self.one_hot_bounds
+        integer_indices = [2, 3]
+        categorical_features = {4: 2, 6: 3}
+        transform_params = self.analytic_params if use_analytic else self.mc_params
+        pr_transform_cls = (
+            AnalyticProbabilisticReparameterizationInputTransform
+            if use_analytic
+            else MCProbabilisticReparameterizationInputTransform
+        )
+
+        tf = pr_transform_cls(
+            one_hot_bounds=bounds,
+            integer_indices=integer_indices,
+            categorical_features=categorical_features,
+            **transform_params,
+        )
+
+        X = torch.rand(4, 1, 1, bounds.shape[1])
+
+        with self.assertRaisesRegex(ValueError, "`n`"):
+            tf.transform(X.expand(-1, -1, 2, -1))
+
+        with self.assertRaisesRegex(ValueError, "dimension of size 1 at index -3"):
+            tf.transform(X.expand(-1, 2, -1, -1))
+
+    def test_probabilistic_reparameterization_transform_forward(self):
         bounds = self.one_hot_bounds
         integer_indices = [2, 3]
         categorical_features = {4: 2, 6: 3}
