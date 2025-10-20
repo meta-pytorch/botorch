@@ -2284,7 +2284,7 @@ class AnalyticProbabilisticReparameterizationInputTransform(
             X: A `batch_shape x 1 x n x d`-dim tensor of inputs.
 
         Returns:
-            A `batch_shape x n_discrete x n x d`-dim tensor of rounded inputs.
+            A `batch_shape x num_discrete_options x n x d`-dim tensor of rounded inputs.
         """
         self._check_input_shape(X)
 
