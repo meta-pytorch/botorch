@@ -1962,11 +1962,13 @@ class AbstractProbabilisticReparameterizationInputTransform(InputTransform, ABC)
         self.transform_on_eval = transform_on_eval
         self.transform_on_fantasize = transform_on_fantasize
         discrete_indices = []
+        self.categorical_features = categorical_features
         categorical_start_idx = (
             one_hot_bounds.shape[1]
             if self.categorical_features is None
             else min(self.categorical_features.keys())
         )
+
         if integer_indices is not None and len(integer_indices) > 0:
             error_msg = (
                 f"{self.__class__.__name__} requires that the integer "
@@ -1986,7 +1988,7 @@ class AbstractProbabilisticReparameterizationInputTransform(InputTransform, ABC)
             discrete_indices += integer_indices
         else:
             self.integer_indices = None
-        self.categorical_features = categorical_features
+
         if self.categorical_features is not None:
             # check that the trailing dimensions are categoricals
             end = categorical_start_idx
@@ -2065,6 +2067,19 @@ class AbstractProbabilisticReparameterizationInputTransform(InputTransform, ABC)
             else:
                 X_prob[..., start:end] = X_categ / X_categ.sum(dim=-1)
         return X_prob[..., self.discrete_indices]
+
+    def _check_input_shape(self, X: Tensor) -> None:
+        r"""Check that the input shape is valid for this transform."""
+        if X.shape[-3] > 1:
+            raise ValueError(
+                f"Input to {self.__class__.__name__} must have a dimension of size 1 "
+                f"at index -3 (got shape {X.shape})."
+            )
+        if X.shape[-2] > 1:
+            raise ValueError(
+                f"Input transform {self.__class__.__name__} does not support `n` > 1 "
+                f"(got shape {X.shape})."
+            )
 
     def equals(self, other: InputTransform) -> bool:
         r"""Check if another input transform is equivalent.
@@ -2271,11 +2286,7 @@ class AnalyticProbabilisticReparameterizationInputTransform(
         Returns:
             A `batch_shape x n_discrete x n x d`-dim tensor of rounded inputs.
         """
-        if X.shape[-3] > 1:
-            raise ValueError(
-                "Probabilistic reparameterization does not support batch "
-                "sizes greater than 1."
-            )
+        self._check_input_shape(X)
 
         n_discrete = self.discrete_indices.shape[0]
         all_discrete_options = self.all_discrete_options.view(
@@ -2366,11 +2377,7 @@ class MCProbabilisticReparameterizationInputTransform(
         Returns:
             A `batch_shape x mc_samples x n x d`-dim tensor of rounded inputs.
         """
-        if X.shape[-3] > 1:
-            raise ValueError(
-                "Probabilistic reparameterization does not support batch "
-                "sizes greater than 1."
-            )
+        self._check_input_shape(X)
 
         X_expanded = X.expand(*X.shape[:-3], self.mc_samples, *X.shape[-2:]).clone()
         X_prob = self.get_rounding_prob(X=X)
