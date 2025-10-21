@@ -400,7 +400,9 @@ class TestInputTransforms(BotorchTestCase):
                 self.assertTrue(nlz6.equals(nlz8))
                 nlz9 = Normalize(d=3, batch_shape=batch_shape, indices=[0, 1])
                 nlz10 = Normalize(d=3, batch_shape=batch_shape, indices=[0, 2])
+                nlz11 = Normalize(d=3, batch_shape=batch_shape, indices=[0, 1, 2])
                 self.assertFalse(nlz9.equals(nlz10))
+                self.assertFalse(nlz9.equals(nlz11))
 
                 # test with grad
                 nlz = Normalize(d=1)

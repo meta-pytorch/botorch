@@ -42,6 +42,13 @@ from torch.nn import Module, ModuleDict
 from torch.nn.functional import one_hot
 
 
+def _allclose(input: Tensor, other: Tensor) -> bool:
+    """Check if `input` and `other` are the same shape, and satisfy `torch.allclose`."""
+    if input.shape != other.shape:
+        return False
+    return torch.allclose(input, other)
+
+
 class InputTransform(Module, ABC):
     r"""Abstract base class for input transforms.
 
@@ -124,7 +131,7 @@ class InputTransform(Module, ABC):
             and (self.transform_on_eval == other.transform_on_eval)
             and (self.transform_on_fantasize == other.transform_on_fantasize)
             and all(
-                torch.allclose(v, other_state_dict[k].to(v))
+                _allclose(v, other_state_dict[k].to(v))
                 for k, v in self.state_dict().items()
             )
         )
