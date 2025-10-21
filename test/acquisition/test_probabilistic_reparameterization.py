@@ -26,7 +26,7 @@ from botorch.optim import optimize_acqf, optimize_acqf_mixed
 from botorch.test_functions.synthetic import Ackley, AckleyMixed
 from botorch.utils.sampling import draw_sobol_samples
 from botorch.utils.test_helpers import get_model
-from botorch.utils.testing import BotorchTestCase
+from botorch.utils.testing import BotorchTestCase, MockModel, MockPosterior
 from botorch.utils.transforms import unnormalize
 
 
@@ -196,6 +196,9 @@ class TestProbabilisticReparameterizationInputTransform(BotorchTestCase):
         )
 
         X = torch.rand(4, 1, 1, bounds.shape[1], **self.tkwargs)
+
+        with self.assertRaisesRegex(ValueError, "3 dimensions"):
+            tf.transform(X[0, 0, ...])
 
         with self.assertRaisesRegex(ValueError, "`n`"):
             tf.transform(X.expand(-1, -1, 2, -1))
@@ -749,9 +752,70 @@ class TestProbabilisticReparameterization(BotorchTestCase):
         self.assertTrue(one_hot_to_numeric(candidate_analytic).shape == (1, f.dim))
 
         # round the mc candidate to allow for comparison
-        candidate_mc = init_exact_rounding_func(candidate_mc)
+        candidate_mc_rnd = init_exact_rounding_func(candidate_mc)
 
         self.assertAllClose(candidate_analytic, candidate_exhaustive, rtol=0.1)
         self.assertAllClose(acq_values_analytic, acq_values_exhaustive, rtol=0.1)
-        self.assertAllClose(candidate_mc, candidate_exhaustive, rtol=0.1)
+        self.assertAllClose(candidate_mc_rnd, candidate_exhaustive, rtol=0.1)
         self.assertAllClose(acq_values_mc, acq_values_exhaustive, rtol=0.1)
+
+    def test_probabilistic_reparameterization_sample_candidates(self):
+        torch.manual_seed(0)
+        bounds = torch.tensor(
+            [
+                [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+                [1.0, 1.0, 4.0, 5.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+            ],
+            **self.tkwargs,
+        )
+        integer_indices = [2, 3]
+        categorical_features = {4: 2, 6: 3}
+
+        candidate = torch.tensor(
+            [[0.1, 0.2, 1.1, 2.5, 0.8, 0.4, 1.0, 0.0, 0.0]], **self.tkwargs
+        )
+        mm = MockModel(MockPosterior(samples=torch.rand(1, 1)))
+        base_acq_func = qLogExpectedImprovement(model=mm, best_f=0.0)
+        pr_acq = MCProbabilisticReparameterization(
+            acq_function=base_acq_func,
+            one_hot_bounds=bounds,
+            integer_indices=integer_indices,
+            categorical_features=categorical_features,
+            **self.acqf_params,
+        )
+
+        num_candidate_samples = 256
+        candidate_expanded = candidate.expand(num_candidate_samples, -1)
+        candidate_samples = pr_acq.sample_candidates(candidate_expanded)
+        self.assertEqual(
+            candidate_samples.shape,
+            torch.Size([num_candidate_samples, bounds.shape[1]]),
+        )
+
+        # continuous parameters should not be rounded
+        cont_indices = list(range(min(integer_indices)))
+        self.assertAllClose(
+            candidate_expanded[..., cont_indices], candidate_samples[..., cont_indices]
+        )
+
+        # categorical parameters should be one-hot encoded
+        ones = torch.ones_like(candidate_samples[..., -1], dtype=torch.long)
+        for cat, card in categorical_features.items():
+            start, end = cat, cat + card
+            self.assertAllClose(
+                (candidate_samples[..., start:end] == 1.0).sum(dim=-1), ones
+            )
+            self.assertAllClose(
+                (candidate_samples[..., start:end] == 0.0).sum(dim=-1),
+                (card - 1) * ones,
+            )
+
+        # all proposed integers should be within [x.floor, x.ceil]
+        int_within_range = (
+            candidate_samples[:, integer_indices]
+            - candidate_expanded[..., integer_indices]
+        ).abs() < 1.0
+        # FIXME: the line below will currently fail, since `sample_candidates` passes
+        # the candidate through an (un)normalization transform. Either the logic
+        # in the method needs to change, or this test needs to change.
+        self.assertTrue(torch.all(int_within_range))
