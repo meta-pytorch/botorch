@@ -551,6 +551,14 @@ class TestProbabilisticReparameterization(BotorchTestCase):
             },
         )
 
+    def test_probabilistic_reparameterization_continuous(self):
+        for pr_cls in (
+            MCProbabilisticReparameterization,
+            AnalyticProbabilisticReparameterization,
+        ):
+            with self.subTest("continuous", pr_cls=pr_cls):
+                self._test_probabilistic_reparameterization_continuous(pr_cls=pr_cls)
+
     def test_probabilistic_reparameterization(self):
         for base_acq_func_cls in (LogExpectedImprovement, qLogExpectedImprovement):
             with self.subTest("binary", base_acq_func_cls=base_acq_func_cls):
@@ -563,9 +571,26 @@ class TestProbabilisticReparameterization(BotorchTestCase):
                     base_acq_func_cls=base_acq_func_cls
                 )
 
+    def _test_probabilistic_reparameterization_continuous(
+        self,
+        pr_cls: type[MCProbabilisticReparameterization]
+        | type[AnalyticProbabilisticReparameterization],
+    ):
+        bounds = torch.zeros((2, 5))
+
+        mm = MockModel(MockPosterior(samples=torch.rand(1, 1)))
+        base_acq_func = qLogExpectedImprovement(model=mm, best_f=0.0)
+        with self.assertRaisesRegex(
+            NotImplementedError, "Categorical features or integer indices"
+        ):
+            pr_cls(
+                acq_function=base_acq_func,
+                one_hot_bounds=bounds,
+            )
+
     def _test_probabilistic_reparameterization_binary(
         self,
-        base_acq_func_cls: AcquisitionFunction,
+        base_acq_func_cls: type[AcquisitionFunction],
     ):
         torch.manual_seed(0)
         f = AckleyMixed(dim=6, randomize_optimum=False)
@@ -645,7 +670,7 @@ class TestProbabilisticReparameterization(BotorchTestCase):
 
     def _test_probabilistic_reparameterization_categorical(
         self,
-        base_acq_func_cls: AcquisitionFunction,
+        base_acq_func_cls: type[AcquisitionFunction],
     ):
         torch.manual_seed(0)
         # we use Ackley here to ensure the categorical features are the
