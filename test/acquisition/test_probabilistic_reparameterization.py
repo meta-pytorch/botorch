@@ -272,6 +272,58 @@ class TestProbabilisticReparameterizationInputTransform(BotorchTestCase):
         )
         self.assertAllClose(X_transformed_mc[..., -1].mean().item(), 0.95, atol=0.10)
 
+    def test_probabilistic_reparameterization_transform_get_probs(self):
+        bounds = self.one_hot_bounds
+        dtype = torch.float32
+        integer_indices = [2, 3]
+        categorical_features = {4: 2, 6: 3}
+
+        X = torch.tensor(
+            [[[0.0, 0.0, 1.1, 2.5, 0.6, 0.4, 1.0, 0.0, 0.0]]],
+            dtype=dtype,
+            device=self.device,
+        )
+
+        tf_analytic = AnalyticProbabilisticReparameterizationInputTransform(
+            one_hot_bounds=bounds,
+            integer_indices=integer_indices,
+            categorical_features=categorical_features,
+        )
+
+        probs = tf_analytic.get_probs(X).squeeze(0)  # n_discrete x 1
+        all_discrete_options = tf_analytic.all_discrete_options  # n_discrete x d
+        # get the indices of any discrete options that have zero probability of
+        # being sampled by X
+        zero_prob_options = torch.any(
+            (all_discrete_options[:, integer_indices] - X[..., integer_indices]).abs()
+            >= 1.0,
+            dim=-1,
+        ).squeeze(0)
+
+        self.assertEqual(probs.shape[0], all_discrete_options.shape[0])
+        self.assertTrue(torch.all(probs[zero_prob_options] == 0.0))
+        self.assertTrue(torch.all(probs[~zero_prob_options] > 0.0))
+        self.assertAlmostEqual(probs.sum().item(), 1.0, places=4)
+
+        tf_mc = MCProbabilisticReparameterizationInputTransform(
+            one_hot_bounds=bounds,
+            integer_indices=integer_indices,
+            categorical_features=categorical_features,
+        )
+
+        rounding_prob = tf_mc.get_rounding_prob(X)
+
+        num_cont = min(integer_indices)
+        num_discrete = bounds.shape[1] - num_cont
+        self.assertEqual(rounding_prob.shape, torch.Size([*X.shape[:-1], num_discrete]))
+
+        for cat, card in categorical_features.items():
+            # get_rounding_prob only returns the integer indices; need to offset
+            start, end = cat - num_cont, cat - num_cont + card
+            self.assertAlmostEqual(
+                rounding_prob[..., start:end].sum().item(), 1.0, places=4
+            )
+
     def test_probabilistic_reparameterization_transform_equality(self):
         bounds = self.one_hot_bounds
         integer_indices = [2, 3]
