@@ -360,6 +360,16 @@ class AbstractProbabilisticReparameterizationInputTransform(InputTransform, ABC)
         self.tau = tau
 
     def get_rounding_prob(self, X: Tensor) -> Tensor:
+        r"""Compute dimension-wise probability of rounding up elements of X.
+
+        Args:
+            X: a `batch_shape x n x d`-dim tensor
+
+        Returns:
+            A `batch_shape x n x n_discrete_indices`-dim tensors of probabilities of
+                rounding each index up.
+        """
+
         X_prob = X.detach().clone()
         if self.integer_indices is not None:
             # compute probabilities for integers
@@ -385,6 +395,11 @@ class AbstractProbabilisticReparameterizationInputTransform(InputTransform, ABC)
 
     def _check_input_shape(self, X: Tensor) -> None:
         r"""Check that the input shape is valid for this transform."""
+        if X.ndim < 3:
+            raise ValueError(
+                f"Input to {self.__class__.__name__} must have at least 3 dimensions, "
+                f"expected `batch_shape x 1 x n x d`-dim tensor (got shape {X.shape})."
+            )
         if X.shape[-3] > 1:
             raise ValueError(
                 f"Input to {self.__class__.__name__} must have a dimension of size 1 "
@@ -490,9 +505,8 @@ class AnalyticProbabilisticReparameterizationInputTransform(
                 )
             )
         if integer_indices is not None:
-            # FIXME: this assumes that the integer dimensions are after the continuous
-            # if we want to enforce this, we should test for it similarly to
-            # categoricals
+            # this assumes that the integer dimensions are after the continuous,
+            # which we enforce in parent class
             for i in range(self.integer_bounds.shape[-1]):
                 discrete_options.append(
                     torch.arange(
