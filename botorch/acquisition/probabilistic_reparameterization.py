@@ -922,7 +922,7 @@ class AbstractProbabilisticReparameterization(AbstractAcquisitionFunctionWrapper
         one_hot_bounds: Tensor,
         integer_indices: list[int] | None = None,
         categorical_features: dict[int, int] | None = None,
-        batch_limit: int = 32,
+        batch_limit: int | None = 32,
         apply_numeric: bool = False,
         **kwargs,
     ) -> None:
@@ -950,6 +950,7 @@ class AbstractProbabilisticReparameterization(AbstractAcquisitionFunctionWrapper
 
         if apply_numeric:
             self.one_hot_to_numeric = OneHotToNumeric(
+                dim=one_hot_bounds.shape[1],
                 categorical_features=categorical_features,
                 transform_on_train=False,
                 transform_on_eval=True,
@@ -1077,7 +1078,7 @@ class AnalyticProbabilisticReparameterization(AbstractProbabilisticReparameteriz
         one_hot_bounds: Tensor,
         integer_indices: list[int] | None = None,
         categorical_features: dict[int, int] | None = None,
-        batch_limit: int = 32,
+        batch_limit: int | None = 32,
         apply_numeric: bool = False,
         tau: float = 0.1,
     ) -> None:
@@ -1159,7 +1160,7 @@ class MCProbabilisticReparameterization(AbstractProbabilisticReparameterization)
         one_hot_bounds: Tensor,
         integer_indices: list[int] | None = None,
         categorical_features: dict[int, int] | None = None,
-        batch_limit: int = 32,
+        batch_limit: int | None = 32,
         apply_numeric: bool = False,
         mc_samples: int = 128,
         use_ma_baseline: bool = True,

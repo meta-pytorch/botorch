@@ -552,43 +552,98 @@ class TestProbabilisticReparameterization(BotorchTestCase):
         )
 
     def test_probabilistic_reparameterization_continuous(self):
+        bounds = torch.zeros((2, 5))
+        bounds[1, :] = 1.0
+
+        mm = MockModel(MockPosterior(samples=torch.rand(1, 1)))
+        base_acq_func = qLogExpectedImprovement(model=mm, best_f=0.0)
         for pr_cls in (
             MCProbabilisticReparameterization,
             AnalyticProbabilisticReparameterization,
         ):
-            with self.subTest("continuous", pr_cls=pr_cls):
-                self._test_probabilistic_reparameterization_continuous(pr_cls=pr_cls)
+            with self.assertRaisesRegex(
+                NotImplementedError, "Categorical features or integer indices"
+            ):
+                pr_cls(
+                    acq_function=base_acq_func,
+                    one_hot_bounds=bounds,
+                )
 
-    def test_probabilistic_reparameterization(self):
-        for base_acq_func_cls in (LogExpectedImprovement, qLogExpectedImprovement):
+    def test_probabilistic_reparameterization_discrete(self):
+        bounds = torch.zeros((2, 5), **self.tkwargs)
+        bounds[1, :] = 5.0
+        # test problem with no continuous features
+        integer_indices = list(range(bounds.shape[1]))
+
+        mc_samples, batch_limit = 128, self.acqf_params["batch_limit"]
+        # posterior samples have base shape according to forward call
+        # in _MCProbabilisticReparameterization
+        samples = torch.tensor(10.0, **self.tkwargs)
+        base_shape = torch.Size([1, batch_limit, 1, 1])
+        mm = MockModel(MockPosterior(samples=samples, base_shape=base_shape))
+        base_acq_func = qLogExpectedImprovement(model=mm, best_f=0.0)
+
+        pr_acqf_params = dict(
+            acq_function=base_acq_func,
+            one_hot_bounds=bounds,
+            integer_indices=integer_indices,
+            mc_samples=mc_samples,
+            **self.acqf_params,
+        )
+        pr_acqf = MCProbabilisticReparameterization(**pr_acqf_params)
+
+        X = torch.tensor(
+            [[[1.0, 2.0, 4.0, 0.0, 1.0]]], requires_grad=True, **self.tkwargs
+        )
+        loss = -pr_acqf(X).sum()
+        grad = torch.autograd.grad(loss, X)[0]
+        self.assertEqual(grad.shape, X.shape)
+
+        # test removing batch limit
+        # also test turning off ma baseline
+        base_shape = torch.Size([1, mc_samples, 1, 1])
+        mm = MockModel(MockPosterior(samples=samples, base_shape=base_shape))
+        base_acq_func = qLogExpectedImprovement(model=mm, best_f=0.0)
+        pr_acqf_params_no_batch_limit = pr_acqf_params | dict(
+            acq_function=base_acq_func,
+            batch_limit=None,
+            use_ma_baseline=False,
+        )
+        pr_acqf = MCProbabilisticReparameterization(**pr_acqf_params_no_batch_limit)
+        loss = -pr_acqf(X).sum()
+        grad = torch.autograd.grad(loss, X)[0]
+        self.assertEqual(grad.shape, X.shape)
+
+        # test categorical
+        bounds = torch.zeros((2, 5))
+        bounds[1, :] = 1.0
+        categorical_features = {0: 3, 3: 2}
+        pr_acqf_params_cat = pr_acqf_params | dict(
+            categorical_features=categorical_features,
+            integer_indices=None,
+            apply_numeric=True,
+        )
+        pr_acqf = MCProbabilisticReparameterization(**pr_acqf_params_cat)
+
+        # check that apply_numeric is properly propagated
+        X = torch.tensor([[0.0, 1.0, 0.0, 1.0, 0.0]], **self.tkwargs)
+        X_oh2n = torch.tensor([[1.0, 0.0]], **self.tkwargs)
+        self.assertIsNotNone(pr_acqf.one_hot_to_numeric)
+        self.assertAllClose(pr_acqf.one_hot_to_numeric(X), X_oh2n)
+
+    def test_probabilistic_reparameterization_optim(self):
+        for base_acq_func_cls in (qLogExpectedImprovement, LogExpectedImprovement):
             with self.subTest("binary", base_acq_func_cls=base_acq_func_cls):
-                self._test_probabilistic_reparameterization_binary(
+                self._test_probabilistic_reparameterization_optim_binary_mixed(
                     base_acq_func_cls=base_acq_func_cls
                 )
 
             with self.subTest("categorical", base_acq_func_cls=base_acq_func_cls):
-                self._test_probabilistic_reparameterization_categorical(
+                self._test_probabilistic_reparameterization_optim_categorical_mixed(
                     base_acq_func_cls=base_acq_func_cls
                 )
 
-    def _test_probabilistic_reparameterization_continuous(
-        self,
-        pr_cls: type[MCProbabilisticReparameterization]
-        | type[AnalyticProbabilisticReparameterization],
-    ):
-        bounds = torch.zeros((2, 5))
-
-        mm = MockModel(MockPosterior(samples=torch.rand(1, 1)))
-        base_acq_func = qLogExpectedImprovement(model=mm, best_f=0.0)
-        with self.assertRaisesRegex(
-            NotImplementedError, "Categorical features or integer indices"
-        ):
-            pr_cls(
-                acq_function=base_acq_func,
-                one_hot_bounds=bounds,
-            )
-
-    def _test_probabilistic_reparameterization_binary(
+    def _test_probabilistic_reparameterization_optim_binary_mixed(
         self,
         base_acq_func_cls: type[AcquisitionFunction],
     ):
@@ -649,7 +704,10 @@ class TestProbabilisticReparameterization(BotorchTestCase):
         )
 
         fixed_features_list = [
-            {feat_dim + 3: val for feat_dim, val in enumerate(vals)}
+            {
+                feat_dim: val
+                for feat_dim, val in enumerate(vals, start=min(f.discrete_inds))
+            }
             for vals in itertools.product([0, 1], repeat=len(f.discrete_inds))
         ]
         candidate_exhaustive, acq_values_exhaustive = optimize_acqf_mixed(
@@ -668,7 +726,7 @@ class TestProbabilisticReparameterization(BotorchTestCase):
         self.assertAllClose(candidate_mc, candidate_exhaustive, rtol=0.1)
         self.assertAllClose(acq_values_mc, acq_values_exhaustive, rtol=0.1)
 
-    def _test_probabilistic_reparameterization_categorical(
+    def _test_probabilistic_reparameterization_optim_categorical_mixed(
         self,
         base_acq_func_cls: type[AcquisitionFunction],
     ):
