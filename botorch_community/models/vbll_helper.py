@@ -381,10 +381,18 @@ class Regression(nn.Module):
         parameterization : str
             Parameterization of covariance matrix.
             Currently supports {'dense', 'diagonal', 'lowrank', 'dense_precision'}
+        mean_initialization : str or None
+            Initialization method for the mean of the weights.
+            Supports {'kaiming', None}. If None, weights are initialized from
+            a standard normal distribution. Defaults to None.
         prior_scale : float
             Scale of prior covariance matrix
         wishart_scale : float
             Scale of Wishart prior on noise covariance
+        cov_rank : int or None
+            For 'lowrank' parameterization, the rank of the covariance matrix.
+        clamp_noise_init : bool
+            Whether to clamp the noise initialization to be positive.
         dof : float
             Degrees of freedom of Wishart prior on noise covariance
         """
@@ -415,7 +423,7 @@ class Regression(nn.Module):
 
         if mean_initialization is None:
             self.W_mean = nn.Parameter(
-                torch.zeros(out_features, in_features, dtype=self.dtype)
+                torch.randn(out_features, in_features, dtype=self.dtype)
             )
         elif mean_initialization == "kaiming":
             self.W_mean = nn.Parameter(

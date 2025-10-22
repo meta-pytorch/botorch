@@ -102,6 +102,10 @@ class VBLLNetwork(nn.Module):
             num_layers: Number of hidden layers in the MLP. Defaults to 3.
             parameterization: Parameterization of the posterior covariance of the last
                 layer. Supports {'dense', 'diagonal', 'lowrank', 'dense_precision'}.
+            cov_rank: For 'lowrank' parameterization, the rank of the covariance matrix.
+            mean_initialization: Initialization method for the mean of the weights in
+                the last layer. Supports {'kaiming', None}. If None, weights are
+                initialized from a standard normal distribution. Defaults to None.
             prior_scale: Scaling factor for the prior distribution in the Bayesian last
                 layer. Defaults to 1.0.
             wishart_scale: Scaling factor for the Wishart prior in the Bayesian last
