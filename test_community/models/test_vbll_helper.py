@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import torch
+
 from botorch.utils.testing import BotorchTestCase
 from botorch_community.models.vbll_helper import (
     DenseNormal,

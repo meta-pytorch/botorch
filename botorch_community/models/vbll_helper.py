@@ -16,7 +16,6 @@ from dataclasses import dataclass
 from typing import Callable
 
 import numpy as np
-
 import torch
 import torch.nn as nn
 
@@ -361,6 +360,7 @@ class Regression(nn.Module):
         out_features,
         regularization_weight,
         parameterization="dense",
+        mean_initialization=None,
         prior_scale=1.0,
         wishart_scale=1e-2,
         cov_rank=None,
@@ -412,9 +412,26 @@ class Regression(nn.Module):
 
         # last layer distribution
         self.W_dist = get_parameterization(parameterization)
-        self.W_mean = nn.Parameter(
-            torch.randn(out_features, in_features, dtype=self.dtype)
-        )
+
+        if mean_initialization is None:
+            self.W_mean = nn.Parameter(
+                torch.zeros(out_features, in_features, dtype=self.dtype)
+            )
+        elif mean_initialization == "kaiming":
+            self.W_mean = nn.Parameter(
+                torch.randn(out_features, in_features, dtype=self.dtype)
+                * np.sqrt(2.0 / in_features)
+            )
+        elif isinstance(mean_initialization, str):
+            raise ValueError(
+                f"Unknown initialization method: {mean_initialization!r}. "
+                f"Supported methods: 'kaiming'"
+            )
+        else:
+            raise TypeError(
+                f"mean_initialization must be a string or None, "
+                f"got {type(mean_initialization).__name__}"
+            )
 
         if parameterization == "diagonal":
             self.W_logdiag = nn.Parameter(

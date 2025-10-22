@@ -7,6 +7,7 @@
 import copy
 
 import torch
+
 from botorch.utils.testing import BotorchTestCase
 from botorch_community.models.blls import AbstractBLLModel
 from botorch_community.models.vblls import VBLLModel
@@ -81,6 +82,54 @@ class TestVBLLModel(BotorchTestCase):
                 device=self.device,
                 parameterization="lowrank",  # lowrank requires cov_rank
             )
+
+    def test_mean_initialization(self):
+        """Test different mean_initialization options."""
+        d, num_hidden, num_outputs, num_layers = 2, 3, 1, 4
+
+        # Test None initialization (default to zeros)
+        model = VBLLModel(
+            in_features=d,
+            hidden_features=num_hidden,
+            num_layers=num_layers,
+            out_features=num_outputs,
+            mean_initialization=None,
+        )
+        print(model.head.W_mean)
+        expected_zeros = torch.zeros(num_outputs, num_hidden, dtype=torch.float64)
+        self.assertTrue(torch.allclose(model.head.W_mean, expected_zeros))
+
+        # Test Kaiming initialization
+        model = VBLLModel(
+            in_features=d,
+            hidden_features=num_hidden,
+            num_layers=num_layers,
+            out_features=num_outputs,
+            mean_initialization="kaiming",
+        )
+
+        # Test invalid string initialization
+        with self.assertRaises(ValueError) as cm:
+            model = VBLLModel(
+                in_features=d,
+                hidden_features=num_hidden,
+                num_layers=num_layers,
+                out_features=num_outputs,
+                mean_initialization="invalid",
+            )
+        self.assertIn("Unknown initialization method", str(cm.exception))
+        self.assertIn("kaiming", str(cm.exception))
+
+        # Test invalid type (not string or None)
+        with self.assertRaises(TypeError) as cm:
+            model = VBLLModel(
+                in_features=d,
+                hidden_features=num_hidden,
+                num_layers=num_layers,
+                out_features=num_outputs,
+                mean_initialization=["kaiming"],
+            )
+        self.assertIn("must be a string or None", str(cm.exception))
 
     def test_backbone_initialization(self) -> None:
         d, num_hidden = 4, 3
