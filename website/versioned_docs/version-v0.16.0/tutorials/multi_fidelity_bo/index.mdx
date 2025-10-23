@@ -1,0 +1,496 @@
+---
+title: Multi-fidelity Bayesian optimization using KG
+sidebar_label: Multi-fidelity Bayesian optimization using KG
+---
+
+import LinkButtons from "@site/src/components/LinkButtons.jsx";
+import CellOutput from "@site/src/components/CellOutput.jsx";
+import {PlotlyFigure} from "@site/src/components/Plotting.jsx";
+
+<LinkButtons
+  githubUrl="https://github.com/pytorch/botorch/blob/main/tutorials/multi_fidelity_bo/multi_fidelity_bo.ipynb"
+  colabUrl="https://colab.research.google.com/github/pytorch/botorch/blob/main/tutorials/multi_fidelity_bo/multi_fidelity_bo.ipynb"
+/>
+
+## Continuous Multi-Fidelity BO in BoTorch with Knowledge Gradient
+
+In this tutorial, we show how to perform continuous multi-fidelity Bayesian optimization
+(BO) in BoTorch using the multi-fidelity Knowledge Gradient (qMFKG) acquisition function
+[1, 2].
+
+[1]
+[J. Wu, P.I. Frazier. Continuous-Fidelity Bayesian Optimization with Knowledge Gradient. NIPS Workshop on Bayesian Optimization, 2017.](https://bayesopt.github.io/papers/2017/20.pdf)
+
+[2]
+[J. Wu, S. Toscano-Palmerin, P.I. Frazier, A.G. Wilson. Practical Multi-fidelity Bayesian Optimization for Hyperparameter Tuning. Conference on Uncertainty in Artificial Intelligence (UAI), 2019](https://arxiv.org/pdf/1903.04703.pdf)
+
+### Set dtype and device
+
+```python
+# Install dependencies if we are running in colab
+import sys
+if 'google.colab' in sys.modules:
+    %pip install botorch
+```
+
+```python
+import os
+import torch
+
+
+tkwargs = {
+    "dtype": torch.double,
+    "device": torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+}
+SMOKE_TEST = os.environ.get("SMOKE_TEST")
+```
+
+### Problem setup
+
+We'll consider the Augmented Hartmann multi-fidelity synthetic test problem. This
+function is a version of the Hartmann6 test function with an additional dimension
+representing the fidelity parameter; details are in [2]. The function takes the form
+$f(x,s)$ where $x \in [0,1]^6$ and $s \in [0,1]$. The target fidelity is 1.0, which
+means that our goal is to solve $\max_x f(x,1.0)$ by making use of cheaper evaluations
+$f(x,s)$ for $s < 1.0$. In this example, we'll assume that the cost function takes the
+form $5.0 + s$, illustrating a situation where the fixed cost is $5.0$.
+
+```python
+from botorch.test_functions.multi_fidelity import AugmentedHartmann
+
+
+problem = AugmentedHartmann(negate=True).to(**tkwargs)
+```
+
+#### Model initialization
+
+We use a `SingleTaskMultiFidelityGP` as the surrogate model, which uses a kernel from
+[2] that is well-suited for multi-fidelity applications.
+
+```python
+from botorch.models.gp_regression_fidelity import SingleTaskMultiFidelityGP
+from botorch.models.transforms.outcome import Standardize
+from gpytorch.mlls.exact_marginal_log_likelihood import ExactMarginalLogLikelihood
+from botorch.utils.transforms import unnormalize
+from botorch.utils.sampling import draw_sobol_samples
+
+
+def generate_initial_data(n=16):
+    # generate training data
+    train_x = torch.rand(n, 7, **tkwargs)
+    train_obj = problem(train_x).unsqueeze(-1)  # add output dimension
+    return train_x, train_obj
+
+
+def initialize_model(train_x, train_obj):
+    # define a surrogate model suited for a "training data"-like fidelity parameter
+    # in dimension 6, as in [2]
+    model = SingleTaskMultiFidelityGP(
+        train_x, train_obj, outcome_transform=Standardize(m=1), data_fidelities=[6]
+    )
+    mll = ExactMarginalLogLikelihood(model.likelihood, model)
+    return mll, model
+```
+
+#### Define a helper function to construct the MFKG acquisition function
+
+The helper function illustrates how one can initialize a $q$MFKG acquisition function.
+In this example, we assume that the affine cost is known. We then use the notion of a
+`CostAwareUtility` in BoTorch to scalarize the competing objectives of information gain
+and cost. The MFKG acquisition function optimizes the ratio of information gain to cost,
+which is captured by the `InverseCostWeightedUtility`.
+
+In order for MFKG to evaluate the information gain, it uses the model to predict the
+function value at the highest fidelity after conditioning on the observation. This is
+handled by the `project` argument, which specifies how to transform a tensor `X` to its
+target fidelity. We use a default helper function called `project_to_target_fidelity` to
+achieve this.
+
+An important point to keep in mind: in the case of standard KG, one can ignore the
+current value and simply optimize the expected maximum posterior mean of the next stage.
+However, for MFKG, since the goal is optimize information *gain* per cost, it is
+important to first compute the current value (i.e., maximum of the posterior mean at the
+target fidelity). To accomplish this, we use a `FixedFeatureAcquisitionFunction` on top
+of a `PosteriorMean`.
+
+```python
+from botorch import fit_gpytorch_mll
+from botorch.models.cost import AffineFidelityCostModel
+from botorch.acquisition.cost_aware import InverseCostWeightedUtility
+from botorch.acquisition import PosteriorMean
+from botorch.acquisition.knowledge_gradient import qMultiFidelityKnowledgeGradient
+from botorch.acquisition.fixed_feature import FixedFeatureAcquisitionFunction
+from botorch.optim.optimize import optimize_acqf
+from botorch.acquisition.utils import project_to_target_fidelity
+
+
+bounds = torch.tensor([[0.0] * problem.dim, [1.0] * problem.dim], **tkwargs)
+target_fidelities = {6: 1.0}
+
+cost_model = AffineFidelityCostModel(fidelity_weights={6: 1.0}, fixed_cost=5.0)
+cost_aware_utility = InverseCostWeightedUtility(cost_model=cost_model)
+
+
+def project(X):
+    return project_to_target_fidelity(X=X, target_fidelities=target_fidelities)
+
+
+def get_mfkg(model):
+
+    curr_val_acqf = FixedFeatureAcquisitionFunction(
+        acq_function=PosteriorMean(model),
+        d=7,
+        columns=[6],
+        values=[1],
+    )
+
+    _, current_value = optimize_acqf(
+        acq_function=curr_val_acqf,
+        bounds=bounds[:, :-1],
+        q=1,
+        num_restarts=10 if not SMOKE_TEST else 2,
+        raw_samples=1024 if not SMOKE_TEST else 4,
+        options={"batch_limit": 10, "maxiter": 200},
+    )
+
+    return qMultiFidelityKnowledgeGradient(
+        model=model,
+        num_fantasies=128 if not SMOKE_TEST else 2,
+        current_value=current_value,
+        cost_aware_utility=cost_aware_utility,
+        project=project,
+    )
+```
+
+#### Define a helper function that performs the essential BO step
+
+This helper function optimizes the acquisition function and returns the batch
+${x_1, x_2, \ldots x_q}$ along with the observed function values.
+
+```python
+from botorch.optim.initializers import gen_one_shot_kg_initial_conditions
+
+torch.set_printoptions(precision=3, sci_mode=False)
+
+NUM_RESTARTS = 10 if not SMOKE_TEST else 2
+RAW_SAMPLES = 512 if not SMOKE_TEST else 4
+
+
+def optimize_mfkg_and_get_observation(mfkg_acqf):
+    """Optimizes MFKG and returns a new candidate, observation, and cost."""
+
+    X_init = gen_one_shot_kg_initial_conditions(
+        acq_function=mfkg_acqf,
+        bounds=bounds,
+        q=4,
+        num_restarts=NUM_RESTARTS,
+        raw_samples=RAW_SAMPLES,
+    )
+    candidates, _ = optimize_acqf(
+        acq_function=mfkg_acqf,
+        bounds=bounds,
+        q=4,
+        num_restarts=NUM_RESTARTS,
+        raw_samples=RAW_SAMPLES,
+        batch_initial_conditions=X_init,
+        options={"batch_limit": 5, "maxiter": 200},
+    )
+    # observe new values
+    cost = cost_model(candidates).sum()
+    new_x = candidates.detach()
+    new_obj = problem(new_x).unsqueeze(-1)
+    print(f"candidates:\n{new_x}\n")
+    print(f"observations:\n{new_obj}\n\n")
+    return new_x, new_obj, cost
+```
+
+### Perform a few steps of multi-fidelity BO
+
+First, let's generate some initial random data and fit a surrogate model.
+
+```python
+train_x, train_obj = generate_initial_data(n=16)
+```
+
+We can now use the helper functions above to run a few iterations of BO.
+
+```python
+cumulative_cost = 0.0
+N_ITER = 6 if not SMOKE_TEST else 2
+
+
+for _ in range(N_ITER):
+    mll, model = initialize_model(train_x, train_obj)
+    fit_gpytorch_mll(mll)
+    mfkg_acqf = get_mfkg(model)
+    new_x, new_obj, cost = optimize_mfkg_and_get_observation(mfkg_acqf)
+    train_x = torch.cat([train_x, new_x])
+    train_obj = torch.cat([train_obj, new_obj])
+    cumulative_cost += cost
+```
+
+<CellOutput>
+{
+`candidates:
+tensor([[0.005, 0.185, 0.708, 0.670, 0.472, 0.796, 0.000],
+        [0.000, 0.335, 0.670, 0.584, 0.301, 0.733, 0.000],
+        [0.066, 0.127, 0.583, 0.555, 0.302, 0.734, 0.000],
+        [0.023, 0.210, 0.606, 0.756, 0.236, 0.807, 0.000]],
+       dtype=torch.float64)
+observations:
+tensor([[0.427],
+        [1.045],
+        [1.396],
+        [0.416]], dtype=torch.float64)
+candidates:
+tensor([[0.024, 0.137, 0.466, 0.545, 0.236, 0.654, 0.000],
+        [0.220, 0.175, 0.597, 0.537, 0.269, 0.681, 0.000],
+        [0.045, 0.088, 0.644, 0.520, 0.234, 0.818, 0.013],
+        [0.024, 0.117, 0.613, 0.496, 0.330, 0.638, 0.000]],
+       dtype=torch.float64)
+observations:
+tensor([[1.372],
+        [1.640],
+        [1.259],
+        [1.728]], dtype=torch.float64)
+candidates:
+tensor([[0.162, 0.180, 0.608, 0.453, 0.377, 0.667, 0.010],
+        [0.180, 0.138, 0.505, 0.444, 0.293, 0.554, 0.751],
+        [0.185, 0.046, 0.631, 0.491, 0.384, 0.585, 0.002],
+        [0.151, 0.167, 0.698, 0.474, 0.240, 0.580, 0.024]],
+       dtype=torch.float64)
+observations:
+tensor([[2.165],
+        [2.315],
+        [1.676],
+        [1.693]], dtype=torch.float64)
+candidates:
+tensor([[0.156, 0.163, 0.527, 0.376, 0.290, 0.618, 0.000],
+        [0.208, 0.148, 0.480, 0.403, 0.399, 0.589, 0.004],
+        [0.131, 0.213, 0.527, 0.401, 0.377, 0.502, 0.009],
+        [0.240, 0.241, 0.519, 0.408, 0.306, 0.564, 0.000]],
+       dtype=torch.float64)
+observations:
+tensor([[2.882],
+        [2.431],
+        [2.120],
+        [2.504]], dtype=torch.float64)
+candidates:
+tensor([[0.215, 0.081, 0.494, 0.335, 0.243, 0.620, 0.000],
+        [0.198, 0.180, 0.539, 0.310, 0.293, 0.655, 0.016],
+        [0.440, 0.558, 0.028, 0.675, 0.168, 0.008, 0.000],
+        [0.153, 0.201, 0.453, 0.338, 0.252, 0.656, 0.000]],
+       dtype=torch.float64)
+observations:
+tensor([[2.878],
+        [3.178],
+        [1.162],
+        [2.952]], dtype=torch.float64)
+candidates:
+tensor([[0.232, 0.170, 0.469, 0.256, 0.312, 0.629, 0.037],
+        [0.126, 0.141, 0.519, 0.245, 0.308, 0.671, 0.016],
+        [0.654, 0.372, 0.777, 0.420, 0.574, 0.380, 0.341],
+        [0.218, 0.144, 0.481, 0.280, 0.318, 0.710, 0.031]],
+       dtype=torch.float64)
+observations:
+tensor([[3.235],
+        [3.161],
+        [0.170],
+        [3.209]], dtype=torch.float64)`
+}
+</CellOutput>
+
+### Make a final recommendation
+
+In multi-fidelity BO, there are usually fewer observations of the function at the target
+fidelity, so it is important to use a recommendation function that uses the correct
+fidelity. Here, we maximize the posterior mean with the fidelity dimension fixed to the
+target fidelity of 1.0.
+
+```python
+def get_recommendation(model):
+    rec_acqf = FixedFeatureAcquisitionFunction(
+        acq_function=PosteriorMean(model),
+        d=7,
+        columns=[6],
+        values=[1],
+    )
+
+    final_rec, _ = optimize_acqf(
+        acq_function=rec_acqf,
+        bounds=bounds[:, :-1],
+        q=1,
+        num_restarts=NUM_RESTARTS,
+        raw_samples=RAW_SAMPLES,
+        options={"batch_limit": 5, "maxiter": 200},
+    )
+
+    final_rec = rec_acqf._construct_X_full(final_rec)
+
+    objective_value = problem(final_rec)
+    print(f"recommended point:\n{final_rec}\n\nobjective value:\n{objective_value}")
+    return final_rec
+```
+
+```python
+final_rec = get_recommendation(model)
+print(f"\ntotal cost: {cumulative_cost}\n")
+```
+
+<CellOutput>
+{
+`recommended point:
+tensor([[0.208, 0.164, 0.514, 0.280, 0.301, 0.664, 1.000]],
+       dtype=torch.float64)
+objective value:
+tensor([3.298], dtype=torch.float64)
+total cost: 121.25572809899545`
+}
+</CellOutput>
+
+### Comparison to standard EI (always use target fidelity)
+
+Let's now repeat the same steps using a standard EI acquisition function (note that this
+is not a rigorous comparison as we are only looking at one trial in order to keep
+computational requirements low).
+
+```python
+from botorch.acquisition import qExpectedImprovement
+
+
+def get_ei(model, best_f):
+
+    return FixedFeatureAcquisitionFunction(
+        acq_function=qExpectedImprovement(model=model, best_f=best_f),
+        d=7,
+        columns=[6],
+        values=[1],
+    )
+
+
+def optimize_ei_and_get_observation(ei_acqf):
+    """Optimizes EI and returns a new candidate, observation, and cost."""
+
+    candidates, _ = optimize_acqf(
+        acq_function=ei_acqf,
+        bounds=bounds[:, :-1],
+        q=4,
+        num_restarts=NUM_RESTARTS,
+        raw_samples=RAW_SAMPLES,
+        options={"batch_limit": 5, "maxiter": 200},
+    )
+
+    # add the fidelity parameter
+    candidates = ei_acqf._construct_X_full(candidates)
+
+    # observe new values
+    cost = cost_model(candidates).sum()
+    new_x = candidates.detach()
+    new_obj = problem(new_x).unsqueeze(-1)
+    print(f"candidates:\n{new_x}\n")
+    print(f"observations:\n{new_obj}\n\n")
+    return new_x, new_obj, cost
+```
+
+```python
+cumulative_cost = 0.0
+
+train_x, train_obj = generate_initial_data(n=16)
+
+for _ in range(N_ITER):
+    mll, model = initialize_model(train_x, train_obj)
+    fit_gpytorch_mll(mll)
+    ei_acqf = get_ei(model, best_f=train_obj.max())
+    new_x, new_obj, cost = optimize_ei_and_get_observation(ei_acqf)
+    train_x = torch.cat([train_x, new_x])
+    train_obj = torch.cat([train_obj, new_obj])
+    cumulative_cost += cost
+```
+
+<CellOutput>
+{
+`candidates:
+tensor([[0.284, 0.692, 0.351, 0.840, 0.487, 0.058, 1.000],
+        [0.571, 0.227, 0.556, 0.254, 0.208, 0.771, 1.000],
+        [0.475, 0.811, 0.448, 0.853, 0.403, 0.000, 1.000],
+        [0.625, 0.141, 0.299, 0.163, 0.171, 0.854, 1.000]],
+       dtype=torch.float64)
+observations:
+tensor([[0.895],
+        [1.644],
+        [1.248],
+        [0.905]], dtype=torch.float64)
+candidates:
+tensor([[0.580, 0.206, 0.677, 0.320, 0.163, 0.809, 1.000],
+        [0.538, 0.242, 0.613, 0.248, 0.152, 0.667, 1.000],
+        [0.453, 0.231, 0.634, 0.252, 0.290, 0.771, 1.000],
+        [0.619, 0.325, 0.576, 0.301, 0.226, 0.767, 1.000]],
+       dtype=torch.float64)
+observations:
+tensor([[1.357],
+        [1.445],
+        [2.271],
+        [1.486]], dtype=torch.float64)
+candidates:
+tensor([[0.416, 0.189, 0.617, 0.265, 0.331, 0.728, 1.000],
+        [0.757, 0.521, 0.077, 0.687, 0.779, 0.473, 1.000],
+        [0.416, 0.243, 0.699, 0.191, 0.315, 0.793, 1.000],
+        [0.753, 0.544, 0.275, 0.703, 0.266, 0.637, 1.000]],
+       dtype=torch.float64)
+observations:
+tensor([[2.547],
+        [0.010],
+        [2.088],
+        [0.134]], dtype=torch.float64)
+candidates:
+tensor([[0.057, 0.684, 1.000, 0.133, 0.647, 0.573, 1.000],
+        [0.339, 0.169, 0.558, 0.284, 0.349, 0.719, 1.000],
+        [0.430, 0.141, 0.663, 0.284, 0.367, 0.703, 1.000],
+        [0.734, 0.006, 0.873, 0.563, 0.275, 0.925, 1.000]],
+       dtype=torch.float64)
+observations:
+tensor([[0.065],
+        [2.879],
+        [2.321],
+        [0.384]], dtype=torch.float64)
+candidates:
+tensor([[0.286, 0.174, 0.514, 0.281, 0.354, 0.746, 1.000],
+        [0.388, 0.494, 0.511, 0.892, 0.814, 0.650, 1.000],
+        [0.311, 0.700, 0.253, 0.139, 0.203, 0.086, 1.000],
+        [0.323, 0.109, 0.950, 0.702, 0.221, 0.896, 1.000]],
+       dtype=torch.float64)
+observations:
+tensor([[2.944],
+        [0.026],
+        [0.350],
+        [0.451]], dtype=torch.float64)
+candidates:
+tensor([[0.694, 0.341, 0.325, 0.928, 0.077, 0.603, 1.000],
+        [0.758, 0.194, 0.803, 0.440, 0.016, 0.814, 1.000],
+        [0.252, 0.168, 0.529, 0.280, 0.329, 0.698, 1.000],
+        [0.438, 0.572, 0.395, 0.611, 0.429, 0.559, 1.000]],
+       dtype=torch.float64)
+observations:
+tensor([[0.011],
+        [0.574],
+        [3.203],
+        [0.413]], dtype=torch.float64)`
+}
+</CellOutput>
+
+```python
+final_rec = get_recommendation(model)
+print(f"\ntotal cost: {cumulative_cost}\n")
+```
+
+<CellOutput>
+{
+`recommended point:
+tensor([[0.288, 0.175, 0.520, 0.283, 0.351, 0.735, 1.000]],
+       dtype=torch.float64)
+objective value:
+tensor([2.990], dtype=torch.float64)
+total cost: 144.0`
+}
+</CellOutput>
+

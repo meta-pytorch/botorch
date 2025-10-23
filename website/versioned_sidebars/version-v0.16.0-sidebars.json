@@ -1,0 +1,286 @@
+{
+  "docs": {
+    "About": [
+      "introduction",
+      "design_philosophy",
+      "botorch_and_ax",
+      "papers"
+    ],
+    "General": [
+      "getting_started"
+    ],
+    "Basic Concepts": [
+      "overview",
+      "models",
+      "posteriors",
+      "acquisition",
+      "optimization"
+    ],
+    "Advanced Topics": [
+      "constraints",
+      "objectives",
+      "batching",
+      "samplers"
+    ],
+    "Multi-Objective Optimization": [
+      "multi_objective"
+    ]
+  },
+  "tutorials": [
+    {
+      "type": "category",
+      "label": "Tutorials",
+      "collapsed": false,
+      "items": [
+        {
+          "type": "doc",
+          "id": "tutorials/index",
+          "label": "Overview"
+        }
+      ]
+    },
+    {
+      "type": "category",
+      "label": "Full Optimization Loops",
+      "items": [
+        {
+          "type": "doc",
+          "label": "q-Noisy Constrained EI",
+          "id": "tutorials/closed_loop_botorch_only/index"
+        },
+        {
+          "type": "doc",
+          "label": "Bayesian optimization with pairwise comparison data",
+          "id": "tutorials/preference_bo/index"
+        },
+        {
+          "type": "doc",
+          "label": "Bayesian optimization with preference exploration (BOPE)",
+          "id": "tutorials/bope/index"
+        },
+        {
+          "type": "doc",
+          "label": "Trust Region Bayesian Optimization (TuRBO)",
+          "id": "tutorials/turbo_1/index"
+        },
+        {
+          "type": "doc",
+          "label": "Bayesian optimization with adaptively expanding subspaces (BAxUS)",
+          "id": "tutorials/baxus/index"
+        },
+        {
+          "type": "doc",
+          "label": "Scalable Constrained Bayesian Optimization (SCBO)",
+          "id": "tutorials/scalable_constrained_bo/index"
+        },
+        {
+          "type": "doc",
+          "label": "High-dimensional Bayesian optimization with SAASBO",
+          "id": "tutorials/saasbo/index"
+        },
+        {
+          "type": "doc",
+          "label": "Cost-aware Bayesian optimization",
+          "id": "tutorials/cost_aware_bayesian_optimization/index"
+        },
+        {
+          "type": "doc",
+          "label": "Multi-Objective-Multi-Fidelity optimization with MOMF",
+          "id": "tutorials/Multi_objective_multi_fidelity_BO/index"
+        },
+        {
+          "type": "doc",
+          "label": "Bayesian optimization with input warping",
+          "id": "tutorials/bo_with_warped_gp/index"
+        },
+        {
+          "type": "doc",
+          "label": "Bayesian optimization with large-scale Thompson sampling",
+          "id": "tutorials/thompson_sampling/index"
+        },
+        {
+          "type": "doc",
+          "label": "Bayesian optimization with infinite-width neural networks",
+          "id": "tutorials/ibnn_bo/index"
+        },
+        {
+          "type": "doc",
+          "label": "Writing a custom model with the Model and Posterior Interfaces",
+          "id": "tutorials/custom_model/index"
+        }
+      ]
+    },
+    {
+      "type": "category",
+      "label": "Multi-Objective Bayesian Optimization",
+      "items": [
+        {
+          "type": "doc",
+          "label": "Multi-objective optimization with qEHVI, qNEHVI, and qNParEGO",
+          "id": "tutorials/multi_objective_bo/index"
+        },
+        {
+          "type": "doc",
+          "label": "Constrained multi-objective optimization with qNEHVI and qParEGO",
+          "id": "tutorials/constrained_multi_objective_bo/index"
+        },
+        {
+          "type": "doc",
+          "label": "Robust multi-objective Bayesian optimization under input noise",
+          "id": "tutorials/robust_multi_objective_bo/index"
+        },
+        {
+          "type": "doc",
+          "label": "Multi-objective Bayesian optimization with decoupled evaluations",
+          "id": "tutorials/decoupled_mobo/index"
+        }
+      ]
+    },
+    {
+      "type": "category",
+      "label": "Bite-Sized Tutorials",
+      "items": [
+        {
+          "type": "doc",
+          "label": "Implementing a custom acquisition function",
+          "id": "tutorials/custom_acquisition/index"
+        },
+        {
+          "type": "doc",
+          "label": "Fitting a model using torch.optim",
+          "id": "tutorials/fit_model_with_torch_optimizer/index"
+        },
+        {
+          "type": "doc",
+          "label": "Comparing analytic and MC Expected Improvement",
+          "id": "tutorials/compare_mc_analytic_acquisition/index"
+        },
+        {
+          "type": "doc",
+          "label": "Acquisition function optimization with CMA-ES",
+          "id": "tutorials/optimize_with_cmaes/index"
+        },
+        {
+          "type": "doc",
+          "label": "Acquisition function optimization with torch.optim",
+          "id": "tutorials/optimize_stochastic/index"
+        },
+        {
+          "type": "doc",
+          "label": "Using batch evaluation for fast cross-validation",
+          "id": "tutorials/batch_mode_cross_validation/index"
+        },
+        {
+          "type": "doc",
+          "label": "The one-shot Knowledge Gradient acquisition function",
+          "id": "tutorials/one_shot_kg/index"
+        },
+        {
+          "type": "doc",
+          "label": "The max-value entropy search acquisition function",
+          "id": "tutorials/max_value_entropy/index"
+        },
+        {
+          "type": "doc",
+          "label": "The GIBBON acquisition function for efficient batch entropy search",
+          "id": "tutorials/GIBBON_for_efficient_batch_entropy_search/index"
+        },
+        {
+          "type": "doc",
+          "label": "Risk averse Bayesian optimization with environmental variables",
+          "id": "tutorials/risk_averse_bo_with_environmental_variables/index"
+        },
+        {
+          "type": "doc",
+          "label": "Risk averse Bayesian optimization with input perturbations",
+          "id": "tutorials/risk_averse_bo_with_input_perturbations/index"
+        },
+        {
+          "type": "doc",
+          "label": "Constraint Active Search for Multiobjective Experimental Design",
+          "id": "tutorials/constraint_active_search/index"
+        },
+        {
+          "type": "doc",
+          "label": "Information-theoretic acquisition functions",
+          "id": "tutorials/information_theoretic_acquisition_functions/index"
+        },
+        {
+          "type": "doc",
+          "label": "Robust Gaussian Processes via Relevance Pursuit",
+          "id": "tutorials/relevance_pursuit_robust_regression/index"
+        }
+      ]
+    },
+    {
+      "type": "category",
+      "label": "Advanced Usage",
+      "items": [
+        {
+          "type": "doc",
+          "label": "Meta-learning with RGPE",
+          "id": "tutorials/meta_learning_with_rgpe/index"
+        },
+        {
+          "type": "doc",
+          "label": "High-dimensional optimization with VAEs",
+          "id": "tutorials/vae_mnist/index"
+        },
+        {
+          "type": "doc",
+          "label": "Multi-fidelity Bayesian optimization using KG",
+          "id": "tutorials/multi_fidelity_bo/index"
+        },
+        {
+          "type": "doc",
+          "label": "Multi-fidelity Bayesian optimization with discrete fidelities using KG",
+          "id": "tutorials/discrete_multi_fidelity_bo/index"
+        },
+        {
+          "type": "doc",
+          "label": "Composite Bayesian optimization with the High Order Gaussian Process",
+          "id": "tutorials/composite_bo_with_hogp/index"
+        },
+        {
+          "type": "doc",
+          "label": "Composite Bayesian Optimization with Multi-Task Gaussian Processes",
+          "id": "tutorials/composite_mtbo/index"
+        }
+      ]
+    }
+  ],
+  "notebooks_community": [
+    {
+      "type": "category",
+      "label": "Community Notebooks",
+      "collapsed": false,
+      "items": [
+        {
+          "type": "doc",
+          "id": "notebooks_community/index",
+          "label": "Overview"
+        },
+        {
+          "type": "doc",
+          "label": "BO with Binary Black-box Constraint",
+          "id": "notebooks_community/clf_constrained_bo/index"
+        },
+        {
+          "type": "doc",
+          "label": "H-Entropy Search",
+          "id": "notebooks_community/hentropy_search/index"
+        },
+        {
+          "type": "doc",
+          "label": "Multi-Information Source BO with Augmented GP",
+          "id": "notebooks_community/multi_source_bo/index"
+        },
+        {
+          "type": "doc",
+          "label": "Variational Bayesian Last Layers for BO",
+          "id": "notebooks_community/vbll_thompson_sampling/index"
+        }
+      ]
+    }
+  ]
+}
