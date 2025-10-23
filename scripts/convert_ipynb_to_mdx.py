@@ -304,22 +304,20 @@ def handle_image_paths_found_in_markdown(
     if not searches:
         return markdown
 
-    # Convert the given Markdown to a list so we can delete the old path with the new
-    # standard path.
-    markdown_list = list(markdown)
-    for search in searches:
+    # Process searches in reverse order so that each replacement doesn't affect the
+    # start/end indices for the next replacements
+    for search in reversed(searches):
         # Find the old image path and replace it with the new one.
         old_path, _ = search.groups()
-        start = 0
-        end = 0
-        search = re.search(old_path, markdown)
-        if search is not None:
-            start, end = search.span()
+        # Get the span of the old_path within the full match
+        start, end = search.span(1)
+
         old_path = Path(old_path)
         name = old_path.name.strip()
         new_path = f"assets/img/{name}"
-        del markdown_list[start:end]
-        markdown_list.insert(start, new_path)
+
+        # Replace the old path with the new path in the markdown
+        markdown = markdown[:start] + new_path + markdown[end:]
 
         # Copy the original image to the new location.
         if old_path.exists():
@@ -331,7 +329,7 @@ def handle_image_paths_found_in_markdown(
         new_img_path = str(new_img_dir / name)
         shutil.copy(str(old_img_path), new_img_path)
 
-    return "".join(markdown_list)
+    return markdown
 
 
 def transform_style_attributes(markdown: str) -> str:

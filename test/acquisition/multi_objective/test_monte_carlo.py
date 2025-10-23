@@ -1054,7 +1054,7 @@ class TestQNoisyExpectedHypervolumeImprovement(BotorchTestCase):
             acqf.set_X_pending(X_pending)
             if not incremental_nehvi:
                 self.assertAllClose(expected_val, acqf._prev_nehvi)
-            self.assertIsNone(acqf.X_pending)
+            self.assertTrue(torch.all(acqf.X_pending == X_pending))
             # check that X_baseline has been updated
             self.assertTrue(torch.equal(acqf.X_baseline[:-1], acqf._X_baseline))
             self.assertTrue(torch.equal(acqf.X_baseline[-1:], X_pending))
@@ -1112,7 +1112,7 @@ class TestQNoisyExpectedHypervolumeImprovement(BotorchTestCase):
         )
         mm._posterior._samples = mm._posterior._samples.squeeze(0)
         acqf.set_X_pending(X_pending2)
-        self.assertIsNone(acqf.X_pending)
+        self.assertTrue(torch.all(acqf.X_pending == X_pending2))
         # check that X_baseline has been updated
         self.assertTrue(torch.equal(acqf.X_baseline[:-2], acqf._X_baseline))
         self.assertTrue(torch.equal(acqf.X_baseline[-2:], X_pending2))
@@ -1129,7 +1129,9 @@ class TestQNoisyExpectedHypervolumeImprovement(BotorchTestCase):
             acqf.set_X_pending(
                 torch.cat([X_pending2, X_pending2], dim=0).requires_grad_(True)
             )
-        self.assertIsNone(acqf.X_pending)
+        self.assertTrue(
+            torch.all(acqf.X_pending == torch.cat([X_pending2, X_pending2], dim=0))
+        )
         self.assertEqual(sum(issubclass(w.category, BotorchWarning) for w in ws), 1)
 
         # test max iep
@@ -1161,10 +1163,10 @@ class TestQNoisyExpectedHypervolumeImprovement(BotorchTestCase):
                 new_Y2,
             ]
         )
-        # check that after second pending point is added, X_pending is set to None
-        # and the pending points are included in the box decompositions
+        # check that after second pending point is added, X_pending still includes
+        # pending points, and the pending points are included in the box decompositions
         acqf.set_X_pending(X_pending2)
-        self.assertIsNone(acqf.X_pending)
+        self.assertTrue(torch.all(acqf.X_pending == X_pending2))
         acqf_pareto_Y = acqf.partitioning.pareto_Y[0]
         self.assertTrue(torch.equal(acqf_pareto_Y[:-2], expected_pareto_Y))
         self.assertTrue(torch.equal(acqf_pareto_Y[-2:], expected_new_Y2))
@@ -1294,7 +1296,7 @@ class TestQNoisyExpectedHypervolumeImprovement(BotorchTestCase):
     def test_constrained_q_log_noisy_expected_hypervolume_improvement(self) -> None:
         for dtype, fat in product(
             (torch.float, torch.double),
-            (True, False),
+            (False, True),
         ):
             with self.subTest(dtype=dtype, fat=fat):
                 self._test_constrained_q_noisy_expected_hypervolume_improvement(

@@ -372,16 +372,27 @@ class TestOutcomeTransforms(BotorchTestCase):
         n = 5
         seed = randint(0, 100)
         torch.manual_seed(seed)
-        for dtype, batch_shape, task_values in itertools.product(
+        for (
+            dtype,
+            batch_shape,
+            observed_task_values,
+            all_task_values,
+        ) in itertools.product(
             (torch.float, torch.double),
             (torch.Size([]), torch.Size([3])),
             (
                 torch.tensor([0, 1], dtype=torch.long, device=self.device),
                 torch.tensor([0, 3], dtype=torch.long, device=self.device),
             ),
+            (
+                None,
+                torch.tensor([0, 1, 3], dtype=torch.long, device=self.device),
+            ),
         ):
+            if all_task_values is None:
+                all_task_values = observed_task_values
             torch.manual_seed(seed)
-            tval = task_values[1].item()
+            tval = observed_task_values[1].item()
             X = torch.rand(*batch_shape, n, 2, dtype=dtype, device=self.device)
             X[..., -1] = torch.tensor(
                 [0, tval, 0, tval, 0], dtype=dtype, device=self.device
@@ -389,9 +400,11 @@ class TestOutcomeTransforms(BotorchTestCase):
             Y = torch.randn(*batch_shape, n, 1, dtype=dtype, device=self.device)
             Yvar = torch.rand(*batch_shape, n, 1, dtype=dtype, device=self.device)
             strata_tf = StratifiedStandardize(
-                task_values=task_values,
+                observed_task_values=observed_task_values,
+                all_task_values=all_task_values,
                 stratification_idx=-1,
                 batch_shape=batch_shape,
+                default_task_value=0,
             )
             tf_Y, tf_Yvar = strata_tf(Y=Y, Yvar=Yvar, X=X)
             mask0 = X[..., -1] == 0
@@ -427,6 +440,22 @@ class TestOutcomeTransforms(BotorchTestCase):
                 tols = {}
             self.assertAllClose(Y, untf_Y, **tols)
             self.assertAllClose(Yvar, untf_Yvar)
+            # check strata_mapping
+            if not torch.equal(
+                all_task_values,
+                torch.tensor([0, 1], dtype=torch.long, device=self.device),
+            ):
+                expected_strata_mapping = torch.zeros(
+                    4, dtype=torch.long, device=self.device
+                )
+                expected_strata_mapping[observed_task_values[1]] = 1
+                self.assertTrue(
+                    torch.equal(strata_tf.strata_mapping, expected_strata_mapping)
+                )
+            else:
+                self.assertTrue(
+                    torch.equal(strata_tf.strata_mapping, observed_task_values)
+                )
 
             # test untransform_posterior
             for lazy in (True, False):
@@ -466,9 +495,11 @@ class TestOutcomeTransforms(BotorchTestCase):
 
         # test exception if X is None
         strata_tf = StratifiedStandardize(
-            task_values=torch.tensor([0, 1], dtype=torch.long, device=self.device),
+            observed_task_values=observed_task_values,
+            all_task_values=all_task_values,
             stratification_idx=-1,
             batch_shape=batch_shape,
+            default_task_value=0,
         )
         with self.assertRaisesRegex(
             ValueError, "X is required for StratifiedStandardize."

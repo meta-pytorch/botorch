@@ -170,39 +170,6 @@ class TestModelListGP(BotorchTestCase):
         if gpytorch_posterior_expected:
             self.assertIsInstance(posterior.distribution, MultivariateNormal)
 
-        # test condition_on_observations
-        f_x = [torch.rand(2, 1, **tkwargs) for _ in range(2)]
-        f_y = torch.rand(2, 2, **tkwargs)
-        if fixed_noise:
-            noise = 0.1 + 0.1 * torch.rand_like(f_y)
-            cond_kwargs = {"noise": noise}
-        else:
-            cond_kwargs = {}
-        cm = model.condition_on_observations(f_x, f_y, **cond_kwargs)
-        self.assertIsInstance(cm, ModelListGP)
-
-        # test condition_on_observations batched
-        f_x = [torch.rand(3, 2, 1, **tkwargs) for _ in range(2)]
-        f_y = torch.rand(3, 2, 2, **tkwargs)
-        cm = model.condition_on_observations(f_x, f_y, **cond_kwargs)
-        self.assertIsInstance(cm, ModelListGP)
-
-        # test condition_on_observations batched (fast fantasies)
-        f_x = [torch.rand(2, 1, **tkwargs) for _ in range(2)]
-        f_y = torch.rand(3, 2, 2, **tkwargs)
-        cm = model.condition_on_observations(f_x, f_y, **cond_kwargs)
-        self.assertIsInstance(cm, ModelListGP)
-
-        # test condition_on_observations (incorrect input shape error)
-        with self.assertRaises(BotorchTensorDimensionError):
-            model.condition_on_observations(
-                f_x, torch.rand(3, 2, 3, **tkwargs), **cond_kwargs
-            )
-
-        # test X having wrong size
-        with self.assertRaises(BotorchTensorDimensionError):
-            model.condition_on_observations(f_x[:1], f_y)
-
         # test posterior transform
         X = torch.rand(3, 1, **tkwargs)
         weights = torch.tensor([1, 2], **tkwargs)
@@ -217,6 +184,48 @@ class TestModelListGP(BotorchTestCase):
             )
 
         return model
+
+    def test_condition_on_observations(self) -> None:
+        for dtype, outcome_transform in itertools.product(
+            (torch.float, torch.double), ("None", "Standardize", "Log", "Chained")
+        ):
+            with self.subTest(dtype=dtype, outcome_transform=outcome_transform):
+                tkwargs = {"device": self.device, "dtype": dtype}
+                model = _get_model(
+                    fixed_noise=False, outcome_transform=outcome_transform, **tkwargs
+                )
+                # need to predict before conditioning
+                test_x = torch.tensor([[0.25], [0.75]], **tkwargs)
+                _ = model.posterior(test_x)
+
+                # test condition_on_observations
+                f_x = [torch.rand(2, 1, **tkwargs) for _ in range(2)]
+                f_y = torch.rand(2, 2, **tkwargs)
+                cond_kwargs = {}
+                cm = model.condition_on_observations(f_x, f_y, **cond_kwargs)
+                self.assertIsInstance(cm, ModelListGP)
+
+                # test condition_on_observations batched
+                f_x = [torch.rand(3, 2, 1, **tkwargs) for _ in range(2)]
+                f_y = torch.rand(3, 2, 2, **tkwargs)
+                cm = model.condition_on_observations(f_x, f_y, **cond_kwargs)
+                self.assertIsInstance(cm, ModelListGP)
+
+                # test condition_on_observations batched (fast fantasies)
+                f_x = [torch.rand(2, 1, **tkwargs) for _ in range(2)]
+                f_y = torch.rand(3, 2, 2, **tkwargs)
+                cm = model.condition_on_observations(f_x, f_y, **cond_kwargs)
+                self.assertIsInstance(cm, ModelListGP)
+
+                # test condition_on_observations (incorrect input shape error)
+                with self.assertRaises(BotorchTensorDimensionError):
+                    model.condition_on_observations(
+                        f_x, torch.rand(3, 2, 3, **tkwargs), **cond_kwargs
+                    )
+
+                # test X having wrong size
+                with self.assertRaises(BotorchTensorDimensionError):
+                    model.condition_on_observations(f_x[:1], f_y)
 
     def test_ModelListGP(self) -> None:
         for dtype, outcome_transform in itertools.product(

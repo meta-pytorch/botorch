@@ -24,6 +24,7 @@ from botorch.acquisition.acquisition import AcquisitionFunction
 from botorch.acquisition.active_learning import qNegIntegratedPosteriorVariance
 from botorch.acquisition.analytic import (
     ExpectedImprovement,
+    LogConstrainedExpectedImprovement,
     LogExpectedImprovement,
     LogNoisyExpectedImprovement,
     LogProbabilityOfFeasibility,
@@ -474,6 +475,72 @@ class TestAnalyticAcquisitionFunctionInputConstructors(InputConstructorBaseTestC
 
                 with self.assertRaisesRegex(ValueError, "Field `X` must be shared"):
                     c(model=mock_model, training_data=self.multiX_multiY)
+
+    def test_construct_inputs_LogCEI(self) -> None:
+        c = get_acqf_input_constructor(LogConstrainedExpectedImprovement)
+        mock_model = self.mock_model
+        constraints_tuple = [torch.tensor([[0.0, 1.0]]), torch.tensor([[2.0]])]
+        constraints = {1: (None, 2.0)}
+        best_f_expected = self.blockX_blockY[0].Y.squeeze().max()
+        objective_index = 0
+        # test that best_f is inferred from training data
+        # test constraint tuple
+        kwargs = c(
+            model=mock_model,
+            objective_index=objective_index,
+            training_data=self.blockX_blockY,
+            constraints_tuple=constraints_tuple,
+            maximize=False,
+        )
+        self.assertEqual(
+            set(kwargs.keys()),
+            {"model", "best_f", "objective_index", "constraints", "maximize"},
+        )
+        self.assertIs(kwargs["model"], mock_model)
+        self.assertEqual(kwargs["objective_index"], objective_index)
+        self.assertEqual(kwargs["constraints"], constraints)
+        self.assertEqual(kwargs["best_f"], best_f_expected)
+        self.assertFalse(kwargs["maximize"])
+        # test that best_f overrides default from training data
+        # test that negative constraints work
+        constraints_tuple = [torch.tensor([[0.0, -1.0]]), torch.tensor([[-2.0]])]
+        constraints = {1: (2.0, None)}
+        kwargs = c(
+            model=mock_model,
+            objective_index=objective_index,
+            training_data=self.blockX_blockY,
+            best_f=0.1,
+            constraints_tuple=constraints_tuple,
+        )
+        self.assertIs(kwargs["model"], mock_model)
+        self.assertEqual(kwargs["objective_index"], objective_index)
+        self.assertEqual(kwargs["constraints"], constraints)
+        self.assertEqual(kwargs["best_f"], 0.1)
+        self.assertTrue(kwargs["maximize"])
+        # test that constraints on multiple outcomes raises an exception
+        with self.assertRaisesRegex(
+            BotorchError,
+            "LogConstrainedExpectedImprovement only support constraints on single"
+            " outcomes.",
+        ):
+            c(
+                model=mock_model,
+                objective_index=objective_index,
+                training_data=self.blockX_blockY,
+                constraints_tuple=[torch.tensor([[1.0, 1.0]]), torch.tensor([[2.0]])],
+            )
+        # test that if objective_index coincides with constraints raises a value error
+        with self.assertRaisesRegex(
+            ValueError,
+            "Output corresponding to objective should not be a constraint.",
+        ):
+            kwargs = c(
+                model=mock_model,
+                objective_index=1,
+                training_data=self.blockX_blockY,
+                constraints_tuple=[torch.tensor([[0.0, -1.0]]), torch.tensor([[-2.0]])],
+            )
+            LogConstrainedExpectedImprovement(**kwargs)
 
     def test_construct_inputs_eubo(self) -> None:
         """test input constructor for analytical EUBO and MC qEUBO"""
@@ -1840,6 +1907,17 @@ class TestInstantiationFromInputConstructor(InputConstructorBaseTestCase):
             [LogProbabilityOfFeasibility],
             {
                 "model": st_soo_model,
+                "constraints": {0: [-5, 5]},
+                **constraints_tuple_dict,
+            },
+        )
+
+        self.cases["LogCEI"] = (
+            [LogConstrainedExpectedImprovement],
+            {
+                "model": st_soo_model,
+                "objective_index": 0,
+                "training_data": self.blockX_blockY,
                 "constraints": {0: [-5, 5]},
                 **constraints_tuple_dict,
             },

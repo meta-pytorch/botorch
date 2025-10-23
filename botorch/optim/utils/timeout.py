@@ -36,7 +36,7 @@ def minimize_with_timeout(
 
     This method calls scipy.optimize.minimize with all arguments forwarded
     verbatim. The only difference is that if provided a `timeout_sec` argument,
-    it will automatically stop the optimziation after the timeout is reached.
+    it will automatically stop the optimization after the timeout is reached.
 
     Internally, this is achieved by automatically constructing a wrapper callback
     method that is injected to the scipy.optimize.minimize call and that keeps

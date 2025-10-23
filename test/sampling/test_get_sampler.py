@@ -55,9 +55,36 @@ class TestGetSampler(BotorchTestCase):
         sampler = get_sampler(posterior=post_list, sample_shape=torch.Size([5]))
         self.assertIsInstance(sampler, ListSampler)
         self.assertIsInstance(sampler.samplers[0], IIDNormalSampler)
-        self.assertIsInstance(sampler.samplers[1], SobolQMCNormalSampler)
+        self.assertIsInstance(sampler.samplers[1], IIDNormalSampler)
         for s in sampler.samplers:
             self.assertEqual(s.sample_shape, torch.Size([5]))
+
+        # PosteriorList with transformed (sobol) and original
+        small_tf_post = TransformedPosterior(
+            posterior=mvn_posterior, sample_transform=lambda X: X
+        )
+        post_list = PosteriorList(small_tf_post, mvn_posterior)
+        sampler = get_sampler(posterior=post_list, sample_shape=torch.Size([5]))
+        self.assertIsInstance(sampler, ListSampler)
+        self.assertIsInstance(sampler.samplers[0], IIDNormalSampler)
+        self.assertIsInstance(sampler.samplers[1], IIDNormalSampler)
+        for s in sampler.samplers:
+            self.assertEqual(s.sample_shape, torch.Size([5]))
+
+        # PosteriorList should have independent samplers.
+        mean = torch.tensor([0.0])
+        covar = torch.tensor([[1.0]])
+        mvns = [MultivariateNormal(mean, covar) for _ in range(2)]
+        post_list = PosteriorList(*[GPyTorchPosterior(mvn) for mvn in mvns])
+        # need large enough sample shape to estimate correlation
+        list_sampler = get_sampler(posterior=post_list, sample_shape=torch.Size([1024]))
+        # need to set separate seeds for each sampler
+        for count, sampler in enumerate(list_sampler.samplers):
+            sampler.seed = count
+        samples = list_sampler(post_list).squeeze()
+        correlation = torch.corrcoef(samples.squeeze().T)[0][1]
+        # check that correlation is close to zero
+        self.assertLess(torch.abs(correlation).item(), 0.1)
 
         # Unknown torch posterior.
         posterior = TorchPosterior(distribution=Gamma(torch.rand(2), torch.rand(2)))

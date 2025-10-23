@@ -55,6 +55,7 @@ class AnalyticAcquisitionFunction(AcquisitionFunction, ABC):
         self,
         model: Model,
         posterior_transform: PosteriorTransform | None = None,
+        allow_multi_output: bool = False,
     ) -> None:
         r"""Base constructor for analytic acquisition functions.
 
@@ -63,10 +64,12 @@ class AnalyticAcquisitionFunction(AcquisitionFunction, ABC):
             posterior_transform: A PosteriorTransform. If using a multi-output model,
                 a PosteriorTransform that transforms the multi-output posterior into a
                 single-output posterior is required.
+              allow_multi_output: If False, requires a posterior_transform if a
+                multi-output model is passed.
         """
         super().__init__(model=model)
         if posterior_transform is None:
-            if model.num_outputs != 1:
+            if not allow_multi_output and model.num_outputs != 1:
                 raise UnsupportedError(
                     "Must specify a posterior transform when using a "
                     "multi-output model."
@@ -89,21 +92,21 @@ class AnalyticAcquisitionFunction(AcquisitionFunction, ABC):
         """Computes the first and second moments of the model posterior.
 
         Args:
-            X: `batch_shape x q x d`-dim Tensor of model inputs.
+            X: A `(b1 x ... bk) x 1 x d`-dim batched tensor of `d`-dim design points.
             compute_sigma: Boolean indicating whether or not to compute the second
                 moment (default: True).
             min_var: The minimum value the variance is clamped too. Should be positive.
 
         Returns:
-            A tuple of tensors containing the first and second moments of the model
-            posterior. Removes the last two dimensions if they have size one. Only
-            returns a single tensor of means if compute_sigma is True.
+            A tuple of tensors of shape `(b1 x ... x bk) x m` containing the first and
+            second moments of the model posterior, where `m` is the number of outputs.
+            Returns `None` instead of the second tensor if `compute_sigma` is False.
         """
         self.to(X)  # ensures buffers / parameters are on the same device and dtype
         posterior = self.model.posterior(
             X=X, posterior_transform=self.posterior_transform
         )
-        mean = posterior.mean.squeeze(-2).squeeze(-1)  # removing redundant dimensions
+        mean = posterior.mean.squeeze(-2)  # remove q-batch dimension
         if not compute_sigma:
             return mean, None
         sigma = posterior.variance.clamp_min(min_var).sqrt().view(mean.shape)
@@ -168,9 +171,9 @@ class LogProbabilityOfImprovement(AnalyticAcquisitionFunction):
             A `(b1 x ... bk)`-dim tensor of Log Probability of Improvement values at
             the given design points `X`.
         """
-        mean, sigma = self._mean_and_sigma(X)
+        mean, sigma = self._mean_and_sigma(X)  # `(b1 x ... bk) x 1`
         u = _scaled_improvement(mean, sigma, self.best_f, self.maximize)
-        return log_Phi(u)
+        return log_Phi(u.squeeze(-1))
 
 
 class ProbabilityOfImprovement(AnalyticAcquisitionFunction):
@@ -223,9 +226,9 @@ class ProbabilityOfImprovement(AnalyticAcquisitionFunction):
             A `(b1 x ... bk)`-dim tensor of Probability of Improvement values at the
             given design points `X`.
         """
-        mean, sigma = self._mean_and_sigma(X)
+        mean, sigma = self._mean_and_sigma(X)  # `(b1 x ... bk) x 1`
         u = _scaled_improvement(mean, sigma, self.best_f, self.maximize)
-        return Phi(u)
+        return Phi(u.squeeze(-1))
 
 
 class qAnalyticProbabilityOfImprovement(AnalyticAcquisitionFunction):
@@ -354,9 +357,9 @@ class ExpectedImprovement(AnalyticAcquisitionFunction):
             A `(b1 x ... bk)`-dim tensor of Expected Improvement values at the
             given design points `X`.
         """
-        mean, sigma = self._mean_and_sigma(X)
+        mean, sigma = self._mean_and_sigma(X)  # `(b1 x ... bk) x 1`
         u = _scaled_improvement(mean, sigma, self.best_f, self.maximize)
-        return sigma * _ei_helper(u)
+        return (sigma * _ei_helper(u)).squeeze(-1)
 
 
 class LogExpectedImprovement(AnalyticAcquisitionFunction):
@@ -418,9 +421,9 @@ class LogExpectedImprovement(AnalyticAcquisitionFunction):
             A `(b1 x ... bk)`-dim tensor of the logarithm of the Expected Improvement
             values at the given design points `X`.
         """
-        mean, sigma = self._mean_and_sigma(X)
+        mean, sigma = self._mean_and_sigma(X)  # `(b1 x ... bk) x 1`
         u = _scaled_improvement(mean, sigma, self.best_f, self.maximize)
-        return _log_ei_helper(u) + sigma.log()
+        return (_log_ei_helper(u) + sigma.log()).squeeze(-1)
 
 
 class ConstrainedAnalyticAcquisitionFunctionMixin(ABC):
@@ -433,7 +436,7 @@ class ConstrainedAnalyticAcquisitionFunctionMixin(ABC):
         r"""Analytic Log Probability of Feasibility.
 
         Args:
-            model: A fitted multi-output model.
+            model: A fitted single- or multi-output model.
             constraints: A dictionary of the form `{i: [lower, upper]}`, where
                 `i` is the output index, and `lower` and `upper` are lower and upper
                 bounds on that output (resp. interpreted as -Inf / Inf if None).
@@ -501,13 +504,11 @@ class ConstrainedAnalyticAcquisitionFunctionMixin(ABC):
         r"""Compute logarithm of the feasibility probability for each batch of X.
 
         Args:
-            X: A `(b) x 1 x d`-dim Tensor of `(b)` t-batches of `d`-dim design
-                points each.
             means: A `(b) x m`-dim Tensor of means.
             sigmas: A `(b) x m`-dim Tensor of standard deviations.
 
         Returns:
-            A `b`-dim tensor of log feasibility probabilities
+            A `(b)`-dim tensor of log feasibility probabilities
 
         Note: This function does case-work for upper bound, lower bound, and both-sided
         bounds. Another way to do it would be to use 'inf' and -'inf' for the
@@ -567,7 +568,7 @@ class LogConstrainedExpectedImprovement(
         r"""Analytic Log Constrained Expected Improvement.
 
         Args:
-            model: A fitted multi-output model.
+            model: A fitted single- or multi-output model.
             best_f: Either a scalar or a `b`-dim Tensor (batch mode) representing
                 the best feasible function value observed so far (assumed noiseless).
             objective_index: The index of the objective.
@@ -576,8 +577,7 @@ class LogConstrainedExpectedImprovement(
                 bounds on that output (resp. interpreted as -Inf / Inf if None)
             maximize: If True, consider the problem a maximization problem.
         """
-        # Use AcquisitionFunction constructor to avoid check for posterior transform.
-        AcquisitionFunction.__init__(self, model=model)
+        super().__init__(model=model, allow_multi_output=True)
         self.posterior_transform = None
         self.maximize = maximize
         self.objective_index = objective_index
@@ -641,13 +641,12 @@ class LogProbabilityOfFeasibility(
         r"""Analytic Log Probability of Feasibility.
 
         Args:
-            model: A fitted multi-output model.
+            model: A fitted single- or multi-output model.
             constraints: A dictionary of the form `{i: [lower, upper]}`, where
                 `i` is the output index, and `lower` and `upper` are lower and upper
                 bounds on that output (resp. interpreted as -Inf / Inf if None)
         """
-        # Use AcquisitionFunction constructor to avoid check for posterior transform.
-        AcquisitionFunction.__init__(self, model=model)
+        super().__init__(model=model, allow_multi_output=True)
         self.posterior_transform = None
         ConstrainedAnalyticAcquisitionFunctionMixin.__init__(self, constraints)
 
@@ -708,7 +707,7 @@ class ConstrainedExpectedImprovement(
         r"""Analytic Constrained Expected Improvement.
 
         Args:
-            model: A fitted multi-output model.
+            model: A fitted single- or multi-output model.
             best_f: Either a scalar or a `b`-dim Tensor (batch mode) representing
                 the best feasible function value observed so far (assumed noiseless).
             objective_index: The index of the objective.
@@ -718,8 +717,7 @@ class ConstrainedExpectedImprovement(
             maximize: If True, consider the problem a maximization problem.
         """
         legacy_ei_numerics_warning(legacy_name=type(self).__name__)
-        # Use AcquisitionFunction constructor to avoid check for posterior transform.
-        AcquisitionFunction.__init__(self, model=model)
+        super().__init__(model=model, allow_multi_output=True)
         self.posterior_transform = None
         self.maximize = maximize
         self.objective_index = objective_index
@@ -828,7 +826,9 @@ class LogNoisyExpectedImprovement(AnalyticAcquisitionFunction):
             the given design points `X`.
         """
         # add batch dimension for broadcasting to fantasy models
+        # (b1 x ... x bk) x num_fantasies x 1
         mean, sigma = self._mean_and_sigma(X.unsqueeze(-3))
+        mean, sigma = mean.squeeze(-1), sigma.squeeze(-1)
         u = _scaled_improvement(mean, sigma, self.best_f, self.maximize)
         log_ei = _log_ei_helper(u) + sigma.log()
         # this is mathematically - though not numerically - equivalent to log(mean(ei))
@@ -906,14 +906,16 @@ class NoisyExpectedImprovement(ExpectedImprovement):
         r"""Evaluate Expected Improvement on the candidate set X.
 
         Args:
-            X: A `b1 x ... bk x 1 x d`-dim batched tensor of `d`-dim design points.
+            X: A `(b1 x ... bk) x 1 x d`-dim batched tensor of `d`-dim design points.
 
         Returns:
-            A `b1 x ... bk`-dim tensor of Noisy Expected Improvement values at
+            A `(b1 x ... bk)`-dim tensor of Noisy Expected Improvement values at
             the given design points `X`.
         """
         # add batch dimension for broadcasting to fantasy models
-        mean, sigma = self._mean_and_sigma(X.unsqueeze(-3))
+        # (b1 x ... x bk) x num_fantasies x 1
+        mean, sigma = self._mean_and_sigma(X.unsqueeze(-3))  # (b1 x ... x bk) x m1 x 1
+        mean, sigma = mean.squeeze(-1), sigma.squeeze(-1)
         u = _scaled_improvement(mean, sigma, self.best_f, self.maximize)
         return (sigma * _ei_helper(u)).mean(dim=-1)
 
@@ -970,8 +972,9 @@ class UpperConfidenceBound(AnalyticAcquisitionFunction):
             A `(b1 x ... bk)`-dim tensor of Upper Confidence Bound values at the
             given design points `X`.
         """
-        mean, sigma = self._mean_and_sigma(X)
-        return (mean if self.maximize else -mean) + self.beta.sqrt() * sigma
+        mean, sigma = self._mean_and_sigma(X)  # (b1 x ... x bk) x 1
+        ucb = (mean if self.maximize else -mean) + self.beta.sqrt() * sigma
+        return ucb.squeeze(-1)
 
 
 class PosteriorMean(AnalyticAcquisitionFunction):
@@ -1020,8 +1023,10 @@ class PosteriorMean(AnalyticAcquisitionFunction):
             A `(b1 x ... bk)`-dim tensor of Posterior Mean values at the
             given design points `X`.
         """
-        mean, _ = self._mean_and_sigma(X, compute_sigma=False)
-        return mean if self.maximize else -mean
+        mean, _ = self._mean_and_sigma(X, compute_sigma=False)  # (b1 x ... x bk) x 1
+        if not self.maximize:
+            mean = -mean
+        return mean.squeeze(-1)
 
 
 class ScalarizedPosteriorMean(AnalyticAcquisitionFunction):
@@ -1056,14 +1061,16 @@ class ScalarizedPosteriorMean(AnalyticAcquisitionFunction):
         r"""Evaluate the scalarized posterior mean on the candidate set X.
 
         Args:
-            X: A `(b) x q x d`-dim Tensor of `(b)` t-batches of `d`-dim design
-                points each.
+            X: A `(b1 x ... x bk) x q x d`-dim Tensor of `(b1 x ... x bk)`
+                t-batches of `d`-dim design points each.
 
         Returns:
-            A `(b)`-dim Tensor of Posterior Mean values at the given design
-            points `X`.
+            A `(b1 x ... x bk)`-dim Tensor of Posterior Mean values at the given
+            design points `X`.
         """
-        return self._mean_and_sigma(X, compute_sigma=False)[0] @ self.weights
+        # (b1 x ... x bk) x q x 1
+        mean, _ = self._mean_and_sigma(X, compute_sigma=False)
+        return mean.squeeze(-1) @ self.weights
 
 
 class PosteriorStandardDeviation(AnalyticAcquisitionFunction):
@@ -1131,7 +1138,9 @@ class PosteriorStandardDeviation(AnalyticAcquisitionFunction):
             given design points `X`.
         """
         _, std = self._mean_and_sigma(X)
-        return std if self.maximize else -std
+        if not self.maximize:
+            std = -std
+        return std.view(X.shape[:-2])
 
 
 # --------------- Helper functions for analytic acquisition functions. ---------------

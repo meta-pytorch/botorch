@@ -34,8 +34,6 @@ jobs:
       with:
         python-version: "3.13"
     - name: Install dependencies
-      env:
-        ALLOW_LATEST_GPYTORCH_LINOP: true
       run: |
         uv pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cpu
         uv pip install git+https://github.com/cornellius-gp/linear_operator.git
@@ -49,13 +47,9 @@ jobs:
         no_local_version=$(python -m setuptools_scm | cut -d "+" -f 1)
         echo "SETUPTOOLS_SCM_PRETEND_VERSION=${no_local_version}" >> $GITHUB_ENV
     - name: Build packages (wheel and source distribution)
-      env:
-        ALLOW_LATEST_GPYTORCH_LINOP: true
       run: |
         python -m build --sdist --wheel
     - name: Verify packages
-      env:
-        ALLOW_LATEST_GPYTORCH_LINOP: true
       run: |
         ./scripts/verify_py_packages.sh
     - name: Deploy to Test PyPI

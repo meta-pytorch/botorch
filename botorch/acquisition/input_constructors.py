@@ -20,6 +20,7 @@ from botorch.acquisition.acquisition import AcquisitionFunction
 from botorch.acquisition.active_learning import qNegIntegratedPosteriorVariance
 from botorch.acquisition.analytic import (
     ExpectedImprovement,
+    LogConstrainedExpectedImprovement,
     LogExpectedImprovement,
     LogNoisyExpectedImprovement,
     LogProbabilityOfFeasibility,
@@ -361,26 +362,61 @@ def construct_inputs_pof(
     Returns:
         A dict mapping kwarg names of the constructor to values.
     """
-    # Construct a dictionary of the form `{i: [lower, upper]}`,
-    # where `i` is the output index, and `lower` and `upper` are
-    # lower and upper bounds on that output (resp. interpreted
-    # as -Inf / Inf if None).
-    weights, bounds = constraints_tuple
-    constraints_dict = {}
-    for w, b in zip(weights, bounds):
-        nonzero_w = w.nonzero()
-        if nonzero_w.numel() != 1:
-            raise BotorchError(
-                "LogProbabilityOfFeasibility only support constraints on single"
-                " outcomes."
-            )
-        i = nonzero_w.item()
-        w_i = w[i]
-        is_ub = torch.sign(w_i) == 1.0
-        b = b.item()
-        bounds = (None, b / w_i) if is_ub else (b / w_i, None)
-        constraints_dict[i] = bounds
+    # Construct a constraint dictionary from constraint_tuple
+    constraints_dict = _construct_constraint_dict_from_tuple(
+        constraints_tuple, LogProbabilityOfFeasibility
+    )
+
     return {"model": model, "constraints": constraints_dict}
+
+
+@acqf_input_constructor(LogConstrainedExpectedImprovement)
+def construct_inputs_logcei(
+    model: Model,
+    training_data: MaybeDict[SupervisedDataset],
+    objective_index: int,
+    constraints_tuple: tuple[Tensor, Tensor],
+    best_f: float | Tensor | None = None,
+    maximize: bool = True,
+) -> dict[str, Any]:
+    r"""Construct kwargs for the log constrained expected improvement
+    acquisition function.
+
+    Args:
+        model: The model to be used in the acquisition function.
+        training_data: Dataset(s) used to train the model.
+            Used to determine default value for `best_f`.
+        objective_index: The index of the objective.
+        constraints_tuple: A tuple of `(A, b)`. For `k` outcome constraints
+            and `m` outputs at `f(x)``, `A` is `k x m` and `b` is `k x 1` such
+            that `A f(x) <= b`.
+        best_f: Either a scalar or a `b`-dim Tensor (batch mode) representing
+                the best feasible function value observed so far (assumed noiseless).
+        maximize: If True, consider the problem a maximization problem.
+
+    Returns:
+        A dict mapping kwarg names of the constructor to values.
+    """
+
+    # If no best_f provided, compute it from the training data
+    # For LogCEI, posterior_transform is not used.
+    if best_f is None:
+        best_f = get_best_f_analytic(
+            training_data=training_data,
+        )
+
+    # Construct a constraint dictionary from constraint_tuple
+    constraints_dict = _construct_constraint_dict_from_tuple(
+        constraints_tuple, LogConstrainedExpectedImprovement
+    )
+
+    return {
+        "model": model,
+        "best_f": best_f,
+        "objective_index": objective_index,
+        "constraints": constraints_dict,
+        "maximize": maximize,
+    }
 
 
 @acqf_input_constructor(UpperConfidenceBound)
@@ -1984,3 +2020,30 @@ def _get_ref_point(
         ref_point = objective(objective_thresholds)
 
     return ref_point
+
+
+def _construct_constraint_dict_from_tuple(
+    constraints_tuple: tuple, acqf_class: type[AcquisitionFunction]
+) -> dict[str, Any]:
+    """
+    Construct a dictionary of the form `{i: [lower, upper]}`,
+    where `i` is the output index, and `lower` and `upper` are
+    lower and upper bounds on that output (resp. interpreted
+    as -Inf / Inf if None).
+    """
+    weights, bounds = constraints_tuple
+    constraints_dict = {}
+    for w, b in zip(weights, bounds):
+        nonzero_w = w.nonzero()
+        if nonzero_w.numel() != 1:
+            raise BotorchError(
+                f"{acqf_class.__name__} only support constraints on single outcomes."
+            )
+        i = nonzero_w.item()
+        w_i = w[i]
+        is_ub = torch.sign(w_i) == 1.0
+        b = b.item()
+        bounds = (None, b / w_i) if is_ub else (b / w_i, None)
+        constraints_dict[i] = bounds
+
+    return constraints_dict

@@ -239,6 +239,7 @@ class ConstrainedBaseTestProblem(BaseTestProblem, ABC):
     num_constraints: int
     _check_grad_at_opt: bool = False
     constraint_noise_std: None | float | list[float] = None
+    _worst_feasible_value: float | None = None
 
     def evaluate_slack(self, X: Tensor, noise: bool = True) -> Tensor:
         r"""Evaluate the constraint slack on a set of points.
@@ -312,6 +313,26 @@ class ConstrainedBaseTestProblem(BaseTestProblem, ABC):
                 corresponds
         """
         pass  # pragma: no cover
+
+    @property
+    def worst_feasible_value(self) -> float:
+        r"""The worst feasible value of the objective function. This is useful when
+        evaluating the performance of different optimization methods as this value
+        can be assigned to all infeasible trials. This has the desirable property that
+        any feasible trial has better performance than an infeasible trial.
+        """
+        if isinstance(self, MultiObjectiveTestProblem):
+            return 0.0  # Can return 0.0 for MOO since this is the smallest possible HV
+        elif self._worst_feasible_value is not None:
+            return (
+                -self._worst_feasible_value
+                if self.negate
+                else self._worst_feasible_value
+            )
+        raise NotImplementedError(
+            f"Problem {self.__class__.__name__} does not specify the "
+            "worst feasible value."
+        )
 
 
 class MultiObjectiveTestProblem(BaseTestProblem, ABC):

@@ -33,7 +33,6 @@ from botorch.sampling.base import MCSampler
 from botorch.sampling.list_sampler import ListSampler
 from botorch.utils.containers import BotorchContainer
 from botorch.utils.datasets import SupervisedDataset
-from botorch.utils.transforms import is_fully_bayesian
 from gpytorch.likelihoods.gaussian_likelihood import FixedNoiseGaussianLikelihood
 from torch import Tensor
 from torch.nn import Module, ModuleDict, ModuleList
@@ -379,7 +378,7 @@ class FantasizeMixin(ABC):
             if observation_noise is not None:
                 kwargs["noise"] = observation_noise.expand(Y.shape[1:])
             return self.condition_on_observations(
-                X=self.transform_inputs(X),
+                X=X,
                 Y=Y,
                 **kwargs,
             )
@@ -395,9 +394,7 @@ class FantasizeMixin(ABC):
             Y_fantasized = sampler(post_X)  # num_fantasies x batch_shape x n' x m
             if observation_noise is not None:
                 kwargs["noise"] = observation_noise.expand(Y_fantasized.shape[1:])
-            return self.condition_on_observations(
-                X=self.transform_inputs(X), Y=Y_fantasized, **kwargs
-            )
+            return self.condition_on_observations(X=X, Y=Y_fantasized, **kwargs)
 
 
 class ModelList(Model):
@@ -580,18 +577,19 @@ class ModelList(Model):
         return transformed_X_list
 
     def load_state_dict(
-        self, state_dict: Mapping[str, Any], strict: bool = True
+        self,
+        state_dict: Mapping[str, Any],
+        strict: bool = True,
+        keep_transforms: bool = True,
     ) -> None:
         """Initialize the fully Bayesian models before loading the state dict."""
         for i, m in enumerate(self.models):
-            if is_fully_bayesian(m):
-                filtered_dict = {
-                    k.replace(f"models.{i}.", ""): v
-                    for k, v in state_dict.items()
-                    if k.startswith(f"models.{i}.")
-                }
-                m.load_state_dict(filtered_dict)
-        super().load_state_dict(state_dict=state_dict, strict=strict)
+            filtered_dict = {
+                k.replace(f"models.{i}.", ""): v
+                for k, v in state_dict.items()
+                if k.startswith(f"models.{i}.")
+            }
+            m.load_state_dict(filtered_dict, strict=strict)
 
     def fantasize(
         self,

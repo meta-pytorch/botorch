@@ -601,8 +601,6 @@ class ContextualDataset(SupervisedDataset):
         self.datasets: dict[str, SupervisedDataset] = {
             ds.outcome_names[0]: ds for ds in datasets
         }
-        self.feature_names = datasets[0].feature_names
-        self.outcome_names = list(self.datasets.keys())
         self.parameter_decomposition = parameter_decomposition
         self.metric_decomposition = metric_decomposition
         self._validate_datasets()
@@ -613,6 +611,14 @@ class ContextualDataset(SupervisedDataset):
             for c in self.context_buckets
         }
         self.group_indices = None
+
+    @property
+    def feature_names(self) -> list[str]:
+        return self.datasets[self.outcome_names[0]].feature_names
+
+    @property
+    def outcome_names(self) -> list[str]:
+        return list(self.datasets.keys())
 
     @property
     def X(self) -> Tensor:
@@ -736,6 +742,14 @@ class ContextualDataset(SupervisedDataset):
                     raise InputDataError(
                         f"{outcome} is missing in metric_decomposition."
                     )
+
+    def __eq__(self, other: Any) -> bool:
+        return (
+            type(other) is type(self)
+            and self.datasets == other.datasets
+            and self.parameter_decomposition == other.parameter_decomposition
+            and self.metric_decomposition == other.metric_decomposition
+        )
 
     def clone(
         self, deepcopy: bool = False, mask: Tensor | None = None

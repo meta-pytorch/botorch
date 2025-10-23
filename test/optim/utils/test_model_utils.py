@@ -283,7 +283,7 @@ class TestSampleAllPriors(BotorchTestCase):
             self.assertEqual(len(torch.unique(new_lengthscales)), 3 * batch.numel())
 
     def test_with_multivariate_prior(self) -> None:
-        # This is modified from https://github.com/pytorch/botorch/issues/780.
+        # This is modified from https://github.com/meta-pytorch/botorch/issues/780.
         tkwargs: dict[str, Any] = {"device": self.device, "dtype": torch.double}
         for batch in (torch.Size([]), torch.Size([3])):
             model = SingleTaskGP(

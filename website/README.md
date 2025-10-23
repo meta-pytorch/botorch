@@ -71,4 +71,4 @@ python3 -m http.server 8000
 ## Publishing
 
 The site is hosted on GitHub pages, automatically deployed using the Github [deploy-pages](https://github.com/actions/deploy-pages) action - see the
-[config file](https://github.com/pytorch/botorch/blob/main/.github/workflows/publish_website.yml) for details.
+[config file](https://github.com/meta-pytorch/botorch/blob/main/.github/workflows/publish_website.yml) for details.

@@ -12,9 +12,9 @@ from botorch.utils.testing import BotorchTestCase
 class DummyEnsembleModel(EnsembleModel):
     r"""A dummy ensemble model."""
 
-    def __init__(self):
+    def __init__(self, weights=None):
         r"""Init model."""
-        super().__init__()
+        super().__init__(weights=weights)
         self._num_outputs = 2
         self.a = torch.rand(4, 3, 2)
 
@@ -35,3 +35,19 @@ class TestEnsembleModels(BotorchTestCase):
             X = torch.randn(*shape)
             p = e.posterior(X)
             self.assertEqual(p.ensemble_size, 4)
+
+    def test_EnsembleModel_weights(self):
+        """Test that weights are properly passed from EnsembleModel to
+        EnsemblePosterior."""
+        custom_weights = torch.tensor([0.4, 0.3, 0.2, 0.1])
+        e = DummyEnsembleModel(weights=custom_weights)
+
+        # Test weights are correctly passed through
+        X = torch.randn(5, 3)
+        p = e.posterior(X)
+        self.assertAllClose(p.weights, custom_weights)
+
+        # Test with batch dimensions - weights should remain 1-dimensional
+        X_batch = torch.randn(2, 5, 3)  # batch_shape = (2,)
+        p_batch = e.posterior(X_batch)
+        self.assertAllClose(p_batch.weights, custom_weights)

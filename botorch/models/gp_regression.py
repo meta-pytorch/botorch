@@ -63,7 +63,7 @@ class SingleTaskGP(BatchedMultiOutputGPyTorchModel, ExactGP, FantasizeMixin):
     noise. Importantly, The model works best when covariates are normalized to the unit
     cube and outcomes are standardized (zero mean, unit variance). For a detailed
     discussion on the hyperparameter priors, see
-    https://github.com/pytorch/botorch/discussions/2451.
+    https://github.com/meta-pytorch/botorch/discussions/2451.
 
     This model works in batch mode (each batch having its own hyperparameters).
     When the training observations include multiple outputs, this model will use

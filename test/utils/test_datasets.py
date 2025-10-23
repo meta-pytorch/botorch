@@ -729,3 +729,17 @@ class TestDatasets(BotorchTestCase):
                     )
                 else:
                     self.assertIsNone(context_dt2.metric_decomposition)
+
+    def test_contextual_dataset_equality(self) -> None:
+        context_dt, _ = make_contextual_dataset(has_yvar=True, contextual_outcome=True)
+        clone = context_dt.clone()
+        self.assertEqual(context_dt, clone)
+        for yvar, outcome in (
+            (True, False),
+            (False, True),
+            (False, False),
+        ):
+            new_dt, _ = make_contextual_dataset(
+                has_yvar=yvar, contextual_outcome=outcome
+            )
+            self.assertNotEqual(context_dt, new_dt)

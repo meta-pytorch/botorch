@@ -357,7 +357,7 @@ def compute_log_prob_feas_from_bounds(
             equal in length to con_both_inds.
 
     Returns:
-        A `b`-dim tensor of log feasibility probabilities
+        A `(b)`-dim tensor of log feasibility probabilities
     """
     # indices are integers, so we don't cast the type
     con_upper_inds = con_upper_inds.to(device=means.device)

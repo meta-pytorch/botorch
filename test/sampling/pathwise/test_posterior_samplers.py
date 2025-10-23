@@ -12,7 +12,7 @@ from typing import Any
 import torch
 from botorch.exceptions.errors import UnsupportedError
 from botorch.models import ModelListGP, SingleTaskGP, SingleTaskVariationalGP
-from botorch.models.deterministic import GenericDeterministicModel
+from botorch.models.deterministic import MatheronPathModel
 from botorch.models.transforms.input import Normalize
 from botorch.models.transforms.outcome import Standardize
 from botorch.sampling.pathwise import draw_matheron_paths, MatheronPath, PathList
@@ -150,7 +150,7 @@ class TestPosteriorSamplers(BotorchTestCase):
         for model in (self.inferred_noise_gp, moo_model, model_list):
             path_model = get_matheron_path_model(model=model)
             self.assertFalse(path_model._is_ensemble)
-            self.assertIsInstance(path_model, GenericDeterministicModel)
+            self.assertIsInstance(path_model, MatheronPathModel)
             for X in (test_X, batch_test_X):
                 self.assertEqual(
                     model.posterior(X).mean.shape, path_model.posterior(X).mean.shape

@@ -551,6 +551,7 @@ def generate_starting_points(
                     "batch_limit": options.get("batch_limit", MAX_BATCH_SIZE),
                     "init_batch_limit": options.get("init_batch_limit", MAX_BATCH_SIZE),
                 },
+                post_processing_func=None,
             )
             x_init_candts, _ = _optimize_acqf(opt_inputs=updated_opt_inputs)
             x_init_candts = x_init_candts.squeeze(-2).detach()
@@ -614,6 +615,7 @@ def generate_starting_points(
 
     # For each discrete dimension, map to the nearest allowed value
     x_init_candts = round_discrete_dims(X=x_init_candts, discrete_dims=discrete_dims)
+    x_init_candts = round_discrete_dims(X=x_init_candts, discrete_dims=cat_dims)
     x_init_candts = fix_features(
         X=x_init_candts,
         fixed_features=opt_inputs.fixed_features,
@@ -859,8 +861,6 @@ def optimize_acqf_mixed_alternating(
     discrete/categorical local search and continuous optimization via (L-BFGS)
     is performed for a fixed number of iterations.
 
-    NOTE: This method assumes that all categorical variables are
-    integer valued.
     The discrete dimensions that have more than
     `options.get("max_discrete_values", MAX_DISCRETE_VALUES)` values will
     be optimized using continuous relaxation.

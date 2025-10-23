@@ -123,7 +123,7 @@ settings where the **input features are normalized to the unit cube** and the
 **observations are standardized** (zero mean, unit variance). The lengthscale
 priors scale with the input dimension, which makes them adaptable to both low
 and high dimensional problems. See
-[this discussion](https://github.com/pytorch/botorch/discussions/2451) for
+[this discussion](https://github.com/meta-pytorch/botorch/discussions/2451) for
 additional context on the default hyperparameters.
 
 ## Other useful models

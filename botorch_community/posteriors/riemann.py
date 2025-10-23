@@ -14,13 +14,17 @@ from typing import Callable, Optional, Union
 
 import torch
 from botorch.posteriors.posterior import Posterior
+from botorch.sampling.get_sampler import _get_sampler_mvn, GetSampler
+from botorch.sampling.normal import NormalMCSampler
+from gpytorch.distributions.multivariate_normal import MultivariateNormal
 from torch import Tensor
 
 
 class BoundedRiemannPosterior(Posterior):
+    batch_range = (0, -1)
+
     """
-    Notes: Bounded posterior for now, will work on unbounded posteriors.
-    This is also only over 1 test point, not batches.
+    A single variate bounded Riemann posterior.
     """
 
     def __init__(self, borders, probabilities):
@@ -31,9 +35,9 @@ class BoundedRiemannPosterior(Posterior):
         borders, with each bucket having an associated probability.
 
         Args:
-            borders: A tensor of shape `(n_buckets + 1,)` defining the boundaries of
+            borders: A tensor of shape `(num_buckets + 1,)` defining the boundaries of
                 the buckets. Must be monotonically increasing.
-            probabilities: A tensor of shape `(..., n_buckets,)` defining the
+            probabilities: A tensor of shape `(b?, q?, num_buckets)` defining the
                 probability mass in each bucket. Must sum to 1 in the last dim.
         """
 
@@ -79,18 +83,40 @@ class BoundedRiemannPosterior(Posterior):
             `self._extended_shape(sample_shape=sample_shape)`.
         """
         sample_shape = sample_shape if sample_shape is not None else torch.Size([1])
-        z = torch.rand(sample_shape)
-        return self.rsample_from_base_samples(sample_shape, z)
+        base_samples = torch.randn(
+            sample_shape + self.probabilities.shape[:-1],
+            device=self.probabilities.device,
+        )
+        return self.rsample_from_base_samples(
+            sample_shape=sample_shape, base_samples=base_samples
+        )
 
     def rsample_from_base_samples(
-        self, sample_shape: torch.Size, base_samples: Tensor
+        self,
+        sample_shape: torch.Size,
+        base_samples: Tensor,
     ) -> Tensor:
+        """
+        base_samples are N(0, I) samples, as this posterior is registered
+        with the IIDNormalSampler below. Alternatively it could be registered
+        with a uniform sampler in which case the transformation to uniform RVs
+        could be avoided. Shape of base_samples is (nsamp, b?, q).
+        """
         if base_samples.shape[: len(sample_shape)] != sample_shape:
-            raise RuntimeError(
+            raise ValueError(
                 "`sample_shape` disagrees with shape of `base_samples`. "
                 f"Got {sample_shape=} and {base_samples.shape=}."
             )
-        return self.icdf(base_samples)
+        # convert base samples from N(O, I) to Uniform.
+        U = torch.distributions.Normal(0, 1).cdf(base_samples)
+        # Convert U to Riemann samples.
+        Z = self.icdf(U)  # (nsamp, b?, q, 1)
+        return Z
+
+    @property
+    def base_sample_shape(self) -> torch.Size:
+        r"""The shape of the base samples required to draw from the posterior."""
+        return self.probabilities.shape[:-1]
 
     @property
     def device(self) -> torch.device:
@@ -137,36 +163,37 @@ class BoundedRiemannPosterior(Posterior):
                 Use .954 for 2 sigma of a normal distribution.
         """
         side_probs = (1.0 - confidence_level) / 2
-        return self.icdf(side_probs), self.icdf(1.0 - side_probs)
+        lower = self.icdf(side_probs).squeeze()
+        upper = self.icdf(1.0 - side_probs).squeeze()
+        return lower, upper
 
-    def icdf(self, value: Union[Tensor, float]) -> Tensor:
+    def icdf(
+        self,
+        value: Union[float, Tensor],
+    ) -> Tensor:
         r"""Inverse cdf (with gradients).
         Use value to get the index of the bucket that contains the value
         and then interpolate between the left and right borders of the bucket
 
         Args:
             value: The value at which to evaluate the inverse CDF.
+                Either a float, or a tensor with shape is (b', b?, q), where
+                probabilities has shape (b?, q, num_buckets).
 
         Returns:
             The inverse CDF of the posterior at the given value(s).
-            The shape of the return is the shape of value, with the batch
-            shape of the probs (all dims up to the final dim) appended
-            with a final trailing dimension of 1, for the dim of the dist.
+            The shape of the return is (b', b?, q, 1), with a trailing
+            dimension.
         """
+        if not torch.is_tensor(value):
+            # Promote to a (b', b?, q) tensor
+            value = torch.tensor(value, device=self.device, dtype=self.dtype)
+            value = value.expand(*self.probabilities.shape[:-1]).unsqueeze(0)
+        value = value.movedim(0, -1)  # (b?, q, b')
 
-        # final shape is (batch_shape, -1)
-        value = torch.as_tensor(
-            value, device=self.borders.device, dtype=self.borders.dtype
-        )
-        value_shape = value.shape
-        # shape of cumprobs is (batch_shape, n_buckets)
-        value = value.broadcast_to(size=(*self.cumprobs.shape[:-1], *value_shape))
-        value = value.reshape(*self.cumprobs.shape[:-1], -1)
+        index = torch.searchsorted(self.cumprobs, value)  # (b?, q, b')
 
-        # get first index where cumprobs > value
-        index = torch.searchsorted(self.cumprobs, value)
-
-        left_border = self.borders[index]
+        left_border = self.borders[index]  # (b?, q, b')
         right_border = self.borders[index + 1]
 
         bucket_width = right_border - left_border
@@ -174,8 +201,73 @@ class BoundedRiemannPosterior(Posterior):
         prob_width = torch.gather(self.probabilities, -1, index)
 
         bucket_proportion_remaining = (right_cum_probs - value) / prob_width
-        result = left_border + (1 - bucket_proportion_remaining) * bucket_width
+        result = (
+            right_border - bucket_proportion_remaining * bucket_width
+        )  # (b?, q, b')
 
-        # reshape to (value_shape, batch_shape, 1)
-        result = result.transpose(0, -1)
-        return result.reshape(*value_shape, *self.cumprobs.shape[:-1], 1)
+        # reshape back to (b', b?, q, 1)
+        result = result.movedim(-1, 0).unsqueeze(-1)
+        return result
+
+
+class MultivariateRiemannPosterior(BoundedRiemannPosterior):
+    def __init__(self, borders, probabilities, correlation_matrix) -> None:
+        """
+        A multi-variate bounded Riemann posterior using a Gaussian copula.
+
+        Uses BoundedRiemannPosterior for marginal distributions, and then MVN
+        correlation structure via the Gaussian copula.
+
+        Args:
+            borders: A tensor of shape `(num_buckets + 1,)` defining the boundaries of
+                the buckets. Must be monotonically increasing.
+            probabilities: A tensor of shape `(b?, q, num_buckets)` defining the
+                probability mass in each bucket. Must sum to 1 in the last dim.
+            correlation_matrix: The Guassian correlation matrix, (b?, q, q).
+        """
+        super().__init__(borders=borders, probabilities=probabilities)
+        self.correlation_matrix = correlation_matrix
+
+    def rsample_from_base_samples(
+        self, sample_shape: torch.Size, base_samples: Tensor
+    ) -> Tensor:
+        """
+        Sample from the posterior using base samples.
+
+        base_samples are N(0, I) samples, as this posterior is registered
+        with the IIDNormalSampler below. This is also necessary for the use
+        of the Gaussian copula.
+
+        Args:
+            sample_shape: Shape of samples.
+            base_samples: (nsamp, b?, q) standard normal samples.
+
+        Returns: Samples from copula, shape (nsamp, b?, q, 1)
+        """
+        # Construct MVN
+        mvn = MultivariateNormal(
+            mean=torch.zeros_like(self.mean.squeeze(-1)),
+            covariance_matrix=self.correlation_matrix,
+        )
+        # Draw samples
+        samples = mvn.rsample(
+            sample_shape=sample_shape, base_samples=base_samples
+        ).squeeze(-1)  # (nsamp, b?, q)
+        # Convert N(0, 1) marginals to Uniform samples.
+        U = torch.distributions.Normal(0, 1).cdf(samples)  # (nsamp, b?, q)
+        Z = self.icdf(U)  # (nsamp, b?, q, 1)
+        return Z
+
+
+@GetSampler.register(BoundedRiemannPosterior)
+def _get_sampler_riemann(
+    posterior: BoundedRiemannPosterior,
+    sample_shape: torch.Size,
+    *,
+    seed: int | None = None,
+) -> NormalMCSampler:
+    return _get_sampler_mvn(
+        posterior=posterior,
+        sample_shape=sample_shape,
+        seed=seed,
+    )

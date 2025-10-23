@@ -11,7 +11,6 @@ To be used in a context where there is an objective/cost tradeoff.
 
 from __future__ import annotations
 
-import warnings
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 
@@ -21,7 +20,6 @@ from botorch.acquisition.objective import (
     IdentityMCObjective,
     MCAcquisitionObjective,
 )
-from botorch.exceptions.warnings import CostAwareWarning
 from botorch.models.deterministic import DeterministicModel
 from botorch.models.gpytorch import GPyTorchModel
 from botorch.sampling.base import MCSampler
@@ -112,7 +110,7 @@ class InverseCostWeightedUtility(CostAwareUtility):
         cost_model: DeterministicModel | GPyTorchModel,
         use_mean: bool = True,
         cost_objective: MCAcquisitionObjective | None = None,
-        min_cost: float = 1e-2,
+        log: bool = False,
     ) -> None:
         r"""Cost-aware utility that weights increase in utility by inverse cost.
         For negative increases in utility, the utility is instead scaled by the
@@ -130,7 +128,8 @@ class InverseCostWeightedUtility(CostAwareUtility):
                 un-transform predictions/samples of a cost model fit on the
                 log-transformed cost (often done to ensure non-negativity). If the
                 cost model is multi-output, then by default this will sum the cost
-                across outputs.
+                across outputs. NOTE: ``cost_objective`` must output
+                strictly positive values; forward will raise a ``ValueError`` otherwise.
             min_cost: A value used to clamp the cost samples so that they are not
                 too close to zero, which may cause numerical issues.
         Returns:
@@ -147,7 +146,7 @@ class InverseCostWeightedUtility(CostAwareUtility):
         self.cost_model = cost_model
         self.cost_objective: MCAcquisitionObjective = cost_objective
         self._use_mean = use_mean
-        self._min_cost = min_cost
+        self._log = log
 
     def forward(
         self,
@@ -202,18 +201,21 @@ class InverseCostWeightedUtility(CostAwareUtility):
             cost = none_throws(sampler)(cost_posterior)
         cost = self.cost_objective(cost)
 
-        # Ensure non-negativity of the cost
-        if torch.any(cost < -1e-7):
-            warnings.warn(
-                "Encountered negative cost values in InverseCostWeightedUtility",
-                CostAwareWarning,
-                stacklevel=2,
+        # Ensure that costs are positive
+        if not torch.all(cost > 0.0):
+            raise ValueError(
+                "Costs must be strictly positive. Consider clamping cost_objective."
             )
-        # clamp (away from zero) and sum cost across elements of the q-batch -
-        # this will be of shape `num_fantasies x batch_shape` or `batch_shape`
-        cost = cost.clamp_min(self._min_cost).sum(dim=-1)
+
+        # sum costs along q-batch
+        cost = cost.sum(dim=-1)
 
         # compute and return the ratio on the sample level - If `use_mean=True`
         # this operation involves broadcasting the cost across fantasies.
-        # We multiply by the cost if the deltas are <= 0, see discussion #2914
-        return torch.where(deltas > 0, deltas / cost, deltas * cost)
+        if self._log:
+            # if _log is True then input deltas are in log space
+            # so original deltas cannot be <= 0
+            return deltas - torch.log(cost)
+        else:
+            # We multiply by the cost if the deltas are <= 0, see discussion #2914
+            return torch.where(deltas > 0, deltas / cost, deltas * cost)

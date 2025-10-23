@@ -33,6 +33,7 @@ from botorch.test_functions.base import (
     BaseTestProblem,
     ConstrainedBaseTestProblem,
     CorruptedTestProblem,
+    MultiObjectiveTestProblem,
 )
 from botorch.test_functions.synthetic import Rosenbrock
 from botorch.utils.transforms import unnormalize
@@ -401,6 +402,25 @@ class ConstrainedTestProblemTestCaseMixin:
                         )
                 else:
                     self.assertTrue(is_equal.all().item())
+
+    def test_worst_feasible_value(self):
+        """Test that a function's worst_feasible_value is correctly computed,
+        and defined if it should be.
+        """
+        for dtype in (torch.float, torch.double):
+            for f in self.functions:
+                f.to(device=self.device, dtype=dtype)
+                if f._worst_feasible_value is None:
+                    self.assertTrue(isinstance(f, MultiObjectiveTestProblem))
+                    self.assertGreaterEqual(f.worst_feasible_value, 0.0)
+                else:
+                    worst_feas_val = f.worst_feasible_value
+                    worst_feas_val_exp = (
+                        -f._worst_feasible_value
+                        if f.negate
+                        else f._worst_feasible_value
+                    )
+                    self.assertEqual(worst_feas_val, worst_feas_val_exp)
 
     @property
     @abstractmethod

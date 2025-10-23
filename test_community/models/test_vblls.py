@@ -5,8 +5,11 @@
 # LICENSE file in the root directory of this source tree.
 
 import copy
+from unittest.mock import patch
 
+import numpy as np
 import torch
+
 from botorch.utils.testing import BotorchTestCase
 from botorch_community.models.blls import AbstractBLLModel
 from botorch_community.models.vblls import VBLLModel
@@ -81,6 +84,69 @@ class TestVBLLModel(BotorchTestCase):
                 device=self.device,
                 parameterization="lowrank",  # lowrank requires cov_rank
             )
+
+    def test_mean_initialization(self):
+        """Test different mean_initialization options."""
+        d, num_hidden, num_outputs, num_layers = 2, 3, 1, 4
+
+        torch.manual_seed(0)
+        model = VBLLModel(
+            in_features=d,
+            hidden_features=num_hidden,
+            num_layers=num_layers,
+            out_features=num_outputs,
+            mean_initialization=None,
+        )
+
+        # fix seeds to see if mean init is the same
+        torch.manual_seed(0)
+        model2 = VBLLModel(
+            in_features=d,
+            hidden_features=num_hidden,
+            num_layers=num_layers,
+            out_features=num_outputs,
+        )
+
+        self.assertTrue(
+            torch.allclose(model.head.W_mean, model2.head.W_mean, atol=1e-6),
+            "mean_initialization=None should be equivalent to default initialization.",
+        )
+
+        # Test kaiming initialization, check of np.sqrt is called
+        with patch("numpy.sqrt", wraps=np.sqrt) as mock_sqrt:
+            model = VBLLModel(
+                in_features=d,
+                hidden_features=num_hidden,
+                num_layers=num_layers,
+                out_features=num_outputs,
+                mean_initialization="kaiming",
+            )
+
+            # Verify that np.sqrt was called with the correct argument
+            mock_sqrt.assert_called_once_with(2.0 / num_hidden)
+
+        # Test invalid string initialization
+        with self.assertRaises(ValueError) as cm:
+            model = VBLLModel(
+                in_features=d,
+                hidden_features=num_hidden,
+                num_layers=num_layers,
+                out_features=num_outputs,
+                mean_initialization="invalid",
+            )
+        self.assertIn("Unknown initialization method", str(cm.exception))
+        self.assertIn("kaiming", str(cm.exception))
+
+        # Test invalid type (not string or None)
+        with self.assertRaises(TypeError) as cm:
+            model = VBLLModel(
+                in_features=d,
+                hidden_features=num_hidden,
+                num_layers=num_layers,
+                out_features=num_outputs,
+                mean_initialization=["kaiming"],
+            )
+        self.assertIn("must be a string or None", str(cm.exception))
 
     def test_backbone_initialization(self) -> None:
         d, num_hidden = 4, 3

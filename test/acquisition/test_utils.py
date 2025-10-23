@@ -32,6 +32,7 @@ from botorch.exceptions.errors import (
     DeprecationError,
     UnsupportedError,
 )
+from botorch.exceptions.warnings import BotorchWarning
 from botorch.models import SingleTaskGP
 from botorch.utils.testing import BotorchTestCase, MockModel, MockPosterior
 from gpytorch.distributions import MultivariateNormal
@@ -154,14 +155,17 @@ class TestConstraintUtils(BotorchTestCase):
                     def objective(Y, X):
                         return Y.squeeze(-1) - 5.0
 
-                    best_f = compute_best_feasible_objective(
-                        samples=samples,
-                        obj=obj,
-                        constraints=[lambda X: torch.ones_like(X[..., 0])],
-                        model=mm,
-                        X_baseline=X,
-                        objective=objective,
-                    )
+                    with self.assertWarnsRegex(
+                        BotorchWarning, "ProbabilityOfFeasibility"
+                    ):
+                        best_f = compute_best_feasible_objective(
+                            samples=samples,
+                            obj=obj,
+                            constraints=[lambda X: torch.ones_like(X[..., 0])],
+                            model=mm,
+                            X_baseline=X,
+                            objective=objective,
+                        )
                     expected_best_f = torch.full(
                         sample_shape + batch_shape,
                         -get_infeasible_cost(X=X, model=mm, objective=objective).item(),

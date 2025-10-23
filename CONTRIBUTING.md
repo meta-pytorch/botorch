@@ -8,7 +8,7 @@ To get the development installation with all the necessary dependencies for
 linting, testing, and building the documentation, run the following:
 
 ```bash
-git clone https://github.com/pytorch/botorch.git
+git clone https://github.com/meta-pytorch/botorch.git
 cd botorch
 pip install -e ".[dev]"
 ```

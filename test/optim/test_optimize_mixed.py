@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import random
+import warnings
 from dataclasses import fields
 from itertools import product
 from typing import Any, Callable
@@ -58,6 +59,7 @@ def _make_opt_inputs(
     fixed_features: dict[int, float] | None = None,
     return_best_only: bool = True,
     sequential: bool = True,
+    post_processing_func: Callable[[Tensor], Tensor] | None = None,
 ) -> OptimizeAcqfInputs:
     r"""Helper to construct `OptimizeAcqfInputs` from limited inputs."""
     return OptimizeAcqfInputs(
@@ -71,7 +73,7 @@ def _make_opt_inputs(
         equality_constraints=equality_constraints,
         nonlinear_inequality_constraints=nonlinear_inequality_constraints,
         fixed_features=fixed_features or {},
-        post_processing_func=None,
+        post_processing_func=post_processing_func,
         batch_initial_conditions=None,
         return_best_only=return_best_only,
         gen_candidates=gen_candidates_scipy,
@@ -1216,10 +1218,15 @@ class TestOptimizeAcqfMixed(BotorchTestCase):
                     options={"batch_limit": 2, "init_batch_limit": 2},
                 ),
                 discrete_dims=discrete_dims,
-                cat_dims={},
+                cat_dims=cat_dims,
                 cont_dims=torch.tensor(cont_dims, device=self.device),
             )
         self.assertEqual(candidates.shape, torch.Size([4, dim]))
+        # Check that the candidates are rounded to discrete / categorical values.
+        self.assertAllClose(
+            candidates,
+            round_discrete_dims(X=candidates, discrete_dims=discrete_dims | cat_dims),
+        )
 
         # Test with fixed features and constraints. Using both discrete and continuous.
         constraint = (  # X[..., 0] + X[..., 1] >= 1.
@@ -1453,3 +1460,56 @@ class TestOptimizeAcqfMixed(BotorchTestCase):
             self.assertAllClose(
                 discrete_call_args["opt_inputs"].post_processing_func(X), X_expected
             )
+
+    def test_initialization_w_continuous_relaxation(self) -> None:
+        # Testing with integer variables.
+        train_X, _, _, cont_dims = self._get_data()
+        # Update the data to introduce integer dimensions.
+        cat_dims = {0: [0, 1]}
+        discrete_dims = {3: list(range(41)), 4: list(range(16))}
+        all_integer_dims: list[int] = [0, 3, 4]
+
+        def org_post_proc_func(X: Tensor) -> Tensor:
+            # Just error out if things are not rounded already.
+            # This stands in for any Ax transform that expects discrete values.
+            if X[..., all_integer_dims].round() != X[..., all_integer_dims]:
+                raise ValueError("Expected discrete values")
+            return X
+
+        # The key test is that this call doesn't error out.
+        with mock.patch(
+            "botorch.optim.optimize_mixed._optimize_acqf", wraps=_optimize_acqf
+        ) as mock_opt, warnings.catch_warnings(record=True) as ws:
+            X, _ = generate_starting_points(
+                opt_inputs=_make_opt_inputs(
+                    acq_function=qLogNoisyExpectedImprovement(
+                        model=QuadraticDeterministicModel(
+                            root=torch.zeros(
+                                train_X.shape[-1],
+                                device=self.device,
+                                dtype=torch.double,
+                            )
+                        ),
+                        X_baseline=train_X,
+                        cache_root=False,
+                    ),
+                    bounds=torch.tensor(
+                        [[0.0, 0.0, 0.0, 0.0, 0.0], [1.0, 1.0, 1.0, 40.0, 15.0]],
+                        dtype=torch.double,
+                        device=self.device,
+                    ),
+                    post_processing_func=org_post_proc_func,
+                    num_restarts=4,
+                ),
+                discrete_dims=discrete_dims,
+                cat_dims=cat_dims,
+                cont_dims=torch.tensor(cont_dims, device=self.device),
+            )
+        # Check that it was called with no post processing func.
+        mock_opt.assert_called_once()
+        self.assertIsNone(mock_opt.call_args.kwargs["opt_inputs"].post_processing_func)
+        # Check that optimization failure warning is not raised.
+        self.assertFalse(any(issubclass(w.category, OptimizationWarning) for w in ws))
+        # Check that generated points are rounded.
+        self.assertEqual(X.shape, torch.Size([4, train_X.shape[-1]]))
+        self.assertAllClose(X[..., all_integer_dims], X[..., all_integer_dims].round())

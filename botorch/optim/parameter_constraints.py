@@ -18,14 +18,32 @@ import numpy as np
 import numpy.typing as npt
 import torch
 from botorch.exceptions.errors import CandidateGenerationError, UnsupportedError
-from scipy.optimize import Bounds
+from botorch.optim.utils import columnwise_clamp
+from scipy.optimize import Bounds, minimize
 from torch import Tensor
 
 
 ScipyConstraintDict = dict[
     str, Union[str, Callable[[np.ndarray], float], Callable[[np.ndarray], np.ndarray]]
 ]
-CONST_TOL = 1e-6
+
+
+def get_constraint_tolerance(dtype: torch.dtype) -> float:
+    r"""Get the constraint tolerance for a given dtype.
+
+    Args:
+        dtype: The dtype to use.
+
+    Returns:
+        The constraint tolerance for the given dtype.
+    """
+    if dtype == torch.double:
+        return 1e-8
+    elif dtype == torch.float:
+        return 1e-6
+    elif dtype == torch.half:
+        return 1e-4
+    raise ValueError(f"Unsupported dtype {dtype}.")
 
 
 def make_scipy_bounds(
@@ -33,7 +51,7 @@ def make_scipy_bounds(
     lower_bounds: float | Tensor | None = None,
     upper_bounds: float | Tensor | None = None,
 ) -> Bounds | None:
-    r"""Creates a scipy Bounds object for optimziation
+    r"""Creates a scipy Bounds object for optimization
 
     Args:
         X: `... x d` tensor
@@ -513,7 +531,7 @@ def nonlinear_constraint_is_feasible(
     nonlinear_inequality_constraint: Callable,
     is_intrapoint: bool,
     x: Tensor,
-    tolerance: float = CONST_TOL,
+    tolerance: float | None = None,
 ) -> Tensor:
     """Checks if a nonlinear inequality constraint is fulfilled (within tolerance).
 
@@ -533,6 +551,8 @@ def nonlinear_constraint_is_feasible(
         A boolean tensor of shape (batch) indicating if the constraint is
         satified by the corresponding batch of `x`.
     """
+    if tolerance is None:
+        tolerance = get_constraint_tolerance(dtype=x.dtype)
 
     def check_x(x: Tensor) -> bool:
         return _arrayify(nonlinear_inequality_constraint(x)).item() >= -tolerance
@@ -615,7 +635,7 @@ def evaluate_feasibility(
     inequality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
     equality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
     nonlinear_inequality_constraints: list[tuple[Callable, bool]] | None = None,
-    tolerance: float = CONST_TOL,
+    tolerance: float | None = None,
 ) -> Tensor:
     r"""Evaluate feasibility of candidate points (within a tolerance).
 
@@ -657,6 +677,9 @@ def evaluate_feasibility(
         A boolean tensor of shape `batch` indicating if the corresponding candidate of
         shape `q x d` is feasible.
     """
+    if tolerance is None:
+        tolerance = get_constraint_tolerance(dtype=X.dtype)
+
     is_feasible = torch.ones(X.shape[:-2], device=X.device, dtype=torch.bool)
     if inequality_constraints is not None:
         for idx, coef, rhs in inequality_constraints:
@@ -691,3 +714,78 @@ def evaluate_feasibility(
                 tolerance=tolerance,
             )
     return is_feasible
+
+
+def project_to_feasible_space_via_slsqp(
+    X: Tensor,
+    bounds: Tensor,
+    inequality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
+    equality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
+) -> Tensor:
+    """Project X onto the feasible space by solving a quadratic program.
+
+    This uses SLSQP with gradients to solve the quadratic program.
+    NOTE: A proper specialized QP solver would be a better choice here,
+    but we'd like to avoid adding dependency on additional packages.
+    SLSQP should be able to solve this reliably and quickly since the
+    dimension is typically low and the number of constraints is typically
+    limited.
+
+    Args:
+        X: A `(batch_shape x) n x d`-dim tensor of inptus.
+        bounds: A `2 x d`-dim tensor of lower and upper bounds.
+        inequality_constraints: A list of tuples (indices, coefficients, rhs),
+            with each tuple encoding an inequality constraint of the form
+            `sum_i (X[indices[i]] * coefficients[i]) >= rhs`. `indices` and
+            `coefficients` should be torch tensors. See the docstring of
+            `make_scipy_linear_constraints` for an example.
+        equality_constraints: A list of tuples (indices, coefficients, rhs).
+
+    Returns:
+        A `(batch_shape x) n x d`-dim tensor of  projected values.
+    """
+    if inequality_constraints is None and equality_constraints is None:
+        return X
+    bounds_scipy = make_scipy_bounds(
+        X=X, lower_bounds=bounds[0], upper_bounds=bounds[1]
+    )
+    constraints = make_scipy_linear_constraints(
+        shapeX=X.shape,
+        inequality_constraints=inequality_constraints,
+        equality_constraints=equality_constraints,
+    )
+    # Define squared distance objective
+    X_np = X.flatten().detach().cpu().numpy()
+
+    def objective(x: np.ndarray):
+        return 0.5 * np.sum((x - X_np) ** 2)
+
+    def grad_objective(x: np.ndarray):
+        return x - X_np
+
+    x0 = (
+        columnwise_clamp(X=X, lower=bounds[0], upper=bounds[1], raise_on_violation=True)
+        .detach()
+        .cpu()
+        .numpy()
+        .flatten()
+    )
+    # NOTE: A proper specialized QP solver would be a better choice here,
+    # but we'd like to avoid adding dependency on additional packages.
+    # SLSQP should be able to solve this reliably and quickly since the
+    # dimension is typically low and the number of constraints is typically
+    # limited.
+    result = minimize(
+        fun=objective,
+        x0=x0,
+        method="SLSQP",
+        jac=grad_objective,
+        bounds=bounds_scipy,
+        constraints=constraints,
+        tol=get_constraint_tolerance(dtype=X.dtype),
+    )
+
+    if not result.success:
+        raise RuntimeError(f"Optimization failed: {result.message}")
+
+    return torch.from_numpy(result.x).to(X).view(X.shape)

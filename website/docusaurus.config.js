@@ -47,7 +47,7 @@ module.exports={
         "docs": {
           "showLastUpdateAuthor": true,
           "showLastUpdateTime": true,
-          "editUrl": "https://github.com/pytorch/botorch/edit/main/docs/",
+          "editUrl": "https://github.com/meta-pytorch/botorch/edit/main/docs/",
           "path": "../docs",
           "sidebarPath": "../website/sidebars.js",
           remarkPlugins: [remarkMath],
@@ -124,7 +124,7 @@ module.exports={
             ],
         },
         {
-          "href": "https://github.com/pytorch/botorch",
+          "href": "https://github.com/meta-pytorch/botorch",
           "className": "header-github-link",
           "aria-label": "GitHub",
           "position": "right"
@@ -187,7 +187,7 @@ module.exports={
           items: [
             {
               label: 'GitHub',
-              href: 'https://github.com/pytorch/botorch',
+              href: 'https://github.com/meta-pytorch/botorch',
             },
             {
               html: `<iframe

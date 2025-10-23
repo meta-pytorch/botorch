@@ -5,15 +5,12 @@
 # LICENSE file in the root directory of this source tree.
 
 
-import warnings
-
 import torch
 from botorch.acquisition.cost_aware import (
     CostAwareUtility,
     GenericCostAwareUtility,
     InverseCostWeightedUtility,
 )
-from botorch.exceptions.warnings import CostAwareWarning
 from botorch.models.deterministic import GenericDeterministicModel
 from botorch.sampling import IIDNormalSampler
 from botorch.utils.testing import BotorchTestCase, MockModel, MockPosterior
@@ -59,14 +56,29 @@ class TestCostAwareUtilities(BotorchTestCase):
                 with self.assertRaises(RuntimeError):
                     icwu(X, deltas)
 
-                # check warning for negative cost
+                # test ValueError if costs are negative
                 mm = MockModel(MockPosterior(mean=mean.clamp_max(-1e-6)))
                 icwu = InverseCostWeightedUtility(mm)
-                with warnings.catch_warnings(record=True) as ws:
+                with self.assertRaisesRegex(
+                    ValueError,
+                    (
+                        "Costs must be strictly positive. "
+                        "Consider clamping cost_objective."
+                    ),
+                ):
                     icwu(X, deltas)
-                self.assertTrue(
-                    any(issubclass(w.category, CostAwareWarning) for w in ws)
-                )
+
+                # test ValueError if costs are zero
+                mm = MockModel(MockPosterior(mean=mean.clamp(min=0.0, max=0.0)))
+                icwu = InverseCostWeightedUtility(mm)
+                with self.assertRaisesRegex(
+                    ValueError,
+                    (
+                        "Costs must be strictly positive. "
+                        "Consider clamping cost_objective."
+                    ),
+                ):
+                    icwu(X, deltas)
 
                 # basic test for both positive and negative delta values
                 mm = MockModel(MockPosterior(mean=mean))
@@ -112,14 +124,13 @@ class TestCostAwareUtilities(BotorchTestCase):
                     torch.equal(ratios, deltas / samples.squeeze(-1).sum(dim=-1))
                 )
 
-                # test min cost
+                # test log cost
                 mm = MockModel(MockPosterior(mean=mean))
-                icwu = InverseCostWeightedUtility(mm, min_cost=1.5)
-                ratios = icwu(X, deltas)
-                self.assertTrue(
-                    torch.equal(
-                        ratios, deltas / mean.clamp_min(1.5).squeeze(-1).sum(dim=-1)
-                    )
+                icwu = InverseCostWeightedUtility(mm, log=True)
+                log_ratios = icwu(X, torch.log(deltas))
+
+                self.assertAllClose(
+                    log_ratios.exp(), deltas / mean.squeeze(-1).sum(dim=-1), atol=1e-4
                 )
 
                 # test evaluation_mask

@@ -58,7 +58,9 @@ from botorch.utils.multi_objective.box_decompositions.utils import (
 )
 from botorch.utils.objective import compute_feasibility_indicator
 from botorch.utils.torch import BufferDict
+from botorch.utils.transforms import is_ensemble, match_batch_shape
 from torch import Tensor
+
 
 MIN_Y_RANGE = 1e-7
 
@@ -793,7 +795,7 @@ class NoisyExpectedHypervolumeMixin(CachedCholeskyMCSamplerMixin):
                     BotorchWarning,
                     stacklevel=2,
                 )
-            X_pending = X_pending.detach().clone()
+            self.X_pending = X_pending.detach().clone()
             if self.cache_pending:
                 X_baseline = torch.cat([self._X_baseline, X_pending], dim=-2)
                 # Number of new points is the total number of points minus
@@ -812,16 +814,9 @@ class NoisyExpectedHypervolumeMixin(CachedCholeskyMCSamplerMixin):
                                 .clamp_min(0.0)
                                 .mean()
                             )
-                        # Set to None so that pending points are not concatenated in
-                        # forward.
-                        self.X_pending = None
                         # Set q_in=-1 to so that self.sampler is updated at the next
                         # forward call.
                         self.q_in = -1
-                    else:
-                        self.X_pending = X_pending[-num_new_points:]
-            else:
-                self.X_pending = X_pending
 
     @property
     def _hypervolumes(self) -> Tensor:
@@ -835,6 +830,58 @@ class NoisyExpectedHypervolumeMixin(CachedCholeskyMCSamplerMixin):
             .to(self.ref_point)  # for m > 2, the partitioning is on the CPU
             .view(self._batch_sample_shape)
         )
+
+    def _compute_posterior_samples_and_concat_pending(
+        self, X: Tensor
+    ) -> tuple[Tensor, Tensor]:
+        r"""Get samples from the posterior, and concatenate uncached pending points.
+
+        Args:
+            X: `batch_shape x q x d` X Tensor pased into the `forward` method of an acqf
+
+        Returns:
+            A tuple containing samples of the latent function from the posterior, and
+            the `batch_shape x (q + num_uncached_pending) x d` X tensor including any
+            pending observations that have not been cached.
+        """
+        # Manually concatenate pending points only if:
+        # - pending points are not cached, or
+        # - number of pending points is less than max_iep
+        if self.X_pending is not None:
+            num_pending = self.X_pending.shape[-2]
+            num_X_baseline = self._X_baseline.shape[-2]
+            num_X_baseline_and_cached_pending = self.X_baseline.shape[-2]
+            num_uncached_pending = (
+                (num_pending + num_X_baseline - num_X_baseline_and_cached_pending)
+                if self.cache_pending
+                else num_pending
+            )
+            X_pending_uncached = self.X_pending[
+                ..., num_pending - num_uncached_pending :, :
+            ]
+            X = torch.cat([X, match_batch_shape(X_pending_uncached, X)], dim=-2)
+        X_full = torch.cat([match_batch_shape(self.X_baseline, X), X], dim=-2)
+        # NOTE: To ensure that we correctly sample `f(X)` from the joint distribution
+        # `f((X_baseline, X)) ~ P(f | D)`, it is critical to compute the joint posterior
+        # over X *and* X_baseline -- which also contains pending points whenever there
+        # are any --  since the baseline and pending values `f(X_baseline)` are
+        # generally pre-computed and cached before the `forward` call, see the docs of
+        # `cache_pending` for details.
+        # TODO: Improve the efficiency by not re-computing the X_baseline-X_baseline
+        # covariance matrix, but only the covariance of
+        # 1) X and X, and
+        # 2) X and X_baseline.
+        posterior = self.model.posterior(X_full)
+        # Account for possible one-to-many transform and the MCMC batch dimension in
+        # `SaasFullyBayesianSingleTaskGP`
+        event_shape_lag = 1 if is_ensemble(self.model) else 2
+        n_w = (
+            posterior._extended_shape()[X_full.dim() - event_shape_lag]
+            // X_full.shape[-2]
+        )
+        q_in = X.shape[-2] * n_w
+        self._set_sampler(q_in=q_in, posterior=posterior)
+        return self._get_f_X_samples(posterior=posterior, q_in=q_in), X
 
 
 def get_hypervolume_maximizing_subset(

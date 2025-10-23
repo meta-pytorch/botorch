@@ -37,7 +37,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4
       with:
-        ref: 'docusaurus-versions' # release branch
+        ref: 'gh-pages' # release branch
         fetch-depth: 0
     - name: Install uv
       uses: astral-sh/setup-uv@v5
@@ -57,8 +57,6 @@ jobs:
         uv pip install git+https://github.com/cornellius-gp/linear_operator.git
         uv pip install git+https://github.com/cornellius-gp/gpytorch.git
     - name: Install dependencies
-      env:
-        ALLOW_LATEST_GPYTORCH_LINOP: true
       run: |
         uv pip install ."[dev, tutorials]"
     - if: ${{ inputs.new_version }}
@@ -92,7 +90,7 @@ jobs:
 
         git add versioned_docs/ versioned_sidebars/ versions.json
         git commit -m "Create version ${{ inputs.new_version }} of site in Docusaurus"
-        git push --force origin HEAD:docusaurus-versions
+        git push --force origin HEAD:gh-pages
     - name: Build website
       run: |
         bash scripts/build_docs.sh -b
