@@ -4,6 +4,9 @@ The release log for BoTorch.
 
 ## [0.16.0] -- Oct 23, 2025
 
+#### Compatibility
+* Require GPyTorch>=1.14.2 (#3055).
+
 #### New Features
 * Add `EnsembleMapSaasSingleTaskGP` (#3035, #3038, #3040).
 * Allow different inferred noise levels for each task in `MultitaskGP` (#2997).
