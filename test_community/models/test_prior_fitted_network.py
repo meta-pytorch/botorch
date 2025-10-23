@@ -67,22 +67,26 @@ class TestPriorFittedNetwork(BotorchTestCase):
                 )
 
             train_Y_4d = torch.rand(10, 2, 2, 1, **tkwargs)
-            with self.assertRaises(UnsupportedError):
+            with self.assertRaisesRegex(
+                UnsupportedError, "train_Y must be 2-dimensional"
+            ):
                 PFNModel(train_X, train_Y_4d, DummyPFN())
 
             train_Y_2d = torch.rand(10, 2, **tkwargs)
-            with self.assertRaises(UnsupportedError):
+            with self.assertRaisesRegex(UnsupportedError, "Only 1 target allowed"):
                 PFNModel(train_X, train_Y_2d, DummyPFN())
 
-            with self.assertRaises(UnsupportedError):
+            with self.assertRaisesRegex(
+                UnsupportedError, "train_X must be 2-dimensional"
+            ):
                 PFNModel(torch.rand(10, 3, 3, 2, **tkwargs), train_Y, DummyPFN())
 
-            with self.assertRaises(UnsupportedError):
-                PFNModel(train_X, torch.rand(11, **tkwargs), DummyPFN())
+            with self.assertRaisesRegex(UnsupportedError, "same number of rows"):
+                PFNModel(train_X, torch.rand(11, 1, **tkwargs), DummyPFN())
 
             pfn = PFNModel(train_X, train_Y, DummyPFN())
 
-            with self.assertRaises(UnsupportedError):
+            with self.assertRaisesRegex(UnsupportedError, "output_indices is not None"):
                 pfn.posterior(test_X, output_indices=[0, 1])
             with self.assertLogs(logger="botorch", level=WARN) as log:
                 pfn.posterior(test_X, observation_noise=True)
@@ -90,7 +94,9 @@ class TestPriorFittedNetwork(BotorchTestCase):
                     "observation_noise is not supported for PFNModel",
                     log.output[0],
                 )
-            with self.assertRaises(UnsupportedError):
+            with self.assertRaisesRegex(
+                UnsupportedError, "posterior_transform is not supported"
+            ):
                 pfn.posterior(
                     test_X,
                     posterior_transform=ScalarizedPosteriorTransform(
@@ -105,7 +111,7 @@ class TestPriorFittedNetwork(BotorchTestCase):
 
             # X dims should be 1 to 4
             test_X = torch.rand(5, 4, 2, 1, 2, **tkwargs)
-            with self.assertRaises(UnsupportedError):
+            with self.assertRaisesRegex(UnsupportedError, "X must be at most 3-d"):
                 pfn.posterior(test_X)
 
     def test_shapes(self):
