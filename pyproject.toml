@@ -23,7 +23,7 @@ dynamic = ["version"]
 dependencies = [
     "typing_extensions",
     "pyre_extensions",
-    "gpytorch>=1.14",
+    "gpytorch>=1.14.2",
     "linear_operator>=0.6",
     "torch>=2.0.1",
     "pyro-ppl>=1.8.4",
