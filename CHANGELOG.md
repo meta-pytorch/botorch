@@ -2,11 +2,55 @@
 
 The release log for BoTorch.
 
+## [0.16.0] -- Oct 23, 2025
+
+#### New Features
+* Add `EnsembleMapSaasSingleTaskGP` (#3035, #3038, #3040).
+* Allow different inferred noise levels for each task in `MultitaskGP` (#2997).
+* Allow `LatentKroneckerGP` model to support different `T` values at train and test time (#3032, #3037).
+* Allow `qHypervolumeKnowledgeGradient` to return log values for better numerical stability (#2974, #2976, #2979).
+* Add `NumericToCategoricalEncoding` input transform (#2907).
+* Added a `MatheronPathModel` - a `DeterministicModel` returning a Matheron path sample (#2984).
+* Project points generated in acquisition function optization to the feasible space (#3010).
+* Add support for non-uniform model weights in `EnsembleModel` and `EnsemblePosterior` (#2993).
+* Allow optimizers to support negative indices for fixed features (#2970).
+* Add worst known feasible value to constrained test problems (#3016).
+
+#### Bug Fixes
+* Fix `optimize_acqf_mixed_alternating` initialization with categorical features (#2986).
+* Use `IIDNormalSampler` for `PosteriorList` by default to fix issue with correlated Sobol samples (#2977).
+* Fix `condition_on_observations` to correctly apply input transforms and properly add data to train_inputs (#2989, #2990, #3034).
+* Fix handling of input transforms for `AdditiveMapSaasSingleTaskGP` (#3042).
+* Preserve train inputs and targets through transforms (#3044).
+* Improve how `qNEHVI` handles pending points to avoid duplicate suggestions when initial pending points are passed (#2985).
+
+#### Other Changes
+* Add support for missing tasks in multi-task GP models (#2960).
+* Add input constructor for `LogConstrainedExpectedImprovement` (#2973).
+* Improve error handling and update documentation for inter-point constraints (#3003).
+* Make `AnalyticAcquisitionFunction._mean_and_sigma()` return output dim consistently (#3028).
+* Improve initialization with continuous relaxation in `optimize_acqf_mixed_alternating` (#3041).
+* Implement `ContextualDataset.__eq__()` (#3005).
+* Check shape of state dict when comparing input transforms (#3051).
+* Add `py.typed` file to precent tools complainnig about type stubs (#2982).
+* Improve best feasible objective computation; point user to use probability of feasibility (#3011).
+
+#### Deprecations and removals
+* Deprecate `get_fitted_map_saas_ensemble()` in favor of `EnsembleMapSaasSingleTaskGP` (#3036).
+
+#### Changes to botorch_community
+* Add `MCAcquisition` support to `PFNModel` (#3031).
+* Add copula-based multivariate posterior for `PFNModel` (#3045).
+* Allow `PFNModel` to load checkpoints from trainings done with `automl/PFNs` (#3017).
+* Add support for Kaiming/He initialization for the VBLL mean (#3053).
+
+
 ## [0.15.1] -- Aug 12, 2025
 This is a compatibility release, coming only one week after 0.15.0.
 
 #### New features
 * Enable optimizing a sequence of acquisition functions in `optimize_acqf` (#2931).
+
 
 ## [0.15.0] -- Aug 5, 2025
 
