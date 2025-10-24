@@ -532,7 +532,9 @@ def gen_candidates_torch(
         optimizer (Optimizer): The pytorch optimizer to use to perform
             candidate search.
         options: Options used to control the optimization. Includes
-            maxiter: Maximum number of iterations
+            optimizer_options: Dict of additional options to pass to the optimizer
+                (e.g. lr, weight_decay)
+            stopping_criterion_options: Dict of options for the stopping criterion.
         callback: A callback function accepting the current iteration, loss,
             and gradients as arguments. This function is executed after computing
             the loss and gradients, but before calling the optimizer.
@@ -580,11 +582,17 @@ def gen_candidates_torch(
             [i for i in range(clamped_candidates.shape[-1]) if i not in fixed_features],
         ]
     clamped_candidates = clamped_candidates.requires_grad_(True)
-    _optimizer = optimizer(params=[clamped_candidates], lr=options.get("lr", 0.025))
+
+    # Extract optimizer-specific options from the options dict
+    optimizer_options = options.pop("optimizer_options", {})
+    stopping_criterion_options = options.pop("stopping_criterion_options", {})
+
+    optimizer_options["lr"] = optimizer_options.get("lr", 0.025)
+    _optimizer = optimizer(params=[clamped_candidates], **optimizer_options)
 
     i = 0
     stop = False
-    stopping_criterion = ExpMAStoppingCriterion(**options)
+    stopping_criterion = ExpMAStoppingCriterion(**stopping_criterion_options)
     while not stop:
         i += 1
         with torch.no_grad():
