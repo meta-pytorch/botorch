@@ -69,8 +69,8 @@ def fit_gpytorch_mll_scipy(
             Responsible for setting the `grad` attributes of `parameters`. If no closure
             is provided, one will be obtained by calling `get_loss_closure_with_grads`.
         closure_kwargs: Keyword arguments passed to `closure`.
-        method: Solver type, passed along to scipy.optimize.minimize.
-        options: Dictionary of solver options, passed along to scipy.optimize.minimize.
+        method: Solver type, passed along to scipy.minimize.
+        options: Dictionary of solver options, passed along to scipy.minimize.
         callback: Optional callback taking `parameters` and an OptimizationResult as its
             sole arguments.
         timeout_sec: Timeout in seconds after which to terminate the fitting loop
