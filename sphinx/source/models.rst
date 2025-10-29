@@ -146,6 +146,9 @@ Kernels
 .. automodule:: botorch.models.kernels.orthogonal_additive_kernel
 .. autoclass:: OrthogonalAdditiveKernel
 
+.. automodule:: botorch.models.kernels.positive_index
+.. autoclass:: PositiveIndexKernel
+
 Likelihoods
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 .. automodule:: botorch.models.likelihoods.pairwise
