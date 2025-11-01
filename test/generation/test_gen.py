@@ -324,6 +324,37 @@ class TestGenCandidates(TestBaseCandidateGeneration):
         self.assertFalse(any(issubclass(w.category, OptimizationWarning) for w in ws))
         self.assertTrue("Optimization timed out" in logs.output[-1])
 
+    def test_gen_candidates_torch_optimizer_with_optimizer_args(self):
+        """Test that Adam optimizer is created with the correct learning rate."""
+        self._setUp(double=False)
+        qEI = qExpectedImprovement(self.model, best_f=self.f_best)
+
+        # Create a mock optimizer class
+        mock_optimizer_class = mock.MagicMock()
+        mock_optimizer_instance = mock.MagicMock()
+        mock_optimizer_class.return_value = mock_optimizer_instance
+
+        gen_candidates_torch(
+            initial_conditions=self.initial_conditions,
+            acquisition_function=qEI,
+            lower_bounds=0,
+            upper_bounds=1,
+            optimizer=mock_optimizer_class,  # Pass the mock optimizer directly
+            options={
+                "optimizer_options": {"lr": 0.02, "weight_decay": 1e-5},
+                "stopping_criterion_options": {"maxiter": 1},
+            },
+        )
+
+        # Verify that the optimizer was called with the correct arguments
+        mock_optimizer_class.assert_called_once()
+        call_args = mock_optimizer_class.call_args
+        # Check that params argument is present
+        self.assertIn("params", call_args.kwargs)
+        # Check optimizer options
+        self.assertEqual(call_args.kwargs["lr"], 0.02)
+        self.assertEqual(call_args.kwargs["weight_decay"], 1e-5)
+
     def test_gen_candidates_scipy_warns_opt_no_res(self):
         ckwargs = {"dtype": torch.float, "device": self.device}
 
