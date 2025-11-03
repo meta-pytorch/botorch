@@ -554,6 +554,84 @@ class TestMapSaas(BotorchTestCase):
         self.assertIsInstance(model_with_yvar, EnsembleMapSaasSingleTaskGP)
         self.assertEqual(model_with_yvar.batch_shape, torch.Size([3]))
 
+    def _compute_gradients(
+        self, model: EnsembleMapSaasSingleTaskGP, mll: ExactMarginalLogLikelihood
+    ) -> dict[str, torch.Tensor]:
+        """Helper method to compute and return gradients for a model."""
+        model.train()
+        model.zero_grad()
+        output = model(model.train_inputs[0])
+        loss = -mll(output, model.train_targets).sum()
+        loss.backward()
+        return {
+            name: param.grad.clone()
+            for name, param in model.named_parameters()
+            if param.requires_grad
+        }
+
+    @mock_optimize
+    def test_ensemble_map_saas_state_dict_with_taus(self) -> None:
+        """Test that taus are saved in state dict and predictions match after load."""
+        train_X, train_Y, test_X = self._get_data(
+            device=self.device, dtype=torch.double
+        )
+
+        # Create a fitted model with specific taus
+        num_taus = 5
+        taus = torch.tensor([0.05, 0.1, 0.15, 0.2, 0.25]).to(train_X)
+        model1 = EnsembleMapSaasSingleTaskGP(
+            train_X=train_X, train_Y=train_Y, num_taus=num_taus, taus=taus
+        )
+        mll1 = ExactMarginalLogLikelihood(model=model1, likelihood=model1.likelihood)
+        fit_gpytorch_mll(mll1)
+        with torch.no_grad():
+            posterior1 = model1.posterior(test_X)
+            pred_mean1 = posterior1.mean
+            pred_variance1 = posterior1.variance
+        state_dict = model1.state_dict()
+        # Verify taus are in the state dict
+        self.assertIn("taus", state_dict)
+        self.assertAllClose(state_dict["taus"], taus)
+        # Compute gradients
+        grads1 = self._compute_gradients(model=model1, mll=mll1)
+        self.assertEqual(
+            list(grads1.keys()),
+            [
+                "likelihood.noise_covar.raw_noise",
+                "mean_module.raw_constant",
+                "covar_module.raw_outputscale",
+                "covar_module.base_kernel.raw_lengthscale",
+            ],
+        )
+
+        # Create a new model without specifying taus
+        model2 = EnsembleMapSaasSingleTaskGP(
+            train_X=train_X, train_Y=train_Y, num_taus=num_taus
+        )
+        mll2 = ExactMarginalLogLikelihood(model=model2, likelihood=model2.likelihood)
+        self.assertFalse(torch.allclose(model1.taus, model2.taus))
+        # Make sure gradients are NOT the same as model1
+        grads2 = self._compute_gradients(model=model2, mll=mll2)
+        self.assertEqual(grads1.keys(), grads2.keys())
+        for name in grads1.keys():
+            self.assertFalse(torch.allclose(grads1[name], grads2[name]))
+        # Load the state dict and check that the taus are the same
+        model2.load_state_dict(state_dict)
+        self.assertAllClose(model2.taus, taus)
+        # Make sure gradients are now the same as model1 (since the taus are the same)
+        new_grads2 = self._compute_gradients(model=model2, mll=mll2)
+        self.assertEqual(grads1.keys(), new_grads2.keys())
+        for name in grads1.keys():
+            self.assertTrue(torch.allclose(grads1[name], new_grads2[name]))
+        # Model predictions should match
+        model2.eval()
+        with torch.no_grad():
+            posterior2 = model2.posterior(test_X)
+            pred_mean2 = posterior2.mean
+            pred_variance2 = posterior2.variance
+        self.assertAllClose(pred_mean1, pred_mean2)
+        self.assertAllClose(pred_variance1, pred_variance2)
+
 
 class TestAdditiveMapSaasSingleTaskGP(BotorchTestCase):
     def _get_data_and_model(

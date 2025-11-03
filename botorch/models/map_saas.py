@@ -3,7 +3,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import Any
+from typing import Any, Mapping
 
 import torch
 from botorch.acquisition.objective import PosteriorTransform
@@ -533,6 +533,8 @@ class EnsembleMapSaasSingleTaskGP(SingleTaskGP):
             outcome_transform=outcome_transform,
             input_transform=input_transform,
         )
+        # Add taus to the buffer so they show up in the state dict.
+        self.register_buffer("taus", taus)
 
     def posterior(
         self,
@@ -586,3 +588,10 @@ class EnsembleMapSaasSingleTaskGP(SingleTaskGP):
         """
         base_inputs = super().construct_inputs(training_data=training_data)
         return {**base_inputs, "num_taus": num_taus}
+
+    def load_state_dict(
+        self, state_dict: Mapping[str, Any], strict: bool = True
+    ) -> None:
+        # Make the SAAS prior consistent with the loaded taus.
+        add_saas_prior(self.covar_module.base_kernel, state_dict["taus"])
+        super().load_state_dict(state_dict=state_dict, strict=strict)
