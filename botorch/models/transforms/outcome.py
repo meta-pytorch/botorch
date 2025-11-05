@@ -331,9 +331,9 @@ class Standardize(OutcomeTransform):
                     (*Y.shape[:-2], 1, Y.shape[-1]), dtype=Y.dtype, device=Y.device
                 )
             else:
-                stdvs = Y.std(dim=-2, keepdim=True)
+                stdvs = nanstd(X=Y, dim=-2, keepdim=True)
             stdvs = stdvs.where(stdvs >= self._min_stdv, torch.full_like(stdvs, 1.0))
-            means = Y.mean(dim=-2, keepdim=True)
+            means = Y.nanmean(dim=-2, keepdim=True)
             if self._outputs is not None:
                 unused = [i for i in range(self._m) if i not in self._outputs]
                 means[..., unused] = 0.0
