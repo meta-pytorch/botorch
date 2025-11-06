@@ -364,7 +364,7 @@ class TestSampleUtils(BotorchTestCase):
 
     def test_sample_polytope_boundary(self) -> None:
         # Check that sample_polytope does not get stuck at the boundary.
-        # This replicates https://github.com/pytorch/botorch/issues/2351.
+        # This replicates https://github.com/meta-pytorch/botorch/issues/2351.
         samples = sample_polytope(
             A=torch.tensor(
                 [

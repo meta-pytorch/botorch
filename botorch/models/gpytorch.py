@@ -17,7 +17,7 @@ import itertools
 import warnings
 from abc import ABC
 from copy import deepcopy
-from typing import Any, TYPE_CHECKING
+from typing import Any, Mapping, TYPE_CHECKING
 
 import torch
 from botorch.acquisition.objective import PosteriorTransform
@@ -29,15 +29,18 @@ from botorch.exceptions.errors import (
 from botorch.exceptions.warnings import (
     _get_single_precision_warning,
     BotorchTensorDimensionWarning,
+    BotorchWarning,
     InputDataWarning,
 )
 from botorch.models.model import Model, ModelList
 from botorch.models.utils import (
     _make_X_full,
     add_output_dim,
+    extract_targets_and_noise_single_output,
     gpt_posterior_settings,
     mod_batch_shape,
     multioutput_to_batch_mode_transform,
+    restore_targets_and_noise_single_output,
 )
 from botorch.models.utils.assorted import fantasize as fantasize_flag
 from botorch.posteriors.fully_bayesian import GaussianMixturePosterior
@@ -244,6 +247,7 @@ class GPyTorchModel(Model, ABC):
         """
         # pass the transformed data to get_fantasy_model below
         # (unless we've already transformed if BatchedMultiOutputGPyTorchModel)
+        X_original = X.clone()
         X = self.transform_inputs(X)
 
         Yvar = noise
@@ -270,9 +274,9 @@ class GPyTorchModel(Model, ABC):
         if hasattr(fantasy_model, "input_transform"):
             # Broadcast tensors to compatible shape before concatenating
             expand_shape = torch.broadcast_shapes(
-                X.shape[:-2], fantasy_model._original_train_inputs.shape[:-2]
+                X_original.shape[:-2], fantasy_model._original_train_inputs.shape[:-2]
             )
-            X_expanded = X.expand(expand_shape + X.shape[-2:])
+            X_expanded = X_original.expand(expand_shape + X_original.shape[-2:])
             orig_expanded = fantasy_model._original_train_inputs.expand(
                 expand_shape + fantasy_model._original_train_inputs.shape[-2:]
             )
@@ -281,6 +285,103 @@ class GPyTorchModel(Model, ABC):
                 dim=-2,
             ).detach()
         return fantasy_model
+
+    def _extract_targets_and_noise(self) -> tuple[Tensor, Tensor | None]:
+        r"""Extract targets and noise variance in the correct shape.
+
+        Returns a tuple of (Y, Yvar) where Y and Yvar have shape
+        [batch_shape] x n x m, with batch_shape included only if the
+        training data initially contained it.
+        """
+        if self.num_outputs > 1:
+            Y = self.train_targets.transpose(-1, -2)
+            Yvar = None
+            if isinstance(self.likelihood, FixedNoiseGaussianLikelihood):
+                Yvar = self.likelihood.noise_covar.noise.transpose(-1, -2)
+        else:
+            Y, Yvar = extract_targets_and_noise_single_output(self)
+        return Y, Yvar
+
+    def _restore_targets_and_noise(
+        self, Y: Tensor, Yvar: Tensor | None, strict: bool
+    ) -> None:
+        r"""Restore targets and noise variance to the model.
+
+        Args:
+            Y: Targets tensor in shape [batch_shape] x n x m.
+            Yvar: Optional noise variance tensor in shape [batch_shape] x n x m.
+            strict: Whether to strictly enforce shape constraints.
+        """
+        if self.num_outputs > 1:
+            Y = Y.transpose(-1, -2)
+            if Yvar is not None and isinstance(
+                self.likelihood, FixedNoiseGaussianLikelihood
+            ):
+                Yvar = Yvar.transpose(-1, -2)
+                self.likelihood.noise_covar.noise = Yvar
+            self.set_train_data(targets=Y, strict=strict)
+        else:
+            restore_targets_and_noise_single_output(self, Y, Yvar, strict)
+
+    def load_state_dict(
+        self,
+        state_dict: Mapping[str, Any],
+        strict: bool = True,
+        keep_transforms: bool = True,
+    ) -> None:
+        r"""Load the model state.
+
+        Args:
+            state_dict: A dict containing the state of the model.
+            strict: A boolean indicating whether to strictly enforce that the keys.
+            keep_transforms: A boolean indicating whether to keep the input and outcome
+                transforms. Doing so is useful when loading a model that was trained on
+                a full set of data, and is later loaded with a subset of the data.
+        """
+        if not keep_transforms:
+            super().load_state_dict(state_dict, strict)
+            return
+
+        should_outcome_transform = (
+            hasattr(self, "train_targets")
+            and getattr(self, "outcome_transform", None) is not None
+        )
+
+        with torch.no_grad():
+            untransformed_Y, untransformed_Yvar = self._extract_targets_and_noise()
+            X = self.train_inputs[0]
+
+            if should_outcome_transform:
+                try:
+                    untransformed_Y, untransformed_Yvar = (
+                        self.outcome_transform.untransform(
+                            Y=untransformed_Y,
+                            Yvar=untransformed_Yvar,
+                            X=X,
+                        )
+                    )
+                except NotImplementedError:
+                    warnings.warn(
+                        "Outcome transform does not support untransforming."
+                        "Cannot load the state dict with transforms preserved."
+                        "Setting keep_transforms=False.",
+                        BotorchWarning,
+                        stacklevel=3,
+                    )
+                    super().load_state_dict(state_dict, strict)
+                    return
+
+        super().load_state_dict(state_dict, strict)
+
+        if getattr(self, "input_transform", None) is not None:
+            self.input_transform.eval()
+
+        if should_outcome_transform:
+            self.outcome_transform.eval()
+            retransformed_Y, retransformed_Yvar = self.outcome_transform(
+                Y=untransformed_Y, Yvar=untransformed_Yvar, X=X
+            )
+            self._restore_targets_and_noise(retransformed_Y, retransformed_Yvar, strict)
 
 
 # pyre-fixme[13]: uninitialized attributes _num_outputs, _input_batch_shape,
@@ -658,6 +759,13 @@ class ModelListGPyTorchModel(ModelList, GPyTorchModel, ABC):
                 raise NotImplementedError(msg + " that are not broadcastble.")
         return next(iter(batch_shapes))
 
+    def load_state_dict(
+        self,
+        state_dict: Mapping[str, Any],
+        strict: bool = True,
+    ) -> None:
+        return ModelList.load_state_dict(self, state_dict, strict)
+
     # pyre-fixme[14]: Inconsistent override in return types
     def posterior(
         self,
@@ -802,38 +910,26 @@ class MultiTaskGPyTorchModel(GPyTorchModel, ABC):
     "long-format" multi-task GP in the style of `MultiTaskGP`.
     """
 
-    def _map_tasks(self, task_values: Tensor) -> Tensor:
-        """Map raw task values to the task indices used by the model.
+    def _extract_targets_and_noise(self) -> tuple[Tensor, Tensor | None]:
+        r"""Extract targets and noise variance for multi-task models.
+
+        Returns a tuple of (Y, Yvar) where Y and Yvar have shape
+        [batch_shape] x n x m, with batch_shape included only if the
+        training data initially contained it.
+        """
+        return extract_targets_and_noise_single_output(self)
+
+    def _restore_targets_and_noise(
+        self, Y: Tensor, Yvar: Tensor | None, strict: bool
+    ) -> None:
+        r"""Restore targets and noise variance for multi-task models.
 
         Args:
-            task_values: A tensor of task values.
-
-        Returns:
-            A tensor of task indices with the same shape as the input
-                tensor.
+            Y: Targets tensor in shape [batch_shape] x n x m.
+            Yvar: Optional noise variance tensor in shape [batch_shape] x n x m.
+            strict: Whether to strictly enforce shape constraints.
         """
-        if self._task_mapper is None:
-            if not (
-                torch.all(0 <= task_values) and torch.all(task_values < self.num_tasks)
-            ):
-                raise ValueError(
-                    "Expected all task features in `X` to be between 0 and "
-                    f"self.num_tasks - 1. Got {task_values}."
-                )
-        else:
-            task_values = task_values.long()
-
-            unexpected_task_values = set(task_values.unique().tolist()).difference(
-                self._expected_task_values
-            )
-            if len(unexpected_task_values) > 0:
-                raise ValueError(
-                    "Received invalid raw task values. Expected raw value to be in"
-                    f" {self._expected_task_values}, but got unexpected task values:"
-                    f" {unexpected_task_values}."
-                )
-            task_values = self._task_mapper[task_values]
-        return task_values
+        restore_targets_and_noise_single_output(self, Y, Yvar, strict)
 
     def _apply_noise(
         self,

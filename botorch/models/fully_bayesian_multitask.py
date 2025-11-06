@@ -227,6 +227,7 @@ class SaasFullyBayesianMultiTaskGP(MultiTaskGP):
         outcome_transform: OutcomeTransform | None = None,
         input_transform: InputTransform | None = None,
         pyro_model: MultitaskSaasPyroModel | None = None,
+        validate_task_values: bool = True,
     ) -> None:
         r"""Initialize the fully Bayesian multi-task GP model.
 
@@ -251,6 +252,9 @@ class SaasFullyBayesianMultiTaskGP(MultiTaskGP):
                 in the model's forward pass.
             pyro_model: Optional `PyroModel` that has the same signature as
                 `MultitaskSaasPyroModel`. Defaults to `MultitaskSaasPyroModel`.
+            validate_task_values: If True, validate that the task values supplied in the
+                input are expected tasks values. If false, unexpected task values
+                will be mapped to the first output_task if supplied.
         """
         if not (
             train_X.ndim == train_Y.ndim == 2
@@ -288,22 +292,19 @@ class SaasFullyBayesianMultiTaskGP(MultiTaskGP):
             # set on `self` below, it will be applied to the posterior in the
             # `posterior` method of `MultiTaskGP`.
             outcome_transform=None,
+            all_tasks=all_tasks,
+            validate_task_values=validate_task_values,
         )
-        if all_tasks is not None and self._expected_task_values != set(all_tasks):
-            raise NotImplementedError(
-                "The `all_tasks` argument is not supported by SAAS MTGP. "
-                f"The training data includes tasks {self._expected_task_values}, "
-                f"got {all_tasks=}."
-            )
         self.to(train_X)
-
         self.mean_module = None
         self.covar_module = None
         self.likelihood = None
         if pyro_model is None:
             pyro_model = MultitaskSaasPyroModel()
+        # apply task_mapper
+        x_before, task_idcs, x_after = self._split_inputs(transformed_X)
         pyro_model.set_inputs(
-            train_X=transformed_X,
+            train_X=torch.cat([x_before, task_idcs, x_after], dim=-1),
             train_Y=train_Y,
             train_Yvar=train_Yvar,
             task_feature=task_feature,

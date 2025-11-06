@@ -144,6 +144,10 @@ class TestConstraintNoise(BotorchTestCase):
         ):
             DummyConstrainedSyntheticTestFunction(constraint_noise_std=[0.1, 0.2])
 
+    def test_worst_feasible_value_not_implemented(self):
+        with self.assertRaises(NotImplementedError):
+            DummyConstrainedSyntheticTestFunction().worst_feasible_value
+
 
 class TestAckley(
     BotorchTestCase, BaseTestProblemTestCaseMixIn, SyntheticTestFunctionTestCaseMixin
@@ -387,13 +391,14 @@ class TestConstrainedHartmann(
     SyntheticTestFunctionTestCaseMixin,
     ConstrainedTestProblemTestCaseMixin,
 ):
-    functions = [
-        ConstrainedHartmann(dim=6, negate=True),
-        ConstrainedHartmann(noise_std=0.1, dim=6, negate=True),
-        ConstrainedHartmann(
-            noise_std=0.1, constraint_noise_std=0.2, dim=6, negate=True
-        ),
-    ]
+    for dim in [3, 6]:
+        functions = [
+            ConstrainedHartmann(dim=dim, negate=True),
+            ConstrainedHartmann(noise_std=0.1, dim=dim, negate=True),
+            ConstrainedHartmann(
+                noise_std=0.1, constraint_noise_std=0.2, dim=dim, negate=True
+            ),
+        ]
 
 
 class TestConstrainedHartmannSmooth(
@@ -402,12 +407,13 @@ class TestConstrainedHartmannSmooth(
     SyntheticTestFunctionTestCaseMixin,
     ConstrainedTestProblemTestCaseMixin,
 ):
-    functions = [
-        ConstrainedHartmannSmooth(dim=6, negate=True),
-        ConstrainedHartmannSmooth(
-            dim=6, noise_std=0.1, constraint_noise_std=0.2, negate=True
-        ),
-    ]
+    for dim in [3, 6]:
+        functions = [
+            ConstrainedHartmannSmooth(dim=dim, negate=True),
+            ConstrainedHartmannSmooth(
+                dim=dim, noise_std=0.1, constraint_noise_std=0.2, negate=True
+            ),
+        ]
 
 
 class TestPressureVessel(

@@ -35,7 +35,10 @@ from botorch.optim.initializers import (
     gen_one_shot_kg_initial_conditions,
     TGenInitialConditions,
 )
-from botorch.optim.parameter_constraints import evaluate_feasibility
+from botorch.optim.parameter_constraints import (
+    evaluate_feasibility,
+    project_to_feasible_space_via_slsqp,
+)
 from botorch.optim.stopping import ExpMAStoppingCriterion
 from torch import Tensor
 
@@ -235,7 +238,7 @@ def _validate_sequential_inputs(opt_inputs: OptimizeAcqfInputs) -> None:
                 )
 
     # TODO: Validate constraints if provided:
-    # https://github.com/pytorch/botorch/pull/1231
+    # https://github.com/meta-pytorch/botorch/pull/1231
     if opt_inputs.batch_initial_conditions is not None:
         raise UnsupportedError(
             "`batch_initial_conditions` is not supported for sequential "
@@ -513,15 +516,47 @@ def _optimize_acqf_batch(opt_inputs: OptimizeAcqfInputs) -> tuple[Tensor, Tensor
 
     # SLSQP can sometimes fail to produce a feasible candidate. Check for
     # feasibility and error out if necessary.
+    # if there are equality constraints, project the candidate to the feasible set
+    equality_constraints = gen_kwargs.get("equality_constraints")
+    inequality_constraints = gen_kwargs.get("inequality_constraints")
+    nonlinear_inequality_constraints = gen_kwargs.get(
+        "nonlinear_inequality_constraints"
+    )
     is_feasible = evaluate_feasibility(
         X=batch_candidates,
-        inequality_constraints=gen_kwargs.get("inequality_constraints"),
-        equality_constraints=gen_kwargs.get("equality_constraints"),
-        nonlinear_inequality_constraints=gen_kwargs.get(
-            "nonlinear_inequality_constraints"
-        ),
+        inequality_constraints=inequality_constraints,
+        equality_constraints=equality_constraints,
+        nonlinear_inequality_constraints=nonlinear_inequality_constraints,
     )
     infeasible = ~is_feasible
+    if nonlinear_inequality_constraints is None and infeasible.any():
+        projected_candidates = project_to_feasible_space_via_slsqp(
+            X=batch_candidates[infeasible],
+            bounds=opt_inputs.bounds,
+            equality_constraints=equality_constraints,
+            inequality_constraints=inequality_constraints,
+        )
+        if opt_inputs.post_processing_func is not None:
+            projected_candidates = opt_inputs.post_processing_func(projected_candidates)
+        batch_candidates[infeasible] = projected_candidates
+        # recompute AF values for projected points
+        with torch.no_grad():
+            batch_acq_values[infeasible] = torch.cat(
+                [
+                    opt_inputs.acq_function(cand)
+                    for cand in projected_candidates.split(batch_limit, dim=0)
+                ],
+                dim=0,
+            )
+        # re-evaluate feasibility
+        is_feasible = evaluate_feasibility(
+            X=batch_candidates,
+            inequality_constraints=inequality_constraints,
+            equality_constraints=equality_constraints,
+            nonlinear_inequality_constraints=nonlinear_inequality_constraints,
+        )
+        infeasible = ~is_feasible
+
     if (opt_inputs.return_best_only and (not is_feasible.any())) or infeasible.all():
         raise CandidateGenerationError(
             f"The optimizer produced infeasible candidates. "

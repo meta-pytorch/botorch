@@ -73,15 +73,20 @@ class DummyAnalyticAcquisitionFunction(AnalyticAcquisitionFunction):
 
 
 class TestAnalyticAcquisitionFunction(BotorchTestCase):
-    def test_abstract_raises(self):
+    def test_init(self):
         with self.assertRaises(TypeError):
             AnalyticAcquisitionFunction()
+        # single-output models should always work
+        mm = MockModel(MockPosterior(mean=torch.zeros(1, 1), variance=torch.ones(1, 1)))
+        DummyAnalyticAcquisitionFunction(model=mm)
         # raise if model is multi-output, but no posterior transform is given
         mean = torch.zeros(1, 2)
         variance = torch.ones(1, 2)
         mm = MockModel(MockPosterior(mean=mean, variance=variance))
         with self.assertRaises(UnsupportedError):
             DummyAnalyticAcquisitionFunction(model=mm)
+        # do not raise if the allwo_multi_output flag is set
+        DummyAnalyticAcquisitionFunction(model=mm, allow_multi_output=True)
 
 
 class TestExpectedImprovement(BotorchTestCase):
@@ -616,7 +621,7 @@ class TestUpperConfidenceBound(BotorchTestCase):
                 UpperConfidenceBound(model=mm2, beta=1.0)
 
 
-class ConstrainedAnalyticAcquisitionFunction(
+class ConstrainedAnalyticAcquisitionFunctionTestHelper(
     ConstrainedAnalyticAcquisitionFunctionMixin
 ):
     """Derivative of the mixin class which implements register_buffer without inheriting
@@ -644,7 +649,9 @@ class TestConstrainedExpectedImprovement(BotorchTestCase):
         means, sigmas, X_positive = self._get_numerical_stress_test_data(dtype=dtype)
         constraints = {0: [-5, 5]}
 
-        mixin = ConstrainedAnalyticAcquisitionFunction(constraints=constraints)
+        mixin = ConstrainedAnalyticAcquisitionFunctionTestHelper(
+            constraints=constraints
+        )
         # test initialization
         for k in [
             "con_lower_inds",
@@ -688,7 +695,7 @@ class TestConstrainedExpectedImprovement(BotorchTestCase):
         )
         X_positive = ten ** (digits_tensor)
         # flipping -X_positive so that elements are in increasing order
-        means = torch.cat((-X_positive.flip(-1), zero, X_positive)).unsqueeze(-1)
+        means = torch.cat((-X_positive.flip(-1), zero, X_positive)).view(-1, 1, 1)
         means.requires_grad = True
         sigmas = torch.ones_like(means)
         return means, sigmas, X_positive
@@ -697,15 +704,18 @@ class TestConstrainedExpectedImprovement(BotorchTestCase):
         for dtype in (torch.float, torch.double):
             with self.subTest(dtype=dtype):
                 self._test_log_probability_of_feasibility(dtype=dtype)
+                self._test_log_probability_of_feasibility_e2e(dtype=dtype)
 
     def _test_log_probability_of_feasibility(self, dtype: torch.dtype) -> None:
+        # Mock model for shape validation (model is not actually used due to mock below)
         mean = torch.tensor([[-0.5]], device=self.device)
         variance = torch.ones(1, 1, device=self.device)
         model = MockModel(MockPosterior(mean=mean, variance=variance))
-
         means, sigmas, _ = self._get_numerical_stress_test_data(dtype=dtype)
         constraints = {0: [-5, 5]}
-        mixin = ConstrainedAnalyticAcquisitionFunction(constraints=constraints)
+        mixin = ConstrainedAnalyticAcquisitionFunctionTestHelper(
+            constraints=constraints
+        )
         acqf = LogProbabilityOfFeasibility(model=model, constraints=constraints)
         X = torch.randn_like(means).unsqueeze(-2)  # n x q=1 x d=1
         with mock.patch.object(acqf, "_mean_and_sigma", return_value=(means, sigmas)):
@@ -713,6 +723,26 @@ class TestConstrainedExpectedImprovement(BotorchTestCase):
         log_prob = mixin._compute_log_prob_feas(means=means, sigmas=sigmas)
 
         self.assertAllClose(acq_val, log_prob, atol=1e-4)
+
+    def _test_log_probability_of_feasibility_e2e(self, dtype: torch.dtype) -> None:
+        constraints = {0: [-5, 5]}
+        expected_val = torch.tensor(
+            [-3.41666852395495e-06], device=self.device, dtype=dtype
+        )
+        for batch_shape in (torch.Size(), torch.Size([2])):
+            # batch shape of posterior mean/var is at least 1 due to the
+            # @t_batch_mode_transform decorator
+            mean = torch.tensor(-0.5, device=self.device, dtype=dtype).view(1, 1, 1)
+            expected_acq_val = expected_val
+            if len(batch_shape) > 0:
+                mean = mean.expand(*batch_shape, 1, 1)
+                expected_acq_val = expected_acq_val.expand(*batch_shape)
+            variance = torch.ones_like(mean)
+            model = MockModel(MockPosterior(mean=mean, variance=variance))
+            acqf = LogProbabilityOfFeasibility(model=model, constraints=constraints)
+            X = torch.rand(*batch_shape, 1, 1, device=self.device, dtype=dtype)
+            acq_val = acqf(X)
+            self.assertAllClose(acq_val, expected_acq_val, atol=1e-4)
 
     def test_constrained_expected_improvement(self) -> None:
         mean = torch.tensor([[-0.5]], device=self.device)
@@ -735,10 +765,8 @@ class TestConstrainedExpectedImprovement(BotorchTestCase):
 
     def _test_constrained_expected_improvement(self, dtype: torch.dtype) -> None:
         # one constraint
-        mean = torch.tensor([[-0.5, 0.0]], device=self.device, dtype=dtype).unsqueeze(
-            dim=-2
-        )
-        variance = torch.ones(1, 2, device=self.device, dtype=dtype).unsqueeze(dim=-2)
+        mean = torch.tensor([[[-0.5, 0.0]]], device=self.device, dtype=dtype)
+        variance = torch.ones_like(mean)
         mm = MockModel(MockPosterior(mean=mean, variance=variance))
         kwargs = {
             "model": mm,
@@ -865,31 +893,53 @@ class TestConstrainedExpectedImprovement(BotorchTestCase):
                 self._test_constrained_expected_improvement_batch(dtype=dtype)
 
     def _test_constrained_expected_improvement_batch(self, dtype: torch.dtype) -> None:
-        mean = torch.tensor(
-            [[-0.5, 0.0, 5.0, 0.0], [0.0, 0.0, 5.0, 0.0], [0.5, 0.0, 5.0, 0.0]],
-            device=self.device,
-            dtype=dtype,
-        ).unsqueeze(dim=-2)
-        variance = torch.ones(3, 4, device=self.device, dtype=dtype).unsqueeze(dim=-2)
-        N = torch.distributions.Normal(loc=0.0, scale=1.0)
-        a = N.icdf(torch.tensor(0.75))  # get a so that P(-a <= N <= a) = 0.5
+        # we test a batch of 3 points, each with one objective and three constraints
+        obj_means = [-0.5, 0.0, 0.5]
+        con1_means = [0.0, 0.0, 0.0]
+        con2_means = [5.0, 5.0, 5.0]
+        con3_means = [0.0, -0.25, 1.5]
+        mean = (
+            torch.tensor(
+                [obj_means, con1_means, con2_means, con3_means],
+                dtype=dtype,
+                device=self.device,
+            )  # outcome x batch_shape here, so we need to transpose
+            .transpose(-1, -2)
+            # and view this to be batch_shape x q=1 x d
+            .view(3, 1, 4)
+        )
+        variance = torch.ones_like(mean)
         mm = MockModel(MockPosterior(mean=mean, variance=variance))
+
+        ei_expected_unconstrained = torch.tensor(
+            [0.19780, 0.39894, 0.69780], device=self.device, dtype=dtype
+        )
+
+        N = torch.distributions.Normal(loc=0.0, scale=1.0)
+        a = N.icdf(torch.tensor(0.7))  # get a so that P(-a <= N(0,1) <= a) = 0.4
+        # Compute the respective probabilities of feasibility also for the
+        # other means of the con3 outcome
+        p_feas_con3 = torch.empty(3, device=self.device, dtype=dtype)
+        for i, con3_mean in enumerate(con3_means):
+            p_feas_con3[i] = N.cdf(a - con3_mean) - N.cdf(-a - con3_mean)
+
+        # Make sure nothing got messed up in the test construction
+        self.assertAlmostEqual(p_feas_con3[0].item(), 0.4)
+
         kwargs = {
             "model": mm,
             "best_f": 0.0,
             "objective_index": 0,
             "constraints": {1: [None, 0], 2: [5.0, None], 3: [-a, a]},
         }
+
         module = ConstrainedExpectedImprovement(**kwargs)
         log_module = LogConstrainedExpectedImprovement(**kwargs)
         X = torch.empty(3, 1, 1, device=self.device, dtype=dtype)  # dummy
         ei, log_ei = module(X), log_module(X)
         self.assertTrue(ei.shape == torch.Size([3]))
         self.assertTrue(log_ei.shape == torch.Size([3]))
-        ei_expected_unconstrained = torch.tensor(
-            [0.19780, 0.39894, 0.69780], device=self.device, dtype=dtype
-        )
-        ei_expected = ei_expected_unconstrained * 0.5 * 0.5 * 0.5
+        ei_expected = ei_expected_unconstrained * 0.5 * 0.5 * p_feas_con3
         self.assertAllClose(ei, ei_expected, atol=1e-4)
         self.assertAllClose(log_ei, ei.log(), atol=1e-4)
 

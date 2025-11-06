@@ -23,7 +23,7 @@ dynamic = ["version"]
 dependencies = [
     "typing_extensions",
     "pyre_extensions",
-    "gpytorch>=1.14",
+    "gpytorch>=1.14.2",
     "linear_operator>=0.6",
     "torch>=2.0.1",
     "pyro-ppl>=1.8.4",
@@ -42,6 +42,7 @@ test = [
     "pytest-cov",
     "requests",
     "pymoo",
+    "pfns"
 ]
 
 dev = [
@@ -71,7 +72,7 @@ tutorials = [
 [project.urls]
 Homepage = "https://botorch.org"
 Documentation = "https://botorch.org"
-Repository = "https://github.com/pytorch/botorch"
+Repository = "https://github.com/meta-pytorch/botorch"
 
 [tool.setuptools.packages]
 find = {exclude = ["test", "test.*"]}

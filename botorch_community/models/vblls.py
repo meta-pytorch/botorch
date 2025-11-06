@@ -25,10 +25,8 @@ import torch.nn as nn
 from botorch.logging import logger
 from botorch.posteriors import Posterior
 from botorch_community.models.blls import AbstractBLLModel
-
 from botorch_community.models.vbll_helper import DenseNormal, Normal, Regression
 from botorch_community.posteriors.bll_posterior import BLLPosterior
-
 from gpytorch.distributions import MultivariateNormal
 from torch import Tensor
 from torch.optim import Optimizer
@@ -85,6 +83,7 @@ class VBLLNetwork(nn.Module):
         num_layers: int = 3,
         parameterization: str = "dense",
         cov_rank: int | None = None,
+        mean_initialization: str | None = None,
         prior_scale: float = 1.0,
         wishart_scale: float = 0.01,
         clamp_noise_init: bool = True,
@@ -103,6 +102,10 @@ class VBLLNetwork(nn.Module):
             num_layers: Number of hidden layers in the MLP. Defaults to 3.
             parameterization: Parameterization of the posterior covariance of the last
                 layer. Supports {'dense', 'diagonal', 'lowrank', 'dense_precision'}.
+            cov_rank: For 'lowrank' parameterization, the rank of the covariance matrix.
+            mean_initialization: Initialization method for the mean of the weights in
+                the last layer. Supports {'kaiming', None}. If None, weights are
+                initialized from a standard normal distribution. Defaults to None.
             prior_scale: Scaling factor for the prior distribution in the Bayesian last
                 layer. Defaults to 1.0.
             wishart_scale: Scaling factor for the Wishart prior in the Bayesian last
@@ -177,6 +180,7 @@ class VBLLNetwork(nn.Module):
             parameterization=parameterization,
             cov_rank=cov_rank,
             clamp_noise_init=clamp_noise_init,
+            mean_initialization=mean_initialization,
         ).to(dtype=torch.float64, device=self.device)
 
     def forward(self, x: Tensor) -> Tensor:
@@ -252,6 +256,10 @@ class VBLLModel(AbstractBLLModel):
     @property
     def backbone(self):
         return self.model.backbone
+
+    @property
+    def head(self):
+        return self.model.head
 
     def sample(self, sample_shape: torch.Size | None = None) -> nn.Module:
         """Create posterior sample networks of the VBLL model. Note that posterior

@@ -8,14 +8,13 @@ r"""Model fitting routines."""
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Callable, Sequence
 from copy import deepcopy
 from functools import partial
 from itertools import filterfalse
 from typing import Any
 from warnings import catch_warnings, simplefilter, warn_explicit, WarningMessage
-
-import torch
 
 from botorch.exceptions.errors import ModelFittingError, UnsupportedError
 from botorch.exceptions.warnings import OptimizationWarning
@@ -27,7 +26,7 @@ from botorch.models.fully_bayesian import (
     SaasFullyBayesianSingleTaskGP,
 )
 from botorch.models.fully_bayesian_multitask import SaasFullyBayesianMultiTaskGP
-from botorch.models.map_saas import get_map_saas_model
+from botorch.models.map_saas import EnsembleMapSaasSingleTaskGP, get_map_saas_model
 from botorch.models.model_list_gp_regression import ModelListGP
 from botorch.models.transforms.input import InputTransform
 from botorch.models.transforms.outcome import OutcomeTransform
@@ -45,6 +44,7 @@ from botorch.utils.context_managers import (
     TensorCheckpoint,
 )
 from botorch.utils.dispatcher import Dispatcher, type_bypassing_encoder
+from botorch.utils.types import _DefaultType, DEFAULT
 from gpytorch.likelihoods import Likelihood
 from gpytorch.mlls._approximate_mll import _ApproximateMarginalLogLikelihood
 from gpytorch.mlls.exact_marginal_log_likelihood import ExactMarginalLogLikelihood
@@ -53,7 +53,6 @@ from gpytorch.mlls.sum_marginal_log_likelihood import SumMarginalLogLikelihood
 from linear_operator.utils.errors import NotPSDError
 from pyro.infer.mcmc import MCMC, NUTS
 from torch import device, Tensor
-from torch.distributions import HalfCauchy
 from torch.nn import Parameter
 from torch.utils.data import DataLoader
 
@@ -443,12 +442,14 @@ def get_fitted_map_saas_ensemble(
     train_Y: Tensor,
     train_Yvar: Tensor | None = None,
     input_transform: InputTransform | None = None,
-    outcome_transform: OutcomeTransform | None = None,
+    outcome_transform: OutcomeTransform | _DefaultType | None = DEFAULT,
     taus: Tensor | list[float] | None = None,
     num_taus: int = 4,
     optimizer_kwargs: dict[str, Any] | None = None,
 ) -> SaasFullyBayesianSingleTaskGP:
     """Get a fitted SAAS ensemble using several different tau values.
+
+    DEPRECATED: Please use `EnsembleMapSaasSingleTaskGP` directly!
 
     Args:
         train_X: Tensor of shape `n x d` with training inputs.
@@ -464,57 +465,23 @@ def get_fitted_map_saas_ensemble(
             to fit_gpytorch_mll.
 
     Returns:
-        A fitted SaasFullyBayesianSingleTaskGP with a Matern kernel.
+        A fitted EnsembleMapSaasSingleTaskGP with a Matern kernel.
     """
-    tkwargs = {"device": train_X.device, "dtype": train_X.dtype}
-    if taus is None:
-        taus = HalfCauchy(0.1).sample([num_taus]).to(**tkwargs)
-    num_samples = len(taus)
-    if num_samples == 1:
-        raise ValueError(
-            "Use `get_fitted_map_saas_model` if you only specify one value of tau"
-        )
-
-    mean = torch.zeros(num_samples, **tkwargs)
-    outputscale = torch.zeros(num_samples, **tkwargs)
-    lengthscale = torch.zeros(num_samples, train_X.shape[-1], **tkwargs)
-    noise = torch.zeros(num_samples, **tkwargs)
-
-    # Fit a model for each tau and save the hyperparameters
-    for i, tau in enumerate(taus):
-        model = get_fitted_map_saas_model(
-            train_X,
-            train_Y,
-            train_Yvar=train_Yvar,
-            input_transform=input_transform,
-            outcome_transform=outcome_transform,
-            tau=tau,
-            optimizer_kwargs=optimizer_kwargs,
-        )
-        mean[i] = model.mean_module.constant.detach().clone()
-        outputscale[i] = model.covar_module.outputscale.detach().clone()
-        lengthscale[i, :] = model.covar_module.base_kernel.lengthscale.detach().clone()
-        if train_Yvar is None:
-            noise[i] = model.likelihood.noise.detach().clone()
-
-    # Load the samples into a fully Bayesian SAAS model
-    ensemble_model = SaasFullyBayesianSingleTaskGP(
+    warnings.warn(
+        "get_fitted_map_saas_ensemble is deprecated and will be removed in v0.17. "
+        "Please use EnsembleMapSaasSingleTaskGP instead!",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    model = EnsembleMapSaasSingleTaskGP(
         train_X=train_X,
         train_Y=train_Y,
         train_Yvar=train_Yvar,
-        input_transform=(
-            input_transform.train() if input_transform is not None else None
-        ),
+        num_taus=num_taus,
+        taus=taus,
+        input_transform=input_transform,
         outcome_transform=outcome_transform,
     )
-    mcmc_samples = {
-        "mean": mean,
-        "outputscale": outputscale,
-        "lengthscale": lengthscale,
-    }
-    if train_Yvar is None:
-        mcmc_samples["noise"] = noise
-    ensemble_model.train()
-    ensemble_model.load_mcmc_samples(mcmc_samples=mcmc_samples)
-    ensemble_model.eval()
-    return ensemble_model
+    mll = ExactMarginalLogLikelihood(model=model, likelihood=model.likelihood)
+    fit_gpytorch_mll(mll, optimizer_kwargs=optimizer_kwargs)
+    return model

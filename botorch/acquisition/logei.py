@@ -449,7 +449,7 @@ class qLogNoisyExpectedImprovement(
 
     @property
     def X_baseline(self) -> Tensor:
-        """Returns the set of pointsthat should be considered as the incumbent.
+        """Returns the set of points that should be considered as the incumbent.
 
         For incremental EI, this contains the previously evaluated points
         (X_baseline) and pending points (X_pending). For non-incremental

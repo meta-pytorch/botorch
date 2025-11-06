@@ -631,14 +631,15 @@ class HitAndRunPolytopeSampler(PolytopeSampler):
                 "or bounds."
             )
         # Normalize constraints to avoid the following issue:
-        # https://github.com/pytorch/botorch/issues/1225
+        # https://github.com/meta-pytorch/botorch/issues/1225
         offset, scale = None, None
         if inequality_constraints or equality_constraints:
             if bounds is None:
                 warnings.warn(
                     "HitAndRunPolytopeSampler did not receive `bounds`, which can "
                     "lead to non-uniform sampling if the parameter ranges are very "
-                    "different (see https://github.com/pytorch/botorch/issues/1225).",
+                    "different (see "
+                    "https://github.com/meta-pytorch/botorch/issues/1225).",
                     UserInputWarning,
                     stacklevel=3,
                 )
@@ -857,7 +858,7 @@ def normalize_sparse_linear_constraints(
                 "support the kind of 'inter-point constraints' that are supported by "
                 "`optimize_acqf()`. To achieve this behavior, you need define the "
                 "problem on the joint space over `q` points and impose use constraints,"
-                "see https://github.com/pytorch/botorch/issues/2468#issuecomment-2287706461"  # noqa: E501
+                "see https://github.com/meta-pytorch/botorch/issues/2468#issuecomment-2287706461"  # noqa: E501
             )
         lower, upper = bounds[:, index]
         s = upper - lower
@@ -916,7 +917,7 @@ def get_polytope_samples(
     NOTE: This method does not support the kind of "inter-point constraints" that
     are supported by `optimize_acqf()`. To achieve this behavior, you need define the
     problem on the joint space over `q` points and impose use constraints, see:
-    https://github.com/pytorch/botorch/issues/2468#issuecomment-2287706461
+    https://github.com/meta-pytorch/botorch/issues/2468#issuecomment-2287706461
 
     Args:
         n: The number of samples.

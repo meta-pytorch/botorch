@@ -14,6 +14,7 @@ from botorch.acquisition.objective import ScalarizedPosteriorTransform
 from botorch.exceptions import OptimizationWarning
 from botorch.exceptions.errors import UnsupportedError
 from botorch.fit import fit_gpytorch_mll
+from botorch.models.kernels.positive_index import PositiveIndexKernel
 from botorch.models.multitask import (
     get_task_value_remapping,
     KroneckerMultiTaskGP,
@@ -159,10 +160,12 @@ class TestMultiTaskGP(BotorchTestCase):
                 self.assertEqual(model.likelihood.noise.shape, torch.Size([2]))
                 self.assertEqual(model.likelihood.task_feature_index, 0)
             data_covar_module, task_covar_module = model.covar_module.kernels
-            self.assertIsInstance(model.mean_module, ConstantMean)
+            self.assertIsInstance(model.mean_module, MultitaskMean)
+            self.assertEqual(len(model.mean_module.base_means), 2)
+            self.assertIsInstance(model.mean_module.base_means[0], ConstantMean)
             self.assertIsInstance(data_covar_module, RBFKernel)
             self.assertIsInstance(data_covar_module.lengthscale_prior, LogNormalPrior)
-            self.assertIsInstance(task_covar_module, IndexKernel)
+            self.assertIsInstance(task_covar_module, PositiveIndexKernel)
             self.assertEqual(model._rank, 2)
             self.assertEqual(task_covar_module.covar_factor.shape[-1], model._rank)
             if task_values is None:
@@ -299,15 +302,28 @@ class TestMultiTaskGP(BotorchTestCase):
                 test_x_task = torch.zeros_like(test_x)
                 test_x_task[1, 0] = 2.0
                 test_x = torch.cat([test_x_task, test_x], dim=-1)
-                expected_task_mapper_non_nan = torch.tensor(
-                    [0.0, 1.0], dtype=dtype, device=self.device
+                expected_task_mapper = torch.tensor(
+                    [0.0, 0.0, 1.0], dtype=dtype, device=self.device
+                )
+                self.assertTrue(torch.equal(model._task_mapper, expected_task_mapper))
+                # Test making predictions for task without observations.
+                # These should be equivalent to predictions for the output task.
+                test_X_unobserved = torch.rand(1, 2, **tkwargs)
+                test_X_unobserved[0, 1] = 1.0
+                with torch.no_grad():
+                    posterior_unobserved = model.posterior(X=test_X_unobserved)
+                test_X_observed = torch.rand(1, 2, **tkwargs)
+                test_X_observed[0, 1] = 0.0
+                with torch.no_grad():
+                    posterior_observed = model.posterior(X=test_X_unobserved)
+                self.assertTrue(
+                    torch.allclose(posterior_unobserved.mean, posterior_observed.mean)
                 )
                 self.assertTrue(
-                    torch.equal(
-                        model._task_mapper[[0, 2]], expected_task_mapper_non_nan
+                    torch.allclose(
+                        posterior_unobserved.variance, posterior_observed.variance
                     )
                 )
-                self.assertTrue(torch.isnan(model._task_mapper[1]))
 
                 # test split inputs
                 _, task_idcs, _ = model._split_inputs(test_x)
@@ -328,10 +344,12 @@ class TestMultiTaskGP(BotorchTestCase):
             self.assertIsInstance(model, MultiTaskGP)
             self.assertEqual(model.num_outputs, 1)
             self.assertIsInstance(model.likelihood, HadamardGaussianLikelihood)
-            self.assertIsInstance(model.mean_module, ConstantMean)
+            self.assertIsInstance(model.mean_module, MultitaskMean)
+            self.assertEqual(len(model.mean_module.base_means), 2)
+            self.assertIsInstance(model.mean_module.base_means[0], ConstantMean)
             self.assertIsInstance(data_covar_module, RBFKernel)
             self.assertIsInstance(data_covar_module.lengthscale_prior, LogNormalPrior)
-            self.assertIsInstance(task_covar_module, IndexKernel)
+            self.assertIsInstance(task_covar_module, PositiveIndexKernel)
             self.assertEqual(model._rank, 2)
             self.assertEqual(task_covar_module.covar_factor.shape[-1], model._rank)
 
@@ -366,7 +384,7 @@ class TestMultiTaskGP(BotorchTestCase):
             model = _gen_fixed_prior_model(**tkwargs)
             _, task_covar_module = model.covar_module.kernels
             self.assertIsInstance(model, MultiTaskGP)
-            self.assertIsInstance(task_covar_module, IndexKernel)
+            self.assertIsInstance(task_covar_module, PositiveIndexKernel)
             self.assertIsInstance(
                 task_covar_module.IndexKernelPrior, LKJCovariancePrior
             )
@@ -377,7 +395,7 @@ class TestMultiTaskGP(BotorchTestCase):
             model = _gen_given_covar_module_model(**tkwargs)
             self.assertIsInstance(model, MultiTaskGP)
             data_covar_module, task_covar_module = model.covar_module.kernels
-            self.assertIsInstance(task_covar_module, IndexKernel)
+            self.assertIsInstance(task_covar_module, PositiveIndexKernel)
             self.assertIsInstance(data_covar_module, RBFKernel)
             self.assertIsInstance(data_covar_module.lengthscale_prior, LogNormalPrior)
             self.assertAlmostEqual(data_covar_module.lengthscale_prior.loc, 0.0)
@@ -427,9 +445,9 @@ class TestMultiTaskGP(BotorchTestCase):
         model = MultiTaskGP(
             train_X=train_X, train_Y=train_Y, task_feature=0, all_tasks=[0, 1, 2, 3]
         )
-        self.assertEqual(model.num_tasks, 4)
-        # Check that IndexKernel knows of all tasks.
-        self.assertEqual(model.covar_module.kernels[1].raw_var.shape[-1], 4)
+        self.assertEqual(model.num_tasks, 2)
+        # Check that PositiveIndexKernel knows of all tasks.
+        self.assertEqual(model.covar_module.kernels[1].raw_covar_factor.shape[0], 2)
 
     def test_MultiTaskGP_construct_inputs(self) -> None:
         for dtype, fixed_noise, skip_task_features_in_datasets in zip(
@@ -492,6 +510,43 @@ class TestMultiTaskGP(BotorchTestCase):
             else:
                 self.assertNotIn("train_Yvar", data_dict)
             self.assertIsInstance(data_dict["task_covar_prior"], LKJCovariancePrior)
+
+    def test_validatation_of_task_values(self) -> None:
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        _, (train_X, train_Y, _) = gen_multi_task_dataset(**tkwargs)
+        model = MultiTaskGP(
+            train_X,
+            train_Y,
+            task_feature=0,
+            output_tasks=[1],
+            all_tasks=[0, 1, 2],
+            validate_task_values=False,
+        )
+        self.assertTrue(
+            torch.equal(model._task_mapper, torch.tensor([0, 1, 1], **tkwargs))
+        )
+        self.assertTrue(
+            torch.equal(
+                torch.tensor([1], **tkwargs),
+                model._map_tasks(task_values=torch.tensor([2], **tkwargs)),
+            )
+        )
+        model = MultiTaskGP(
+            train_X,
+            train_Y,
+            task_feature=0,
+            output_tasks=[1],
+            all_tasks=[0, 1, 2],
+            validate_task_values=True,
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            "Received invalid raw task values. Expected raw value to be in"
+            r" \{0, 1\}, but got unexpected task"
+            r" values: \{2\}.",
+        ):
+            model._map_tasks(task_values=torch.tensor([2], **tkwargs))
 
 
 class TestKroneckerMultiTaskGP(BotorchTestCase):
@@ -696,19 +751,43 @@ class TestKroneckerMultiTaskGP(BotorchTestCase):
 class TestMultiTaskUtils(BotorchTestCase):
     def test_get_task_value_remapping(self) -> None:
         for dtype in (torch.float, torch.double):
-            task_values = torch.tensor([1, 3], dtype=torch.long, device=self.device)
-            expected_mapping_no_nan = torch.tensor(
-                [0.0, 1.0], dtype=dtype, device=self.device
+            observed_task_values = torch.tensor(
+                [1, 3], dtype=torch.long, device=self.device
             )
-            mapping = get_task_value_remapping(task_values, dtype)
-            self.assertTrue(torch.equal(mapping[[1, 3]], expected_mapping_no_nan))
-            self.assertTrue(torch.isnan(mapping[[0, 2]]).all())
+            expected_mapping = torch.tensor(
+                [0.0, 0.0, 0.0, 1.0, 0.0], dtype=dtype, device=self.device
+            )
+            all_task_values = torch.arange(5, dtype=torch.long, device=self.device)
+            mapping = get_task_value_remapping(
+                observed_task_values=observed_task_values,
+                all_task_values=all_task_values,
+                dtype=dtype,
+                default_task_value=1.0,
+            )
+            self.assertTrue(torch.equal(mapping, expected_mapping))
+            # test default_task_value that has not been observed
+            # and default_task_value=None
+            for default_task_value in (0.0, None):
+                mapping = get_task_value_remapping(
+                    observed_task_values=observed_task_values,
+                    all_task_values=all_task_values,
+                    dtype=dtype,
+                    default_task_value=default_task_value,
+                )
+                self.assertTrue(torch.equal(mapping[[1, 3]], expected_mapping[[1, 3]]))
+                self.assertTrue(torch.isnan(mapping[[0, 2, 4]]).all())
 
     def test_get_task_value_remapping_invalid_dtype(self) -> None:
-        task_values = torch.tensor([1, 3])
+        observed_task_values = torch.tensor([1, 3])
+        all_task_values = observed_task_values
         for dtype in (torch.int32, torch.long, torch.bool):
             with self.assertRaisesRegex(
                 ValueError,
                 f"dtype must be torch.float or torch.double, but got {dtype}.",
             ):
-                get_task_value_remapping(task_values, dtype)
+                get_task_value_remapping(
+                    observed_task_values=observed_task_values,
+                    all_task_values=all_task_values,
+                    dtype=dtype,
+                    default_task_value=None,
+                )

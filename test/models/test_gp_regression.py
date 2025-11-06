@@ -429,7 +429,7 @@ class TestGPRegressionBase(BotorchTestCase):
             self.assertTrue(Y.equal(data_dict["train_Y"]))
 
     def test_set_transformed_inputs(self):
-        # This intended to catch https://github.com/pytorch/botorch/issues/1078.
+        # This intended to catch https://github.com/meta-pytorch/botorch/issues/1078.
         # More general testing of _set_transformed_inputs is done under ModelListGP.
         X = torch.rand(5, 2)
         Y = X**2

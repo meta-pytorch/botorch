@@ -85,9 +85,9 @@ def get_bounds_as_ndarray(
             lower = -inf if lower is None else lower
             upper = inf if upper is None else upper
             if isinstance(lower, Tensor):
-                lower = lower.cpu()
+                lower = lower.cpu().numpy()
             if isinstance(upper, Tensor):
-                upper = upper.cpu()
+                upper = upper.cpu().numpy()
             out[index : index + size, 0] = lower
             out[index : index + size, 1] = upper
         index = index + size

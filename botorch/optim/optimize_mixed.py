@@ -551,6 +551,7 @@ def generate_starting_points(
                     "batch_limit": options.get("batch_limit", MAX_BATCH_SIZE),
                     "init_batch_limit": options.get("init_batch_limit", MAX_BATCH_SIZE),
                 },
+                post_processing_func=None,
             )
             x_init_candts, _ = _optimize_acqf(opt_inputs=updated_opt_inputs)
             x_init_candts = x_init_candts.squeeze(-2).detach()

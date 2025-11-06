@@ -255,7 +255,7 @@ def gen_batch_initial_conditions(
     generator: Callable[[int, int, int | None], Tensor] | None = None,
     fixed_X_fantasies: Tensor | None = None,
 ) -> Tensor:
-    r"""Generate a batch of initial conditions for random-restart optimziation.
+    r"""Generate a batch of initial conditions for random-restart optimization.
 
     TODO: Support t-batches of initial conditions.
 

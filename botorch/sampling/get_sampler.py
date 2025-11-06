@@ -111,7 +111,7 @@ def _get_sampler_list(
 
     NOTE: Does not dispatch to Sobol sampling for normal posteriors due to
     correlations between samplers. Instead uses `IIDNormalSampler`. See the following
-    issue for details: https://github.com/pytorch/botorch/issues/2658
+    issue for details: https://github.com/meta-pytorch/botorch/issues/2658
     """
     samplers = []
     for p in posterior.posteriors:

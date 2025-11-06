@@ -9,7 +9,7 @@ import re
 import warnings
 from functools import partial
 from itertools import product
-from typing import Any
+from typing import Any, Callable
 from unittest import mock
 
 import numpy as np
@@ -51,6 +51,7 @@ from botorch.optim.optimize import (
 from botorch.optim.parameter_constraints import (
     _arrayify,
     _make_f_and_grad_nonlinear_inequality_constraints,
+    project_to_feasible_space_via_slsqp,
 )
 from botorch.optim.utils.timeout import minimize_with_timeout
 from botorch.test_utils.mock import mock_optimize
@@ -1315,12 +1316,15 @@ class TestOptimizeAcqf(BotorchTestCase):
             )
             return candidates
 
+    @mock.patch("botorch.optim.optimize.project_to_feasible_space_via_slsqp")
     @mock.patch("botorch.optim.optimize.gen_batch_initial_conditions")
     def test_optimize_acqf_all_infeasible_candidates(
-        self, mock_gen_batch_initial_conditions
+        self, mock_gen_batch_initial_conditions, mock_project
     ) -> None:
         # Check for error when all batches of candidates are infeasible w.r.t
-        # parameter constraints.
+        # parameter constraints and projecting fails (e.g. returns the same
+        # points)
+        mock_project.side_effect = lambda X, **kwargs: X
         q = 3
         num_restarts = 2
         for dtype in (torch.float, torch.double):
@@ -1354,6 +1358,372 @@ class TestOptimizeAcqf(BotorchTestCase):
                 ics=ics,
             )
             self.assertTrue(torch.equal(candidates, ics[1]))
+
+    def _setup_projection_test(
+        self,
+        d: int,
+        dtype: torch.dtype,
+    ) -> tuple[MockAcquisitionFunction, torch.Tensor]:
+        """Helper method to set up common projection test components."""
+        mock_acq_function = MockAcquisitionFunction()
+        bounds = torch.zeros(2, d, dtype=dtype, device=self.device)
+        bounds[1] = 2
+        return mock_acq_function, bounds
+
+    def _verify_projection_called_and_constraints_satisfied(
+        self,
+        mock_project_slsqp: mock.Mock,
+        candidates: torch.Tensor,
+        bounds: torch.Tensor,
+        constraint_checks: list[Callable] | None = None,
+    ) -> None:
+        """Helper method to verify calls and constraint satisfaction."""
+        # Verify that project_to_feasible_space_via_slsqp was called
+        mock_project_slsqp.assert_called_once()
+
+        # Verify that projected candidates are within bounds
+        self.assertTrue(torch.all(candidates >= bounds[0] - 1e-6))
+        self.assertTrue(torch.all(candidates <= bounds[1] + 1e-6))
+
+        # Run custom constraint checks if provided
+        if constraint_checks:
+            for check in constraint_checks:
+                check(candidates)
+
+    def _run_optimize_acqf_with_projection(
+        self,
+        mock_minimize: mock.Mock,
+        mock_acq_function: MockAcquisitionFunction,
+        bounds: Tensor,
+        infeasible_candidates: Tensor,
+        q: int,
+        inequality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
+        equality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
+        nonlinear_inequality_constraints: list[tuple[Callable, bool]] | None = None,
+        should_raise_error: bool = False,
+        error_regex: str | None = None,
+        post_processing_func: Callable[[Tensor], Tensor] | None = None,
+    ) -> Tensor | None:
+        """Helper method to run optimize_acqf with common setup."""
+        # Mock scipy minimize to return infeasible candidates
+        mock_minimize.return_value = OptimizeResult(
+            x=infeasible_candidates.view(-1).cpu().numpy(),
+            success=True,
+            status=0,
+        )
+
+        kwargs = {
+            "acq_function": mock_acq_function,
+            "bounds": bounds,
+            "q": q,
+            "num_restarts": 1,
+            "raw_samples": 2,
+            "batch_initial_conditions": torch.rand(
+                1, q, bounds.shape[1], dtype=bounds.dtype, device=self.device
+            ),
+            "post_processing_func": post_processing_func,
+        }
+
+        if inequality_constraints is not None:
+            kwargs["inequality_constraints"] = inequality_constraints
+        if equality_constraints is not None:
+            kwargs["equality_constraints"] = equality_constraints
+        if nonlinear_inequality_constraints is not None:
+            kwargs["nonlinear_inequality_constraints"] = (
+                nonlinear_inequality_constraints
+            )
+            kwargs["options"] = {"batch_limit": 1}
+            kwargs["ic_generator"] = lambda *args, **kwargs: torch.rand(
+                1, q, bounds.shape[1], dtype=bounds.dtype, device=self.device
+            )
+        if should_raise_error:
+            with self.assertRaisesRegex(CandidateGenerationError, error_regex):
+                optimize_acqf(**kwargs)
+        else:
+            candidates, _ = optimize_acqf(**kwargs)
+            return candidates
+
+    @mock.patch(
+        "botorch.optim.optimize.project_to_feasible_space_via_slsqp",
+        wraps=project_to_feasible_space_via_slsqp,
+    )
+    @mock.patch("botorch.generation.gen.minimize_with_timeout")
+    def test_optimize_acqf_projection_applied(
+        self, mock_minimize: mock.Mock, mock_project_slsqp: mock.Mock
+    ) -> None:
+        """Test that project_to_feasible_space_via_slsqp is correctly applied."""
+        for dtype in (torch.float, torch.double):
+            mock_project_slsqp.reset_mock()
+            # Create infeasible candidates that violate constraint x[0] + x[1] >= 1.5
+            infeasible_candidates = torch.tensor(
+                [[0.5, 0.5], [0.3, 0.7]], device=self.device, dtype=dtype
+            )
+
+            mock_acq_function, bounds = self._setup_projection_test(d=2, dtype=dtype)
+
+            # Define constraints: x[0] + x[1] >= 1.5
+            inequality_constraints = [
+                (
+                    torch.tensor([0, 1], dtype=torch.long, device=self.device),
+                    torch.tensor([1.0, 1.0], dtype=dtype, device=self.device),
+                    1.5,
+                )
+            ]
+
+            candidates = self._run_optimize_acqf_with_projection(
+                mock_minimize,
+                mock_acq_function,
+                bounds,
+                infeasible_candidates,
+                q=2,
+                inequality_constraints=inequality_constraints,
+            )
+
+            def check_inequality_constraint(candidates):
+                for i in range(candidates.shape[0]):
+                    constraint_value = candidates[i, 0] + candidates[i, 1]
+                    self.assertGreaterEqual(constraint_value, 1.5 - 1e-6)
+
+            self._verify_projection_called_and_constraints_satisfied(
+                mock_project_slsqp=mock_project_slsqp,
+                candidates=candidates,
+                bounds=bounds,
+                constraint_checks=[check_inequality_constraint],
+            )
+
+    @mock.patch(
+        "botorch.optim.parameter_constraints.project_to_feasible_space_via_slsqp"
+    )
+    @mock.patch("botorch.generation.gen.minimize_with_timeout")
+    def test_optimize_acqf_projection_not_applied_with_nonlinear_constraints(
+        self, mock_minimize: mock.Mock, mock_project_slsqp: mock.Mock
+    ) -> None:
+        """Test that projection is not applied when nonlinear constraints exist."""
+        for dtype in (torch.float, torch.double):
+            mock_project_slsqp.reset_mock()
+            infeasible_candidates = torch.tensor(
+                [[0.5, 0.5]], dtype=dtype, device=self.device
+            )
+
+            mock_acq_function, bounds = self._setup_projection_test(d=2, dtype=dtype)
+
+            # Define both linear and nonlinear constraints
+            inequality_constraints = [
+                (
+                    torch.tensor([0, 1], dtype=torch.long, device=self.device),
+                    torch.tensor([1.0, 1.0], dtype=dtype, device=self.device),
+                    1.5,
+                )
+            ]
+
+            def callable_constraint(x):
+                return x.sum(dim=-1)
+
+            nonlinear_inequality_constraints = [(callable_constraint, True)]
+
+            # Test that optimization should raise error due to infeasible candidates
+            # when nonlinear constraints are present (projection not applied)
+            self._run_optimize_acqf_with_projection(
+                mock_minimize,
+                mock_acq_function,
+                bounds,
+                infeasible_candidates,
+                q=1,
+                inequality_constraints=inequality_constraints,
+                nonlinear_inequality_constraints=nonlinear_inequality_constraints,
+                should_raise_error=True,
+                error_regex="infeasible candidates",
+            )
+
+            # Verify that project_to_feasible_space_via_slsqp was NOT called
+            mock_project_slsqp.assert_not_called()
+
+    @mock.patch(
+        "botorch.optim.optimize.project_to_feasible_space_via_slsqp",
+        wraps=project_to_feasible_space_via_slsqp,
+    )
+    @mock.patch("botorch.generation.gen.minimize_with_timeout")
+    def test_optimize_acqf_projection_with_equality_constraints(
+        self, mock_minimize: mock.Mock, mock_project_slsqp: mock.Mock
+    ) -> None:
+        """Test projection with equality constraints."""
+        # Create candidates that violate equality constraint x[0] + x[1] = 1.5
+        for dtype in (torch.float, torch.double):
+            mock_project_slsqp.reset_mock()
+            infeasible_candidates = torch.tensor(
+                [[1.0, 1.0]], dtype=dtype, device=self.device
+            )
+
+            mock_acq_function, bounds = self._setup_projection_test(d=2, dtype=dtype)
+
+            # Define equality constraint: x[0] + x[1] = 1.5
+            equality_constraints = [
+                (
+                    torch.tensor([0, 1], dtype=torch.long, device=self.device),
+                    torch.tensor([1.0, 1.0], dtype=dtype, device=self.device),
+                    1.5,
+                )
+            ]
+
+            candidates = self._run_optimize_acqf_with_projection(
+                mock_minimize,
+                mock_acq_function,
+                bounds,
+                infeasible_candidates,
+                q=1,
+                equality_constraints=equality_constraints,
+            )
+
+            def check_equality_constraint(candidates):
+                constraint_value = (candidates[0, 0] + candidates[0, 1]).item()
+                self.assertAllClose(constraint_value, 1.5, atol=1e-6)
+
+            self._verify_projection_called_and_constraints_satisfied(
+                mock_project_slsqp=mock_project_slsqp,
+                candidates=candidates,
+                bounds=bounds,
+                constraint_checks=[check_equality_constraint],
+            )
+
+    @mock.patch(
+        "botorch.optim.optimize.project_to_feasible_space_via_slsqp",
+        wraps=project_to_feasible_space_via_slsqp,
+    )
+    @mock.patch("botorch.generation.gen.minimize_with_timeout")
+    def test_optimize_acqf_projection_inequality_constraints_only(
+        self, mock_minimize: mock.Mock, mock_project_slsqp: mock.Mock
+    ) -> None:
+        """Test projection with inequality constraints only."""
+        for dtype in (torch.float, torch.double):
+            mock_project_slsqp.reset_mock()
+            # Create infeasible candidates that violate multiple inequality constraints
+            infeasible_candidates = torch.tensor(
+                [[0.2, 0.3, 0.4], [0.1, 0.5, 0.6]], dtype=dtype, device=self.device
+            )
+
+            mock_acq_function, bounds = self._setup_projection_test(d=3, dtype=dtype)
+
+            # Define multiple inequality constraints:
+            # x[0] + x[1] >= 1.0 and x[1] + x[2] >= 1.2
+            inequality_constraints = [
+                (
+                    torch.tensor([0, 1], dtype=torch.long, device=self.device),
+                    torch.tensor([1.0, 1.0], dtype=dtype, device=self.device),
+                    1.0,
+                ),
+                (
+                    torch.tensor([1, 2], dtype=torch.long, device=self.device),
+                    torch.tensor([1.0, 1.0], dtype=dtype, device=self.device),
+                    1.2,
+                ),
+            ]
+
+            candidates = self._run_optimize_acqf_with_projection(
+                mock_minimize,
+                mock_acq_function,
+                bounds,
+                infeasible_candidates,
+                q=2,
+                inequality_constraints=inequality_constraints,
+            )
+
+            def check_inequality_constraints(candidates):
+                for i in range(candidates.shape[0]):
+                    # First constraint: x[0] + x[1] >= 1.0
+                    constraint1_value = (candidates[i, 0] + candidates[i, 1]).item()
+                    self.assertGreaterEqual(constraint1_value, 1.0 - 1e-6)
+
+                    # Second constraint: x[1] + x[2] >= 1.2
+                    constraint2_value = (candidates[i, 1] + candidates[i, 2]).item()
+                    self.assertGreaterEqual(constraint2_value, 1.2 - 1e-6)
+
+            self._verify_projection_called_and_constraints_satisfied(
+                mock_project_slsqp=mock_project_slsqp,
+                candidates=candidates,
+                bounds=bounds,
+                constraint_checks=[check_inequality_constraints],
+            )
+        # test that post_processing_func is applied after projection
+        candidates = self._run_optimize_acqf_with_projection(
+            mock_minimize,
+            mock_acq_function,
+            bounds,
+            infeasible_candidates,
+            q=2,
+            inequality_constraints=[
+                (
+                    torch.tensor([0, 1], dtype=torch.long, device=self.device),
+                    torch.tensor([1.0, 1.0], dtype=dtype, device=self.device),
+                    2.5,
+                )
+            ],
+            post_processing_func=lambda x: x.ceil(),
+        )
+        expected_candidates = torch.ones_like(candidates)
+        expected_candidates[:, :2] = 2
+        self.assertTrue(torch.equal(candidates, expected_candidates))
+
+    @mock.patch(
+        "botorch.optim.optimize.project_to_feasible_space_via_slsqp",
+        wraps=project_to_feasible_space_via_slsqp,
+    )
+    @mock.patch("botorch.generation.gen.minimize_with_timeout")
+    def test_optimize_acqf_projection_mixed_constraints(
+        self, mock_minimize: mock.Mock, mock_project_slsqp: mock.Mock
+    ) -> None:
+        """Test projection with both inequality and equality constraints."""
+        for dtype in (torch.float, torch.double):
+            mock_project_slsqp.reset_mock()
+            # Create infeasible candidates that violate both types of constraints
+            infeasible_candidates = torch.tensor(
+                [[0.5, 1.2, 0.8], [1.1, 0.7, 1.0]], dtype=dtype, device=self.device
+            )
+
+            mock_acq_function, bounds = self._setup_projection_test(d=3, dtype=dtype)
+
+            # Define mixed constraints:
+            # Inequality: x[0] + x[2] >= 2.0
+            # Equality: x[0] + x[1] + x[2] = 3.5
+            inequality_constraints = [
+                (
+                    torch.tensor([0, 2], dtype=torch.long, device=self.device),
+                    torch.tensor([1.0, 1.0], dtype=dtype, device=self.device),
+                    2.0,
+                )
+            ]
+            equality_constraints = [
+                (
+                    torch.tensor([0, 1, 2], dtype=torch.long, device=self.device),
+                    torch.tensor([1.0, 1.0, 1.0], dtype=dtype, device=self.device),
+                    3.5,
+                )
+            ]
+
+            candidates = self._run_optimize_acqf_with_projection(
+                mock_minimize,
+                mock_acq_function,
+                bounds,
+                infeasible_candidates,
+                q=2,
+                inequality_constraints=inequality_constraints,
+                equality_constraints=equality_constraints,
+            )
+
+            def check_mixed_constraints(candidates):
+                for i in range(candidates.shape[0]):
+                    # Inequality constraint: x[0] + x[2] >= 2.0
+                    inequality_value = candidates[i, 0] + candidates[i, 2]
+                    self.assertGreaterEqual(inequality_value, 2.0 - 1e-6)
+
+                    # Equality constraint: x[0] + x[1] + x[2] = 3.5
+                    equality_value = (
+                        candidates[i, 0] + candidates[i, 1] + candidates[i, 2]
+                    ).item()
+                    self.assertAllClose(equality_value, 3.5, atol=1e-6)
+
+            self._verify_projection_called_and_constraints_satisfied(
+                mock_project_slsqp, candidates, bounds, [check_mixed_constraints]
+            )
 
 
 class TestAllOptimizers(BotorchTestCase):

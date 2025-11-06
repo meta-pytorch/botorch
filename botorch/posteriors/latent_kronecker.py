@@ -45,6 +45,7 @@ class LatentKroneckerGPPosterior(GPyTorchPosterior):
         self,
         model: GPyTorchModel,
         X: Tensor,
+        T: Tensor,
     ) -> None:
         r"""A dummy posterior for LatentKroneckerGP models.
 
@@ -53,6 +54,8 @@ class LatentKroneckerGPPosterior(GPyTorchPosterior):
             X: A `(batch_shape) x q x d`-dim Tensor, where `d` is the dimension
                 of the feature space and `q` is the number of points considered
                 jointly, on which the posterior shall be evaluated.
+            T: A `(batch_shape) x t x 1`-dim Tensor of `T`-locations at which to
+                evaluate the posterior. If None, defaults to using `self.train_T`.
         """
         self._dtype = X.dtype
         self._device = X.device
@@ -60,8 +63,7 @@ class LatentKroneckerGPPosterior(GPyTorchPosterior):
         self.output_batch_shape = torch.broadcast_shapes(
             model.batch_shape, X.shape[:-2]
         )
-        self.q = X.shape[-2]
-        output_dim = self.q * model.T.shape[-1]
+        output_dim = X.shape[-2] * T.shape[-2]
         mean = ZeroLinearOperator(
             *self.output_batch_shape, output_dim, dtype=X.dtype, device=X.device
         )
@@ -75,6 +77,7 @@ class LatentKroneckerGPPosterior(GPyTorchPosterior):
         super().__init__(distribution=dummy_mvn)
         self.model = model
         self.X = X
+        self.T = T
         self._is_mt = True
 
     @property
@@ -84,9 +87,11 @@ class LatentKroneckerGPPosterior(GPyTorchPosterior):
         Overwrites the standard `base_sample_shape` call to inform samplers that
         `n_train_full + n_train + n_test` samples are needed rather than n samples.
         """
-        n_train_full = self.model.train_inputs[0].shape[-2] * self.model.T.shape[-1]
+        n_train_full = (
+            self.model.train_inputs[0].shape[-2] * self.model.train_T.shape[-2]
+        )
         n_train = self.model.train_targets.shape[-1]
-        n_test = self.q * self.model.T.shape[-1]
+        n_test = self.X.shape[-2] * self.T.shape[-2]
         return self.batch_shape + torch.Size([n_train_full + n_train + n_test])
 
     @property
@@ -107,9 +112,9 @@ class LatentKroneckerGPPosterior(GPyTorchPosterior):
         r"""Returns the shape of the samples produced by the distribution with
         the given `sample_shape`.
         """
-        time_shape = torch.Size([self.model.T.shape[-1]])
-        q_shape = torch.Size([self.q])
-        return sample_shape + self.output_batch_shape + q_shape + time_shape
+        x_shape = self.X.shape[-2:-1]
+        t_shape = self.T.shape[-2:-1]
+        return sample_shape + self.output_batch_shape + x_shape + t_shape
 
     def rsample_from_base_samples(
         self,
@@ -141,7 +146,7 @@ class LatentKroneckerGPPosterior(GPyTorchPosterior):
                 f"Got {sample_shape=} and {base_samples.shape=}."
             )
 
-        return self.model._rsample_from_base_samples(self.X, base_samples)
+        return self.model._rsample_from_base_samples(self.X, self.T, base_samples)
 
     def rsample(
         self,

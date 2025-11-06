@@ -6,6 +6,7 @@
 
 import itertools
 import warnings
+from functools import partial
 
 import torch
 from botorch.acquisition.objective import ScalarizedPosteriorTransform
@@ -14,17 +15,24 @@ from botorch.exceptions import (
     BotorchTensorDimensionWarning,
 )
 from botorch.exceptions.errors import DeprecationError, InputDataError
-from botorch.exceptions.warnings import InputDataWarning
+from botorch.exceptions.warnings import BotorchWarning, InputDataWarning
 from botorch.fit import fit_gpytorch_mll
+from botorch.models.gp_regression import SingleTaskGP
 from botorch.models.gpytorch import (
     BatchedMultiOutputGPyTorchModel,
     GPyTorchModel,
     ModelListGPyTorchModel,
 )
+from botorch.models.map_saas import AdditiveMapSaasSingleTaskGP
 from botorch.models.model import FantasizeMixin
 from botorch.models.multitask import MultiTaskGP
 from botorch.models.transforms import Standardize
-from botorch.models.transforms.input import ChainedInputTransform, InputTransform
+from botorch.models.transforms.input import (
+    ChainedInputTransform,
+    InputTransform,
+    Normalize,
+    NumericToCategoricalEncoding,
+)
 from botorch.models.utils import fantasize
 from botorch.posteriors.gpytorch import GPyTorchPosterior
 from botorch.sampling.normal import SobolQMCNormalSampler
@@ -38,6 +46,8 @@ from gpytorch.means import ConstantMean
 from gpytorch.models import ExactGP, IndependentModelList
 from gpytorch.settings import trace_mode
 from torch import Tensor
+
+from torch.nn.functional import one_hot
 
 
 class SimpleInputTransform(InputTransform, torch.nn.Module):
@@ -691,11 +701,48 @@ class TestModelListGPyTorchModel(BotorchTestCase):
                     X=torch.rand(2, 1, **tkwargs), Y=torch.rand(2, 2, **tkwargs)
                 )
 
+    def test_condition_on_observations_input_transform_shape_manipulation(self):
+        for dtype in (torch.float, torch.double):
+            tkwargs = {"device": self.device, "dtype": dtype}
+
+            # Create data
+            X = torch.rand(12, 2, **tkwargs) * 2
+            Y = 1 - (X - 0.5).norm(dim=-1, keepdim=True)
+            Y += 0.1 * torch.rand_like(Y)
+            # Add a categorical feature
+            new_col = torch.randint(0, 3, (X.shape[0], 1), **tkwargs)
+            X = torch.cat([X, new_col], dim=1)
+
+            train_X = X[:10]
+            train_Y = Y[:10]
+
+            condition_X = X[10:]
+            condition_Y = Y[10:]
+
+            # setup transform and model
+            input_transform = NumericToCategoricalEncoding(
+                dim=3,
+                categorical_features={2: 3},
+                encoders={2: partial(one_hot, num_classes=3)},
+            )
+
+            model = SimpleGPyTorchModel(
+                train_X, train_Y, input_transform=input_transform
+            )
+            model.eval()
+            _ = model.posterior(train_X)
+
+            conditioned_model = model.condition_on_observations(
+                condition_X, condition_Y
+            )
+            self.assertAllClose(conditioned_model._original_train_inputs, X)
+            self.assertAllClose(conditioned_model.train_inputs[0], input_transform(X))
+
     def test_condition_on_observations_input_transform_consistency(self):
         """Test that input transforms are applied consistently in
          condition_on_observations.
 
-        This addresses https://github.com/pytorch/botorch/issues/2533:
+        This addresses https://github.com/meta-pytorch/botorch/issues/2533:
         inputs should be transformed when conditioning.
         """
         for dtype in (torch.float, torch.double):
@@ -826,3 +873,261 @@ class TestModelListGPyTorchModel(BotorchTestCase):
             fantasy_model._original_train_inputs.shape[0], original_size + 1
         )
         self.assertEqual(model2._original_train_inputs.shape[0], original_size)
+
+
+class NonUntransformableOutcomeTransform(Standardize):
+    def untransform(self, **kwargs):
+        raise NotImplementedError
+
+
+def _get_input_output_transform(
+    d: int, m: int, indices: list[int] | None, use_transforms: bool = True
+) -> dict[str, torch.nn.Module]:
+    return {
+        "input_transform": Normalize(d=d, indices=indices) if use_transforms else None,
+        "outcome_transform": Standardize(m=m) if use_transforms else None,
+    }
+
+
+class TestLoadStateDict(BotorchTestCase):
+    def test_load_state_dict_with_transforms(self):
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.rand(5, 2, **tkwargs)
+
+        # adding something that obviously has other bounds than the unit cube
+        train_X = torch.cat(
+            [train_X, torch.tensor([[-0.02, 11.1], [17.1, -2.5]], **tkwargs)],
+            dim=0,
+        )
+        single_task_kwargs = {
+            "train_X": train_X,
+        }
+        task_indices = torch.cat(
+            [torch.zeros(4, 1, **tkwargs), torch.ones(3, 1, **tkwargs)], dim=0
+        )
+        train_X_multitask = torch.cat([train_X, task_indices], dim=-1)
+        multi_task_kwargs = {
+            "train_X": train_X_multitask,
+            "task_feature": -1,
+        }
+        test_cases = [
+            ("single_output_with_yvar", 1, True, SingleTaskGP, single_task_kwargs),
+            ("single_output_no_yvar", 1, False, SingleTaskGP, single_task_kwargs),
+            ("multi_output_with_yvar", 3, True, SingleTaskGP, single_task_kwargs),
+            ("multi_output_no_yvar", 3, False, SingleTaskGP, single_task_kwargs),
+            ("muli_task_with_yvar", 1, True, MultiTaskGP, multi_task_kwargs),
+            ("muli_task_no_yvar", 1, True, MultiTaskGP, multi_task_kwargs),
+            (
+                "single_output_no_yvar_mapsaas",
+                1,
+                False,
+                AdditiveMapSaasSingleTaskGP,
+                single_task_kwargs,
+            ),
+            (
+                "multi_output_with_yvar_mapsaas",
+                3,
+                True,
+                AdditiveMapSaasSingleTaskGP,
+                single_task_kwargs,
+            ),
+        ]
+        for name, num_outputs, include_yvar, model_class, model_kwargs in test_cases:
+            with self.subTest(
+                name=name, num_outputs=num_outputs, include_yvar=include_yvar
+            ):
+                d = model_kwargs["train_X"].shape[-1]
+                indices = [0, 1]
+                train_Y = (
+                    torch.sin(train_X).sum(dim=1, keepdim=True).repeat(1, num_outputs)
+                )
+                model_kwargs["train_Y"] = train_Y
+
+                if include_yvar:
+                    train_Yvar = 0.1 * torch.rand_like(train_Y)
+                    model_kwargs["train_Yvar"] = train_Yvar
+                else:
+                    model_kwargs["train_Yvar"] = None
+
+                # Have to re-instantiate the transforms for each model, since they
+                # will have their transform parameters saved otherwise (which is
+                # is the point of the test).
+                base_model = model_class(
+                    **model_kwargs,
+                    **_get_input_output_transform(d=d, indices=indices, m=num_outputs),
+                )
+
+                original_train_inputs = base_model.input_transform(
+                    base_model.train_inputs[0]
+                )
+                original_train_targets = base_model.train_targets.clone()
+                original_train_yvar = base_model.likelihood.noise_covar.noise.clone()
+
+                state_dict = base_model.state_dict()
+                cv_model_kwargs = model_kwargs.copy()
+                cv_model_kwargs["train_X"] = model_kwargs["train_X"][:-1]
+                cv_model_kwargs["train_Y"] = train_Y[:-1]
+                if include_yvar:
+                    cv_model_kwargs["train_Yvar"] = train_Yvar[:-1]
+
+                cv_model = model_class(
+                    **cv_model_kwargs,
+                    **_get_input_output_transform(d=d, indices=indices, m=num_outputs),
+                )
+
+                cv_model.load_state_dict(state_dict, keep_transforms=True)
+
+                sd_mean = cv_model.outcome_transform.means
+                cv_model.outcome_transform(train_Y[:-1])
+                self.assertTrue(torch.all(cv_model.outcome_transform.means == sd_mean))
+
+                self.assertTrue(
+                    torch.allclose(
+                        cv_model.input_transform._offset,
+                        state_dict["input_transform._offset"],
+                    )
+                )
+                self.assertTrue(
+                    torch.allclose(
+                        cv_model.outcome_transform.means,
+                        state_dict["outcome_transform.means"],
+                    )
+                )
+
+                self.assertAllClose(
+                    cv_model.train_targets, original_train_targets[..., :-1]
+                )
+                self.assertTrue(
+                    torch.equal(
+                        cv_model.input_transform(cv_model.train_inputs[0]),
+                        original_train_inputs[..., :-1, :],
+                    )
+                )
+                if include_yvar:
+                    self.assertAllClose(
+                        cv_model.likelihood.noise_covar.noise,
+                        original_train_yvar[..., :-1],
+                    )
+
+                cv_model = model_class(
+                    **cv_model_kwargs,
+                    **_get_input_output_transform(d=d, indices=indices, m=num_outputs),
+                )
+                cv_model.load_state_dict(state_dict, keep_transforms=False)
+
+                sd_mean = cv_model.outcome_transform.means
+                cv_model.outcome_transform(train_Y[:-1])
+                self.assertTrue(torch.all(cv_model.outcome_transform.means != sd_mean))
+
+                self.assertFalse(
+                    torch.equal(
+                        cv_model.input_transform(cv_model.train_inputs[0]),
+                        original_train_inputs[..., :-1, :],
+                    )
+                )
+                self.assertFalse(
+                    torch.equal(
+                        cv_model.train_targets, original_train_targets[..., :-1]
+                    )
+                )
+                self.assertFalse(
+                    torch.equal(
+                        cv_model.input_transform._offset,
+                        state_dict["input_transform._offset"],
+                    )
+                )
+                self.assertFalse(
+                    torch.equal(
+                        cv_model.outcome_transform.means,
+                        state_dict["outcome_transform.means"],
+                    )
+                )
+
+    def test_load_state_dict_no_transforms(self):
+        tkwargs = {"device": self.device, "dtype": torch.double}
+
+        train_X = torch.rand(3, 2, **tkwargs)
+        train_X = torch.cat(
+            [train_X, torch.tensor([[-0.02, 11.1], [17.1, -2.5]], **tkwargs)], dim=0
+        )
+        train_Y = torch.sin(train_X).sum(dim=1, keepdim=True)
+
+        base_model = SingleTaskGP(
+            train_X=train_X, train_Y=train_Y, outcome_transform=None
+        )
+        original_train_targets = base_model.train_targets.clone()
+        state_dict = base_model.state_dict()
+
+        cv_model = SingleTaskGP(
+            train_X=train_X[:-1], train_Y=train_Y[:-1], outcome_transform=None
+        )
+        cv_model.load_state_dict(state_dict, keep_transforms=False)
+
+        self.assertTrue(
+            torch.equal(cv_model.train_targets, original_train_targets[:-1])
+        )
+
+    def test_load_state_dict_output_warnings(self):
+        tkwargs = {"device": self.device, "dtype": torch.double}
+
+        train_X = torch.rand(3, 2, **tkwargs)
+        train_Y = torch.rand(3, 1, **tkwargs)
+
+        model = SingleTaskGP(
+            train_X=train_X,
+            train_Y=train_Y,
+            input_transform=Normalize(d=2),
+            outcome_transform=NonUntransformableOutcomeTransform(m=1),
+        )
+        state_dict = model.state_dict()
+
+        with self.assertWarnsRegex(
+            BotorchWarning,
+            "Outcome transform does not support untransforming.*",
+        ):
+            model.load_state_dict(state_dict, keep_transforms=True)
+
+    def test_load_state_dict_model_list(self):
+        from botorch.models.model_list_gp_regression import ModelListGP
+
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.rand(5, 2, **tkwargs)
+        train_Y = torch.rand(5, 1, **tkwargs)
+        m1 = SingleTaskGP(
+            train_X[:1],
+            train_Y[:1],
+            **_get_input_output_transform(d=2, m=1, indices=[0, 1]),
+        )
+        m2 = SingleTaskGP(
+            train_X[1:],
+            train_Y[1:],
+            **_get_input_output_transform(d=2, m=1, indices=[0, 1]),
+        )
+        model_list = ModelListGP(m1, m2)
+        state_dict = model_list.state_dict()
+        new_m1 = SingleTaskGP(
+            train_X[:2],
+            train_Y[:2],
+            **_get_input_output_transform(d=2, m=1, indices=[0, 1]),
+        )
+        new_m2 = SingleTaskGP(
+            train_X[2:],
+            train_Y[2:],
+            **_get_input_output_transform(d=2, m=1, indices=[0, 1]),
+        )
+        new_model = ModelListGP(new_m1, new_m2)
+        new_model.load_state_dict(state_dict)
+
+        # Check that matching datapoints have same train_targets
+        # m1 was trained on train_X[:1], new_m1 on train_X[:2] after loading
+        # should have m1's train_targets
+        self.assertTrue(
+            torch.equal(
+                new_model.models[0].train_targets[:1],
+                model_list.models[0].train_targets,
+            )
+        )
+        self.assertEqual(
+            model_list.models[0].outcome_transform.means,
+            new_model.models[0].outcome_transform.means,
+        )

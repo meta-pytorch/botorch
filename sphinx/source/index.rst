@@ -1,4 +1,4 @@
-:github_url: https://github.com/pytorch/botorch
+:github_url: https://github.com/meta-pytorch/botorch
 
 BoTorch API Reference
 ===================================

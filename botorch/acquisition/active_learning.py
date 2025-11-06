@@ -120,13 +120,12 @@ class qNegIntegratedPosteriorVariance(AcquisitionFunction):
             )
 
         neg_variance = posterior.variance.mul(-1.0)
-
-        if self.posterior_transform is None:
-            # if single-output, shape is 1 x batch_shape x num_grid_points x 1
-            return neg_variance.mean(dim=-2).squeeze(-1).squeeze(0)
-        else:
+        if self.model.num_outputs > 1:
             # if multi-output + obj, shape is num_grid_points x batch_shape x 1 x 1
             return neg_variance.mean(dim=0).squeeze(-1).squeeze(-1)
+        else:
+            # if single-output, shape is 1 x batch_shape x num_grid_points x 1
+            return neg_variance.mean(dim=-2).squeeze(-1).squeeze(0)
 
 
 class PairwiseMCPosteriorVariance(MCAcquisitionFunction):

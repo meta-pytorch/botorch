@@ -6,6 +6,7 @@
 
 from collections.abc import Callable
 from itertools import product
+from unittest import mock
 
 import numpy as np
 import numpy.typing as npt
@@ -19,11 +20,13 @@ from botorch.optim.parameter_constraints import (
     _make_nonlinear_constraints,
     eval_lin_constraint,
     evaluate_feasibility,
+    get_constraint_tolerance,
     lin_constraint_jac,
     make_scipy_bounds,
     make_scipy_linear_constraints,
     make_scipy_nonlinear_inequality_constraints,
     nonlinear_constraint_is_feasible,
+    project_to_feasible_space_via_slsqp,
 )
 from botorch.utils.testing import BotorchTestCase
 from scipy.optimize import Bounds
@@ -666,6 +669,13 @@ class TestParameterConstraints(BotorchTestCase):
             [False, False, True],
         )
 
+    def test_get_constraint_tolerance(self):
+        self.assertEqual(get_constraint_tolerance(dtype=torch.double), 1e-8)
+        self.assertEqual(get_constraint_tolerance(dtype=torch.float), 1e-6)
+        self.assertEqual(get_constraint_tolerance(dtype=torch.half), 1e-4)
+        with self.assertRaisesRegex(ValueError, "Unsupported dtype"):
+            get_constraint_tolerance(dtype=torch.long)
+
 
 class TestMakeScipyBounds(BotorchTestCase):
     def test_make_scipy_bounds(self):
@@ -701,3 +711,307 @@ class TestMakeScipyBounds(BotorchTestCase):
         self.assertIsInstance(bounds, Bounds)
         self.assertTrue(np.all(np.equal(bounds.lb, np.zeros((3, 1, 2)).flatten())))
         self.assertTrue(np.all(np.equal(bounds.ub, np.ones((3, 1, 2)).flatten())))
+
+
+class TestProjectToFeasibleSpace(BotorchTestCase):
+    def test_project_to_feasible_space_via_slsqp(self) -> None:
+        """Test projecting points to feasible space via SLSQP optimization."""
+        for dtype in (torch.float, torch.double):
+            # Define bounds for a 3D space
+            bounds = torch.tensor(
+                [[0.0, 0.0, 0.0], [2.0, 2.0, 2.0]], dtype=dtype, device=self.device
+            )
+
+            # Test case 1: No constraints
+            X = torch.tensor([[1.0, 1.0, 1.0]], dtype=dtype, device=self.device)
+            projected = project_to_feasible_space_via_slsqp(X=X, bounds=bounds)
+            self.assertAllClose(projected, X)
+
+            # Test case 2: With inequality constraints
+            # Constraint: x[0] + x[1] >= 1.5
+            inequality_constraints = [
+                (
+                    torch.tensor([0, 1], dtype=torch.long, device=self.device),
+                    torch.tensor([1.0, 1.0], dtype=dtype, device=self.device),
+                    1.5,
+                )
+            ]
+
+            # Point satisfies constraint
+            X = torch.tensor([[1.0, 1.0, 1.0]], dtype=dtype, device=self.device)
+            projected = project_to_feasible_space_via_slsqp(
+                X=X, bounds=bounds, inequality_constraints=inequality_constraints
+            )
+
+            self.assertAllClose(projected, X)
+
+            # Point violates constraint
+            X = torch.tensor([[0.5, 0.5, 1.0]], dtype=dtype, device=self.device)
+            projected = project_to_feasible_space_via_slsqp(
+                X=X, bounds=bounds, inequality_constraints=inequality_constraints
+            )
+            # Verify constraint is satisfied: x[0] + x[1] >= 1.5
+            self.assertGreaterEqual(projected[0, 0] + projected[0, 1], 1.5 - 1e-6)
+            self.assertTrue((bounds[0] <= projected).all())
+            self.assertTrue((bounds[1] >= projected).all())
+
+            # Test case 3: With equality constraints
+            # Constraint: x[0] + x[1] = 1.5
+            equality_constraints = [
+                (
+                    torch.tensor([0, 1], dtype=torch.long, device=self.device),
+                    torch.tensor([1.0, 1.0], dtype=dtype, device=self.device),
+                    1.5,
+                )
+            ]
+
+            X = torch.tensor([[1.0, 1.0, 1.0]], dtype=dtype, device=self.device)
+            projected = project_to_feasible_space_via_slsqp(
+                X=X, bounds=bounds, equality_constraints=equality_constraints
+            )
+            # Verify constraint is satisfied: x[0] + x[1] = 1.5
+            self.assertAllClose(
+                (projected[0, 0] + projected[0, 1]).item(), 1.5, atol=1e-6
+            )
+            self.assertTrue((bounds[0] <= projected).all())
+            self.assertTrue((bounds[1] >= projected).all())
+
+            # Test case 4: Combined inequality and equality constraints
+            # Inequality: x[2] >= 0.5
+            # Equality: x[0] + x[1] = 2.0
+            inequality_constraints = [
+                (
+                    torch.tensor([2], dtype=torch.long, device=self.device),
+                    torch.tensor([1.0], dtype=dtype, device=self.device),
+                    0.5,
+                )
+            ]
+            equality_constraints = [
+                (
+                    torch.tensor([0, 1], dtype=torch.long, device=self.device),
+                    torch.tensor([1.0, 1.0], dtype=dtype, device=self.device),
+                    2.0,
+                )
+            ]
+
+            X = torch.tensor([[0.8, 0.8, 0.2]], dtype=dtype, device=self.device)
+            projected = project_to_feasible_space_via_slsqp(
+                X=X,
+                bounds=bounds,
+                inequality_constraints=inequality_constraints,
+                equality_constraints=equality_constraints,
+            )
+            # Verify constraints
+            self.assertAllClose(
+                (projected[0, 0] + projected[0, 1]).item(), 2.0, atol=1e-6
+            )
+            self.assertGreaterEqual(projected[0, 2], 0.5 - 1e-6)
+            self.assertTrue((bounds[0] <= projected).all())
+            self.assertTrue((bounds[1] >= projected).all())
+
+            # Test case 5: Batch processing
+            X = torch.tensor(
+                [[1.0, 1.0, 1.0], [0.5, 0.5, 0.1], [2.0, 1.8, 1.9]],
+                dtype=dtype,
+                device=self.device,
+            )
+            projected = project_to_feasible_space_via_slsqp(
+                X=X,
+                bounds=bounds,
+                inequality_constraints=inequality_constraints,
+                equality_constraints=equality_constraints,
+            )
+
+            # Check that all batch elements satisfy constraints
+            for i in range(3):
+                self.assertAllClose(
+                    (projected[i, 0] + projected[i, 1]).item(), 2.0, atol=1e-6
+                )
+                self.assertGreaterEqual(projected[i, 2], 0.5 - 1e-6)
+                # Check bounds
+                self.assertTrue(torch.all(projected[i] >= bounds[0] - 1e-6))
+                self.assertTrue(torch.all(projected[i] <= bounds[1] + 1e-6))
+
+            # Test case 6: Multi-dimensional batch
+            X = torch.tensor(
+                [
+                    [[1.0, 1.0, 1.0], [1.5, 1.5, 1.5]],
+                    [[0.5, 0.5, 0.1], [2.0, 1.8, 1.9]],
+                ],
+                dtype=dtype,
+                device=self.device,
+            )
+            projected = project_to_feasible_space_via_slsqp(
+                X=X,
+                bounds=bounds,
+                inequality_constraints=inequality_constraints,
+                equality_constraints=equality_constraints,
+            )
+            self.assertEqual(projected.shape, X.shape)
+            self.assertTrue(torch.all(projected >= bounds[0] - 1e-6))
+            self.assertTrue(torch.all(projected <= bounds[1] + 1e-6))
+            projected_2d = projected.view(-1, 3)
+            for i in range(4):
+                self.assertAllClose(
+                    (projected_2d[i, 0] + projected_2d[i, 1]).item(), 2.0, atol=1e-6
+                )
+                self.assertGreaterEqual(projected_2d[i, 2], 0.5 - 1e-6)
+                # Check bounds
+                self.assertTrue(torch.all(projected_2d[i] >= bounds[0] - 1e-6))
+                self.assertTrue(torch.all(projected_2d[i] <= bounds[1] + 1e-6))
+
+    def test_project_to_feasible_space_via_slsqp_inter_point_constraints(
+        self,
+    ) -> None:
+        """Test projecting points with inter-point inequality constraints."""
+        for dtype in (torch.float, torch.double):
+            tol = get_constraint_tolerance(dtype=dtype)
+            # Define bounds for a 2D space with q=2 points
+            bounds = torch.tensor(
+                [[0.0, 0.0], [2.0, 2.0]], dtype=dtype, device=self.device
+            )
+
+            # Test case: Inter-point inequality constraint
+            # Constraint: x[0, 0] - x[1, 0] >= 0.5 (first point's x0 >= second
+            # point's x0 + 0.5)
+            inequality_constraints = [
+                (
+                    torch.tensor(
+                        [[0, 0], [1, 0]], dtype=torch.long, device=self.device
+                    ),
+                    torch.tensor([1.0, -1.0], dtype=dtype, device=self.device),
+                    0.5,
+                )
+            ]
+
+            # Case 1: Point satisfies inter-point constraint
+            X = torch.tensor(
+                [[[1.5, 1.0], [0.8, 1.0]]], dtype=dtype, device=self.device
+            )
+            projected = project_to_feasible_space_via_slsqp(
+                X=X, bounds=bounds, inequality_constraints=inequality_constraints
+            )
+            # Should remain unchanged since constraint is satisfied: 1.5 - 0.8 =
+            # 0.7 >= 0.5
+            self.assertAllClose(projected, X)
+
+            # Case 2: Point violates inter-point constraint
+            X = torch.tensor(
+                [[[1.0, 1.0], [0.8, 1.0]]], dtype=dtype, device=self.device
+            )
+            projected = project_to_feasible_space_via_slsqp(
+                X=X, bounds=bounds, inequality_constraints=inequality_constraints
+            )
+            # Verify constraint is satisfied: x[0, 0] - x[1, 0] >= 0.5
+            self.assertGreaterEqual(projected[0, 0, 0] - projected[0, 1, 0], 0.5 - tol)
+            self.assertTrue((bounds[0] <= projected).all())
+            self.assertTrue((bounds[1] >= projected).all())
+
+            # Test case: Inter-point equality constraint
+            # Constraint: x[0, 1] + x[1, 1] = 2.0 (sum of y-coordinates equals 2.0)
+            equality_constraints = [
+                (
+                    torch.tensor(
+                        [[0, 1], [1, 1]], dtype=torch.long, device=self.device
+                    ),
+                    torch.tensor([1.0, 1.0], dtype=dtype, device=self.device),
+                    2.0,
+                )
+            ]
+
+            X = torch.tensor(
+                [[[1.2, 0.8], [0.6, 0.9]]], dtype=dtype, device=self.device
+            )
+            projected = project_to_feasible_space_via_slsqp(
+                X=X, bounds=bounds, equality_constraints=equality_constraints
+            )
+            # Verify constraint is satisfied: x[0, 1] + x[1, 1] = 2.0
+            self.assertAllClose((projected[0, 0, 1] + projected[0, 1, 1]).item(), 2.0)
+            self.assertTrue((bounds[0] <= projected).all())
+            self.assertTrue((bounds[1] >= projected).all())
+
+            # Test case: Combined inter-point constraints
+            # Inequality: x[0, 0] - x[1, 0] >= 0.3
+            # Equality: x[0, 1] + x[1, 1] = 1.8
+            inequality_constraints = [
+                (
+                    torch.tensor(
+                        [[0, 0], [1, 0]], dtype=torch.long, device=self.device
+                    ),
+                    torch.tensor([1.0, -1.0], dtype=dtype, device=self.device),
+                    0.3,
+                )
+            ]
+            equality_constraints = [
+                (
+                    torch.tensor(
+                        [[0, 1], [1, 1]], dtype=torch.long, device=self.device
+                    ),
+                    torch.tensor([1.0, 1.0], dtype=dtype, device=self.device),
+                    1.8,
+                )
+            ]
+
+            X = torch.tensor(
+                [[[0.9, 1.2], [0.8, 1.1]]], dtype=dtype, device=self.device
+            )
+            projected = project_to_feasible_space_via_slsqp(
+                X=X,
+                bounds=bounds,
+                inequality_constraints=inequality_constraints,
+                equality_constraints=equality_constraints,
+            )
+            # Verify both constraints
+            self.assertGreaterEqual(projected[0, 0, 0] - projected[0, 1, 0], 0.3 - tol)
+            self.assertAllClose((projected[0, 0, 1] + projected[0, 1, 1]).item(), 1.8)
+            self.assertTrue((bounds[0] <= projected).all())
+            self.assertTrue((bounds[1] >= projected).all())
+
+            # Test case: Batch processing with inter-point constraints
+            X = torch.tensor(
+                [
+                    [[1.0, 0.8], [0.8, 0.9]],  # batch 1
+                    [[0.5, 1.2], [0.4, 1.1]],  # batch 2
+                ],
+                dtype=dtype,
+                device=self.device,
+            )
+            projected = project_to_feasible_space_via_slsqp(
+                X=X,
+                bounds=bounds,
+                inequality_constraints=inequality_constraints,
+                equality_constraints=equality_constraints,
+            )
+
+            # Check that all batch elements satisfy constraints
+            for i in range(2):
+                self.assertGreaterEqual(
+                    projected[i, 0, 0] - projected[i, 1, 0], 0.3 - tol
+                )
+                self.assertAllClose(
+                    (projected[i, 0, 1] + projected[i, 1, 1]).item(), 1.8
+                )
+                # Check bounds
+                self.assertTrue(torch.all(projected[i] >= bounds[0]))
+                self.assertTrue(torch.all(projected[i] <= bounds[1]))
+
+    @mock.patch(
+        "botorch.optim.parameter_constraints.minimize",
+        return_value=mock.Mock(success=False, message="failed reason"),
+    )
+    def test_project_to_feasible_space_via_slsqp_exception(self, _: mock.Mock) -> None:
+        bounds = torch.tensor([[0.0, 0.0], [2.0, 2.0]], device=self.device)
+
+        X = torch.tensor([[1.0, 1.0]], device=self.device)
+        with self.assertRaisesRegex(RuntimeError, "Optimization failed: failed reason"):
+            project_to_feasible_space_via_slsqp(
+                X=X,
+                bounds=bounds,
+                equality_constraints=[
+                    (
+                        torch.tensor([0, 1], dtype=torch.long, device=self.device),
+                        torch.tensor([1.0, 1.0], device=self.device),
+                        2.0,
+                    )
+                ],
+            )

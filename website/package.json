@@ -11,12 +11,13 @@
     "write-heading-ids": "docusaurus write-heading-ids"
   },
   "devDependencies": {
-    "@docusaurus/module-type-aliases": "3.8.1",
-    "@docusaurus/types": "3.8.1"
+    "@docusaurus/module-type-aliases": "3.8.1-canary-6401",
+    "@docusaurus/types": "3.8.1-canary-6401"
   },
+  "//": "TODO: T239136996 Unpin Docusaurus canary after 3.8.2 or 3.9 is released",
   "dependencies": {
-    "@docusaurus/core": "^3.8.1",
-    "@docusaurus/preset-classic": "^3.8.1",
+    "@docusaurus/core": "^3.8.1-canary-6401",
+    "@docusaurus/preset-classic": "^3.8.1-canary-6401",
     "bl": "^6.0.0",
     "clsx": "^1.1.1",
     "plotly.js": "^2.8.1",

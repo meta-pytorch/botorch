@@ -16,7 +16,7 @@ References
 from typing import Any
 
 import torch
-from botorch.models.multitask import MultiTaskGP
+from botorch.models.multitask import _compute_multitask_mean, MultiTaskGP
 from botorch.models.transforms.input import InputTransform
 from botorch.models.transforms.outcome import OutcomeTransform
 from botorch.models.utils.gpytorch_modules import get_covar_module_with_dim_scaled_prior
@@ -224,10 +224,11 @@ class LCEMGP(MultiTaskGP):
     def forward(self, x: Tensor) -> MultivariateNormal:
         if self.training:
             x = self.transform_inputs(x)
-        x_basic_lead, task_idcs, x_basic_trail = self._split_inputs(x)
-        x_basic = torch.cat([x_basic_lead, x_basic_trail], dim=-1)
-        # Compute base mean and covariance
-        mean_x = self.mean_module(x_basic)
+        x_before, task_idcs, x_after = self._split_inputs(x)
+        x_basic = torch.cat([x_before, x_after], dim=-1)
+        # Compute base mean using helper function
+        mean_x = _compute_multitask_mean(self.mean_module, x_before, task_idcs, x_after)
+
         covar_x = self.covar_module(x_basic)
         # Compute task covariances
         covar_i = self.task_covar_module(task_idcs)
