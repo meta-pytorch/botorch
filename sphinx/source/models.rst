@@ -89,6 +89,11 @@ Multitask GP Models
 .. automodule:: botorch.models.multitask
     :members:
 
+Heterogeneous Search Space Multitask GP Models
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.. automodule:: botorch.models.heterogeneous_mtgp
+    :members:
+
 Multi-Fidelity GP Regression Models
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 .. automodule:: botorch.models.gp_regression_fidelity
@@ -148,6 +153,9 @@ Kernels
 
 .. automodule:: botorch.models.kernels.positive_index
 .. autoclass:: PositiveIndexKernel
+
+.. automodule:: botorch.models.kernels.heterogeneous_multitask
+.. autoclass:: MultiTaskConditionalKernel
 
 Likelihoods
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
