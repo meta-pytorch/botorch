@@ -522,7 +522,7 @@ class NoisyExpectedHypervolumeMixin(CachedCholeskyMCSamplerMixin):
         cache_pending: bool = True,
         max_iep: int = 0,
         incremental_nehvi: bool = True,
-        cache_root: bool = True,
+        cache_root: bool | None = None,
         marginalize_dim: int | None = None,
     ):
         """Initialize a mixin that contains functions for the batched Pareto-frontier

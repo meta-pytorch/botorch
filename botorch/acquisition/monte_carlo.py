@@ -454,7 +454,7 @@ class qNoisyExpectedImprovement(
         posterior_transform: PosteriorTransform | None = None,
         X_pending: Tensor | None = None,
         prune_baseline: bool = True,
-        cache_root: bool = True,
+        cache_root: bool | None = None,
         constraints: list[Callable[[Tensor], Tensor]] | None = None,
         eta: Tensor | float = 1e-3,
         marginalize_dim: int | None = None,

@@ -308,7 +308,7 @@ class TestGetAcquisitionFunction(BotorchTestCase):
         self.assertEqual(sampler.sample_shape, torch.Size([self.mc_samples]))
         self.assertEqual(sampler.seed, 1)
         self.assertEqual(kwargs["marginalize_dim"], 0)
-        self.assertEqual(kwargs["cache_root"], True)
+        self.assertIsNone(kwargs["cache_root"])
         # test with cache_root = False
         acqf = get_acquisition_function(
             acquisition_function_name=acqf_name,
@@ -358,7 +358,7 @@ class TestGetAcquisitionFunction(BotorchTestCase):
             X_pending=self.X_pending,
             prune_baseline=True,
             marginalize_dim=0,
-            cache_root=True,
+            cache_root=None,
             constraints=constraints,
             eta=eta,
         )
@@ -639,7 +639,7 @@ class TestGetAcquisitionFunction(BotorchTestCase):
             alpha=0.0,
             X_pending=self.X_pending,
             marginalize_dim=None,
-            cache_root=True,
+            cache_root=None,
         )
         args, kwargs = mock_acqf.call_args
         self.assertEqual(args, ())

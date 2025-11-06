@@ -33,7 +33,6 @@ from botorch.acquisition.analytic import (
 from botorch.acquisition.bayesian_active_learning import (
     qBayesianActiveLearningByDisagreement,
 )
-from botorch.acquisition.cached_cholesky import supports_cache_root
 from botorch.acquisition.cost_aware import InverseCostWeightedUtility
 from botorch.acquisition.fixed_feature import FixedFeatureAcquisitionFunction
 from botorch.acquisition.joint_entropy_search import qJointEntropySearch
@@ -711,7 +710,7 @@ def construct_inputs_qNEI(
     sampler: MCSampler | None = None,
     X_baseline: Tensor | None = None,
     prune_baseline: bool | None = True,
-    cache_root: bool | None = True,
+    cache_root: bool | None = None,
     constraints: list[Callable[[Tensor], Tensor]] | None = None,
     eta: Tensor | float = 1e-3,
 ) -> dict[str, Any]:
@@ -735,6 +734,10 @@ def construct_inputs_qNEI(
         prune_baseline: If True, remove points in `X_baseline` that are
             highly unlikely to be the best point. This can significantly
             improve performance and is generally recommended.
+        cache_root: A boolean indicating whether to cache the root
+            decomposition over `X_baseline` and use low-rank updates.
+            If None, will be set to True if the model supports it and False
+            otherwise.
         constraints: A list of constraint callables which map a Tensor of posterior
             samples of dimension `sample_shape x batch-shape x q x m`-dim to a
             `sample_shape x batch-shape x q`-dim Tensor. The associated constraints
@@ -825,8 +828,6 @@ def construct_inputs_qLogNEI(
     Returns:
         A dict mapping kwarg names of the constructor to values.
     """
-    if cache_root is None:
-        cache_root = supports_cache_root(model)
     return {
         **construct_inputs_qNEI(
             model=model,
@@ -1135,7 +1136,7 @@ def construct_inputs_qNEHVI(
     cache_pending: bool = True,
     max_iep: int = 0,
     incremental_nehvi: bool = True,
-    cache_root: bool = True,
+    cache_root: bool | None = None,
 ) -> dict[str, Any]:
     r"""Construct kwargs for `qNoisyExpectedHypervolumeImprovement`'s constructor."""
     if X_baseline is None:
@@ -1207,7 +1208,7 @@ def construct_inputs_qLogNEHVI(
     cache_pending: bool = True,
     max_iep: int = 0,
     incremental_nehvi: bool = True,
-    cache_root: bool = True,
+    cache_root: bool | None = None,
     tau_relu: float = TAU_RELU,
     tau_max: float = TAU_MAX,
 ) -> dict[str, Any]:
@@ -1250,7 +1251,7 @@ def construct_inputs_qLogNParEGO(
     sampler: MCSampler | None = None,
     X_baseline: Tensor | None = None,
     prune_baseline: bool | None = True,
-    cache_root: bool | None = True,
+    cache_root: bool | None = None,
     constraints: list[Callable[[Tensor], Tensor]] | None = None,
     eta: Tensor | float = 1e-3,
     fat: bool = True,

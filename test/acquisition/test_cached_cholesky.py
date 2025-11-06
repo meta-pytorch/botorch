@@ -32,7 +32,7 @@ class DummyCachedCholeskyAcqf(MCAcquisitionFunction, CachedCholeskyMCSamplerMixi
         model: Model,
         objective: MCAcquisitionObjective | None = None,
         sampler: MCSampler | None = None,
-        cache_root: bool = False,
+        cache_root: bool | None = None,
     ):
         """A dummy cached cholesky acquisition function."""
         MCAcquisitionFunction.__init__(self, model=model, objective=objective)
@@ -52,8 +52,10 @@ class TestCachedCholeskyMCSamplerMixin(BotorchTestCase):
         # basic test w/ invalid model.
         sampler = IIDNormalSampler(sample_shape=torch.Size([1]))
 
+        # Test None default with unsupported model - should disable caching
         acqf = DummyCachedCholeskyAcqf(model=mm, sampler=sampler)
-        self.assertFalse(acqf._cache_root)  # no cache by default
+        self.assertFalse(acqf._cache_root)
+        # Test explicit True with unsupported model - should warn and disable
         with self.assertWarnsRegex(RuntimeWarning, "cache_root"):
             acqf = DummyCachedCholeskyAcqf(model=mm, sampler=sampler, cache_root=True)
         self.assertFalse(acqf._cache_root)  # gets turned to False
@@ -72,6 +74,11 @@ class TestCachedCholeskyMCSamplerMixin(BotorchTestCase):
 
         # basic test w/ supported model.
         stgp = SingleTaskGP(torch.zeros(1, 1), torch.zeros(1, 1))
+        # Test None default with supported model - should auto-enable caching
+        acqf = DummyCachedCholeskyAcqf(model=stgp, sampler=sampler)
+        self.assertTrue(acqf._cache_root)
+        self.assertEqual(acqf.sampler, sampler)
+        # Test explicit True with supported model
         acqf = DummyCachedCholeskyAcqf(model=stgp, sampler=sampler, cache_root=True)
         self.assertTrue(acqf._cache_root)
         self.assertEqual(acqf.sampler, sampler)
