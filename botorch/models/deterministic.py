@@ -40,6 +40,12 @@ from torch import Size, Tensor
 class DeterministicModel(EnsembleModel):
     """Abstract base class for deterministic models."""
 
+    def _set_transformed_inputs(self):
+        """Overwrites the parent method to prevent raise of
+        warning "Could not update `train_inputs` with transformed inputs."
+        """
+        return None
+
     @abstractmethod
     def forward(self, X: Tensor) -> Tensor:
         r"""Compute the (deterministic) model output at X.

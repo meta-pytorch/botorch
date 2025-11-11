@@ -4,7 +4,6 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-import warnings
 
 import torch
 from botorch.acquisition.objective import ScalarizedPosteriorTransform
@@ -149,15 +148,11 @@ class TestDeterministicModels(BotorchTestCase):
         # check that the posterior output agrees with the manually transformed one
         test_X = torch.rand(3, dim)
         expected_Y, _ = octf.untransform(model.forward(intf(test_X)))
-        with warnings.catch_warnings(record=True) as ws:
-            posterior = model.posterior(test_X)
-            msg = "does not have a `train_inputs` attribute"
-            self.assertTrue(any(msg in str(w.message) for w in ws))
+        posterior = model.posterior(test_X)
         self.assertAllClose(expected_Y, posterior.mean)
-        # check that model.train/eval works and raises the warning
+        # check that model.train/eval works
         model.train()
-        with self.assertWarns(RuntimeWarning):
-            model.eval()
+        model.eval()
 
     def test_posterior_transform(self):
         def f(X):
