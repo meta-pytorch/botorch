@@ -344,6 +344,9 @@ class GPyTorchModel(Model, ABC):
                 exception is the ``requires_grad`` field of :class:`~torch.nn.Parameter`
                 for which the value from the module is preserved. Default: ``False``.
         """
+        if assign:
+            first_item = next(iter(state_dict.values()))
+            self.to(first_item)
         if not keep_transforms:
             super().load_state_dict(state_dict=state_dict, strict=strict, assign=assign)
             return
