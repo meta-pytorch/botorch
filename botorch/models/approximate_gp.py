@@ -113,7 +113,7 @@ class ApproximateGPyTorchModel(GPyTorchModel):
         super().__init__()
 
         self.model = (
-            _SingleTaskVariationalGP(num_outputs=num_outputs, *args, **kwargs)
+            _SingleTaskVariationalGP(*args, num_outputs=num_outputs, **kwargs)
             if model is None
             else model
         )
