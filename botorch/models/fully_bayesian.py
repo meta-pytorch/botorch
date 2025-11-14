@@ -645,8 +645,7 @@ class AbstractFullyBayesianSingleTaskGP(ExactGP, BatchedMultiOutputGPyTorchModel
         train_Yvar: Tensor | None = None,
         outcome_transform: OutcomeTransform | None = None,
         input_transform: InputTransform | None = None,
-        use_input_warping: bool = False,
-        indices_to_warp: list[int] = None,
+        pyro_model_kwargs: dict[str, Any] | None = None,
     ) -> None:
         r"""Initialize the fully Bayesian single-task GP model.
 
@@ -662,9 +661,8 @@ class AbstractFullyBayesianSingleTaskGP(ExactGP, BatchedMultiOutputGPyTorchModel
                 instantiation of the model.
             input_transform: An input transform that is applied in the model's
                 forward pass.
-            use_input_warping: A boolean indicating whether to use input warping.
-            indices_to_warp: An optional list of indices to warp. The default
-                is to warp all inputs.
+            pyro_model_kwargs: A dictionary of keyword arguments to pass to the
+                pyro model.
         """
         if not (
             train_X.ndim == train_Y.ndim == 2
@@ -704,10 +702,7 @@ class AbstractFullyBayesianSingleTaskGP(ExactGP, BatchedMultiOutputGPyTorchModel
         self.mean_module = None
         self.covar_module = None
         self.likelihood = None
-        self.pyro_model = self._pyro_model_class(
-            use_input_warping=use_input_warping,
-            indices_to_warp=indices_to_warp,
-        )
+        self.pyro_model = self._pyro_model_class(**(pyro_model_kwargs or {}))
         self.pyro_model.set_inputs(
             train_X=transformed_X, train_Y=train_Y, train_Yvar=train_Yvar
         )
