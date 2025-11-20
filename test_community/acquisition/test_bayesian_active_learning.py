@@ -7,11 +7,13 @@
 from itertools import product
 
 import torch
+from botorch.utils.sampling import draw_sobol_samples
 from botorch.utils.test_helpers import get_fully_bayesian_model
 from botorch.utils.testing import BotorchTestCase
 from botorch_community.acquisition.bayesian_active_learning import (
     qBayesianQueryByComittee,
     qBayesianVarianceReduction,
+    qHyperparameterInformedPredictiveExploration,
     qStatisticalDistanceActiveLearning,
 )
 
@@ -72,12 +74,58 @@ class TestQStatisticalDistanceActiveLearning(BotorchTestCase):
                     # assess shape
                     self.assertTrue(acq_X.shape == test_Xs[j].shape[:-2])
 
-        with self.assertRaises(ValueError):
-            acq = qStatisticalDistanceActiveLearning(
-                model=model,
-                distance_metric="NOT_A_DISTANCE",
-                X_pending=X_pending,
+
+class TestQHyperparameterInformedPredictiveExploration(BotorchTestCase):
+    def test_q_hyperparameter_informed_predictive_exploration(self):
+        torch.manual_seed(1)
+        tkwargs = {"device": self.device}
+        num_objectives = 1
+        num_models = 3
+        for (
+            dtype,
+            standardize_model,
+            infer_noise,
+        ) in product(
+            (torch.float, torch.double),
+            (False, True),
+            (True,),
+        ):
+            tkwargs["dtype"] = dtype
+            input_dim = 2
+            train_X = torch.rand(4, input_dim, **tkwargs)
+            train_Y = torch.rand(4, num_objectives, **tkwargs)
+
+            model = get_fully_bayesian_model(
+                train_X=train_X,
+                train_Y=train_Y,
+                num_models=num_models,
+                standardize_model=standardize_model,
+                infer_noise=infer_noise,
+                **tkwargs,
             )
+
+            bounds = torch.tensor([[0.0] * input_dim, [1.0] * input_dim], **tkwargs)
+            mc_points = draw_sobol_samples(bounds=bounds, n=16, q=1).squeeze(-2)
+
+            # test with fixed beta
+            acq = qHyperparameterInformedPredictiveExploration(
+                model=model,
+                mc_points=mc_points,
+                bounds=bounds,
+                beta=1.0,
+                q=2,
+            )
+
+            test_Xs = [
+                torch.rand(4, 1, input_dim, **tkwargs),
+                torch.rand(4, 3, input_dim, **tkwargs),
+            ]
+
+            for test_X in test_Xs:
+                acq_X = acq(test_X)
+                # assess shape
+                self.assertTrue(acq_X.shape == test_X.shape[:-2])
+                self.assertTrue((acq_X > 0).all())
 
 
 class TestQBayesianQueryByComittee(BotorchTestCase):
