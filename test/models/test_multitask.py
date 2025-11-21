@@ -14,6 +14,7 @@ from botorch.acquisition.objective import ScalarizedPosteriorTransform
 from botorch.exceptions import OptimizationWarning
 from botorch.exceptions.errors import UnsupportedError
 from botorch.fit import fit_gpytorch_mll
+from botorch.models.kernels.positive_index import PositiveIndexKernel
 from botorch.models.multitask import (
     get_task_value_remapping,
     KroneckerMultiTaskGP,
@@ -159,10 +160,12 @@ class TestMultiTaskGP(BotorchTestCase):
                 self.assertEqual(model.likelihood.noise.shape, torch.Size([2]))
                 self.assertEqual(model.likelihood.task_feature_index, 0)
             data_covar_module, task_covar_module = model.covar_module.kernels
-            self.assertIsInstance(model.mean_module, ConstantMean)
+            self.assertIsInstance(model.mean_module, MultitaskMean)
+            self.assertEqual(len(model.mean_module.base_means), 2)
+            self.assertIsInstance(model.mean_module.base_means[0], ConstantMean)
             self.assertIsInstance(data_covar_module, RBFKernel)
             self.assertIsInstance(data_covar_module.lengthscale_prior, LogNormalPrior)
-            self.assertIsInstance(task_covar_module, IndexKernel)
+            self.assertIsInstance(task_covar_module, PositiveIndexKernel)
             self.assertEqual(model._rank, 2)
             self.assertEqual(task_covar_module.covar_factor.shape[-1], model._rank)
             if task_values is None:
@@ -341,10 +344,12 @@ class TestMultiTaskGP(BotorchTestCase):
             self.assertIsInstance(model, MultiTaskGP)
             self.assertEqual(model.num_outputs, 1)
             self.assertIsInstance(model.likelihood, HadamardGaussianLikelihood)
-            self.assertIsInstance(model.mean_module, ConstantMean)
+            self.assertIsInstance(model.mean_module, MultitaskMean)
+            self.assertEqual(len(model.mean_module.base_means), 2)
+            self.assertIsInstance(model.mean_module.base_means[0], ConstantMean)
             self.assertIsInstance(data_covar_module, RBFKernel)
             self.assertIsInstance(data_covar_module.lengthscale_prior, LogNormalPrior)
-            self.assertIsInstance(task_covar_module, IndexKernel)
+            self.assertIsInstance(task_covar_module, PositiveIndexKernel)
             self.assertEqual(model._rank, 2)
             self.assertEqual(task_covar_module.covar_factor.shape[-1], model._rank)
 
@@ -379,7 +384,7 @@ class TestMultiTaskGP(BotorchTestCase):
             model = _gen_fixed_prior_model(**tkwargs)
             _, task_covar_module = model.covar_module.kernels
             self.assertIsInstance(model, MultiTaskGP)
-            self.assertIsInstance(task_covar_module, IndexKernel)
+            self.assertIsInstance(task_covar_module, PositiveIndexKernel)
             self.assertIsInstance(
                 task_covar_module.IndexKernelPrior, LKJCovariancePrior
             )
@@ -390,7 +395,7 @@ class TestMultiTaskGP(BotorchTestCase):
             model = _gen_given_covar_module_model(**tkwargs)
             self.assertIsInstance(model, MultiTaskGP)
             data_covar_module, task_covar_module = model.covar_module.kernels
-            self.assertIsInstance(task_covar_module, IndexKernel)
+            self.assertIsInstance(task_covar_module, PositiveIndexKernel)
             self.assertIsInstance(data_covar_module, RBFKernel)
             self.assertIsInstance(data_covar_module.lengthscale_prior, LogNormalPrior)
             self.assertAlmostEqual(data_covar_module.lengthscale_prior.loc, 0.0)
@@ -441,8 +446,8 @@ class TestMultiTaskGP(BotorchTestCase):
             train_X=train_X, train_Y=train_Y, task_feature=0, all_tasks=[0, 1, 2, 3]
         )
         self.assertEqual(model.num_tasks, 2)
-        # Check that IndexKernel knows of all tasks.
-        self.assertEqual(model.covar_module.kernels[1].raw_var.shape[-1], 2)
+        # Check that PositiveIndexKernel knows of all tasks.
+        self.assertEqual(model.covar_module.kernels[1].raw_covar_factor.shape[0], 2)
 
     def test_MultiTaskGP_construct_inputs(self) -> None:
         for dtype, fixed_noise, skip_task_features_in_datasets in zip(

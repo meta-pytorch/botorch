@@ -324,6 +324,55 @@ class TestGenCandidates(TestBaseCandidateGeneration):
         self.assertFalse(any(issubclass(w.category, OptimizationWarning) for w in ws))
         self.assertTrue("Optimization timed out" in logs.output[-1])
 
+    def test_gen_candidates_torch_optimizer_with_optimizer_args(self):
+        """Test that optimizer is created with correct args."""
+        self._setUp(double=False)
+        qEI = qExpectedImprovement(self.model, best_f=self.f_best)
+
+        # Test new structured API
+        with self.subTest(api="structured"):
+            # Create a mock optimizer class
+            mock_optimizer_class = mock.MagicMock()
+            mock_optimizer_instance = mock.MagicMock()
+            mock_optimizer_class.return_value = mock_optimizer_instance
+
+            gen_candidates_torch(
+                initial_conditions=self.initial_conditions,
+                acquisition_function=qEI,
+                lower_bounds=0,
+                upper_bounds=1,
+                optimizer=mock_optimizer_class,
+                options={
+                    "optimizer_options": {"lr": 0.02, "weight_decay": 1e-5},
+                    "stopping_criterion_options": {"maxiter": 1},
+                },
+            )
+
+            # Verify that the optimizer was called with the correct arguments
+            mock_optimizer_class.assert_called_once()
+            call_args = mock_optimizer_class.call_args
+            self.assertIn("params", call_args.kwargs)
+            self.assertEqual(call_args.kwargs["lr"], 0.02)
+            self.assertEqual(call_args.kwargs["weight_decay"], 1e-5)
+
+        # Test backward compatibility with old maxiter parameter
+        with self.subTest(api="backward_compat"):
+            with warnings.catch_warnings(record=True) as ws:
+                warnings.simplefilter("always", category=DeprecationWarning)
+                gen_candidates_torch(
+                    initial_conditions=self.initial_conditions,
+                    acquisition_function=qEI,
+                    lower_bounds=0,
+                    upper_bounds=1,
+                    options={"maxiter": 1},
+                )
+            # Verify deprecation warning was raised
+            deprecation_warnings = [
+                w for w in ws if issubclass(w.category, DeprecationWarning)
+            ]
+            self.assertTrue(len(deprecation_warnings) > 0)
+            self.assertIn("maxiter", str(deprecation_warnings[0].message))
+
     def test_gen_candidates_scipy_warns_opt_no_res(self):
         ckwargs = {"dtype": torch.float, "device": self.device}
 

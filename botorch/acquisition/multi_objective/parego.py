@@ -32,7 +32,7 @@ class qLogNParEGO(qLogNoisyExpectedImprovement, MultiObjectiveMCAcquisitionFunct
         eta: Tensor | float = 1e-3,
         fat: bool = True,
         prune_baseline: bool = False,
-        cache_root: bool = True,
+        cache_root: bool | None = None,
         tau_relu: float = TAU_RELU,
         tau_max: float = TAU_MAX,
         incremental: bool = True,

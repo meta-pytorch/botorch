@@ -2,6 +2,28 @@
 
 The release log for BoTorch.
 
+## [0.16.1] -- Nov 21, 2025
+
+#### New Features
+* New default parameterization for `MultiTaskGP` (#3049).
+  See discussion: https://github.com/meta-pytorch/botorch/discussions/3065
+  * Add `PositiveIndexKernel` (#3047).
+
+* Add `HeterogeneousMTGP` for transfer learning between different search spaces (#3073).
+
+#### Bug Fixes
+* Add missing int cast in `MCSampler` (#3062).
+* Fix shape error in `qNegIntegratedPosteriorVariance` (#3068).
+* Add taus to the model state dict for `EnsembleMapSaasSingleTaskGP` for consistency when loading state dict (#3069).
+* Fix confusing warning when using input transforms with deterministic models (#3078).
+
+
+#### Other Changes
+* Structure `options` arguments in `gen_candidates_torch` (#3019).
+* Set default `cache_root` based on whether the model supports it (#3075).
+* Use `nanmean` and `nanstd` in `Standardize` outcome transform (#3072).
+
+
 ## [0.16.0] -- Oct 23, 2025
 
 #### Compatibility

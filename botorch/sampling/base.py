@@ -60,7 +60,9 @@ class MCSampler(Module, ABC):
                 f"got {sample_shape}."
             )
         self.sample_shape = sample_shape
-        self.seed = seed if seed is not None else torch.randint(0, 1000000, (1,)).item()
+        self.seed = (
+            seed if seed is not None else int(torch.randint(0, 1000000, (1,)).item())
+        )
         self.register_buffer("base_samples", None)
 
     @abstractmethod

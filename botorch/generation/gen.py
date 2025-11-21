@@ -532,7 +532,10 @@ def gen_candidates_torch(
         optimizer (Optimizer): The pytorch optimizer to use to perform
             candidate search.
         options: Options used to control the optimization. Includes
-            maxiter: Maximum number of iterations
+
+            - optimizer_options: Dict of additional options to pass to the optimizer
+              (e.g. lr, weight_decay)
+            - stopping_criterion_options: Dict of options for the stopping criterion.
         callback: A callback function accepting the current iteration, loss,
             and gradients as arguments. This function is executed after computing
             the loss and gradients, but before calling the optimizer.
@@ -571,7 +574,6 @@ def gen_candidates_torch(
     # the 1st order optimizers implemented in this method.
     # Here, it does not matter whether one combines multiple optimizations into
     # one or not.
-    options.pop("max_optimization_problem_aggregation_size", None)
     _clamp = partial(columnwise_clamp, lower=lower_bounds, upper=upper_bounds)
     clamped_candidates = _clamp(initial_conditions)
     if fixed_features:
@@ -580,11 +582,30 @@ def gen_candidates_torch(
             [i for i in range(clamped_candidates.shape[-1]) if i not in fixed_features],
         ]
     clamped_candidates = clamped_candidates.requires_grad_(True)
-    _optimizer = optimizer(params=[clamped_candidates], lr=options.get("lr", 0.025))
+
+    # Extract optimizer-specific options from the options dict
+    optimizer_options = options.get("optimizer_options", {}).copy()
+    stopping_criterion_options = options.get("stopping_criterion_options", {}).copy()
+
+    # Backward compatibility: if old 'maxiter' parameter is passed, move it to
+    # stopping_criterion_options with a deprecation warning
+    if "maxiter" in options:
+        warnings.warn(
+            "Passing 'maxiter' directly in options is deprecated. "
+            "Please use options['stopping_criterion_options']['maxiter'] instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        # For backward compatibility, pass to stopping_criterion_options
+        if "maxiter" not in stopping_criterion_options:
+            stopping_criterion_options["maxiter"] = options["maxiter"]
+
+    optimizer_options.setdefault("lr", 0.025)
+    _optimizer = optimizer(params=[clamped_candidates], **optimizer_options)
 
     i = 0
     stop = False
-    stopping_criterion = ExpMAStoppingCriterion(**options)
+    stopping_criterion = ExpMAStoppingCriterion(**stopping_criterion_options)
     while not stop:
         i += 1
         with torch.no_grad():

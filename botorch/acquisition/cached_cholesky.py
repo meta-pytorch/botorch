@@ -71,7 +71,7 @@ class CachedCholeskyMCSamplerMixin(MCSamplerMixin):
     def __init__(
         self,
         model: Model,
-        cache_root: bool = False,
+        cache_root: bool | None = None,
         sampler: MCSampler | None = None,
     ) -> None:
         r"""Set class attributes and perform compatibility checks.
@@ -79,11 +79,14 @@ class CachedCholeskyMCSamplerMixin(MCSamplerMixin):
         Args:
             model: A model.
             cache_root: A boolean indicating whether to cache the Cholesky.
-                This might be overridden in the model is not compatible.
+                If None, will be set to True if the model supports it and False
+                otherwise.
             sampler: An optional MCSampler object.
         """
         MCSamplerMixin.__init__(self, sampler=sampler)
-        if cache_root and not supports_cache_root(model):
+        if cache_root is None:
+            cache_root = supports_cache_root(model)
+        elif cache_root and not supports_cache_root(model):
             warnings.warn(
                 _get_cache_root_not_supported_message(type(model)),
                 RuntimeWarning,

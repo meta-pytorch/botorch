@@ -152,7 +152,7 @@ def nanstd(X: Tensor, dim: int, keepdim: bool = False) -> Tensor:
         keepdim: If True, the dimension along which the standard deviation is
             compute is kept.
     """
-    n = (~torch.isnan(X)).sum(dim=dim)
+    n = (~torch.isnan(X)).sum(dim=dim, keepdim=keepdim)
     return (
         (X - X.nanmean(dim=dim, keepdim=True)).pow(2).nanmean(dim=dim, keepdim=keepdim)
         * n

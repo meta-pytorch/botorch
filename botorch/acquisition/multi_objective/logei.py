@@ -337,7 +337,7 @@ class qLogNoisyExpectedHypervolumeImprovement(
         cache_pending: bool = True,
         max_iep: int = 0,
         incremental_nehvi: bool = True,
-        cache_root: bool = True,
+        cache_root: bool | None = None,
         tau_relu: float = TAU_RELU,
         tau_max: float = 1e-3,  # TAU_MAX,
         fat: bool = True,

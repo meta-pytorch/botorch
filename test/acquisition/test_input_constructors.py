@@ -1313,7 +1313,7 @@ class TestMultiObjectiveAcquisitionFunctionInputConstructors(
         self.assertTrue(kwargs["cache_pending"])
         self.assertEqual(kwargs["max_iep"], 0)
         self.assertTrue(kwargs["incremental_nehvi"])
-        self.assertTrue(kwargs["cache_root"])
+        self.assertIsNone(kwargs["cache_root"])
 
         if acqf_class == qLogNoisyExpectedHypervolumeImprovement:
             self.assertEqual(kwargs["tau_relu"], TAU_RELU)

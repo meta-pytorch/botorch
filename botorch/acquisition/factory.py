@@ -13,7 +13,6 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import torch
-
 from botorch.acquisition import logei, monte_carlo
 from botorch.acquisition.multi_objective import (
     logei as moo_logei,
@@ -46,7 +45,7 @@ def get_acquisition_function(
     tau: float = 1e-3,
     prune_baseline: bool = True,
     marginalize_dim: int | None = None,
-    cache_root: bool = True,
+    cache_root: bool | None = None,
     beta: float | None = None,
     ref_point: None | list[float] | Tensor = None,
     Y: Tensor | None = None,

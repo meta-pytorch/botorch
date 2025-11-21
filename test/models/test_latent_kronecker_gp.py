@@ -311,33 +311,37 @@ class TestLatentKroneckerGP(BotorchTestCase):
                 torch.Size([]),
                 torch.Size([1]),
                 torch.Size([2, 3]),
+                None,
             ):
                 # test posterior.rsample
                 with warnings.catch_warnings():
                     warnings.filterwarnings("ignore", category=NumericalWarning)
                     pred_samples = posterior.rsample(sample_shape=sample_shape)
-                self.assertEqual(
-                    pred_samples.shape, torch.Size([*sample_shape, *pred_shape])
+                expected_sample_shape = (
+                    torch.Size([1]) if sample_shape is None else sample_shape
                 )
+                expected_shape = torch.Size([*expected_sample_shape, *pred_shape])
+                self.assertEqual(pred_samples.shape, expected_shape)
                 self.assertEqual(
                     pred_samples.shape,
-                    posterior._extended_shape(torch.Size(sample_shape)),
+                    posterior._extended_shape(torch.Size(expected_sample_shape)),
                 )
                 # test posterior.rsample_from_base_samples
                 base_samples = torch.randn(
-                    *sample_shape,
+                    *expected_sample_shape,
                     *posterior.base_sample_shape,
                     **tkwargs,
                 )
                 with warnings.catch_warnings():
                     warnings.filterwarnings("ignore", category=NumericalWarning)
                     pred_samples = posterior.rsample_from_base_samples(
-                        sample_shape, base_samples
+                        expected_sample_shape, base_samples
                     )
                 self.assertEqual(
-                    pred_samples.shape, torch.Size([*sample_shape, *pred_shape])
+                    pred_samples.shape,
+                    torch.Size([*expected_sample_shape, *pred_shape]),
                 )
-                if len(sample_shape) > 0:
+                if len(expected_sample_shape) > 0:
                     # test incorrect base sample shape
                     incorrect_base_samples = torch.randn(
                         5,
@@ -346,7 +350,7 @@ class TestLatentKroneckerGP(BotorchTestCase):
                     )
                     with self.assertRaises(RuntimeError):
                         posterior.rsample_from_base_samples(
-                            sample_shape, incorrect_base_samples
+                            expected_sample_shape, incorrect_base_samples
                         )
 
     def test_gp_eval_shapes_float_with_tf(self):

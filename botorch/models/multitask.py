@@ -36,6 +36,7 @@ import torch
 from botorch.acquisition.objective import PosteriorTransform
 from botorch.exceptions.errors import UnsupportedError
 from botorch.models.gpytorch import GPyTorchModel, MultiTaskGPyTorchModel
+from botorch.models.kernels.positive_index import PositiveIndexKernel
 from botorch.models.model import FantasizeMixin
 from botorch.models.transforms.input import InputTransform
 from botorch.models.transforms.outcome import OutcomeTransform, Standardize
@@ -52,7 +53,6 @@ from gpytorch.distributions.multitask_multivariate_normal import (
     MultitaskMultivariateNormal,
 )
 from gpytorch.distributions.multivariate_normal import MultivariateNormal
-from gpytorch.kernels.index_kernel import IndexKernel
 from gpytorch.kernels.multitask_kernel import MultitaskKernel
 from gpytorch.likelihoods.gaussian_likelihood import FixedNoiseGaussianLikelihood
 from gpytorch.likelihoods.hadamard_gaussian_likelihood import HadamardGaussianLikelihood
@@ -83,15 +83,58 @@ from linear_operator.operators import (
 from torch import Tensor
 
 
+def _compute_multitask_mean(
+    mean_module: Module,
+    x_before: Tensor,
+    task_idcs: Tensor,
+    x_after: Tensor,
+) -> Tensor:
+    """Helper function to compute mean for multi-task models.
+
+    This function handles both MultitaskMean and non-MultitaskMean cases.
+
+    Args:
+        mean_module: The mean module to use for computation.
+        x_before: Features before the task feature.
+        task_idcs: Task indices.
+        x_after: Features after the task feature.
+
+    Returns:
+        The computed mean tensor with shape [..., n].
+    """
+    if isinstance(mean_module, MultitaskMean):
+        # For MultitaskMean, include only non-task features since
+        # the output is going to be a [batch_shape] x n x num_tasks tensor.
+        # From there, we extract the appropriate task mean for each point
+        # according to task_idcs.
+        x_mean = torch.cat([x_before, x_after], dim=-1)
+        mean_x = mean_module(x_mean)
+        # Extract the appropriate task mean for each point
+        # mean_x has shape [batch_shape] x n after the gather
+        mean_x = mean_x.gather(-1, task_idcs.long()).squeeze(-1)
+    else:
+        # For non-MultitaskMean, include task indices in the input
+        x_mean = torch.cat([x_before, task_idcs, x_after], dim=-1)
+        # mean_x has shape [batch_shape] x n regardless
+        mean_x = mean_module(x_mean)
+    return mean_x
+
+
 class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
     r"""Multi-Task exact GP model using an ICM (intrinsic co-regionalization model)
     kernel. See [Bonilla2007MTGP]_ and [Swersky2013MTBO]_ for a reference on the
     model and its use in Bayesian optimization.
 
+    By default, this model uses a `PositiveIndexKernel` for the task covariance,
+    model and its use in Bayesian optimization. By default, The ICM kernel is
+    constrained to have only non-negative entries by using a `PositiveIndexKernel`
+    for the task covariance. The reason for this is that correlations are typically
+    positive and can be difficult to estimate accurately, especially with limited data.
+
     The model can be single-output or multi-output, determined by the `output_tasks`.
-    This model uses relatively strong priors on the base Kernel hyperparameters, which
+    This model uses dimension-scaled priors on the Kernel hyperparameters, which
     work best when covariates are normalized to the unit cube and outcomes are
-    standardized (zero mean, unit variance) - this standardization should be applied in
+    standardized (zero mean, unit variance). The standardization is applied in
     a stratified fashion at the level of the tasks, rather than across all data points.
 
     If the `train_Yvar` is None, this model infers the noise level. If you have
@@ -177,8 +220,9 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
             )
         self._validate_tensor_args(X=transformed_X, Y=train_Y, Yvar=train_Yvar)
 
-        # IndexKernel cannot work with negative task features, so we shift them to
-        # be positive here.
+        # PositiveIndexKernel cannot work with negative task feature indices, so we
+        # shift them to be positive here. This is about the column index, not the
+        # task correlations.
         if task_feature < 0:
             task_feature += transformed_X.shape[-1]
         (
@@ -237,7 +281,10 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
         super().__init__(
             train_inputs=train_X, train_targets=train_Y, likelihood=likelihood
         )
-        self.mean_module = mean_module or ConstantMean()
+        self.mean_module = mean_module or MultitaskMean(
+            base_means=ConstantMean(batch_shape=train_X.shape[:-2]),
+            num_tasks=self.num_tasks,
+        )
         if covar_module is None:
             data_covar_module = get_covar_module_with_dim_scaled_prior(
                 ard_num_dims=self.num_non_task_features,
@@ -254,10 +301,10 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
                 data_covar_module.active_dims = self._base_idxr
 
         self._rank = rank if rank is not None else self.num_tasks
-        task_covar_module = IndexKernel(
+        task_covar_module = PositiveIndexKernel(
             num_tasks=self.num_tasks,
             rank=self._rank,
-            prior=task_covar_prior,
+            task_prior=task_covar_prior,
             active_dims=[task_feature],
         )
 
@@ -349,9 +396,14 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
 
         # Get features before task feature, task indices, and features after task the
         # feature, with the feature mapping applied to the task indices.
-        x = torch.cat(self._split_inputs(x), dim=-1)
-        mean_x = self.mean_module(x)
-        covar_x = self.covar_module(x)
+        x_before, task_idcs, x_after = self._split_inputs(x)
+
+        # Compute mean using helper function
+        mean_x = _compute_multitask_mean(self.mean_module, x_before, task_idcs, x_after)
+
+        # For covariance, always include task indices
+        x_covar = torch.cat([x_before, task_idcs, x_after], dim=-1)
+        covar_x = self.covar_module(x_covar)
         return MultivariateNormal(mean_x, covar_x)
 
     @classmethod
