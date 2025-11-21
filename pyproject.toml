@@ -74,8 +74,8 @@ Homepage = "https://botorch.org"
 Documentation = "https://botorch.org"
 Repository = "https://github.com/meta-pytorch/botorch"
 
-[tool.setuptools.packages]
-find = {exclude = ["test", "test.*"]}
+[tool.setuptools]
+packages.find.exclude = ["test", "test.*", "test_community.*"]
 
 [tool.setuptools_scm]
 local_scheme = "node-and-date"
