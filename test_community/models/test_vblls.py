@@ -9,7 +9,6 @@ from unittest.mock import patch
 
 import numpy as np
 import torch
-
 from botorch.utils.testing import BotorchTestCase
 from botorch_community.models.blls import AbstractBLLModel
 from botorch_community.models.vblls import VBLLModel

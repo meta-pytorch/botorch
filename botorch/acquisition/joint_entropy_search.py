@@ -40,7 +40,6 @@ from botorch.utils.transforms import (
     t_batch_mode_transform,
 )
 from torch import Tensor
-
 from torch.distributions import Normal
 
 MCMC_DIM = -3  # Only relevant if you do Fully Bayesian GPs.

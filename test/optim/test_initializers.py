@@ -241,11 +241,14 @@ class TestGenBatchInitialCandidates(BotorchTestCase):
             bounds = bounds.to(device=self.device, dtype=dtype)
             mock_acqf.X_baseline = bounds  # for testing sample_around_best
             mock_acqf.model = MockModel(MockPosterior(mean=bounds[:, :1]))
-            with mock.patch.object(
-                MockAcquisitionFunction,
-                "__call__",
-                wraps=mock_acqf.__call__,
-            ) as mock_acqf_call, warnings.catch_warnings():
+            with (
+                mock.patch.object(
+                    MockAcquisitionFunction,
+                    "__call__",
+                    wraps=mock_acqf.__call__,
+                ) as mock_acqf_call,
+                warnings.catch_warnings(),
+            ):
                 warnings.simplefilter("ignore", category=BadInitialCandidatesWarning)
                 batch_initial_conditions = gen_batch_initial_conditions(
                     acq_function=mock_acqf,
@@ -318,11 +321,14 @@ class TestGenBatchInitialCandidates(BotorchTestCase):
             bounds = bounds.to(device=self.device, dtype=dtype)
             mock_acqf.X_baseline = bounds  # for testing sample_around_best
             mock_acqf.model = MockModel(MockPosterior(mean=bounds[:, :1]))
-            with mock.patch.object(
-                MockAcquisitionFunction,
-                "__call__",
-                wraps=mock_acqf.__call__,
-            ) as mock_acqf_call, warnings.catch_warnings():
+            with (
+                mock.patch.object(
+                    MockAcquisitionFunction,
+                    "__call__",
+                    wraps=mock_acqf.__call__,
+                ) as mock_acqf_call,
+                warnings.catch_warnings(),
+            ):
                 warnings.simplefilter("ignore", category=BadInitialCandidatesWarning)
                 options = {
                     "topn": topn,
@@ -421,12 +427,15 @@ class TestGenBatchInitialCandidates(BotorchTestCase):
         for dtype in (torch.float, torch.double):
             bounds = torch.tensor([[0, 0], [1, 1]], device=self.device, dtype=dtype)
             samples = torch.zeros(10, 1, 2, device=self.device, dtype=dtype)
-            with self.assertWarnsRegex(
-                expected_warning=BadInitialCandidatesWarning,
-                expected_regex="Unable to find non-zero acquisition",
-            ), mock.patch(
-                "botorch.optim.initializers.draw_sobol_samples",
-                return_value=samples,
+            with (
+                self.assertWarnsRegex(
+                    expected_warning=BadInitialCandidatesWarning,
+                    expected_regex="Unable to find non-zero acquisition",
+                ),
+                mock.patch(
+                    "botorch.optim.initializers.draw_sobol_samples",
+                    return_value=samples,
+                ),
             ):
                 batch_initial_conditions = gen_batch_initial_conditions(
                     acq_function=MockAcquisitionFunction(),
@@ -677,11 +686,14 @@ class TestGenBatchInitialCandidates(BotorchTestCase):
                 [True, False], [None, 1234], [None, 1], [None, {0: 0.5}]
             ):
                 mock_acqf = MockAcquisitionFunction()
-                with mock.patch.object(
-                    MockAcquisitionFunction,
-                    "__call__",
-                    wraps=mock_acqf.__call__,
-                ) as mock_acqf_call, warnings.catch_warnings():
+                with (
+                    mock.patch.object(
+                        MockAcquisitionFunction,
+                        "__call__",
+                        wraps=mock_acqf.__call__,
+                    ) as mock_acqf_call,
+                    warnings.catch_warnings(),
+                ):
                     warnings.simplefilter(
                         "ignore", category=BadInitialCandidatesWarning
                     )
@@ -856,11 +868,14 @@ class TestGenBatchInitialCandidates(BotorchTestCase):
                         return X_rnd
 
                 mock_acqf = MockAcquisitionFunction()
-                with mock.patch.object(
-                    MockAcquisitionFunction,
-                    "__call__",
-                    wraps=mock_acqf.__call__,
-                ), warnings.catch_warnings():
+                with (
+                    mock.patch.object(
+                        MockAcquisitionFunction,
+                        "__call__",
+                        wraps=mock_acqf.__call__,
+                    ),
+                    warnings.catch_warnings(),
+                ):
                     warnings.simplefilter(
                         "ignore", category=BadInitialCandidatesWarning
                     )
@@ -1061,13 +1076,14 @@ class TestGenOneShotKGInitialConditions(BotorchTestCase):
                         )
                     ]
                 }
-                with self.subTest(
-                    f"intra-point {constraint_type} not supported"
-                ), self.assertRaisesRegex(
-                    NotImplementedError,
-                    "Indices must be one-dimensional "
-                    "in gen_one_shot_kg_initial_conditions. "
-                    "Received indices",
+                with (
+                    self.subTest(f"intra-point {constraint_type} not supported"),
+                    self.assertRaisesRegex(
+                        NotImplementedError,
+                        "Indices must be one-dimensional "
+                        "in gen_one_shot_kg_initial_conditions. "
+                        "Received indices",
+                    ),
                 ):
                     gen_one_shot_kg_initial_conditions(
                         acq_function=mock_kg,

@@ -26,7 +26,6 @@ without having to do too many expensive high-fidelity evaluations.
 from __future__ import annotations
 
 from collections.abc import Sequence
-
 from typing import Any
 
 import torch
