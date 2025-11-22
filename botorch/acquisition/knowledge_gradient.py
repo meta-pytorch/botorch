@@ -226,7 +226,7 @@ class qKnowledgeGradient(MCAcquisitionFunction, OneShotAcquisitionFunction):
             kwargs: Additional keyword arguments. This includes the options for
                 optimization of the inner problem, i.e. `num_restarts`, `raw_samples`,
                 an `options` dictionary to be passed on to the optimization helpers, and
-                a `scipy_options` dictionary to be passed to `scipy.optimize.minimize`.
+                a `scipy_options` dictionary to be passed to `scipy.minimize`.
 
         Returns:
             A Tensor of shape `b`. For t-batch b, the q-KG value of the design

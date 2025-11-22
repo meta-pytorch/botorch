@@ -109,7 +109,7 @@ def make_scipy_linear_constraints(
     Returns:
         A list of dictionaries containing callables for constraint function
         values and Jacobians and a string indicating the associated constraint
-        type ("eq", "ineq"), as expected by `scipy.optimize.minimize`.
+        type ("eq", "ineq"), as expected by `scipy.minimize`.
 
     This function assumes that constraints are the same for each input batch,
     and broadcasts the constraints accordingly to the input batch shape. This
@@ -240,7 +240,7 @@ def _make_linear_constraints(
     shapeX: torch.Size,
     eq: bool = False,
 ) -> list[ScipyConstraintDict]:
-    r"""Create linear constraints to be used by `scipy.optimize.minimize`.
+    r"""Create linear constraints to be used by `scipy.minimize`.
 
     Encodes constraints of the form
     `\sum_i (coefficients[i] * X[..., indices[i]]) ? rhs`
@@ -335,7 +335,7 @@ def _make_linear_constraints(
 def _make_nonlinear_constraints(
     f_np_wrapper: Callable, nlc: Callable, is_intrapoint: bool, shapeX: torch.Size
 ) -> list[ScipyConstraintDict]:
-    """Create nonlinear constraints to be used by `scipy.optimize.minimize`.
+    """Create nonlinear constraints to be used by `scipy.minimize`.
 
     Args:
         f_np_wrapper: A wrapper function that given a constraint evaluates
@@ -598,7 +598,7 @@ def make_scipy_nonlinear_inequality_constraints(
     Returns:
         A list of dictionaries containing callables for constraint function
         values and Jacobians and a string indicating the associated constraint
-        type ("eq", "ineq"), as expected by `scipy.optimize.minimize`.
+        type ("eq", "ineq"), as expected by `scipy.minimize`.
     """
 
     scipy_nonlinear_inequality_constraints = []
