@@ -16,7 +16,6 @@ from botorch.acquisition.objective import (
     PosteriorTransform,
     ScalarizedPosteriorTransform,
 )
-
 from botorch.exceptions.errors import UnsupportedError
 from botorch.models.model import Model
 from botorch.utils.transforms import (

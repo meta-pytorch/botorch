@@ -11,15 +11,12 @@ Helpers for handling input or outcome constraints.
 from __future__ import annotations
 
 import math
-
 from collections.abc import Callable
-
 from functools import partial
 
 import torch
 from gpytorch import settings
 from gpytorch.constraints import Interval
-
 from torch import Tensor
 
 

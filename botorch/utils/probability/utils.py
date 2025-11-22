@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Iterable, Iterator
-
 from functools import lru_cache
 from math import pi
 from numbers import Number

@@ -9,7 +9,6 @@ from __future__ import annotations
 import itertools
 
 import numpy as np
-
 import torch
 from botorch.utils.probability import ndtr, utils
 from botorch.utils.probability.utils import (

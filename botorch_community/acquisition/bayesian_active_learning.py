@@ -45,7 +45,6 @@ from botorch.utils.transforms import (
     concatenate_pending_points,
     t_batch_mode_transform,
 )
-
 from botorch_community.utils.stat_dist import mvn_hellinger_distance, mvn_kl_divergence
 from torch import Tensor
 
@@ -139,7 +138,7 @@ class qStatisticalDistanceActiveLearning(FullyBayesianAcquisitionFunction):
         # the default number of MC samples (512) are too many when doing FB modeling.
         if distance_metric not in DISTANCE_METRICS.keys():
             raise ValueError(
-                f"Distance metric need to be one of " f"{list(DISTANCE_METRICS.keys())}"
+                f"Distance metric need to be one of {list(DISTANCE_METRICS.keys())}"
             )
         self.distance = DISTANCE_METRICS[distance_metric]
 

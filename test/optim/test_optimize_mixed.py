@@ -1477,9 +1477,12 @@ class TestOptimizeAcqfMixed(BotorchTestCase):
             return X
 
         # The key test is that this call doesn't error out.
-        with mock.patch(
-            "botorch.optim.optimize_mixed._optimize_acqf", wraps=_optimize_acqf
-        ) as mock_opt, warnings.catch_warnings(record=True) as ws:
+        with (
+            mock.patch(
+                "botorch.optim.optimize_mixed._optimize_acqf", wraps=_optimize_acqf
+            ) as mock_opt,
+            warnings.catch_warnings(record=True) as ws,
+        ):
             X, _ = generate_starting_points(
                 opt_inputs=_make_opt_inputs(
                     acq_function=qLogNoisyExpectedImprovement(

@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-
 from warnings import warn
 
 import torch

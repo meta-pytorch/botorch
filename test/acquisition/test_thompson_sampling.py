@@ -5,7 +5,6 @@
 # LICENSE file in the root directory of this source tree.
 
 from itertools import product
-
 from unittest import mock
 from unittest.mock import PropertyMock
 

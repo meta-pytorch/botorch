@@ -342,7 +342,7 @@ class TestFidelityUtils(BotorchTestCase):
             self.assertTrue(torch.equal(X_proj[..., :, [0]], 0.1 * ones))
             self.assertTrue(torch.equal(X_proj[..., :, [2]], 0.5 * ones))
             # test unexpected shape
-            msg = "X must have a last dimension with size `d` or `d-d_f`," " but got 3."
+            msg = "X must have a last dimension with size `d` or `d-d_f`, but got 3."
             with self.assertRaisesRegex(BotorchTensorDimensionError, msg):
                 project_to_target_fidelity(
                     X[..., :3], target_fidelities=target_fids, d=4

@@ -194,12 +194,14 @@ class TestCachedCholeskyMCSamplerMixin(BotorchTestCase):
                     base_samples = torch.rand(1, 5, 1, **tkwargs)
                     acqf.sampler.base_samples = base_samples
                     acqf._baseline_L = baseline_L
-                    with mock.patch(
-                        "botorch.acquisition.cached_cholesky.sample_cached_cholesky",
-                        side_effect=error_cls,
-                    ) as mock_sample_cached_cholesky, warnings.catch_warnings(
-                        record=True
-                    ) as ws:
+                    with (
+                        mock.patch(
+                            "botorch.acquisition.cached_cholesky."
+                            "sample_cached_cholesky",
+                            side_effect=error_cls,
+                        ) as mock_sample_cached_cholesky,
+                        warnings.catch_warnings(record=True) as ws,
+                    ):
                         samples = acqf._get_f_X_samples(posterior=posterior, q_in=q)
                     mock_sample_cached_cholesky.assert_called_once_with(
                         posterior=posterior,

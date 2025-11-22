@@ -46,7 +46,6 @@ from gpytorch.means import ConstantMean
 from gpytorch.models import ExactGP, IndependentModelList
 from gpytorch.settings import trace_mode
 from torch import Tensor
-
 from torch.nn.functional import one_hot
 
 

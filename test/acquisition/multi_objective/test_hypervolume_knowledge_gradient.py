@@ -9,7 +9,6 @@ from itertools import product
 from unittest import mock
 
 import numpy as np
-
 import torch
 from botorch.acquisition.cost_aware import (
     GenericCostAwareUtility,
@@ -197,11 +196,12 @@ class TestHypervolumeKnowledgeGradient(BotorchTestCase):
             else:
                 mf_kwargs = {}
 
-            with mock.patch.object(
-                ModelListGP, "fantasize", return_value=mfm
-            ) as patch_f, mock.patch(
-                NO, new_callable=mock.PropertyMock
-            ) as mock_num_outputs:
+            with (
+                mock.patch.object(
+                    ModelListGP, "fantasize", return_value=mfm
+                ) as patch_f,
+                mock.patch(NO, new_callable=mock.PropertyMock) as mock_num_outputs,
+            ):
                 mock_num_outputs.return_value = 2
                 qHVKG = acqf_class(
                     model=model,
@@ -235,11 +235,12 @@ class TestHypervolumeKnowledgeGradient(BotorchTestCase):
             variance = torch.rand(n_f, b, num_pareto, 2, **tkwargs)
             mfm = MockModel(MockPosterior(mean=mean, variance=variance))
             X = torch.rand(b, n_f * num_pareto + 1, 1, **tkwargs)
-            with mock.patch.object(
-                ModelListGP, "fantasize", return_value=mfm
-            ) as patch_f, mock.patch(
-                NO, new_callable=mock.PropertyMock
-            ) as mock_num_outputs:
+            with (
+                mock.patch.object(
+                    ModelListGP, "fantasize", return_value=mfm
+                ) as patch_f,
+                mock.patch(NO, new_callable=mock.PropertyMock) as mock_num_outputs,
+            ):
                 mock_num_outputs.return_value = 2
                 qHVKG = acqf_class(
                     model=model,
@@ -288,11 +289,12 @@ class TestHypervolumeKnowledgeGradient(BotorchTestCase):
                 cost_model=GenericDeterministicModel(cost_fn, num_outputs=2),
                 log=log_ehvi,
             )
-            with mock.patch.object(
-                ModelListGP, "fantasize", return_value=mfm
-            ) as patch_f, mock.patch(
-                NO, new_callable=mock.PropertyMock
-            ) as mock_num_outputs:
+            with (
+                mock.patch.object(
+                    ModelListGP, "fantasize", return_value=mfm
+                ) as patch_f,
+                mock.patch(NO, new_callable=mock.PropertyMock) as mock_num_outputs,
+            ):
                 mock_num_outputs.return_value = 2
                 qHVKG = acqf_class(
                     model=model,
@@ -342,11 +344,12 @@ class TestHypervolumeKnowledgeGradient(BotorchTestCase):
                     cost_model=GenericDeterministicModel(cost_fn, num_outputs=2),
                     log=False,
                 )
-                with mock.patch.object(
-                    ModelListGP, "fantasize", return_value=mfm
-                ) as patch_f, mock.patch(
-                    NO, new_callable=mock.PropertyMock
-                ) as mock_num_outputs:
+                with (
+                    mock.patch.object(
+                        ModelListGP, "fantasize", return_value=mfm
+                    ) as patch_f,
+                    mock.patch(NO, new_callable=mock.PropertyMock) as mock_num_outputs,
+                ):
                     mock_num_outputs.return_value = 2
                     qHVKG = acqf_class(
                         model=model,
@@ -371,11 +374,12 @@ class TestHypervolumeKnowledgeGradient(BotorchTestCase):
                 cost_aware_utility = GenericCostAwareUtility(
                     cost=GenericDeterministicModel(cost_fn, num_outputs=2),
                 )
-                with mock.patch.object(
-                    ModelListGP, "fantasize", return_value=mfm
-                ) as patch_f, mock.patch(
-                    NO, new_callable=mock.PropertyMock
-                ) as mock_num_outputs:
+                with (
+                    mock.patch.object(
+                        ModelListGP, "fantasize", return_value=mfm
+                    ) as patch_f,
+                    mock.patch(NO, new_callable=mock.PropertyMock) as mock_num_outputs,
+                ):
                     mock_num_outputs.return_value = 2
                     qHVKG = acqf_class(
                         model=model,
@@ -407,11 +411,14 @@ class TestHypervolumeKnowledgeGradient(BotorchTestCase):
                     "hypervolume_knowledge_gradient._get_hv_value_function",
                     wraps=_get_hv_value_function,
                 ) as mock_get_value_func:
-                    with mock.patch.object(
-                        ModelListGP, "fantasize", return_value=mfm
-                    ) as patch_f, mock.patch(
-                        NO, new_callable=mock.PropertyMock
-                    ) as mock_num_outputs:
+                    with (
+                        mock.patch.object(
+                            ModelListGP, "fantasize", return_value=mfm
+                        ) as patch_f,
+                        mock.patch(
+                            NO, new_callable=mock.PropertyMock
+                        ) as mock_num_outputs,
+                    ):
                         mock_num_outputs.return_value = 2
                         qHVKG = acqf_class(
                             model=model,
@@ -454,11 +461,15 @@ class TestHypervolumeKnowledgeGradient(BotorchTestCase):
                 X = torch.rand(n_f * num_pareto + 1, 1, **tkwargs)
 
                 for use_posterior_mean in (True, False):
-                    with mock.patch.object(
-                        ModelListGP, "fantasize", return_value=mfm
-                    ) as patch_f, mock.patch(
-                        NO, new_callable=mock.PropertyMock
-                    ) as mock_num_outputs, warnings.catch_warnings(record=True) as ws:
+                    with (
+                        mock.patch.object(
+                            ModelListGP, "fantasize", return_value=mfm
+                        ) as patch_f,
+                        mock.patch(
+                            NO, new_callable=mock.PropertyMock
+                        ) as mock_num_outputs,
+                        warnings.catch_warnings(record=True) as ws,
+                    ):
                         mock_num_outputs.return_value = 3
                         qHVKG = acqf_class(
                             model=model,

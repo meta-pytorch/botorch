@@ -32,7 +32,6 @@ from botorch.acquisition.monte_carlo import (
 from botorch.acquisition.multi_objective.logei import (
     qLogNoisyExpectedHypervolumeImprovement,
 )
-
 from botorch.acquisition.objective import (
     ConstrainedMCObjective,
     GenericMCObjective,
