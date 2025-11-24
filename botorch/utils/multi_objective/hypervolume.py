@@ -658,9 +658,9 @@ class NoisyExpectedHypervolumeMixin(CachedCholeskyMCSamplerMixin):
         r"""Compute hypervolume dominated by f(X_baseline) under each sample.
 
         Args:
-            obj: A `sample_shape x batch_shape x n x m`-dim tensor of samples
+            obj: A `(sample_shape * batch_shape) x n x m`-dim tensor of samples
                 of objectives.
-            feas: `sample_shape x batch_shape x n`-dim tensor of samples
+            feas: `(sample_shape * batch_shape) x n`-dim tensor of samples
                 of feasibility indicators.
         """
         initial_hvs = []
@@ -676,7 +676,7 @@ class NoisyExpectedHypervolumeMixin(CachedCholeskyMCSamplerMixin):
         self.register_buffer(
             "_initial_hvs",
             torch.tensor(initial_hvs, dtype=obj.dtype, device=obj.device).view(
-                self._batch_sample_shape, *obj.shape[-2:]
+                self._batch_sample_shape
             ),
         )
 

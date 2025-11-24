@@ -1013,6 +1013,9 @@ class TestQNoisyExpectedHypervolumeImprovement(BotorchTestCase):
             # test _initial_hvs
             if not incremental_nehvi:
                 self.assertTrue(hasattr(acqf, "_initial_hvs"))
+                # test that _initial_hvs has the correct shape
+                self.assertEqual(acqf._initial_hvs.shape, acqf._batch_sample_shape)
+                # test that _initial_hvs contains the correct hypervolume values
                 self.assertTrue(torch.equal(acqf._initial_hvs, initial_hv.view(-1)))
             # test forward
             X_test = torch.rand(1, 1, dtype=dtype, device=self.device)
