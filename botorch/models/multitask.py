@@ -134,7 +134,7 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
     The model can be single-output or multi-output, determined by the `output_tasks`.
     This model uses dimension-scaled priors on the Kernel hyperparameters, which
     work best when covariates are normalized to the unit cube and outcomes are
-    standardized (zero mean, unit variance). The standardization is applied in
+    standardized (zero mean, unit variance). The standardization should be applied in
     a stratified fashion at the level of the tasks, rather than across all data points.
 
     If the `train_Yvar` is None, this model infers the noise level. If you have
