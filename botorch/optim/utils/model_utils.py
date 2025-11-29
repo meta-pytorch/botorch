@@ -9,7 +9,6 @@ r"""Utilities for fitting and manipulating models."""
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
-
 from re import Pattern
 from typing import Any, NamedTuple
 from warnings import warn

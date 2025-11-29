@@ -14,7 +14,6 @@ from __future__ import annotations
 import math
 from collections.abc import Callable
 from functools import reduce
-
 from random import randint
 from unittest import mock
 from unittest.mock import MagicMock
@@ -54,7 +53,6 @@ from botorch.acquisition.knowledge_gradient import (
     qKnowledgeGradient,
     qMultiFidelityKnowledgeGradient,
 )
-
 from botorch.acquisition.logei import (
     qLogExpectedImprovement,
     qLogNoisyExpectedImprovement,
@@ -83,7 +81,6 @@ from botorch.acquisition.multi_objective.hypervolume_knowledge_gradient import (
     qHypervolumeKnowledgeGradient,
     qMultiFidelityHypervolumeKnowledgeGradient,
 )
-
 from botorch.acquisition.multi_objective.logei import (
     qLogExpectedHypervolumeImprovement,
     qLogNoisyExpectedHypervolumeImprovement,
@@ -716,8 +713,7 @@ class TestMCAcquisitionFunctionInputConstructors(InputConstructorBaseTestCase):
         # test that constraints on multiple outcomes raises an exception
         with self.assertRaisesRegex(
             BotorchError,
-            "LogProbabilityOfFeasibility only support constraints on single"
-            " outcomes.",
+            "LogProbabilityOfFeasibility only support constraints on single outcomes.",
         ):
             c(
                 model=mock_model,
