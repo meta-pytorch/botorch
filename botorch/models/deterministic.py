@@ -289,10 +289,15 @@ class MatheronPathModel(DeterministicModel):
         self.model = model
 
         # Validate model compatibility
-        if isinstance(model, ModelList) and len(model.models) != model.num_outputs:
-            raise UnsupportedError(
-                "A model-list of multi-output models is not supported."
-            )
+        if isinstance(model, ModelList):
+            # Check if any model in the list is multi-output
+            # Use _num_outputs which doesn't include batch dimensions
+            for m in model.models:
+                num_outs = getattr(m, "_num_outputs", getattr(m, "num_outputs", 1))
+                if num_outs > 1:
+                    raise UnsupportedError(
+                        "A model-list of multi-output models is not supported."
+                    )
 
         # Initialize path generation parameters
         self.sample_shape = Size() if sample_shape is None else sample_shape
@@ -328,7 +333,11 @@ class MatheronPathModel(DeterministicModel):
             return self._path(X).unsqueeze(-1)
         elif isinstance(self.model, ModelList):
             # For model list, stack the path outputs
-            return torch.stack(self._path(X), dim=-1)
+            path_outputs = self._path(X)
+            if len(path_outputs) == 0:
+                # Handle empty model list
+                return torch.empty(X.shape[0], 0, device=X.device, dtype=X.dtype)
+            return torch.stack(path_outputs, dim=-1)
         else:
             # For multi-output models
             return self._path(X.unsqueeze(-3)).transpose(-1, -2)

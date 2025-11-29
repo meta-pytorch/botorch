@@ -1,0 +1,180 @@
+#!/usr/bin/env python3
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+#
+# This source code is licensed under the MIT license found in the
+# LICENSE file in the root directory of this source tree.
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from typing import Any, Iterable
+
+import torch
+from botorch.models.transforms.outcome import OutcomeTransform
+from gpytorch.kernels import ScaleKernel
+from gpytorch.kernels.kernel import Kernel
+from torch import LongTensor, Tensor
+from torch.nn import Module, ModuleList
+
+
+class TensorTransform(ABC, Module):
+    r"""Abstract base class for transforms that map tensor to tensor."""
+
+    @abstractmethod
+    def forward(self, values: Tensor, **kwargs: Any) -> Tensor:
+        pass  # pragma: no cover
+
+
+class ChainedTransform(TensorTransform):
+    r"""A composition of TensorTransforms."""
+
+    def __init__(self, *transforms: TensorTransform):
+        r"""Initializes a ChainedTransform instance.
+
+        Args:
+            transforms: A set of transforms to be applied from right to left.
+        """
+        super().__init__()
+        self.transforms = ModuleList(transforms)
+
+    def forward(self, values: Tensor) -> Tensor:
+        for transform in reversed(self.transforms):
+            values = transform(values)
+        return values
+
+
+class ConstantMulTransform(TensorTransform):
+    r"""A transform that multiplies by a constant."""
+
+    def __init__(self, constant: Tensor):
+        r"""Initializes a ConstantMulTransform instance.
+
+        Args:
+            constant: Multiplicative constant.
+        """
+        super().__init__()
+        self.register_buffer("constant", torch.as_tensor(constant))
+
+    def forward(self, values: Tensor) -> Tensor:
+        return self.constant * values
+
+
+class CosineTransform(TensorTransform):
+    r"""A transform that returns cosine features."""
+
+    def forward(self, values: Tensor) -> Tensor:
+        return values.cos()
+
+
+class SineCosineTransform(TensorTransform):
+    r"""A transform that returns concatenated sine and cosine features."""
+
+    def __init__(self, scale: Tensor | None = None):
+        """Initialize SineCosineTransform with optional scaling.
+
+        Args:
+            scale: Optional tensor to scale the transform output
+        """
+        super().__init__()
+        self.register_buffer(
+            "scale", torch.as_tensor(scale) if scale is not None else None
+        )
+
+    def forward(self, values: Tensor) -> Tensor:
+        sincos = torch.concat([values.sin(), values.cos()], dim=-1)
+        return sincos if self.scale is None else self.scale * sincos
+
+
+class InverseLengthscaleTransform(TensorTransform):
+    r"""A transform that divides its inputs by a kernel's lengthscales."""
+
+    def __init__(self, kernel: Kernel):
+        r"""Initializes an InverseLengthscaleTransform instance.
+
+        Args:
+            kernel: The kernel whose lengthscales are to be used.
+        """
+        if not kernel.has_lengthscale:
+            raise RuntimeError(f"{type(kernel)} does not implement `lengthscale`.")
+
+        super().__init__()
+        self.kernel = kernel
+
+    def forward(self, values: Tensor) -> Tensor:
+        return self.kernel.lengthscale.reciprocal() * values
+
+
+class OutputscaleTransform(TensorTransform):
+    r"""A transform that multiplies its inputs by the square root of a
+    kernel's outputscale."""
+
+    def __init__(self, kernel: ScaleKernel):
+        r"""Initializes an OutputscaleTransform instance.
+
+        Args:
+            kernel: A ScaleKernel whose `outputscale` is to be used.
+        """
+        super().__init__()
+        self.kernel = kernel
+
+    def forward(self, values: Tensor) -> Tensor:
+        outputscale = (
+            self.kernel.outputscale[..., None, None]
+            if self.kernel.batch_shape
+            else self.kernel.outputscale
+        )
+        return outputscale.sqrt() * values
+
+
+class FeatureSelector(TensorTransform):
+    r"""A transform that returns a subset of its input's features
+    along a given tensor dimension."""
+
+    def __init__(self, indices: Iterable[int], dim: int | LongTensor = -1):
+        r"""Initializes a FeatureSelector instance.
+
+        Args:
+            indices: A LongTensor of feature indices.
+            dim: The dimensional along which to index features.
+        """
+        super().__init__()
+        self.register_buffer("dim", dim if torch.is_tensor(dim) else torch.tensor(dim))
+        self.register_buffer(
+            "indices", indices if torch.is_tensor(indices) else torch.tensor(indices)
+        )
+
+    def forward(self, values: Tensor) -> Tensor:
+        return values.index_select(dim=self.dim, index=self.indices)
+
+
+class OutcomeUntransformer(TensorTransform):
+    r"""Module acting as a bridge for `OutcomeTransform.untransform`."""
+
+    def __init__(
+        self,
+        transform: OutcomeTransform,
+        num_outputs: int | LongTensor,
+    ):
+        r"""Initializes an OutcomeUntransformer instance.
+
+        Args:
+            transform: The wrapped OutcomeTransform instance.
+            num_outputs: The number of outcome features that the
+                OutcomeTransform transforms.
+        """
+        super().__init__()
+        self.transform = transform
+        self.register_buffer(
+            "num_outputs",
+            num_outputs if torch.is_tensor(num_outputs) else torch.tensor(num_outputs),
+        )
+
+    def forward(self, values: Tensor) -> Tensor:
+        # OutcomeTransforms expect an explicit output dimension in the final position.
+        if self.num_outputs == 1:  # BoTorch has suppressed the output dimension
+            output_values, _ = self.transform.untransform(values.unsqueeze(-1))
+            return output_values.squeeze(-1)
+
+        # BoTorch has moved the output dimension inside as the final batch dimension.
+        output_values, _ = self.transform.untransform(values.transpose(-2, -1))
+        return output_values.transpose(-2, -1)
