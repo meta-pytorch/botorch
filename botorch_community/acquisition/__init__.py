@@ -6,6 +6,7 @@
 from botorch_community.acquisition.bayesian_active_learning import (
     qBayesianQueryByComittee,
     qBayesianVarianceReduction,
+    qHyperparameterInformedPredictiveExploration,
     qStatisticalDistanceActiveLearning,
 )
 
@@ -23,6 +24,7 @@ __all__ = [
     "LogRegionalExpectedImprovement",
     "qBayesianQueryByComittee",
     "qBayesianVarianceReduction",
+    "qHyperparameterInformedPredictiveExploration",
     "qLogRegionalExpectedImprovement",
     "qSelfCorrectingBayesianOptimization",
     "qStatisticalDistanceActiveLearning",
