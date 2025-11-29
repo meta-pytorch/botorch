@@ -581,6 +581,7 @@ class ModelList(Model):
         state_dict: Mapping[str, Any],
         strict: bool = True,
         keep_transforms: bool = True,
+        assign: bool = False,
     ) -> None:
         """Initialize the fully Bayesian models before loading the state dict."""
         for i, m in enumerate(self.models):
@@ -589,7 +590,7 @@ class ModelList(Model):
                 for k, v in state_dict.items()
                 if k.startswith(f"models.{i}.")
             }
-            m.load_state_dict(filtered_dict, strict=strict)
+            m.load_state_dict(filtered_dict, strict=strict, assign=assign)
 
     def fantasize(
         self,
