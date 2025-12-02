@@ -12,7 +12,6 @@ Monte-Carlo sampling.
 from __future__ import annotations
 
 import math
-
 from abc import ABC, abstractmethod
 from contextlib import nullcontext
 from copy import deepcopy

@@ -27,7 +27,6 @@ from botorch.acquisition.acquisition import (
     AcquisitionFunction,
     OneShotAcquisitionFunction,
 )
-
 from botorch.acquisition.cost_aware import CostAwareUtility
 from botorch.acquisition.decoupled import DecoupledAcquisitionFunction
 from botorch.acquisition.knowledge_gradient import ProjectedAcquisitionFunction

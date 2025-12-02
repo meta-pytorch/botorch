@@ -11,7 +11,6 @@ from botorch.models.kernels.contextual_lcea import (
     is_contiguous,
     LCEAKernel,
 )
-
 from botorch.models.kernels.contextual_sac import SACKernel
 from botorch.utils.testing import BotorchTestCase
 from gpytorch.kernels.rbf_kernel import RBFKernel

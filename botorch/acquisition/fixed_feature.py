@@ -12,7 +12,6 @@ This is useful e.g. for performing contextual optimization.
 from __future__ import annotations
 
 from collections.abc import Sequence
-
 from numbers import Number
 
 import torch
