@@ -1005,10 +1005,12 @@ def sparse_to_dense_constraints(
 def optimize_posterior_samples(
     paths: GenericDeterministicModel,
     bounds: Tensor,
-    raw_samples: int = 1024,
-    num_restarts: int = 20,
+    raw_samples: int = 2048,
+    num_restarts: int = 4,
     sample_transform: Callable[[Tensor], Tensor] | None = None,
     return_transformed: bool = False,
+    suggested_points: Tensor | None = None,
+    options: dict | None = None,
 ) -> tuple[Tensor, Tensor]:
     r"""Cheaply maximizes posterior samples by random querying followed by
     gradient-based optimization using SciPy's L-BFGS-B routine.
@@ -1017,12 +1019,19 @@ def optimize_posterior_samples(
         paths: Random Fourier Feature-based sample paths from the GP
         bounds: The bounds on the search space.
         raw_samples: The number of samples with which to query the samples initially.
+            Raw samples are cheap to evaluate, so this should ideally be set much higher
+            than num_restarts.
         num_restarts: The number of points selected for gradient-based optimization.
+            Should be set low relative to the number of raw samples for time-efficiency.
         sample_transform: A callable transform of the sample outputs (e.g.
             MCAcquisitionObjective or ScalarizedPosteriorTransform.evaluate) used to
             negate the objective or otherwise transform the output.
         return_transformed: A boolean indicating whether to return the transformed
             or non-transformed samples.
+        suggested_points: Tensor of suggested input locations that are high-valued.
+            These are more densely evaluated during the sampling phase of optimization.
+        options: Options for generation of initial candidates, passed to
+            gen_batch_initial_conditions.
 
     Returns:
         A two-element tuple containing:
@@ -1030,6 +1039,7 @@ def optimize_posterior_samples(
             - f_opt: A `num_optima x [batch_size] x m`-dim, optionally
                 `num_optima x [batch_size] x 1`-dim,  tensor of optimal outputs f*.
     """
+    options = {} if options is None else options
 
     def path_func(x) -> Tensor:
         res = paths(x)
@@ -1038,21 +1048,35 @@ def optimize_posterior_samples(
 
         return res.squeeze(-1)
 
-    candidate_set = unnormalize(
-        SobolEngine(dimension=bounds.shape[1], scramble=True).draw(n=raw_samples),
-        bounds=bounds,
-    )
     # queries all samples on all candidates - output shape
     # raw_samples x num_optima x num_models
+    frac_random = 1 if suggested_points is None else options.get("frac_random", 0.9)
+    candidate_set = draw_sobol_samples(
+        bounds=bounds, n=round(raw_samples * frac_random), q=1
+    ).squeeze(-2)
+    if frac_random < 1:
+        perturbed_suggestions = sample_truncated_normal_perturbations(
+            X=suggested_points,
+            n_discrete_points=round(raw_samples * (1 - frac_random)),
+            sigma=options.get("sample_around_best_sigma", 1e-2),
+            bounds=bounds,
+        )
+        candidate_set = torch.cat((candidate_set, perturbed_suggestions))
+
     candidate_queries = path_func(candidate_set)
-    argtop_k = torch.topk(candidate_queries, num_restarts, dim=-1).indices
-    X_top_k = candidate_set[argtop_k, :]
+    idx = boltzmann_sample(
+        function_values=candidate_queries.unsqueeze(-1),
+        num_samples=num_restarts,
+        eta=options.get("eta", 2.0),
+        replacement=False,
+    )
+    ics = candidate_set[idx, :]
 
     # to avoid circular import, the import occurs here
     from botorch.generation.gen import gen_candidates_scipy
 
     X_top_k, f_top_k = gen_candidates_scipy(
-        X_top_k,
+        ics,
         path_func,
         lower_bounds=bounds[0],
         upper_bounds=bounds[1],
@@ -1108,8 +1132,9 @@ def boltzmann_sample(
         eta *= temp_decrease
         weights = torch.exp(eta * norm_weights)
 
+    # squeeze in case of m = 1 (mono-output provided as batch_size x N x 1)
     return batched_multinomial(
-        weights=weights, num_samples=num_samples, replacement=replacement
+        weights=weights.squeeze(-1), num_samples=num_samples, replacement=replacement
     )
 
 
