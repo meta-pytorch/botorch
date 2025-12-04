@@ -8,7 +8,7 @@ import math
 import warnings
 
 import torch
-from botorch.acquisition import ExpectedImprovement, qExpectedImprovement
+from botorch.acquisition import LogExpectedImprovement, qLogExpectedImprovement
 from botorch.exceptions.warnings import OptimizationWarning
 from botorch.fit import fit_gpytorch_mll
 from botorch.models.gp_regression import SingleTaskGP
@@ -71,12 +71,12 @@ class TestEndToEnd(BotorchTestCase):
                 max_attempts=1,
             )
 
-    def test_qEI(self):
+    def test_qLogEI(self):
         for double in (True, False):
             self._setUp(double=double)
-            qEI = qExpectedImprovement(self.model_st, best_f=0.0)
+            qLogEI = qLogExpectedImprovement(self.model_st, best_f=0.0)
             candidates, _ = optimize_acqf(
-                acq_function=qEI,
+                acq_function=qLogEI,
                 bounds=self.bounds,
                 q=3,
                 num_restarts=10,
@@ -85,9 +85,9 @@ class TestEndToEnd(BotorchTestCase):
             )
             self.assertTrue(torch.all(-EPS <= candidates))
             self.assertTrue(torch.all(candidates <= 1 + EPS))
-            qEI = qExpectedImprovement(self.model_fn, best_f=0.0)
+            qLogEI = qLogExpectedImprovement(self.model_fn, best_f=0.0)
             candidates, _ = optimize_acqf(
-                acq_function=qEI,
+                acq_function=qLogEI,
                 bounds=self.bounds,
                 q=3,
                 num_restarts=10,
@@ -97,7 +97,7 @@ class TestEndToEnd(BotorchTestCase):
             self.assertTrue(torch.all(-EPS <= candidates))
             self.assertTrue(torch.all(candidates <= 1 + EPS))
             candidates_batch_limit, _ = optimize_acqf(
-                acq_function=qEI,
+                acq_function=qLogEI,
                 bounds=self.bounds,
                 q=3,
                 num_restarts=10,
@@ -107,12 +107,12 @@ class TestEndToEnd(BotorchTestCase):
             self.assertTrue(torch.all(-EPS <= candidates_batch_limit))
             self.assertTrue(torch.all(candidates_batch_limit <= 1 + EPS))
 
-    def test_EI(self):
+    def test_LogEI(self):
         for double in (True, False):
             self._setUp(double=double)
-            EI = ExpectedImprovement(self.model_st, best_f=0.0)
+            LogEI = LogExpectedImprovement(self.model_st, best_f=0.0)
             candidates, _ = optimize_acqf(
-                acq_function=EI,
+                acq_function=LogEI,
                 bounds=self.bounds,
                 q=1,
                 num_restarts=10,
@@ -120,9 +120,9 @@ class TestEndToEnd(BotorchTestCase):
                 options={"maxiter": 5},
             )
             self.assertTrue(-EPS <= candidates <= 1 + EPS)
-            EI = ExpectedImprovement(self.model_fn, best_f=0.0)
+            LogEI = LogExpectedImprovement(self.model_fn, best_f=0.0)
             candidates, _ = optimize_acqf(
-                acq_function=EI,
+                acq_function=LogEI,
                 bounds=self.bounds,
                 q=1,
                 num_restarts=10,
