@@ -1452,8 +1452,8 @@ class FilterFeatures(InputTransform):
         r"""Filter features from a model.
 
         Args:
-            feature_set: An one-dim tensor denoting the indices of the features to be
-                kept and fed to the model.
+            feature_indices: An one-dim tensor denoting the indices of the features to
+                be kept and fed to the model.
             transform_on_train: A boolean indicating whether to apply the
                 transforms in train() mode. Default: True.
             transform_on_eval: A boolean indicating whether to apply the
