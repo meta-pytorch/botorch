@@ -154,6 +154,15 @@ evaluate and optimize each random restart in parallel.
 In order to optimize the $r$ acquisition functions using gradient information,
 the acquisition values of the $r$ random restarts are summed before
 back-propagating.
+Note that convergence slows down at each random restart when sharing
+(quasi Newton-based) acquisition function optimizer states, as claimed by
+[^Irie2026], so the optimizer states are decoupled across random restarts.
+
+[^Irie2026]:
+    I. Couckuyt, D. Deschrijver and T. Dhaene. Towards Efficient Multiobjective
+    Optimization: Multiobjective statistical criterions. Workshop on AI to
+    Accelerate Science and Engineering at AAAI, Singapore, 2026.
+    [paper](https://arxiv.org/abs/2511.13625)
 
 #### Batched Cross Validation
 See the
