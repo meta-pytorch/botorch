@@ -14,6 +14,11 @@ References
     2012 IEEE Congress on Evolutionary Computation, Brisbane, QLD, 2012,
     pp. 1-8.
 
+.. [Watanabe2025]
+    S. Watanabe. "Approximation of Box Decomposition Algorithm for Fast
+    Hypervolume-Based Multi-Objective Optimization," arXiv preprint
+    arXiv:2512.05825. 2025.
+
 """
 
 from __future__ import annotations
@@ -46,7 +51,7 @@ class NondominatedPartitioning(BoxDecomposition):
     faster. The `alpha` is a fraction of the total hypervolume encapsuling the
     entire Pareto set. When a hypercell's volume divided by the total hypervolume
     is less than `alpha`, we discard the hypercell. See Figure 2 in
-    [Couckuyt2012]_ for a visual representation.
+    [Watanabe2025]_ for a visual representation.
 
     This PyTorch implementation of the binary partitioning algorithm ([Couckuyt2012]_)
     is adapted from numpy/tensorflow implementation at:

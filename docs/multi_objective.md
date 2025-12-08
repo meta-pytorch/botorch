@@ -70,7 +70,7 @@ Pareto frontier for the minimization problem, and [Lacour17]_ is applied again
 to partition the space dominated by that Pareto frontier. Approximate box
 decompositions are also supported using the algorithm from [^Couckuyt2012]. See
 Appendix F.4 in [^qEHVI] for an analysis of approximate vs exact box
-decompositions with EHVI. These box decompositions (approximate or exact) can
+decompositions with EHVI, and [^Watanabe2025] for the algorithm details. These box decompositions (approximate or exact) can
 also be used to efficiently compute hypervolumes.
 
 Additionally, variations on ParEGO can be trivially implemented using an
@@ -124,3 +124,8 @@ convenience function generates these scalarizations.
     Optimization: Multiobjective statistical criterions. IEEE Congress on
     Evolutionary Computation, Brisbane, QLD, 2012.
     [paper](https://ieeexplore.ieee.org/document/6256586)
+
+[^Watanabe2025]:
+    S. Watanabe. Approximation of Box Decomposition Algorithm for Fast
+    Hypervolume-Based Multi-Objective Optimization. arXiv preprint arXiv:2512.05825. 2025.
+    [paper](https://arxiv.org/abs/2512.05825)
