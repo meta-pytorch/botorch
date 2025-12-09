@@ -17,6 +17,7 @@ from botorch.exceptions.errors import UnsupportedError
 from botorch.fit import fit_gpytorch_mll
 from botorch.models.gpytorch import GPyTorchModel
 from botorch.models.multitask import MultiTaskGP
+from botorch.posteriors.fully_bayesian import GaussianMixturePosterior
 from botorch.posteriors.gpytorch import GPyTorchPosterior
 from gpytorch.distributions import MultitaskMultivariateNormal, MultivariateNormal
 from gpytorch.likelihoods import FixedNoiseGaussianLikelihood
@@ -218,6 +219,72 @@ def batch_cross_validation(
         observed_Y=cv_folds.test_Y,
         observed_Yvar=cv_folds.test_Yvar,
     )
+
+
+def loo_cv(model: GPyTorchModel, observation_noise: bool = True) -> CVResults:
+    r"""Compute efficient Leave-One-Out cross-validation for a GP model.
+
+    This is a high-level convenience function that automatically dispatches to
+    the appropriate LOO CV implementation based on the model type:
+
+    - For ensemble models (``_is_ensemble=True``): Uses ``ensemble_loo_cv`` which
+      returns a ``GaussianMixturePosterior`` with both per-member and mixture
+      statistics.
+    - For standard GP models: Uses ``efficient_loo_cv`` which returns a
+      ``GPyTorchPosterior`` with the LOO predictive distributions.
+
+    Both implementations use efficient O(n³) matrix algebra rather than the
+    naive O(n⁴) approach of refitting models for each fold.
+
+    NOTE: This function does not refit the model to each LOO fold. The model
+    hyperparameters are kept fixed, providing a fast approximation to full
+    LOO CV. For models where hyperparameter changes are significant, consider
+    using ``batch_cross_validation`` instead.
+
+    Args:
+        model: A fitted GPyTorchModel. The model type determines which LOO CV
+            implementation is used.
+        observation_noise: If True (default), return the posterior
+            predictive variance (including observation noise). If False,
+            return the posterior variance of the latent function (excluding
+            observation noise). The posterior variance is computed by
+            subtracting the observation noise from the posterior predictive
+            variance.
+
+    Returns:
+        CVResults: A named tuple containing:
+            - model: The fitted GP model.
+            - posterior: The LOO predictive distributions. For ensemble models,
+              this is a ``GaussianMixturePosterior``; otherwise, it's a
+              ``GPyTorchPosterior``.
+            - observed_Y: The observed Y values.
+            - observed_Yvar: The observed noise variances (if applicable).
+
+    Example:
+        >>> import torch
+        >>> from botorch.cross_validation import loo_cv
+        >>> from botorch.models import SingleTaskGP
+        >>> from botorch.fit import fit_gpytorch_mll
+        >>> from gpytorch.mlls import ExactMarginalLogLikelihood
+        >>>
+        >>> train_X = torch.rand(20, 2, dtype=torch.float64)
+        >>> train_Y = torch.sin(train_X).sum(dim=-1, keepdim=True)
+        >>> model = SingleTaskGP(train_X, train_Y)
+        >>> mll = ExactMarginalLogLikelihood(model.likelihood, model)
+        >>> fit_gpytorch_mll(mll)
+        >>> loo_results = loo_cv(model)
+        >>> loo_results.posterior.mean.shape
+        torch.Size([20, 1, 1])
+
+    See Also:
+        - ``efficient_loo_cv``: Direct access to the standard GP implementation.
+        - ``ensemble_loo_cv``: Direct access to the ensemble model implementation.
+        - ``batch_cross_validation``: Full LOO CV with model refitting.
+    """
+    if getattr(model, "_is_ensemble", False):
+        return ensemble_loo_cv(model, observation_noise=observation_noise)
+    else:
+        return efficient_loo_cv(model, observation_noise=observation_noise)
 
 
 def efficient_loo_cv(
@@ -562,3 +629,247 @@ def _reshape_to_loo_cv_format(tensor: Tensor, num_outputs: int) -> Tensor:
     else:
         # Single-output: n -> n x 1 -> n x 1 x 1
         return tensor.unsqueeze(-1).unsqueeze(-1)
+
+
+def ensemble_loo_cv(
+    model: GPyTorchModel,
+    observation_noise: bool = True,
+) -> CVResults:
+    r"""Compute efficient LOO cross-validation for ensemble models.
+
+    This function computes Leave-One-Out cross-validation for ensemble models
+    like `SaasFullyBayesianSingleTaskGP`. For these models, the `forward` method
+    returns a `MultivariateNormal` with a batch dimension containing statistics
+    for all models in the ensemble.
+
+    The LOO predictions from each ensemble member form a Gaussian mixture.
+    This function returns a `CVResults` with a `GaussianMixturePosterior` that
+    provides both per-member statistics (via `posterior.mean` and
+    `posterior.variance`) and aggregated mixture statistics (via
+    `posterior.mixture_mean` and `posterior.mixture_variance`).
+
+    The mixture statistics are computed using the law of total variance:
+
+    .. math::
+
+        \mu_{mix} = \frac{1}{K} \sum_{k=1}^{K} \mu_k
+
+        \sigma^2_{mix} = \frac{1}{K} \sum_{k=1}^{K} \sigma^2_k +
+            \frac{1}{K} \sum_{k=1}^{K} \mu_k^2 - \mu_{mix}^2
+
+    where K is the number of ensemble members.
+
+    NOTE: This function assumes the model has already been fitted (e.g., using
+    `fit_fully_bayesian_model_nuts`) and that the model is an ensemble model
+    with `_is_ensemble = True`.
+
+    Args:
+        model: A ensemble GPyTorchModel (e.g., SaasFullyBayesianSingleTaskGP)
+            whose `forward` method returns a `MultivariateNormal` distribution
+            with a batch dimension for ensemble members.
+        observation_noise: If True (default), return the posterior
+            predictive variance (including observation noise). If False,
+            return the posterior variance of the latent function (excluding
+            observation noise).
+
+    Returns:
+        CVResults: A named tuple containing:
+            - model: The fitted ensemble GP model.
+            - posterior: A `GaussianMixturePosterior` with per-member shape
+              ``n x num_models x 1 x 1``. Access per-member statistics via
+              ``posterior.mean`` and ``posterior.variance``, and mixture
+              statistics via ``posterior.mixture_mean`` and
+              ``posterior.mixture_variance``.
+            - observed_Y: The observed Y values with shape ``n x 1 x 1``.
+            - observed_Yvar: The observed noise variances (if provided).
+
+    Example:
+        >>> import torch
+        >>> from botorch.cross_validation import ensemble_loo_cv
+        >>> from botorch.models.fully_bayesian import SaasFullyBayesianSingleTaskGP
+        >>> from botorch.models.fully_bayesian import fit_fully_bayesian_model_nuts
+        >>>
+        >>> train_X = torch.rand(20, 2, dtype=torch.float64)
+        >>> train_Y = torch.sin(train_X).sum(dim=-1, keepdim=True)
+        >>> model = SaasFullyBayesianSingleTaskGP(train_X, train_Y)
+        >>> fit_fully_bayesian_model_nuts(model, warmup_steps=64, num_samples=32)
+        >>> loo_results = ensemble_loo_cv(model)
+        >>> loo_results.posterior.mean.shape  # Per-member means
+        torch.Size([20, 32, 1, 1])
+        >>> loo_results.posterior.mixture_mean.shape  # Aggregated mixture mean
+        torch.Size([20, 1, 1])
+    """
+    # Check that this is an ensemble model
+    if not getattr(model, "_is_ensemble", False):
+        raise UnsupportedError(
+            "ensemble_loo_cv requires an ensemble model (with _is_ensemble=True). "
+            f"Got model of type {type(model).__name__}. "
+            "For non-ensemble models, use efficient_loo_cv instead."
+        )
+
+    # Compute raw LOO predictions
+    # For ensemble models, shapes are: num_models x n x 1
+    loo_mean, loo_variance, train_Y = _compute_loo_predictions(
+        model, observation_noise=observation_noise
+    )
+
+    # Validate that we have the expected batch dimension for ensemble
+    if loo_mean.dim() < 3:
+        raise UnsupportedError(
+            "Expected ensemble model to produce batched LOO results with shape "
+            f"(batch_shape x num_models x n x 1), but got shape {loo_mean.shape}."
+        )
+
+    # Get the number of outputs
+    num_outputs = getattr(model, "_num_outputs", 1)
+
+    # Build the GaussianMixturePosterior
+    posterior = _build_ensemble_loo_posterior(
+        loo_mean=loo_mean, loo_variance=loo_variance, num_outputs=num_outputs
+    )
+
+    # Extract observed data (first ensemble member) and reshape to LOO CV format
+    observed_Y, observed_Yvar = _get_ensemble_observed_data(
+        model=model, train_Y=train_Y, num_outputs=num_outputs
+    )
+
+    return CVResults(
+        model=model,
+        posterior=posterior,
+        observed_Y=observed_Y,
+        observed_Yvar=observed_Yvar,
+    )
+
+
+def _build_ensemble_loo_posterior(
+    loo_mean: Tensor,
+    loo_variance: Tensor,
+    num_outputs: int,
+) -> GaussianMixturePosterior:
+    r"""Build a GaussianMixturePosterior from raw ensemble LOO predictions.
+
+    This function takes raw LOO means and variances from an ensemble model
+    (computed by `_compute_loo_predictions`) and packages them into a
+    GaussianMixturePosterior that provides both per-member and mixture statistics.
+
+    Args:
+        loo_mean: LOO means with shape ``batch_shape x num_models x n x 1``
+            (single-output) or ``batch_shape x num_models x m x n x 1``
+            (multi-output).
+        loo_variance: LOO variances with same shape as loo_mean.
+        num_outputs: Number of outputs (m). 1 for single-output models.
+
+    Returns:
+        GaussianMixturePosterior with shape ``batch_shape x n x num_models x 1 x m``.
+        The num_models dimension is at MCMC_DIM=-3.
+    """
+    # Normalize shapes: add m=1 dimension for single-output to match multi-output
+    if num_outputs == 1:
+        # Single-output: ... x num_models x n x 1 -> ... x num_models x 1 x n x 1
+        loo_mean = loo_mean.unsqueeze(-3)
+        loo_variance = loo_variance.unsqueeze(-3)
+
+    # Now both cases have shape: ... x num_models x m x n x 1
+    # Transform to target shape: ... x n x num_models x 1 x m
+    # 1. squeeze(-1): ... x num_models x m x n
+    # 2. movedim(-1, -3): ... x n x num_models x m (move n before num_models)
+    # 3. unsqueeze(-2): ... x n x num_models x 1 x m
+    loo_mean = loo_mean.squeeze(-1).movedim(-1, -3).unsqueeze(-2)
+    loo_variance = loo_variance.squeeze(-1).movedim(-1, -3).unsqueeze(-2)
+
+    # Create distribution: iterate over outputs to create independent MVNs
+    # After indexing with [..., t], shape is: batch_shape x n x num_models x 1
+    mvns = [
+        MultivariateNormal(
+            mean=loo_mean[..., t],
+            covariance_matrix=DiagLinearOperator(loo_variance[..., t]),
+        )
+        for t in range(num_outputs)
+    ]
+
+    if num_outputs > 1:
+        mvn = MultitaskMultivariateNormal.from_independent_mvns(mvns=mvns)
+    else:
+        mvn = mvns[0]
+
+    return GaussianMixturePosterior(distribution=mvn)
+
+
+def _get_ensemble_observed_data(
+    model: GPyTorchModel,
+    train_Y: Tensor,
+    num_outputs: int,
+) -> tuple[Tensor, Tensor | None]:
+    r"""Extract observed data from an ensemble model for LOO CV.
+
+    Extracts the first ensemble member's training targets and observation noise,
+    verifies all members share the same data, and reshapes to LOO CV format.
+
+    Args:
+        model: The ensemble GP model.
+        train_Y: Training targets with shape ``... x num_models x n`` (single-output)
+            or ``... x num_models x m x n`` (multi-output).
+        num_outputs: Number of outputs (m).
+
+    Returns:
+        (observed_Y, observed_Yvar) with shape ``... x n x 1 x m``.
+
+    Raises:
+        UnsupportedError: If ensemble members have different training data.
+    """
+    # num_models is at dim -2 for single-output, -3 for multi-output
+    num_models_dim = -2 if num_outputs == 1 else -3
+
+    # Verify all ensemble members share the same training data
+    _verify_ensemble_data_consistency(train_Y, num_models_dim, "train_Y")
+
+    # Extract first ensemble member's data (they're all the same)
+    train_Y_first = train_Y.select(num_models_dim, 0)
+    observed_Y = _reshape_to_loo_cv_format(train_Y_first, num_outputs)
+
+    # Get observed Yvar if available (for fixed noise models)
+    observed_Yvar = None
+    if isinstance(model.likelihood, FixedNoiseGaussianLikelihood):
+        noise = model.likelihood.noise
+        # Noise has the same shape structure as train_Y
+        # Verify consistency and extract first member
+        if noise.dim() > 1:
+            _verify_ensemble_data_consistency(
+                noise, num_models_dim, "observation noise"
+            )
+            noise = noise.select(num_models_dim, 0)
+        observed_Yvar = _reshape_to_loo_cv_format(noise, num_outputs)
+
+    return observed_Y, observed_Yvar
+
+
+def _verify_ensemble_data_consistency(
+    tensor: Tensor,
+    num_models_dim: int,
+    tensor_name: str,
+) -> None:
+    r"""Verify all ensemble members have identical data along ``num_models_dim``.
+
+    Args:
+        tensor: Data tensor with a num_models dimension.
+        num_models_dim: Dimension index for num_models (typically -2 or -3).
+        tensor_name: Name for error messages (e.g., "train_Y").
+
+    Raises:
+        UnsupportedError: If data differs across ensemble members.
+    """
+    num_models = tensor.shape[num_models_dim]
+    if num_models <= 1:
+        return
+
+    first_member = tensor.select(num_models_dim, 0)
+    first_expanded = first_member.unsqueeze(num_models_dim).expand_as(tensor)
+
+    if not torch.allclose(tensor, first_expanded):
+        raise UnsupportedError(
+            f"Ensemble members have different {tensor_name}. "
+            "ensemble_loo_cv only supports ensembles where all members share the "
+            "same training data (e.g., fully Bayesian models with MCMC samples). "
+            "For ensembles with different data per member, cross-validate each "
+            "member individually using efficient_loo_cv."
+        )
