@@ -151,17 +151,13 @@ starting points. To efficiently optimize an acquisition function for a $q$-batch
 of candidate points using $r$ random restarts, BoTorch uses batched
 evaluation on a $r \times q \times d$ set of candidate points to independently
 evaluate and optimize each random restart in parallel.
-In order to optimize the $r$ acquisition functions using gradient information,
-the acquisition values of the $r$ random restarts are summed before
-back-propagating.
-Note that convergence slows down at each random restart when sharing
-(quasi Newton-based) acquisition function optimizer states, as claimed by
-[^Irie2026], so the optimizer states are decoupled across random restarts.
+By default, optimization states are decoupled across the restarts to avoid
+slowdowns in convergence (see e.g., [^Irie2026]).
 
 [^Irie2026]:
-    I. Couckuyt, D. Deschrijver and T. Dhaene. Towards Efficient Multiobjective
-    Optimization: Multiobjective statistical criterions. Workshop on AI to
-    Accelerate Science and Engineering at AAAI, Singapore, 2026.
+    K. Irie, S. Watanabe and M. Onishi. Batch Acquisition Function Evaluations
+    and Decouple Optimizer Updates for Faster Bayesian Optimization. Workshop on
+    AI to Accelerate Science and Engineering at AAAI, Singapore, 2026.
     [paper](https://arxiv.org/abs/2511.13625)
 
 #### Batched Cross Validation
