@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 import gpytorch
 import torch
+from botorch.cross_validation import efficient_loo_cv
 from botorch.exceptions.errors import UnsupportedError
 from botorch.exceptions.warnings import InputDataWarning
 from botorch.fit import fit_gpytorch_mll
@@ -29,6 +30,7 @@ from botorch.models.relevance_pursuit import (
     get_posterior_over_support,
     RelevancePursuitMixin,
 )
+
 from botorch.models.robust_relevance_pursuit_model import (
     FRACTIONS_OF_OUTLIERS,
     RobustRelevancePursuitSingleTaskGP,
@@ -732,3 +734,52 @@ class TestRobustGP(BotorchTestCase):
         # after num_seeds has been exhausted, the evaluation will error.
         with self.assertRaises(StopIteration):
             f(X)
+
+    def test_efficient_loo_cv(self) -> None:
+        """Test that efficient_loo_cv works with RobustRelevancePursuitSingleTaskGP."""
+        n = 10
+        train_X = torch.rand(n, 2, dtype=torch.float64)
+        train_Y = (
+            torch.sin(train_X[:, :1]) + torch.randn(n, 1, dtype=torch.float64) * 0.1
+        )
+        model = RobustRelevancePursuitSingleTaskGP(train_X, train_Y)
+
+        # Test both observation_noise=True and observation_noise=False
+        prev_variance = None
+        for observation_noise in [True, False]:
+            with self.subTest(observation_noise=observation_noise):
+                # Run efficient LOO CV and check that no warnings are raised
+                with warnings.catch_warnings(record=True) as caught_warnings:
+                    warnings.simplefilter("always")
+                    loo_results = efficient_loo_cv(
+                        model, observation_noise=observation_noise
+                    )
+                    self.assertEqual(
+                        caught_warnings,
+                        [],
+                        "Unexpected warnings raised: "
+                        f"{[str(w.message) for w in caught_warnings]}",
+                    )
+
+                # Check shapes - posterior has shape n x 1 x m
+                self.assertEqual(
+                    loo_results.posterior.mean.shape, torch.Size([n, 1, 1])
+                )
+                self.assertEqual(
+                    loo_results.posterior.variance.shape, torch.Size([n, 1, 1])
+                )
+                self.assertEqual(loo_results.observed_Y.shape, torch.Size([n, 1, 1]))
+
+                # Check that variances are positive
+                self.assertTrue((loo_results.posterior.variance > 0).all())
+
+                # Check that model is returned
+                self.assertIs(loo_results.model, model)
+
+                # When observation_noise=False, variance should be smaller
+                # (noise subtracted from predictive variance)
+                if prev_variance is not None:
+                    self.assertTrue(
+                        (loo_results.posterior.variance < prev_variance).all()
+                    )
+                prev_variance = loo_results.posterior.variance
