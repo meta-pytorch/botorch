@@ -69,18 +69,10 @@ The wrapper function
 uses
 [`get_best_candidates()`](https://botorch.readthedocs.io/en/latest/generation.html#botorch.generation.gen.get_best_candidates)
 to process the output of `gen_candidates_scipy()` and return the best point
-found over the random restarts. For reasonable values of $b$ and $q$, jointly
-optimizing over random restarts can significantly reduce wall time by exploiting
-parallelism, while maintaining high quality solutions. Note, however, that
-convergence slows down at each random restart when sharing `scipy` optimizer
-states, as claimed by [^Irie2026], so the optimizer states are decoupled across
-random restarts.
+found over the random restarts.
 
-[^Irie2026]:
-    I. Couckuyt, D. Deschrijver and T. Dhaene. Towards Efficient Multiobjective
-    Optimization: Multiobjective statistical criterions. Workshop on AI to
-    Accelerate Science and Engineering at AAAI, Singapore, 2026.
-    [paper](https://arxiv.org/abs/2511.13625)
+By default, BoTorch will exploit hardware parallelism by batching the acquisition 
+function evaluation across multiple random restarts.
 
 
 ### Joint vs. Sequential Candidate Generation for Batch Acquisition Functions
