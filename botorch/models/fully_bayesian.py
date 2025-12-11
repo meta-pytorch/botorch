@@ -252,6 +252,7 @@ class MaternPyroModel(PyroModel):
 
     _outputscale_prior_concentration: float | None = None
     _outputscale_prior_rate: float | None = None
+    _prior_mode: bool = False
 
     def sample(self) -> None:
         r"""Sample from the Matern pyro model.
@@ -272,16 +273,35 @@ class MaternPyroModel(PyroModel):
         if self.train_Y.shape[-2] > 0:
             # Do not attempt to sample Y if the data is empty.
             # This leads to errors with empty data.
-            K = matern52_kernel(X=X_tf, lengthscale=lengthscale)
-            K = outputscale * K + noise * torch.eye(self.train_X.shape[0], **tkwargs)
-            pyro.sample(
-                "Y",
-                pyro.distributions.MultivariateNormal(
-                    loc=mean.view(-1).expand(self.train_X.shape[0]),
-                    covariance_matrix=K,
-                ),
-                obs=self.train_Y.squeeze(-1),
-            )
+            K_noiseless = outputscale * matern52_kernel(X=X_tf, lengthscale=lengthscale)
+            K = K_noiseless + noise * torch.eye(self.train_X.shape[0], **tkwargs)
+            if self._prior_mode:
+                self.f_prior_sample = pyro.sample(
+                    "f",
+                    pyro.distributions.MultivariateNormal(
+                        loc=mean.view(-1).expand(self.train_X.shape[0]),
+                        covariance_matrix=K_noiseless
+                        + 1e-7 * torch.eye(self.train_X.shape[0], **tkwargs),
+                        # sadly need to add a little bit of noise to be possible
+                        # to sample from this
+                    ),
+                )
+                self.Y_prior_sample = pyro.sample(
+                    "Y",
+                    pyro.distributions.Normal(
+                        loc=self.f_prior_sample,
+                        scale=noise.sqrt(),
+                    ),
+                )
+            else:
+                pyro.sample(
+                    "Y",
+                    pyro.distributions.MultivariateNormal(
+                        loc=mean.view(-1).expand(self.train_X.shape[0]),
+                        covariance_matrix=K,
+                    ),
+                    obs=self.train_Y.squeeze(-1),
+                )
 
     def sample_lengthscale(self, dim: int, **tkwargs: Any) -> Tensor:
         r"""Sample the lengthscale."""
