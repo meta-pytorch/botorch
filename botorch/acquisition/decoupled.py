@@ -16,7 +16,6 @@ from botorch.acquisition.acquisition import AcquisitionFunction
 from botorch.exceptions import BotorchWarning
 from botorch.exceptions.errors import BotorchTensorDimensionError
 from botorch.logging import shape_to_str
-
 from botorch.models.model import ModelList
 from torch import Tensor
 

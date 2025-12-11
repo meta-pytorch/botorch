@@ -18,7 +18,6 @@ from typing import Any, Callable
 from unittest import mock
 
 from botorch.optim.batched_lbfgs_b import fmin_l_bfgs_b_batched
-
 from botorch.optim.initializers import (
     gen_batch_initial_conditions,
     gen_one_shot_kg_initial_conditions,

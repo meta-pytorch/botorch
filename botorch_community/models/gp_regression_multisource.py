@@ -24,7 +24,6 @@ from copy import deepcopy
 from typing import Optional
 
 import torch
-
 from botorch import fit_gpytorch_mll
 from botorch.exceptions import InputDataError
 from botorch.models import SingleTaskGP

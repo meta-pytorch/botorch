@@ -44,7 +44,6 @@ from gpytorch.kernels import MaternKernel, ScaleKernel
 from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.likelihoods.likelihood import Likelihood
 from gpytorch.means import Mean, ZeroMean
-
 from gpytorch.models.exact_gp import ExactGP
 from gpytorch.module import Module
 from linear_operator import settings

@@ -85,9 +85,10 @@ class TestQNegIntegratedPosteriorVariance(BotorchTestCase):
             f_posterior = GPyTorchPosterior(MultitaskMultivariateNormal(mean, cov))
             mc_points = torch.rand(10, 1, device=self.device, dtype=dtype)
             mfm = MockModel(f_posterior)
-            with mock.patch.object(
-                MockModel, "fantasize", return_value=mfm
-            ), mock.patch(no, new_callable=mock.PropertyMock) as mock_num_outputs:
+            with (
+                mock.patch.object(MockModel, "fantasize", return_value=mfm),
+                mock.patch(no, new_callable=mock.PropertyMock) as mock_num_outputs,
+            ):
                 mock_num_outputs.return_value = 2
                 mm = MockModel(None)
 
