@@ -124,12 +124,23 @@ class PFNModel(Model):
         # so here we use a FixedNoiseGaussianLikelihood that is unused.
         if train_Yvar is None:
             train_Yvar = torch.zeros_like(train_Y)
+        self.train_Yvar = train_Yvar  # shape: (n, 1)
         self.likelihood = FixedNoiseGaussianLikelihood(noise=train_Yvar)
         self.pfn = model.to(device=train_X.device)
         self.batch_first = batch_first
         self.constant_model_kwargs = constant_model_kwargs or {}
         if input_transform is not None:
             self.input_transform = input_transform
+        self._prepare_styles()
+
+    def _prepare_styles(self):
+        """
+        Sets styles to be used for PFN prediction.
+
+        Styles should be None, or a tensor of shape (style_dim)
+        """
+        self.style = None  # None, or (style_dim)
+        self.y_style = None  # None, or (style_dim)
 
     def posterior(
         self,
@@ -168,10 +179,10 @@ class PFNModel(Model):
         if posterior_transform is not None:
             raise UnsupportedError("posterior_transform is not supported for PFNModel.")
 
-        X, train_X, train_Y, orig_X_shape = self._prepare_data(X)
+        X, train_X, train_Y, orig_X_shape, style, y_style = self._prepare_data(X)
 
         probabilities = self.pfn_predict(
-            X=X, train_X=train_X, train_Y=train_Y
+            X=X, train_X=train_X, train_Y=train_Y, style=style, y_style=y_style
         )  # (b, q, num_buckets)
         probabilities = probabilities.view(
             *orig_X_shape[:-1], -1
@@ -193,9 +204,22 @@ class PFNModel(Model):
 
         train_X = match_batch_shape(self.transformed_X, X)  # shape (b, n, d)
         train_Y = match_batch_shape(self.train_Y, X)  # shape (b, n, 1)
-        return X, train_X, train_Y, orig_X_shape
+        style = (
+            match_batch_shape(self.style, X) if self.style is not None else None
+        )  # Shape (b, style_dim)
+        y_style = (
+            match_batch_shape(self.y_style, X) if self.y_style is not None else None
+        )  # Shape (b, style_dim)
+        return X, train_X, train_Y, orig_X_shape, style, y_style
 
-    def pfn_predict(self, X: Tensor, train_X: Tensor, train_Y: Tensor) -> Tensor:
+    def pfn_predict(
+        self,
+        X: Tensor,
+        train_X: Tensor,
+        train_Y: Tensor,
+        style: Tensor | None = None,
+        y_style: Tensor | None = None,
+    ) -> Tensor:
         """
         Make a prediction using the PFN model on X given training data.
 
@@ -203,6 +227,8 @@ class PFNModel(Model):
             X: has shape (b, q, d)
             train_X: has shape (b, n, d)
             train_Y: has shape (b, n, 1)
+            style: Optional, shape (b, style_dim)
+            y_style: Optional, shape (b, style_dim)
 
         Returns: probabilities (b, q, num_buckets) for Riemann posterior.
         """
@@ -212,9 +238,11 @@ class PFNModel(Model):
             train_Y = train_Y.transpose(0, 1)  # shape (n, b, 1)
 
         logits = self.pfn(
-            train_X.float(),
-            train_Y.float(),
-            X.float(),
+            x=train_X.float(),
+            y=train_Y.float(),
+            test_x=X.float(),
+            style=style.float() if style is not None else None,
+            y_style=y_style.float() if y_style is not None else None,
             **self.constant_model_kwargs,
         )
         if not self.batch_first:
@@ -271,12 +299,14 @@ class MultivariatePFNModel(PFNModel):
         if len(X.shape) == 1 or X.shape[-2] == 1:
             # No q dimension, or q=1
             return marginals
-        X, train_X, train_Y, orig_X_shape = self._prepare_data(X)
+        X, train_X, train_Y, orig_X_shape, style, y_style = self._prepare_data(X)
         # Estimate correlation structure, making another forward pass.
         R = self.estimate_correlations(
             X=X,
             train_X=train_X,
             train_Y=train_Y,
+            style=style,
+            y_style=y_style,
             marginals=marginals,
         )  # (b, q, q)
         R = R.view(*orig_X_shape[:-2], X.shape[-2], X.shape[-2])  # (b?, q, q)
@@ -291,6 +321,8 @@ class MultivariatePFNModel(PFNModel):
         X: Tensor,
         train_X: Tensor,
         train_Y: Tensor,
+        style: Tensor | None,
+        y_style: Tensor | None,
         marginals: BoundedRiemannPosterior,
     ) -> Tensor:
         """
@@ -307,6 +339,8 @@ class MultivariatePFNModel(PFNModel):
             X: evaluation point, shape (b, q, d)
             train_X: Training X, shape (b, n, d)
             train_Y: Training Y, shape (b, n, 1)
+            style: Style, shape (b, style_dim) or None
+            y_style: Y style, shape (b, style_dim) or None
             marginals: A posterior object with marginal posteriors for f(X), but no
                 correlation structure yet added. posterior.probabilities has
                 shape (b?, q, num_buckets).
@@ -318,6 +352,8 @@ class MultivariatePFNModel(PFNModel):
             X=X,
             train_X=train_X,
             train_Y=train_Y,
+            style=style,
+            y_style=y_style,
             marginals=marginals,
         )
         # Get marginal moments
@@ -344,6 +380,8 @@ class MultivariatePFNModel(PFNModel):
         X: Tensor,
         train_X: Tensor,
         train_Y: Tensor,
+        style: Tensor | None,
+        y_style: Tensor | None,
         marginals: BoundedRiemannPosterior,
     ) -> tuple[Tensor, Tensor]:
         """
@@ -357,6 +395,8 @@ class MultivariatePFNModel(PFNModel):
             X: evaluation point, shape (b, q, d)
             train_X: Training X, shape (b, n, d)
             train_Y: Training Y, shape (b, n, 1)
+            style: Style, shape (b, style_dim) or None
+            y_style: Y style, shape (b, style_dim) or None
             marginals: A posterior object with marginal posteriors for f(X), but no
                 correlation structure yet added. posterior.probabilities has
                 shape (b?, q, num_buckets).
@@ -380,6 +420,12 @@ class MultivariatePFNModel(PFNModel):
         train_Y = train_Y.unsqueeze(1).expand(b, q, n, 1)
         cond_Y = cond_val.unsqueeze(-1).unsqueeze(-1)  # (b, q, 1, 1)
         train_Y = torch.cat((train_Y, cond_Y), dim=-2)  # (b, q, n+1, 1)
+        if style is not None:
+            ns = style.shape[-1]
+            style = style.unsqueeze(-2).expand(b, q, ns).reshape(b * q, ns)
+        if y_style is not None:
+            ns = y_style.shape[-1]
+            y_style = y_style.unsqueeze(-2).expand(b, q, ns).reshape(b * q, ns)
         # Construct eval points
         eval_X = X.unsqueeze(1).expand(b, q, q, d)
         # Squeeze everything into necessary 2 batch dims, and do PFN forward pass
@@ -387,6 +433,8 @@ class MultivariatePFNModel(PFNModel):
             X=eval_X.reshape(b * q, q, d),
             train_X=train_X.reshape(b * q, n + 1, d),
             train_Y=train_Y.reshape(b * q, n + 1, 1),
+            style=style,
+            y_style=y_style,
         )  # (b * q, q, num_buckets)
         # Object for conditional posteriors
         cond_posterior = BoundedRiemannPosterior(
