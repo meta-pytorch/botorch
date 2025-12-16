@@ -92,6 +92,140 @@ class CustomPyroModel(PyroModel):
         pass
 
 
+class TestPyroModelPriorMode(BotorchTestCase):
+    """Tests for the _prior_mode attribute and sample_observations method."""
+
+    def test_prior_mode_attribute_on_base_class(self) -> None:
+        """Test that _prior_mode is accessible on the base PyroModel class."""
+        # Test that _prior_mode defaults to False
+        self.assertFalse(PyroModel._prior_mode)
+
+        # Test that subclasses inherit the attribute
+        self.assertFalse(MaternPyroModel._prior_mode)
+        self.assertFalse(SaasPyroModel._prior_mode)
+        self.assertFalse(LinearPyroModel._prior_mode)
+
+    def test_sample_observations_normal_mode(self) -> None:
+        """Test sample_observations in normal (non-prior) mode."""
+        tkwargs = {"dtype": torch.double, "device": self.device}
+        n, d = 5, 3
+
+        # Create a PyroModel subclass instance
+        pyro_model = MaternPyroModel()
+        train_X = torch.rand(n, d, **tkwargs)
+        train_Y = torch.rand(n, 1, **tkwargs)
+        pyro_model.set_inputs(train_X=train_X, train_Y=train_Y)
+
+        # Ensure _prior_mode is False
+        self.assertFalse(pyro_model._prior_mode)
+
+        mean = torch.zeros(1, **tkwargs)
+        K_noiseless = torch.eye(n, **tkwargs)
+        noise = torch.tensor(0.1, **tkwargs)
+
+        # In normal mode, sample_observations should call pyro.sample with obs
+        with patch.object(pyro, "sample") as mock_sample:
+            pyro_model.sample_observations(
+                mean=mean, K_noiseless=K_noiseless, noise=noise, **tkwargs
+            )
+            # Verify pyro.sample was called with obs argument
+            mock_sample.assert_called_once()
+            call_kwargs = mock_sample.call_args[1]
+            self.assertIn("obs", call_kwargs)
+            self.assertEqual(mock_sample.call_args[0][0], "Y")
+
+    def test_sample_observations_prior_mode(self) -> None:
+        """Test sample_observations in prior mode."""
+        tkwargs = {"dtype": torch.double, "device": self.device}
+        n, d = 5, 3
+
+        # Create a PyroModel subclass instance
+        pyro_model = MaternPyroModel()
+        train_X = torch.rand(n, d, **tkwargs)
+        train_Y = torch.rand(n, 1, **tkwargs)
+        pyro_model.set_inputs(train_X=train_X, train_Y=train_Y)
+
+        # Set _prior_mode to True
+        pyro_model._prior_mode = True
+
+        mean = torch.zeros(1, **tkwargs)
+        K_noiseless = torch.eye(n, **tkwargs)
+        noise = torch.tensor(0.1, **tkwargs)
+
+        # In prior mode, sample_observations should sample both "f" and "Y"
+        with patch.object(pyro, "sample") as mock_sample:
+            mock_sample.return_value = torch.randn(n, **tkwargs)
+            pyro_model.sample_observations(
+                mean=mean, K_noiseless=K_noiseless, noise=noise, **tkwargs
+            )
+            # Verify pyro.sample was called twice (for "f" and "Y")
+            self.assertEqual(mock_sample.call_count, 2)
+            # First call should be for "f"
+            self.assertEqual(mock_sample.call_args_list[0][0][0], "f")
+            # Second call should be for "Y"
+            self.assertEqual(mock_sample.call_args_list[1][0][0], "Y")
+            # Neither call should have obs argument
+            for call in mock_sample.call_args_list:
+                self.assertNotIn("obs", call[1])
+
+    def test_sample_observations_empty_data(self) -> None:
+        """Test that sample_observations returns early for empty data."""
+        tkwargs = {"dtype": torch.double, "device": self.device}
+        d = 3
+
+        # Create a PyroModel subclass instance with empty data
+        pyro_model = MaternPyroModel()
+        train_X = torch.rand(0, d, **tkwargs)
+        train_Y = torch.rand(0, 1, **tkwargs)
+        pyro_model.set_inputs(train_X=train_X, train_Y=train_Y)
+
+        mean = torch.zeros(1, **tkwargs)
+        K_noiseless = torch.eye(0, **tkwargs)
+        noise = torch.tensor(0.1, **tkwargs)
+
+        # sample_observations should return early without calling pyro.sample
+        with patch.object(pyro, "sample") as mock_sample:
+            pyro_model.sample_observations(
+                mean=mean, K_noiseless=K_noiseless, noise=noise, **tkwargs
+            )
+            mock_sample.assert_not_called()
+
+    def test_matern_pyro_model_sample_with_prior_mode(self) -> None:
+        """Test MaternPyroModel.sample() with _prior_mode enabled."""
+        tkwargs = {"dtype": torch.double, "device": self.device}
+        n, d = 5, 3
+
+        pyro_model = MaternPyroModel()
+        train_X = torch.rand(n, d, **tkwargs)
+        train_Y = torch.rand(n, 1, **tkwargs)
+        pyro_model.set_inputs(train_X=train_X, train_Y=train_Y)
+
+        # Enable prior mode
+        pyro_model._prior_mode = True
+
+        # Mock pyro.sample to return valid tensors
+        def mock_sample_fn(name, dist):
+            if name == "mean":
+                return torch.tensor(0.0, **tkwargs)
+            elif name == "noise":
+                return torch.tensor(0.01, **tkwargs)
+            elif name == "lengthscale":
+                return torch.ones(d, **tkwargs)
+            elif name == "f":
+                return torch.randn(n, **tkwargs)
+            elif name == "Y":
+                return torch.randn(n, **tkwargs)
+            else:
+                return torch.tensor(1.0, **tkwargs)
+
+        with patch.object(pyro, "sample", side_effect=mock_sample_fn):
+            # Should not raise any errors
+            pyro_model.sample()
+            # Check that prior samples are stored
+            self.assertIsNotNone(pyro_model.f_prior_sample)
+            self.assertIsNotNone(pyro_model.Y_prior_sample)
+
+
 class TestSaasFullyBayesianSingleTaskGP(BotorchTestCase):
     model_cls: type[FullyBayesianSingleTaskGP] = SaasFullyBayesianSingleTaskGP
     pyro_model_cls: type[PyroModel] = SaasPyroModel

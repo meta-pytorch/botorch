@@ -122,12 +122,15 @@ class PyroModel:
     the subclasses are used as inputs to a `SaasFullyBayesianSingleTaskGP`,
     which should then have its hyperparameters fit with
     `fit_fully_bayesian_model_nuts`. (By default, its subclass `SaasPyroModel`
-    is used).  A `PyroModel`’s `sample` method should specify lightweight
+    is used).  A `PyroModel`'s `sample` method should specify lightweight
     PyTorch functionality, which will be used for fast model fitting with NUTS.
     The utility of `PyroModel` is in enabling fast fitting with NUTS, since we
     would otherwise need to use GPyTorch, which is computationally infeasible
     in combination with Pyro.
     """
+
+    _prior_mode: bool = False
+    _noiseless_eps_for_sampleability: float = 1e-7
 
     def __init__(
         self,
@@ -242,6 +245,56 @@ class PyroModel:
 
         return c0, c1
 
+    def sample_observations(
+        self,
+        mean: Tensor,
+        K_noiseless: Tensor,
+        noise: Tensor,
+        **tkwargs: Any,
+    ) -> None:
+        r"""Sample the observations Y (or prior samples in prior mode).
+
+        Args:
+            mean: The mean constant.
+            K_noiseless: The kernel matrix without noise.
+            noise: The noise variance.
+            **tkwargs: dtype and device keyword arguments.
+        """
+        if self.train_Y.shape[-2] == 0:
+            # Do not attempt to sample Y if the data is empty.
+            return
+
+        n = self.train_X.shape[0]
+        K = K_noiseless + noise * torch.eye(n, **tkwargs)
+
+        if self._prior_mode:
+            self.f_prior_sample = pyro.sample(
+                "f",
+                pyro.distributions.MultivariateNormal(
+                    loc=mean.view(-1).expand(n),
+                    covariance_matrix=K_noiseless
+                    + self._noiseless_eps_for_sampleability * torch.eye(n, **tkwargs),
+                    # sadly need to add a little bit of noise to be possible
+                    # to sample from this
+                ),
+            )
+            self.Y_prior_sample = pyro.sample(
+                "Y",
+                pyro.distributions.Normal(
+                    loc=self.f_prior_sample,
+                    scale=noise.sqrt(),
+                ),
+            )
+        else:
+            pyro.sample(
+                "Y",
+                pyro.distributions.MultivariateNormal(
+                    loc=mean.view(-1).expand(n),
+                    covariance_matrix=K,
+                ),
+                obs=self.train_Y.squeeze(-1),
+            )
+
 
 class MaternPyroModel(PyroModel):
     r"""Implementation of the a fully Bayesian model with a dimension-scaling prior.
@@ -269,19 +322,10 @@ class MaternPyroModel(PyroModel):
         noise = self.sample_noise(**tkwargs)
         lengthscale = self.sample_lengthscale(dim=self.ard_num_dims, **tkwargs)
         X_tf = self._maybe_input_warp(self.train_X, **tkwargs)
-        if self.train_Y.shape[-2] > 0:
-            # Do not attempt to sample Y if the data is empty.
-            # This leads to errors with empty data.
-            K = matern52_kernel(X=X_tf, lengthscale=lengthscale)
-            K = outputscale * K + noise * torch.eye(self.train_X.shape[0], **tkwargs)
-            pyro.sample(
-                "Y",
-                pyro.distributions.MultivariateNormal(
-                    loc=mean.view(-1).expand(self.train_X.shape[0]),
-                    covariance_matrix=K,
-                ),
-                obs=self.train_Y.squeeze(-1),
-            )
+        K_noiseless = outputscale * matern52_kernel(X=X_tf, lengthscale=lengthscale)
+        self.sample_observations(
+            mean=mean, K_noiseless=K_noiseless, noise=noise, **tkwargs
+        )
 
     def sample_lengthscale(self, dim: int, **tkwargs: Any) -> Tensor:
         r"""Sample the lengthscale."""
@@ -503,16 +547,10 @@ class LinearPyroModel(PyroModel):
         weight_variance = self.sample_weight_variance(**tkwargs)
         X_tf = self._maybe_input_warp(X=self.train_X, **tkwargs)
         X_tf = X_tf - 0.5  # center transformed data at 0 (for linear model)
-        K = linear_kernel(X=X_tf, weight_variance=weight_variance)
+        K_noiseless = linear_kernel(X=X_tf, weight_variance=weight_variance)
         noise = self.sample_noise(**tkwargs)
-        K = K + noise * torch.eye(self.train_X.shape[0], **tkwargs)
-        pyro.sample(
-            "Y",
-            pyro.distributions.MultivariateNormal(
-                loc=mean.view(-1).expand(self.train_X.shape[0]),
-                covariance_matrix=K,
-            ),
-            obs=self.train_Y.squeeze(-1),
+        self.sample_observations(
+            mean=mean, K_noiseless=K_noiseless, noise=noise, **tkwargs
         )
 
     def sample_weight_variance(self, alpha: float = 0.1, **tkwargs: Any) -> Tensor:
