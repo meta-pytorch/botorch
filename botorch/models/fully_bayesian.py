@@ -996,7 +996,10 @@ class FullyBayesianSingleTaskGP(AbstractFullyBayesianSingleTaskGP):
         return mcmc_samples
 
     def load_state_dict(
-        self, state_dict: Mapping[str, Any], strict: bool = True
+        self,
+        state_dict: Mapping[str, Any],
+        strict: bool = True,
+        assign: bool = False,
     ) -> None:
         r"""Custom logic for loading the state dict.
 
@@ -1018,7 +1021,7 @@ class FullyBayesianSingleTaskGP(AbstractFullyBayesianSingleTaskGP):
         )
         self.load_mcmc_samples(mcmc_samples=mcmc_samples)
         # Load the actual samples from the state dict
-        super().load_state_dict(state_dict=state_dict, strict=strict)
+        super().load_state_dict(state_dict=state_dict, strict=strict, assign=assign)
 
 
 class SaasFullyBayesianSingleTaskGP(FullyBayesianSingleTaskGP):
@@ -1085,7 +1088,10 @@ class FullyBayesianLinearSingleTaskGP(AbstractFullyBayesianSingleTaskGP):
         return weight_variance.median(0).values.squeeze(0)
 
     def load_state_dict(
-        self, state_dict: Mapping[str, Any], strict: bool = True
+        self,
+        state_dict: Mapping[str, Any],
+        strict: bool = True,
+        assign: bool = False,
     ) -> None:
         r"""Custom logic for loading the state dict.
 
@@ -1115,4 +1121,4 @@ class FullyBayesianLinearSingleTaskGP(AbstractFullyBayesianSingleTaskGP):
             mcmc_samples["noise"] = torch.ones(num_mcmc_samples, **tkwargs)
         self.load_mcmc_samples(mcmc_samples=mcmc_samples)
         # Load the actual samples from the state dict
-        super().load_state_dict(state_dict=state_dict, strict=strict)
+        super().load_state_dict(state_dict=state_dict, strict=strict, assign=assign)
