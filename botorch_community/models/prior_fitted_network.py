@@ -179,7 +179,7 @@ class PFNModel(Model):
         self.pfn = model.to(device=train_X.device)
         self.batch_first = batch_first
         self.constant_model_kwargs = constant_model_kwargs or {}
-        self.style_hyperparameters = style_hyperparameters
+        self.style_hyperparameters = style_hyperparameters or {}
         self.style = style
         if input_transform is not None:
             self.input_transform = input_transform
