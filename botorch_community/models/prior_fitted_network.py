@@ -36,6 +36,40 @@ from torch import Tensor
 from torch.nn import Module
 
 
+def get_styles(
+    model: Module, hps: dict | None, batch_size: int, device: str
+) -> dict[str, Tensor]:
+    if hps is None or (model.style_encoder is None and model.y_style_encoder is None):
+        return {}
+    style_kwargs = {}
+    if model.style_encoder is not None:
+        hps_subset = {
+            k: v for k, v in hps.items() if k in model.style_encoder[0].hyperparameters
+        }
+        style = (
+            model.style_encoder[0]
+            .hyperparameters_dict_to_tensor(hps_subset)
+            .repeat(batch_size, 1)
+            .to(device)
+        )  # shape (batch_size, num_styles)
+        style_kwargs["style"] = style
+
+    if model.y_style_encoder is not None:
+        hps_subset = {
+            k: v
+            for k, v in hps.items()
+            if k in model.y_style_encoder[0].hyperparameters
+        }
+        y_style = (
+            model.y_style_encoder[0]
+            .hyperparameters_dict_to_tensor(hps_subset)
+            .repeat(batch_size, 1)
+            .to(device)
+        )  # shape (batch_size, num_styles)
+        style_kwargs["y_style"] = y_style
+    return style_kwargs
+
+
 class PFNModel(Model):
     """Prior-data Fitted Network"""
 
@@ -50,6 +84,9 @@ class PFNModel(Model):
         constant_model_kwargs: dict[str, Any] | None = None,
         input_transform: InputTransform | None = None,
         load_training_checkpoint: bool = False,
+        style_hyperparameters: dict[str, Any] | None = None,
+        style: Tensor
+        | None = None,  # should have shape (num_styles,) or (num_features, num_styles)
     ) -> None:
         """Initialize a PFNModel.
 
@@ -79,6 +116,17 @@ class PFNModel(Model):
             input_transform: A Botorch input transform.
             load_training_checkpoint: Whether to load a training checkpoint as
                 produced by the PFNs training code, see github.com/automl/PFNs.
+            style_hyperparameters: A dictionary of hyperparameters to be passed
+                to the style and the y-style encoders. It is useful when training
+                models with `hyperparameter_sampling` prior and its style
+                encoder. One simply supplies the dict with the unnormalized
+                hyperparameters, e.g., {"noise_std": 0.1}. Omitted values are
+                treated as unknown and the value will build a Bayesian average
+                for these, if `hyperparameter_sampling_skip_style_prob` > 0
+                during pre-training.
+            style: A tensor of style values to be passed to the model. These
+                are raw style values of shape (num_styles,), which will then
+                be extended as needed.
 
         """
         super().__init__()
@@ -128,6 +176,8 @@ class PFNModel(Model):
         self.pfn = model.to(device=train_X.device)
         self.batch_first = batch_first
         self.constant_model_kwargs = constant_model_kwargs or {}
+        self.style_hyperparameters = style_hyperparameters
+        self.style = style
         if input_transform is not None:
             self.input_transform = input_transform
 
@@ -170,8 +220,22 @@ class PFNModel(Model):
 
         X, train_X, train_Y, orig_X_shape = self._prepare_data(X)
 
+        styles = get_styles(
+            model=self.pfn,
+            hps=self.style_hyperparameters,
+            batch_size=X.shape[0],
+            device=X.device,
+        )
+        if self.style is not None:
+            assert styles == {}, "Cannot provide both style and style_hyperparameters."
+            styles["style"] = self.style[None].repeat(X.shape[0], 1, 1).to(X.device)
+
         probabilities = self.pfn_predict(
-            X=X, train_X=train_X, train_Y=train_Y
+            X=X,
+            train_X=train_X,
+            train_Y=train_Y,
+            **self.constant_model_kwargs,
+            **styles,
         )  # (b, q, num_buckets)
         probabilities = probabilities.view(
             *orig_X_shape[:-1], -1
@@ -195,7 +259,13 @@ class PFNModel(Model):
         train_Y = match_batch_shape(self.train_Y, X)  # shape (b, n, 1)
         return X, train_X, train_Y, orig_X_shape
 
-    def pfn_predict(self, X: Tensor, train_X: Tensor, train_Y: Tensor) -> Tensor:
+    def pfn_predict(
+        self,
+        X: Tensor,
+        train_X: Tensor,
+        train_Y: Tensor,
+        **forward_kwargs,
+    ) -> Tensor:
         """
         Make a prediction using the PFN model on X given training data.
 
@@ -203,6 +273,7 @@ class PFNModel(Model):
             X: has shape (b, q, d)
             train_X: has shape (b, n, d)
             train_Y: has shape (b, n, 1)
+            **forward_kwargs: whatever kwargs to pass to the PFN model
 
         Returns: probabilities (b, q, num_buckets) for Riemann posterior.
         """
@@ -215,7 +286,7 @@ class PFNModel(Model):
             train_X.float(),
             train_Y.float(),
             X.float(),
-            **self.constant_model_kwargs,
+            **forward_kwargs,
         )
         if not self.batch_first:
             logits = logits.transpose(0, 1)  # shape (b, q, num_buckets)

@@ -45,6 +45,8 @@ class DummyPFN(nn.Module):
         self.n_buckets = n_buckets
         self.criterion = MagicMock()
         self.criterion.borders = torch.linspace(0, 1, n_buckets + 1)
+        self.style_encoder = None
+        self.y_style_encoder = None
 
     def forward(self, train_X: Tensor, train_Y: Tensor, test_X: Tensor) -> Tensor:
         return torch.zeros(*test_X.shape[:-1], self.n_buckets, device=test_X.device)
@@ -163,6 +165,81 @@ class TestPriorFittedNetwork(BotorchTestCase):
         )
         self.assertIsInstance(model.input_transform, Normalize)
         self.assertEqual(model.input_transform.bounds.shape, torch.Size([2, 3]))
+
+    def test_style_hyperparameters(self):
+        """Test that style_hyperparameters are stored and passed through get_styles."""
+        train_X, train_Y = torch.rand(10, 3), torch.rand(10, 1)
+        style_hps = {"noise_std": 0.1}
+
+        # Create PFN with mock style_encoder and y_style_encoder
+        dummy_pfn = DummyPFN()
+        mock_encoder = MagicMock()
+        mock_encoder.hyperparameters = ["noise_std"]
+        mock_encoder.hyperparameters_dict_to_tensor.return_value = torch.tensor([0.5])
+        mock_y_encoder = MagicMock()
+        mock_y_encoder.hyperparameters = ["noise_std"]
+        mock_y_encoder.hyperparameters_dict_to_tensor.return_value = torch.tensor(
+            [0.25]
+        )
+        dummy_pfn.style_encoder = [mock_encoder]
+        dummy_pfn.y_style_encoder = [mock_y_encoder]
+
+        pfn = PFNModel(train_X, train_Y, dummy_pfn, style_hyperparameters=style_hps)
+        self.assertEqual(pfn.style_hyperparameters, style_hps)
+
+        # Capture kwargs passed to forward
+        captured = {}
+        orig_forward = dummy_pfn.forward
+        dummy_pfn.forward = lambda *a, **kw: (
+            captured.update(kw),
+            orig_forward(*a[:3]),
+        )[1]
+
+        pfn.posterior(torch.rand(5, 3))
+
+        self.assertIn("style", captured)
+        self.assertIn("y_style", captured)
+        self.assertEqual(captured["style"].item(), 0.5)
+        self.assertEqual(captured["y_style"].item(), 0.25)
+        mock_encoder.hyperparameters_dict_to_tensor.assert_called_once_with(style_hps)
+        mock_y_encoder.hyperparameters_dict_to_tensor.assert_called_once_with(style_hps)
+
+    def test_style_params_require_style_hyperparameters(self):
+        """Test no style params if style_hyperparameters=None, some when {}."""
+        train_X, train_Y = torch.rand(10, 3), torch.rand(10, 1)
+        dummy_pfn = DummyPFN()
+        mock_enc = MagicMock()
+        mock_enc.hyperparameters = []
+        mock_enc.hyperparameters_dict_to_tensor.return_value = torch.tensor([0.5])
+        dummy_pfn.style_encoder = [mock_enc]
+
+        captured = {}
+        orig = dummy_pfn.forward
+        dummy_pfn.forward = lambda *a, **kw: (captured.update(kw), orig(*a[:3]))[1]
+
+        PFNModel(train_X, train_Y, dummy_pfn).posterior(torch.rand(5, 3))
+        self.assertNotIn("style", captured)
+
+        pfn = PFNModel(train_X, train_Y, dummy_pfn, style_hyperparameters={})
+        pfn.posterior(torch.rand(5, 3))
+        self.assertIn("style", captured)
+
+    def test_raw_style_tensor(self):
+        """Test that raw style tensor is passed through when provided."""
+        train_X, train_Y = torch.rand(10, 3), torch.rand(10, 1)
+        style = torch.tensor([[0.1, 0.2], [0.3, 0.4], [0.5, 0.6]])
+
+        captured = {}
+        dummy_pfn = DummyPFN()
+        orig = dummy_pfn.forward
+        dummy_pfn.forward = lambda *a, **kw: (captured.update(kw), orig(*a[:3]))[1]
+
+        pfn = PFNModel(train_X, train_Y, dummy_pfn, style=style)
+        pfn.posterior(torch.rand(5, 3))
+
+        self.assertIn("style", captured)
+        self.assertEqual(captured["style"].shape[1:], style.shape)
+        self.assertTrue(torch.equal(captured["style"][0], style))
 
     def test_unpack_checkpoint(self):
         config = MainConfig(
