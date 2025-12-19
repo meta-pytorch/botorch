@@ -18,6 +18,7 @@ from botorch_community.acquisition.bayesian_active_learning import (
 )
 from botorch_community.acquisition.discretized import (
     DiscretizedExpectedImprovement,
+    DiscretizedNoisyExpectedImprovement,
     DiscretizedProbabilityOfImprovement,
 )
 from botorch_community.acquisition.scorebo import qSelfCorrectingBayesianOptimization
@@ -86,6 +87,25 @@ class TestAnalyticalAcquisitionFunctionInputConstructors(InputConstructorBaseTes
                 self.assertEqual(kwargs["best_f"], 0.1)
                 acqf = acqf_cls(**kwargs)
                 self.assertIs(acqf.model, mock_model)
+
+    def test_construct_inputs_noisy(self) -> None:
+        c = get_acqf_input_constructor(DiscretizedNoisyExpectedImprovement)
+        mock_model = self.mock_model
+        X_pending = torch.rand(2, 2)
+
+        kwargs = c(model=mock_model)
+        self.assertIs(kwargs["model"], mock_model)
+        self.assertIsNone(kwargs["posterior_transform"])
+        self.assertIsNone(kwargs["X_pending"])
+        acqf = DiscretizedNoisyExpectedImprovement(**kwargs)
+        self.assertIs(acqf.model, mock_model)
+
+        kwargs = c(model=mock_model, X_pending=X_pending)
+        self.assertIs(kwargs["model"], mock_model)
+        self.assertIsNone(kwargs["posterior_transform"])
+        self.assertTrue(torch.equal(kwargs["X_pending"], X_pending))
+        acqf = DiscretizedNoisyExpectedImprovement(**kwargs)
+        self.assertIs(acqf.model, mock_model)
 
 
 class TestFullyBayesianAcquisitionFunctionInputConstructors(
