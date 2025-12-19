@@ -49,8 +49,15 @@ class DummyPFN(nn.Module):
         self.style_encoder = None
         self.y_style_encoder = None
 
-    def forward(self, train_X: Tensor, train_Y: Tensor, test_X: Tensor) -> Tensor:
-        return torch.zeros(*test_X.shape[:-1], self.n_buckets, device=test_X.device)
+    def forward(
+        self,
+        x: Tensor,
+        y: Tensor,
+        test_x: Tensor,
+        style: Tensor | None = None,
+        y_style: Tensor | None = None,
+    ) -> Tensor:
+        return torch.zeros(*test_x.shape[:-1], self.n_buckets, device=test_x.device)
 
 
 class TestPriorFittedNetwork(BotorchTestCase):
@@ -162,11 +169,15 @@ class TestPriorFittedNetwork(BotorchTestCase):
 
         # prepare_data
         X = torch.rand(5, 3, **tkwargs)
-        X, train_X, train_Y, orig_X_shape = pfn._prepare_data(X)
+        X, train_X, train_Y, orig_X_shape, styles = pfn._prepare_data(X)
         self.assertEqual(X.shape, torch.Size([1, 5, 3]))
         self.assertEqual(train_X.shape, torch.Size([1, 10, 3]))
         self.assertEqual(train_Y.shape, torch.Size([1, 10, 1]))
         self.assertEqual(orig_X_shape, torch.Size([5, 3]))
+        self.assertEqual(styles, {})
+        pfn.style = torch.rand(4, **tkwargs)
+        X, train_X, train_Y, orig_X_shape, styles = pfn._prepare_data(X)
+        self.assertEqual(styles["style"].shape, torch.Size([1, 1, 4]))
 
     def test_input_transform(self):
         model = PFNModel(
@@ -204,7 +215,7 @@ class TestPriorFittedNetwork(BotorchTestCase):
         orig_forward = dummy_pfn.forward
         dummy_pfn.forward = lambda *a, **kw: (
             captured.update(kw),
-            orig_forward(*a[:3]),
+            orig_forward(**kw),
         )[1]
 
         pfn.posterior(torch.rand(5, 3))
@@ -227,7 +238,7 @@ class TestPriorFittedNetwork(BotorchTestCase):
 
         captured = {}
         orig = dummy_pfn.forward
-        dummy_pfn.forward = lambda *a, **kw: (captured.update(kw), orig(*a[:3]))[1]
+        dummy_pfn.forward = lambda *a, **kw: (captured.update(kw), orig(**kw))[1]
 
         PFNModel(train_X, train_Y, dummy_pfn).posterior(torch.rand(5, 3))
         self.assertNotIn("style", captured)
@@ -244,7 +255,7 @@ class TestPriorFittedNetwork(BotorchTestCase):
         captured = {}
         dummy_pfn = DummyPFN()
         orig = dummy_pfn.forward
-        dummy_pfn.forward = lambda *a, **kw: (captured.update(kw), orig(*a[:3]))[1]
+        dummy_pfn.forward = lambda *a, **kw: (captured.update(kw), orig(**kw))[1]
 
         pfn = PFNModel(train_X, train_Y, dummy_pfn, style=style)
         pfn.posterior(torch.rand(5, 3))
@@ -444,6 +455,7 @@ class TestMultivariatePFN(BotorchTestCase):
                 X=X,
                 train_X=torch.zeros(3, 4, 5),
                 train_Y=torch.zeros(3, 4, 1),
+                styles={"style": torch.zeros(3, 7)},
                 marginals=marginals,
             )
         res = mock_pfn_predict.call_args[1]
@@ -463,6 +475,9 @@ class TestMultivariatePFN(BotorchTestCase):
         self.assertTrue(
             torch.equal(torch.round(res["train_Y"], decimals=2), torch.cat(a, dim=0))
         )
+        # Verify style and y_style are passed correctly
+        self.assertTrue(torch.equal(res["style"], torch.zeros(6, 7)))
+        self.assertNotIn("y_style", res)
 
     def test_estimate_correlations(self):
         probabilities = torch.ones(2, 3, 1000)
@@ -481,6 +496,7 @@ class TestMultivariatePFN(BotorchTestCase):
                 X=torch.ones(2, 3, 5),
                 train_X=torch.zeros(2, 4, 5),
                 train_Y=torch.zeros(2, 4, 1),
+                styles={"style": torch.zeros(2, 4), "y_style": torch.ones(2, 4)},
                 marginals=marginals,
             )
         self.assertAllClose(torch.diagonal(R, dim1=-2, dim2=-1), torch.ones(2, 3))
@@ -499,6 +515,7 @@ class TestMultivariatePFN(BotorchTestCase):
                 X=torch.ones(1, 3, 5),
                 train_X=torch.zeros(1, 4, 5),
                 train_Y=torch.zeros(1, 4, 1),
+                styles={"style": torch.zeros(1, 4), "y_style": torch.ones(1, 4)},
                 marginals=marginals,
             )
         self.assertEqual(R.shape, torch.Size([1, 3, 3]))
