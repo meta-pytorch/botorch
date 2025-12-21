@@ -165,5 +165,26 @@ class TestOptimizeWithNSGAII(BotorchTestCase):
                     max_gen=2,
                     q=3,
                 )
-                self.assertTrue(torch.equal(pareto_X, X))
-                self.assertTrue(torch.equal(pareto_Y, -F))
+            self.assertTrue(torch.equal(pareto_X, X))
+            self.assertTrue(torch.equal(pareto_Y, -F))
+
+            # test retry in case NSGA-II fails to find a feasible point
+            with patch(
+                "botorch.utils.multi_objective.optimize.minimize",
+                side_effect=[
+                    Mock(X=None, F=None),
+                    Mock(X=None, F=None),
+                    Mock(X=X.cpu().numpy(), F=F.cpu().numpy()),
+                ],
+            ) as mock_minimize:
+                pareto_X, pareto_Y = optimize_with_nsgaii(
+                    acq_function=acqf,
+                    bounds=bounds,
+                    num_objectives=num_objectives,
+                    max_gen=2,
+                    q=3,
+                    num_retries=2,
+                )
+                self.assertEqual(mock_minimize.call_count, 3)
+            self.assertTrue(torch.equal(pareto_X, X))
+            self.assertTrue(torch.equal(pareto_Y, -F))

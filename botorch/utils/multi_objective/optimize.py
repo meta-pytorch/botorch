@@ -130,6 +130,7 @@ try:
         max_gen: int | None = None,
         seed: int | None = None,
         fixed_features: dict[int, float] | None = None,
+        num_retries: int = 1,
     ) -> tuple[Tensor, Tensor]:
         """Optimize the posterior mean via NSGA-II, returning the Pareto set and front.
 
@@ -161,6 +162,8 @@ try:
             fixed_features: A map `{feature_index: value}` for features that
                 should be fixed to a particular value during generation. All indices
                 should be non-negative.
+            num_retries: The number of times to retry the optimization if it fails
+                (usually due to NSGA-II failing to find a feasible point).
 
         Returns:
             A two-element tuple containing the pareto set X and pareto frontier Y.
@@ -173,34 +176,49 @@ try:
             # set lower and upper bounds to the fixed value
             for i, val in fixed_features.items():
                 bounds[:, i] = val
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", category=DeprecationWarning)
-            pymoo_problem = BotorchPymooProblem(
-                n_var=bounds.shape[-1],
-                n_obj=num_objectives,
-                xl=bounds[0].cpu().numpy(),
-                xu=bounds[1].cpu().numpy(),
-                acqf=acq_function,
-                ref_point=ref_point,
-                objective=objective,
-                constraints=constraints,
-                **tkwargs,
-            )
-            if q is not None:
-                population_size = max(population_size, q)
-            algorithm = NSGA2(pop_size=population_size, eliminate_duplicates=True)
-            res = minimize(
-                problem=pymoo_problem,
-                algorithm=algorithm,
-                termination=(
-                    None
-                    if max_gen is None
-                    else MaximumGenerationTermination(n_max_gen=max_gen)
-                ),
-                seed=seed,
-                verbose=False,
-            )
+
+        def _opt_with_nsgaii():
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=DeprecationWarning)
+                pymoo_problem = BotorchPymooProblem(
+                    n_var=bounds.shape[-1],
+                    n_obj=num_objectives,
+                    xl=bounds[0].cpu().numpy(),
+                    xu=bounds[1].cpu().numpy(),
+                    acqf=acq_function,
+                    ref_point=ref_point,
+                    objective=objective,
+                    constraints=constraints,
+                    **tkwargs,
+                )
+                pop_size = max(population_size, q) if q is not None else population_size
+                algorithm = NSGA2(pop_size=pop_size, eliminate_duplicates=True)
+                res = minimize(
+                    problem=pymoo_problem,
+                    algorithm=algorithm,
+                    termination=(
+                        None
+                        if max_gen is None
+                        else MaximumGenerationTermination(n_max_gen=max_gen)
+                    ),
+                    seed=seed,
+                    verbose=False,
+                )
+            return res
+
+        # run optimization with retries in case NSGA-II fails to find a feasible point
+        for i in range(num_retries + 1):
+            res = _opt_with_nsgaii()
+            if res.X is not None:
+                break
+            if i == num_retries:
+                raise RuntimeError(
+                    "NSGA-II failed to find a feasible point after "
+                    f"{num_retries} retries. Consider relaxing the constraints "
+                    "or increasing the population size."
+                )
         X = torch.tensor(res.X, **tkwargs)
+
         # multiply by negative one to return the correct sign for maximization
         Y = -torch.tensor(res.F, **tkwargs)
         pareto_mask = is_non_dominated(Y, deduplicate=True)
