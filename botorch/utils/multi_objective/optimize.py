@@ -130,7 +130,7 @@ try:
         max_gen: int | None = None,
         seed: int | None = None,
         fixed_features: dict[int, float] | None = None,
-        num_retries: int = 1,
+        max_attempts: int = 2,
     ) -> tuple[Tensor, Tensor]:
         """Optimize the posterior mean via NSGA-II, returning the Pareto set and front.
 
@@ -162,8 +162,8 @@ try:
             fixed_features: A map `{feature_index: value}` for features that
                 should be fixed to a particular value during generation. All indices
                 should be non-negative.
-            num_retries: The number of times to retry the optimization if it fails
-                (usually due to NSGA-II failing to find a feasible point).
+            max_attempts: The total number of times to run the optimization if it
+                fails (usually due to NSGA-II failing to find a feasible point).
 
         Returns:
             A two-element tuple containing the pareto set X and pareto frontier Y.
@@ -207,15 +207,15 @@ try:
             return res
 
         # run optimization with retries in case NSGA-II fails to find a feasible point
-        for i in range(num_retries + 1):
+        for i in range(1, max_attempts + 1):
             res = _opt_with_nsgaii()
             if res.X is not None:
                 break
-            if i == num_retries:
+            if i == max_attempts:
                 raise RuntimeError(
-                    "NSGA-II failed to find a feasible point after "
-                    f"{num_retries} retries. Consider relaxing the constraints "
-                    "or increasing the population size."
+                    f"NSGA-II failed to find a feasible point after {max_attempts} "
+                    f"attempts. Consider relaxing the constraints or increasing "
+                    "the population size."
                 )
         X = torch.tensor(res.X, **tkwargs)
 

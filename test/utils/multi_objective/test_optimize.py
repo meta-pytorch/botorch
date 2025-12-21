@@ -183,8 +183,24 @@ class TestOptimizeWithNSGAII(BotorchTestCase):
                     num_objectives=num_objectives,
                     max_gen=2,
                     q=3,
-                    num_retries=2,
+                    max_attempts=3,
                 )
                 self.assertEqual(mock_minimize.call_count, 3)
             self.assertTrue(torch.equal(pareto_X, X))
             self.assertTrue(torch.equal(pareto_Y, -F))
+
+            with patch(
+                "botorch.utils.multi_objective.optimize.minimize",
+                side_effect=[Mock(X=None, F=None), Mock(X=None, F=None)],
+            ) as mock_minimize:
+                with self.assertRaisesRegex(
+                    RuntimeError,
+                    "NSGA-II failed to find a feasible point after 2 attempts",
+                ):
+                    optimize_with_nsgaii(
+                        acq_function=acqf,
+                        bounds=bounds,
+                        num_objectives=num_objectives,
+                        max_gen=2,
+                        q=3,
+                    )
