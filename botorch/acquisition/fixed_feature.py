@@ -17,8 +17,8 @@ from numbers import Number
 
 import torch
 from botorch.acquisition.acquisition import AcquisitionFunction
+from botorch.acquisition.wrapper import AbstractAcquisitionFunctionWrapper
 from torch import Tensor
-from torch.nn import Module
 
 
 def get_dtype_of_sequence(values: Sequence[Tensor | float]) -> torch.dtype:
@@ -50,8 +50,8 @@ def get_device_of_sequence(values: Sequence[Tensor | float]) -> torch.dtype:
     return torch.device("cuda") if any_cuda else torch.device("cpu")
 
 
-class FixedFeatureAcquisitionFunction(AcquisitionFunction):
-    """A wrapper around AcquisitionFunctions to fix a subset of features.
+class FixedFeatureAcquisitionFunction(AbstractAcquisitionFunctionWrapper):
+    """A wrapper around AquisitionFunctions to fix a subset of features.
 
     Example:
         >>> model = SingleTaskGP(train_X, train_Y)  # d = 5
@@ -86,8 +86,9 @@ class FixedFeatureAcquisitionFunction(AcquisitionFunction):
                 combination of `Tensor`s and numbers which can be broadcasted
                 to form a tensor with trailing dimension size of `d_f`.
         """
-        Module.__init__(self)
-        self.acq_func = acq_function
+        AbstractAcquisitionFunctionWrapper.__init__(self, acq_function=acq_function)
+        dtype = torch.float
+        device = torch.device("cpu")
         self.d = d
 
         if isinstance(values, Tensor):
@@ -153,24 +154,13 @@ class FixedFeatureAcquisitionFunction(AcquisitionFunction):
         X_full = self._construct_X_full(X)
         return self.acq_func(X_full)
 
-    @property
-    def X_pending(self):
-        r"""Return the `X_pending` of the base acquisition function."""
-        try:
-            return self.acq_func.X_pending
-        except (ValueError, AttributeError):
-            raise ValueError(
-                f"Base acquisition function {type(self.acq_func).__name__} "
-                "does not have an `X_pending` attribute."
-            )
-
-    @X_pending.setter
-    def X_pending(self, X_pending: Tensor | None):
+    def set_X_pending(self, X_pending: Tensor | None):
         r"""Sets the `X_pending` of the base acquisition function."""
         if X_pending is not None:
-            self.acq_func.X_pending = self._construct_X_full(X_pending)
+            full_X_pending = self._construct_X_full(X_pending)
         else:
-            self.acq_func.X_pending = X_pending
+            full_X_pending = None
+        self.acq_func.set_X_pending(full_X_pending)
 
     def _construct_X_full(self, X: Tensor) -> Tensor:
         r"""Constructs the full input for the base acquisition function.
