@@ -148,7 +148,9 @@ class PathwiseThompsonSampling(AcquisitionFunction):
         posterior_values = self.select_from_ensemble_models(values=posterior_values)
 
         if self.posterior_transform:
-            posterior_values = self.posterior_transform.evaluate(posterior_values)
+            posterior_values = self.posterior_transform.evaluate(
+                Y=posterior_values, X=X
+            )
         # objective removes the `m` dimension
         objective_values = self.objective(posterior_values)  # batch_shape x q
         return objective_values

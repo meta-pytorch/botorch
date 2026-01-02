@@ -97,6 +97,6 @@ class EnsembleModel(Model, ABC):
             values = values[..., output_indices]
         posterior = EnsemblePosterior(values=values, weights=self.ensemble_weights)
         if posterior_transform is not None:
-            return posterior_transform(posterior)
+            return posterior_transform(posterior=posterior, X=X)
         else:
             return posterior

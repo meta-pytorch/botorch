@@ -1745,7 +1745,7 @@ def get_best_f_analytic(
     )
 
     if posterior_transform is not None:
-        return posterior_transform.evaluate(Y).max(-1).values
+        return posterior_transform.evaluate(Y=Y, X=None).max(-1).values
     if Y.shape[-1] > 1:
         raise NotImplementedError(
             "Analytic acquisition functions currently only work with "
@@ -1801,7 +1801,7 @@ def get_best_f_mc(
         # retain the original tensor dimension since objective expects explicit
         # output dimension.
         Y_dim = Y.dim()
-        Y = posterior_transform.evaluate(Y)
+        Y = posterior_transform.evaluate(Y=Y, X=X_baseline)
         if Y.dim() < Y_dim:
             Y = Y.unsqueeze(-1)
     if objective is None:

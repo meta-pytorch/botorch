@@ -25,6 +25,7 @@ from botorch.models.model_list_gp_regression import ModelListGP
 from botorch.models.transforms.outcome import Standardize
 from botorch.models.utils import add_output_dim
 from botorch.models.utils.assorted import fantasize
+from botorch.posteriors.posterior import Posterior
 from botorch.posteriors.torch import TorchPosterior
 from botorch.utils.datasets import MultiTaskDataset, SupervisedDataset
 from gpytorch.distributions.multivariate_normal import MultivariateNormal
@@ -301,11 +302,11 @@ def get_pvar_expected(
 class DummyNonScalarizingPosteriorTransform(PosteriorTransform):
     scalarize = False
 
-    def evaluate(self, Y):
-        pass  # pragma: no cover
+    def evaluate(self, Y: Tensor, X: Tensor | None = None) -> Tensor:
+        return Y  # pragma: no cover
 
-    def forward(self, posterior):
-        pass  # pragma: no cover
+    def forward(self, posterior: Posterior, X: Tensor | None = None) -> Posterior:
+        return posterior  # pragma: no cover
 
 
 class SimpleGPyTorchModel(GPyTorchModel, ExactGP, FantasizeMixin):

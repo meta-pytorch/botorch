@@ -174,7 +174,7 @@ class ApproximateGPyTorchModel(GPyTorchModel):
         if hasattr(self, "outcome_transform"):
             posterior = self.outcome_transform.untransform_posterior(posterior, X=X)
         if posterior_transform is not None:
-            posterior = posterior_transform(posterior)
+            posterior = posterior_transform(posterior=posterior, X=X)
         return posterior
 
     def forward(self, X) -> MultivariateNormal:

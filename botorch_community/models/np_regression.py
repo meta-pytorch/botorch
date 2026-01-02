@@ -410,7 +410,7 @@ class NeuralProcessModel(Model, GP):
         mvn = MultivariateNormal(mean, covariance)
         posterior = GPyTorchPosterior(mvn)
         if posterior_transform is not None:
-            posterior = posterior_transform(posterior)
+            posterior = posterior_transform(posterior=posterior, X=X)
         return posterior
 
     def transform_inputs(

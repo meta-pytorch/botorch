@@ -203,7 +203,7 @@ class GPyTorchModel(Model, ABC):
         if hasattr(self, "outcome_transform"):
             posterior = self.outcome_transform.untransform_posterior(posterior, X=X)
         if posterior_transform is not None:
-            return posterior_transform(posterior)
+            return posterior_transform(posterior=posterior, X=X)
         return posterior
 
     def condition_on_observations(
@@ -593,7 +593,7 @@ class BatchedMultiOutputGPyTorchModel(GPyTorchModel):
         if hasattr(self, "outcome_transform"):
             posterior = self.outcome_transform.untransform_posterior(posterior, X=X)
         if posterior_transform is not None:
-            return posterior_transform(posterior)
+            return posterior_transform(posterior=posterior, X=X)
         return posterior
 
     # pyre-ignore[14]: Inconsistent override. Could not find parameter `noise`.
@@ -864,7 +864,7 @@ class ModelListGPyTorchModel(ModelList, GPyTorchModel, ABC):
             else:
                 posterior = GPyTorchPosterior(distribution=mvn)
         if posterior_transform is not None:
-            return posterior_transform(posterior)
+            return posterior_transform(posterior=posterior, X=X)
         return posterior
 
     def condition_on_observations(self, X: Tensor, Y: Tensor, **kwargs: Any) -> Model:
@@ -1084,7 +1084,7 @@ class MultiTaskGPyTorchModel(GPyTorchModel, ABC):
         if hasattr(self, "outcome_transform"):
             posterior = self.outcome_transform.untransform_posterior(posterior, X=X)
         if posterior_transform is not None:
-            return posterior_transform(posterior)
+            return posterior_transform(posterior=posterior, X=X)
         return posterior
 
     def subset_output(self, idcs: list[int]) -> MultiTaskGPyTorchModel:

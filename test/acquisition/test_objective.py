@@ -27,6 +27,7 @@ from botorch.models.deterministic import PosteriorMeanModel
 from botorch.models.pairwise_gp import PairwiseGP
 from botorch.models.transforms.input import Normalize
 from botorch.posteriors import GPyTorchPosterior
+from botorch.posteriors.gpytorch import scalarize_posterior
 from botorch.utils import apply_constraints
 from botorch.utils.testing import BotorchTestCase, get_test_posterior
 from gpytorch.distributions import MultitaskMultivariateNormal, MultivariateNormal
@@ -53,10 +54,74 @@ def feasible_con(samples: Tensor) -> Tensor:
     )
 
 
+class InputDependentPosteriorTransform(PosteriorTransform):
+    """A posterior transform that uses input X for testing purposes.
+
+    This transform scales the outcomes by the mean of the input features.
+    """
+
+    scalarize = True
+
+    def evaluate(self, Y: Tensor, X: Tensor | None = None) -> Tensor:
+        if X is None:
+            return Y.sum(dim=-1)
+        scale = X.mean(dim=-1, keepdim=True)
+        return (Y * scale).sum(dim=-1)
+
+    def forward(
+        self, posterior: GPyTorchPosterior, X: Tensor | None = None
+    ) -> GPyTorchPosterior:
+        m = posterior.mean.shape[-1]
+        dtype, device = posterior.mean.dtype, posterior.mean.device
+        weights = torch.ones(m, dtype=dtype, device=device)
+        if X is not None:
+            scale = X.mean()
+            weights = scale * weights
+        return scalarize_posterior(posterior=posterior, weights=weights, offset=0.0)
+
+
 class TestPosteriorTransform(BotorchTestCase):
     def test_abstract_raises(self):
         with self.assertRaises(TypeError):
             PosteriorTransform()
+
+
+class TestInputDependentPosteriorTransform(BotorchTestCase):
+    def test_input_dependent_posterior_transform(self):
+        """Test posterior transform that uses input X in evaluate() and forward()."""
+        from botorch.models.gp_regression import SingleTaskGP
+
+        for dtype in (torch.float, torch.double):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            transform = InputDependentPosteriorTransform()
+
+            # Test evaluate() with and without X
+            Y = torch.tensor([[[1.0, 2.0], [3.0, 4.0]]], **tkwargs)
+            X = torch.tensor([[[0.5, 0.5], [1.0, 1.0]]], **tkwargs)
+            # Without X: just sum over m dimension
+            self.assertAllClose(transform.evaluate(Y=Y, X=None), Y.sum(dim=-1))
+            # With X: scale by mean of X, then sum
+            # X.mean(dim=-1, keepdim=True) = [[[0.5], [1.0]]]
+            # Y * scale = [[[0.5, 1.0], [3.0, 4.0]]], sum = [[1.5, 7.0]]
+            expected = torch.tensor([[1.5, 7.0]], **tkwargs)
+            self.assertAllClose(transform.evaluate(Y=Y, X=X), expected)
+
+            # Test forward() with and without X
+            posterior = get_test_posterior(batch_shape=[], m=2, **tkwargs)
+            X_forward = torch.tensor([[2.0, 2.0]], **tkwargs)
+            self.assertEqual(transform(posterior=posterior, X=None).mean.shape[-1], 1)
+            self.assertEqual(
+                transform(posterior=posterior, X=X_forward).mean.shape[-1], 1
+            )
+
+            # Test end-to-end: X is passed from model.posterior() to transform
+            train_X = torch.rand(5, 2, **tkwargs)
+            train_Y = torch.rand(5, 2, **tkwargs)
+            model = SingleTaskGP(train_X, train_Y)
+            test_X = torch.rand(3, 2, **tkwargs)
+            posterior = model.posterior(X=test_X, posterior_transform=transform)
+            self.assertEqual(posterior.mean.shape[-1], 1)
+            self.assertEqual(posterior.mean.shape[-2], 3)
 
 
 class TestScalarizedPosteriorTransform(BotorchTestCase):

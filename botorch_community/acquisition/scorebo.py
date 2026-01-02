@@ -78,7 +78,7 @@ class qSelfCorrectingBayesianOptimization(
         # to get num_optima x num_gps unique GPs
         self.optimal_outputs = optimal_outputs.unsqueeze(-2)
         self.optimal_output_values = (
-            posterior_transform.evaluate(self.optimal_outputs).unsqueeze(-1)
+            posterior_transform.evaluate(Y=self.optimal_outputs, X=None).unsqueeze(-1)
             if posterior_transform
             else self.optimal_outputs
         )

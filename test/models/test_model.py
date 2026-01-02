@@ -15,7 +15,7 @@ from botorch.posteriors.ensemble import EnsemblePosterior
 from botorch.posteriors.posterior_list import PosteriorList
 from botorch.utils.datasets import SupervisedDataset
 from botorch.utils.testing import BotorchTestCase, MockModel, MockPosterior
-from torch import rand
+from torch import rand, Tensor
 
 
 class NotSoAbstractBaseModel(Model):
@@ -47,10 +47,12 @@ class GenericDeterministicModelWithBatchShape(GenericDeterministicModel):
 
 
 class DummyPosteriorTransform(PosteriorTransform):
-    def evaluate(self, Y):
+    def evaluate(self, Y: Tensor, X: Tensor | None = None) -> Tensor:
         return 2 * Y + 1
 
-    def forward(self, posterior):
+    def forward(
+        self, posterior: PosteriorList, X: Tensor | None = None
+    ) -> PosteriorList:
         return PosteriorList(
             *[
                 EnsemblePosterior(2 * p.mean.unsqueeze(0) + 1)

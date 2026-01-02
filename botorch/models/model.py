@@ -434,7 +434,7 @@ class ModelList(Model):
                 respective model in the `ModelList`.
         """
         if idcs is None:
-            return {i: None for i in range(len(self.models))}
+            return dict.fromkeys(range(len(self.models)))
         output_sizes = [model.num_outputs for model in self.models]
         cum_output_sizes = np.cumsum(output_sizes)
         idcs = [idx % cum_output_sizes[-1] for idx in idcs]
@@ -498,7 +498,7 @@ class ModelList(Model):
             )
         posterior = PosteriorList(*posteriors)
         if posterior_transform is not None:
-            posterior = posterior_transform(posterior)
+            posterior = posterior_transform(posterior=posterior, X=X)
         return posterior
 
     @property

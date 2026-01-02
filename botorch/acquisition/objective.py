@@ -36,11 +36,13 @@ class PosteriorTransform(Module, ABC):
     """Abstract base class for objectives that transform the posterior."""
 
     @abstractmethod
-    def evaluate(self, Y: Tensor) -> Tensor:
+    def evaluate(self, Y: Tensor, X: Tensor | None = None) -> Tensor:
         r"""Evaluate the transform on a set of outcomes.
 
         Args:
             Y: A `batch_shape x q x m`-dim tensor of outcomes.
+            X: A `batch_shape x q x d`-dim tensor of inputs. Relevant only if
+                the transform depends on the inputs explicitly.
 
         Returns:
             A `batch_shape x q' [x m']`-dim tensor of transformed outcomes.
@@ -48,11 +50,13 @@ class PosteriorTransform(Module, ABC):
         pass  # pragma: no cover
 
     @abstractmethod
-    def forward(self, posterior) -> Posterior:
+    def forward(self, posterior: Posterior, X: Tensor | None = None) -> Posterior:
         r"""Compute the transformed posterior.
 
         Args:
             posterior: The posterior to be transformed.
+            X: A `batch_shape x q x d`-dim tensor of inputs. Relevant only if
+                the transform depends on the inputs explicitly.
 
         Returns:
             The transformed posterior object.
@@ -96,11 +100,13 @@ class ScalarizedPosteriorTransform(PosteriorTransform):
         self.register_buffer("weights", weights)
         self.offset = offset
 
-    def evaluate(self, Y: Tensor) -> Tensor:
+    def evaluate(self, Y: Tensor, X: Tensor | None = None) -> Tensor:
         r"""Evaluate the transform on a set of outcomes.
 
         Args:
             Y: A `batch_shape x q x m`-dim tensor of outcomes.
+            X: A `batch_shape x q x d`-dim tensor of inputs. Relevant only if
+                the transform depends on the inputs explicitly. Ignored here.
 
         Returns:
             A `batch_shape x q`-dim tensor of transformed outcomes.
@@ -108,13 +114,15 @@ class ScalarizedPosteriorTransform(PosteriorTransform):
         return self.offset + Y @ self.weights
 
     def forward(
-        self, posterior: GPyTorchPosterior | PosteriorList
+        self, posterior: GPyTorchPosterior | PosteriorList, X: Tensor | None = None
     ) -> GPyTorchPosterior:
         r"""Compute the posterior of the affine transformation.
 
         Args:
             posterior: A posterior with the same number of outputs as the
                 elements in `self.weights`.
+            X: A `batch_shape x q x d`-dim tensor of inputs. Relevant only if
+                the transform depends on the inputs explicitly. Ignored here.
 
         Returns:
             A single-output posterior.
@@ -163,11 +171,13 @@ class ExpectationPosteriorTransform(PosteriorTransform):
         self.register_buffer("weights", weights)
         self.n_w = n_w
 
-    def evaluate(self, Y: Tensor) -> Tensor:
+    def evaluate(self, Y: Tensor, X: Tensor | None = None) -> Tensor:
         r"""Evaluate the expectation of a set of outcomes.
 
         Args:
             Y: A `batch_shape x (q * n_w) x m`-dim tensor of outcomes.
+            X: A `batch_shape x q x d`-dim tensor of inputs. Relevant only if
+                the transform depends on the inputs explicitly. Ignored here.
 
         Returns:
             A `batch_shape x q x m`-dim tensor of expectation outcomes.
@@ -176,11 +186,15 @@ class ExpectationPosteriorTransform(PosteriorTransform):
         weighted_Y = Y.view(*batch_shape, -1, self.n_w, m) * self.weights.to(Y)
         return weighted_Y.sum(dim=-2)
 
-    def forward(self, posterior: GPyTorchPosterior) -> GPyTorchPosterior:
+    def forward(
+        self, posterior: GPyTorchPosterior, X: Tensor | None = None
+    ) -> GPyTorchPosterior:
         r"""Compute the posterior of the expectation.
 
         Args:
             posterior: An `m`-outcome joint posterior over `q * n_w` points.
+            X: A `batch_shape x q x d`-dim tensor of inputs. Relevant only if
+                the transform depends on the inputs explicitly. Ignored here.
 
         Returns:
             An `m`-outcome joint posterior over `q` expectations.

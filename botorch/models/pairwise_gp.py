@@ -1098,7 +1098,7 @@ class PairwiseGP(Model, GP, FantasizeMixin):
         post = self(X)
         posterior = GPyTorchPosterior(post)
         if posterior_transform is not None:
-            return posterior_transform(posterior)
+            return posterior_transform(posterior=posterior, X=X)
         return posterior
 
     def condition_on_observations(self, X: Tensor, Y: Tensor) -> Model:

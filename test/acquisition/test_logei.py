@@ -32,12 +32,10 @@ from botorch.acquisition.monte_carlo import (
 from botorch.acquisition.multi_objective.logei import (
     qLogNoisyExpectedHypervolumeImprovement,
 )
-
 from botorch.acquisition.objective import (
     ConstrainedMCObjective,
     GenericMCObjective,
     IdentityMCObjective,
-    PosteriorTransform,
     ScalarizedPosteriorTransform,
 )
 from botorch.acquisition.utils import prune_inferior_points
@@ -47,6 +45,7 @@ from botorch.models import ModelListGP, SingleTaskGP
 from botorch.sampling.normal import IIDNormalSampler, SobolQMCNormalSampler
 from botorch.utils.low_rank import sample_cached_cholesky
 from botorch.utils.objective import compute_smoothed_feasibility_indicator
+from botorch.utils.test_helpers import DummyNonScalarizingPosteriorTransform
 from botorch.utils.testing import BotorchTestCase, MockModel, MockPosterior
 from botorch.utils.transforms import standardize
 from torch import Tensor
@@ -63,16 +62,6 @@ def feasible_con(samples: Tensor) -> Tensor:
 class DummyLogImprovementAcquisitionFunction(LogImprovementMCAcquisitionFunction):
     def _sample_forward(self, X):
         pass
-
-
-class DummyNonScalarizingPosteriorTransform(PosteriorTransform):
-    scalarize = False
-
-    def evaluate(self, Y):
-        pass  # pragma: no cover
-
-    def forward(self, posterior):
-        pass  # pragma: no cover
 
 
 class TestLogImprovementAcquisitionFunction(BotorchTestCase):
