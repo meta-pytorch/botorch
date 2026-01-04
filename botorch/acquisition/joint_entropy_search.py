@@ -114,7 +114,9 @@ class qJointEntropySearch(AcquisitionFunction, MCSamplerMixin):
         self.optimal_inputs = optimal_inputs.unsqueeze(-2)
         self.optimal_outputs = optimal_outputs.unsqueeze(-2)
         self.optimal_output_values = (
-            posterior_transform.evaluate(Y=self.optimal_outputs, X=None).unsqueeze(-1)
+            posterior_transform.evaluate(
+                Y=self.optimal_outputs, X=self.optimal_inputs
+            ).unsqueeze(-1)
             if posterior_transform
             else self.optimal_outputs
         )
