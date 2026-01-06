@@ -51,11 +51,11 @@ jobs:
 
     - name: Run tutorials and update outputs
       run: |
+        name_option=""
         if [ -n "${{ inputs.tutorial_name }}" ]; then
-          python scripts/run_tutorials.py -p "$(pwd)" -n "${{ inputs.tutorial_name }}" --save-outputs
-        else
-          python scripts/run_tutorials.py -p "$(pwd)" --save-outputs
+          name_option="-n ${{ inputs.tutorial_name }}"
         fi
+        python scripts/run_tutorials.py -p "$(pwd)" $name_option --save-outputs
 
     - name: Check for changes
       id: check_changes

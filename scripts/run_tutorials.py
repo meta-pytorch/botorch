@@ -49,6 +49,11 @@ def run_tutorial(
     Runs the tutorial in a subprocess, catches any raised errors and returns
     them as a string, and returns runtime and memory information as a dict.
     """
+    if smoke_test and save_outputs:
+        raise ValueError(
+            "Cannot use both smoke_test and save_outputs. "
+            "Saving outputs from smoke tests is not supported."
+        )
     timeout_minutes = 5 if smoke_test else 30
     tic = time.monotonic()
     print(f"Running tutorial {tutorial.name}.")
