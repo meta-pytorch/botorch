@@ -50,6 +50,7 @@ from botorch.utils.transforms import (
     match_batch_shape,
     t_batch_mode_transform,
 )
+
 from linear_operator.functions import inv_quad
 from linear_operator.utils.cholesky import psd_safe_cholesky
 from scipy.optimize import brentq

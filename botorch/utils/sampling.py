@@ -17,6 +17,7 @@ References
 from __future__ import annotations
 
 import warnings
+
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Generator, Iterable
 from contextlib import contextmanager
@@ -26,7 +27,9 @@ from typing import TYPE_CHECKING
 import numpy as np
 import numpy.typing as npt
 import scipy
+
 import torch
+
 from botorch.exceptions.errors import (
     BotorchError,
     BotorchTensorDimensionError,
@@ -34,6 +37,7 @@ from botorch.exceptions.errors import (
 )
 from botorch.exceptions.warnings import UserInputWarning
 from botorch.sampling.qmc import NormalQMCEngine
+
 from botorch.utils.transforms import normalize, standardize, unnormalize
 from scipy.spatial import Delaunay, HalfspaceIntersection
 from torch import LongTensor, Tensor

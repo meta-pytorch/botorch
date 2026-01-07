@@ -25,6 +25,7 @@ from abc import ABC, abstractmethod
 import torch
 from botorch.exceptions.errors import UnsupportedError
 from botorch.models.model import Model
+
 from botorch.utils.probability.utils import ndtr as Phi, phi
 from gpytorch.module import Module
 from linear_operator.operators import LinearOperator

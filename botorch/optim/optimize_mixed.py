@@ -929,7 +929,8 @@ def optimize_acqf_mixed_alternating(
 
     if sequential is False:  # pragma: no cover
         raise NotImplementedError(
-            "`optimize_acqf_mixed_alternating` only supports sequential optimization."
+            "`optimize_acqf_mixed_alternating` only supports "
+            "sequential optimization."
         )
 
     cat_dims = cat_dims or {}

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+
 from inspect import getmembers
 
 import torch

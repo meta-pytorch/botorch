@@ -7,6 +7,7 @@
 
 import torch
 from botorch.acquisition.objective import ScalarizedPosteriorTransform
+
 from botorch.exceptions.errors import UnsupportedError
 from botorch.models import SingleTaskGP
 from botorch.models.deterministic import (

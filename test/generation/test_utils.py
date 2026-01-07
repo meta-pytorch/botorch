@@ -9,6 +9,7 @@ from __future__ import annotations
 from itertools import product
 
 import torch
+
 from botorch.acquisition import FixedFeatureAcquisitionFunction
 from botorch.generation.utils import (
     _flip_sub_unique,

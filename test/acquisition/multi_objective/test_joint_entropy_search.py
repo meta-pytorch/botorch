@@ -12,6 +12,7 @@ from botorch.acquisition.multi_objective.joint_entropy_search import (
     qLowerBoundMultiObjectiveJointEntropySearch,
 )
 from botorch.acquisition.multi_objective.utils import compute_sample_box_decomposition
+
 from botorch.exceptions import UnsupportedError
 from botorch.models.gp_regression import SingleTaskGP
 from botorch.models.model_list_gp_regression import ModelListGP

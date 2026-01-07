@@ -300,10 +300,9 @@ class TestMapSaas(BotorchTestCase):
 
     def test_get_saas_ensemble(self) -> None:
         train_X, train_Y, _ = self._get_data_hardcoded(device=self.device)
-        with (
-            self.assertWarnsRegex(DeprecationWarning, "EnsembleMapSaasSingleTaskGP"),
-            mock.patch("botorch.fit.fit_gpytorch_mll") as mock_fit,
-        ):
+        with self.assertWarnsRegex(
+            DeprecationWarning, "EnsembleMapSaasSingleTaskGP"
+        ), mock.patch("botorch.fit.fit_gpytorch_mll") as mock_fit:
             model = get_fitted_map_saas_ensemble(
                 train_X=train_X,
                 train_Y=train_Y,

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+
 from functools import lru_cache
 from numbers import Number
 

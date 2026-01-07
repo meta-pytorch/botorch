@@ -155,6 +155,9 @@ class TestCostAwareUtilities(BotorchTestCase):
                 )
                 # test eval_mask where not all rows are the same
                 eval_mask[0, 1] = False
-                msg = "Currently, all candidates must be evaluated on the same outputs."
+                msg = (
+                    "Currently, all candidates must be evaluated "
+                    "on the same outputs."
+                )
                 with self.assertRaisesRegex(NotImplementedError, msg):
                     icwu(X, deltas, X_evaluation_mask=eval_mask)

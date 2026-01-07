@@ -9,6 +9,7 @@ r"""Tools for model fitting."""
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+
 from functools import partial
 from typing import Any, Optional
 from warnings import warn

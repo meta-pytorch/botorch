@@ -9,6 +9,7 @@ r"""General-purpose optimization utilities."""
 from __future__ import annotations
 
 from collections.abc import Callable
+
 from logging import debug as logging_debug
 from warnings import warn_explicit, WarningMessage
 

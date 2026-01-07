@@ -94,13 +94,10 @@ class TestFeatureGenerators(BotorchTestCase):
             )
 
         # Test passing the wrong dimensional shape to `weight_generator`
-        with (
-            self.assertRaisesRegex(UnsupportedError, "2-dim"),
-            patch.object(
-                generators,
-                "_gen_fourier_features",
-                side_effect=lambda **kwargs: kwargs["weight_generator"](Size([])),
-            ),
+        with self.assertRaisesRegex(UnsupportedError, "2-dim"), patch.object(
+            generators,
+            "_gen_fourier_features",
+            side_effect=lambda **kwargs: kwargs["weight_generator"](Size([])),
         ):
             gen_kernel_features(
                 kernel=kernel,

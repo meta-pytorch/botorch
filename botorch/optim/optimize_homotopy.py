@@ -6,11 +6,14 @@
 from __future__ import annotations
 
 import warnings
+
 from collections.abc import Callable
+
 from typing import Any
 
 import torch
 from botorch.acquisition import AcquisitionFunction
+
 from botorch.generation.gen import TGenCandidates
 from botorch.optim.homotopy import Homotopy
 from botorch.optim.initializers import TGenInitialConditions

@@ -10,6 +10,7 @@ from unittest import mock
 from unittest.mock import patch
 
 import pyro
+
 import torch
 from botorch import fit_fully_bayesian_model_nuts, utils
 from botorch.acquisition.analytic import (

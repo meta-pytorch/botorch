@@ -8,8 +8,11 @@ from __future__ import annotations
 
 import numpy as np
 import scipy
+
 import torch
+
 from botorch.logging import logger
+
 from botorch_community.models.blls import AbstractBLLModel
 from torch.func import grad
 

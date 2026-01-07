@@ -10,6 +10,7 @@ from botorch.optim.batched_lbfgs_b import (
     fmin_l_bfgs_b_batched,
     translate_bounds_for_lbfgsb,
 )
+
 from botorch.utils.testing import BotorchTestCase
 
 

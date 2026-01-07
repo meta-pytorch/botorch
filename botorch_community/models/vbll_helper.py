@@ -18,6 +18,7 @@ from typing import Callable
 import numpy as np
 import torch
 import torch.nn as nn
+
 from botorch.logging import logger
 from torch import Tensor
 

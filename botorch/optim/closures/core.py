@@ -9,11 +9,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+
 from typing import Any
 
 import numpy as np
 import numpy.typing as npt
 import torch
+
 from botorch.optim.utils import _handle_numerical_errors
 from botorch.optim.utils.numpy_utils import as_ndarray
 from botorch.utils.context_managers import zero_grad_ctx

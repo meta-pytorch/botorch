@@ -12,6 +12,7 @@ from gpytorch.constraints import Interval, Positive
 from gpytorch.kernels import Kernel
 from gpytorch.module import Module
 from gpytorch.priors import Prior
+
 from torch import nn, Tensor
 
 _positivity_constraint = Positive()

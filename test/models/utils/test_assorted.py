@@ -19,6 +19,7 @@ from botorch.models.utils import (
     multioutput_to_batch_mode_transform,
     validate_input_scaling,
 )
+
 from botorch.models.utils.assorted import consolidate_duplicates, detect_duplicates
 from botorch.utils.testing import BotorchTestCase
 from gpytorch import settings as gpt_settings
@@ -172,10 +173,9 @@ class TestInputDataChecks(BotorchTestCase):
         train_X = 2 + torch.rand(3, 4, 3)
         train_Y = torch.randn(3, 4, 2)
         # check that nothing is being checked
-        with (
-            settings.validate_input_scaling(False),
-            warnings.catch_warnings(record=True) as ws,
-        ):
+        with settings.validate_input_scaling(False), warnings.catch_warnings(
+            record=True
+        ) as ws:
             validate_input_scaling(train_X=train_X, train_Y=train_Y)
         self.assertFalse(any(issubclass(w.category, InputDataWarning) for w in ws))
         # check that warnings are being issued

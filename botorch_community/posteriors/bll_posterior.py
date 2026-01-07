@@ -12,6 +12,7 @@ import torch
 from botorch.posteriors import GPyTorchPosterior
 from botorch_community.models.blls import AbstractBLLModel
 from gpytorch.distributions import MultivariateNormal
+
 from torch import Tensor
 
 

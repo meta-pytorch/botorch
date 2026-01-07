@@ -7,6 +7,7 @@
 from unittest import mock
 
 from botorch.exceptions import UnsupportedError
+
 from botorch.utils.test_helpers import get_pvar_expected
 from botorch.utils.testing import BotorchTestCase
 

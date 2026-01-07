@@ -7,6 +7,7 @@
 import logging
 
 import torch
+
 from botorch import settings
 from botorch.logging import LOG_LEVEL_DEFAULT, logger, shape_to_str
 from botorch.utils.testing import BotorchTestCase

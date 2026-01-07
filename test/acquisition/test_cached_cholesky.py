@@ -147,9 +147,6 @@ class TestCachedCholeskyMCSamplerMixin(BotorchTestCase):
                 self.assertTrue(torch.equal(baseline_L_acqf, baseline_L))
 
     def test_get_f_X_samples(self):
-        sample_cached_cholesky_path = (
-            "botorch.acquisition.cached_cholesky.sample_cached_cholesky"
-        )
         tkwargs = {"device": self.device}
         for dtype in (torch.float, torch.double):
             with self.subTest(dtype=dtype):
@@ -179,7 +176,8 @@ class TestCachedCholeskyMCSamplerMixin(BotorchTestCase):
                 # basic test
                 rv = torch.rand(1, 5, 1, **tkwargs)
                 with mock.patch(
-                    sample_cached_cholesky_path, return_value=rv
+                    "botorch.acquisition.cached_cholesky.sample_cached_cholesky",
+                    return_value=rv,
                 ) as mock_sample_cached_cholesky:
                     samples = acqf._get_f_X_samples(posterior=posterior, q_in=q)
                     mock_sample_cached_cholesky.assert_called_once_with(
@@ -196,13 +194,12 @@ class TestCachedCholeskyMCSamplerMixin(BotorchTestCase):
                     base_samples = torch.rand(1, 5, 1, **tkwargs)
                     acqf.sampler.base_samples = base_samples
                     acqf._baseline_L = baseline_L
-                    with (
-                        mock.patch(
-                            sample_cached_cholesky_path,
-                            side_effect=error_cls,
-                        ) as mock_sample_cached_cholesky,
-                        warnings.catch_warnings(record=True) as ws,
-                    ):
+                    with mock.patch(
+                        "botorch.acquisition.cached_cholesky.sample_cached_cholesky",
+                        side_effect=error_cls,
+                    ) as mock_sample_cached_cholesky, warnings.catch_warnings(
+                        record=True
+                    ) as ws:
                         samples = acqf._get_f_X_samples(posterior=posterior, q_in=q)
                     mock_sample_cached_cholesky.assert_called_once_with(
                         posterior=posterior,

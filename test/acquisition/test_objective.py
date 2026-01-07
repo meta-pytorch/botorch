@@ -32,6 +32,7 @@ from botorch.utils import apply_constraints
 from botorch.utils.testing import BotorchTestCase, get_test_posterior
 from gpytorch.distributions import MultitaskMultivariateNormal, MultivariateNormal
 from linear_operator.operators.dense_linear_operator import to_linear_operator
+
 from torch import Tensor
 
 

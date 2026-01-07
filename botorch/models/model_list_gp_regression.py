@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 import torch
+
 from botorch.exceptions.errors import BotorchTensorDimensionError
 from botorch.models.gpytorch import GPyTorchModel, ModelListGPyTorchModel
 from botorch.models.model import FantasizeMixin

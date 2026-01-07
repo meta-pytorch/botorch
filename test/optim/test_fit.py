@@ -103,10 +103,9 @@ class TestFitGPyTorchMLLScipy(BotorchTestCase):
             values = assignments[name] = torch.rand_like(param)
             mock_x.append(values.view(-1))
 
-        with (
-            module_rollback_ctx(mll, checkpoint=ckpt),
-            patch.object(core, "minimize_with_timeout") as mock_minimize_with_timeout,
-        ):
+        with module_rollback_ctx(mll, checkpoint=ckpt), patch.object(
+            core, "minimize_with_timeout"
+        ) as mock_minimize_with_timeout:
             mock_minimize_with_timeout.return_value = OptimizeResult(
                 x=torch.concat(mock_x).tolist(),
                 success=False,

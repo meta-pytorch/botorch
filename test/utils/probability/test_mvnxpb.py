@@ -7,7 +7,9 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+
 from copy import deepcopy
+
 from functools import partial
 from itertools import count, product
 from typing import Any
@@ -275,9 +277,8 @@ class TestMVNXPB(BotorchTestCase):
             augm_perm = augm.perm
             temp_perm = perm.gather(-1, augm_perm)
             self.assertTrue(augm_perm.equal(augm.piv_chol.perm))
-            with (
-                patch.object(augm, "perm", new=temp_perm),
-                patch.object(augm.piv_chol, "perm", new=temp_perm),
+            with patch.object(augm, "perm", new=temp_perm), patch.object(
+                augm.piv_chol, "perm", new=temp_perm
             ):
                 self.assertEqualMXNBPB(full, augm)
 
@@ -291,9 +292,8 @@ class TestMVNXPB(BotorchTestCase):
             augm_perm = augm.perm
             temp_perm = perm.gather(-1, augm_perm)
             self.assertTrue(augm_perm.equal(augm.piv_chol.perm))
-            with (
-                patch.object(augm, "perm", new=temp_perm),
-                patch.object(augm.piv_chol, "perm", new=temp_perm),
+            with patch.object(augm, "perm", new=temp_perm), patch.object(
+                augm.piv_chol, "perm", new=temp_perm
             ):
                 self.assertEqualMXNBPB(full, augm)
 
@@ -354,11 +354,8 @@ class TestMVNXPB(BotorchTestCase):
         self.assertEqualMXNBPB(self.toy_solver, other)
 
         # Test exception handling
-        with (
-            patch.object(A, "step", new=A.step + 1),
-            self.assertRaisesRegex(
-                ValueError, "`self.step` does not equal `other.step`."
-            ),
+        with patch.object(A, "step", new=A.step + 1), self.assertRaisesRegex(
+            ValueError, "`self.step` does not equal `other.step`."
         ):
             A.concat(B, dim=0)
 
@@ -368,11 +365,8 @@ class TestMVNXPB(BotorchTestCase):
         with self.assertRaisesRegex(ValueError, "not a valid batch dimension"):
             A.concat(B, dim=-9)
 
-        with (
-            patch.object(A, "plug_ins", new=None),
-            self.assertRaisesRegex(
-                TypeError, "Concatenation failed: `self.plug_ins` has type"
-            ),
+        with patch.object(A, "plug_ins", new=None), self.assertRaisesRegex(
+            TypeError, "Concatenation failed: `self.plug_ins` has type"
         ):
             A.concat(B, dim=0)
 

@@ -239,21 +239,17 @@ class TestBoxDecomposition(BotorchTestCase):
 
             # test that update_local_upper_bounds_incremental is called when m>2
             bd = DummyFastPartitioning(ref_point=ref_point)
-            with (
-                mock.patch(
-                    "botorch.utils.multi_objective.box_decompositions."
-                    "box_decomposition.update_local_upper_bounds_incremental",
-                    wraps=update_local_upper_bounds_incremental,
-                ) as mock_update_local_upper_bounds_incremental,
-                mock.patch.object(
-                    DummyFastPartitioning,
-                    "_get_partitioning",
-                    wraps=bd._get_partitioning,
-                ) as mock_get_partitioning,
-                mock.patch.object(
-                    DummyFastPartitioning,
-                    "_partition_space_2d",
-                ),
+            with mock.patch(
+                "botorch.utils.multi_objective.box_decompositions.box_decomposition."
+                "update_local_upper_bounds_incremental",
+                wraps=update_local_upper_bounds_incremental,
+            ) as mock_update_local_upper_bounds_incremental, mock.patch.object(
+                DummyFastPartitioning,
+                "_get_partitioning",
+                wraps=bd._get_partitioning,
+            ) as mock_get_partitioning, mock.patch.object(
+                DummyFastPartitioning,
+                "_partition_space_2d",
             ):
                 bd.update(Y=Y)
                 if m > 2:

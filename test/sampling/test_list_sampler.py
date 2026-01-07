@@ -50,10 +50,11 @@ class TestListSampler(BotorchTestCase):
             IIDNormalSampler(sample_shape=torch.Size([2])),
             SobolQMCNormalSampler(sample_shape=torch.Size([2])),
         )
-        with (
-            mock.patch.object(sampler.samplers[0], "_update_base_samples") as update_0,
-            mock.patch.object(sampler.samplers[1], "_update_base_samples") as update_1,
-        ):
+        with mock.patch.object(
+            sampler.samplers[0], "_update_base_samples"
+        ) as update_0, mock.patch.object(
+            sampler.samplers[1], "_update_base_samples"
+        ) as update_1:
             sampler._update_base_samples(posterior=p_list, base_sampler=sampler2)
         update_0.assert_called_once_with(
             posterior=p1, base_sampler=sampler2.samplers[0]

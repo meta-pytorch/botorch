@@ -9,6 +9,7 @@ import math
 import warnings
 
 import torch
+
 from botorch import fit_gpytorch_mll
 from botorch.exceptions import InputDataError, OptimizationWarning
 from botorch.models import SingleTaskGP

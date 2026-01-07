@@ -7,10 +7,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+
 from types import NoneType
+
 from typing import Any
 
 import torch
+
 from botorch.models.approximate_gp import ApproximateGPyTorchModel
 from botorch.models.transforms.input import InputTransform
 from botorch.sampling.pathwise.features import KernelEvaluationMap

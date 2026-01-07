@@ -59,7 +59,7 @@ def columnwise_clamp(
     out = X.clamp(lower, upper)
     if raise_on_violation and not X.allclose(out):
         raise BotorchError(
-            f"Original value(s) are out of bounds: {out=}, {X=}, {lower=}, {upper=}."
+            "Original value(s) are out of bounds: " f"{out=}, {X=}, {lower=}, {upper=}."
         )
 
     return out

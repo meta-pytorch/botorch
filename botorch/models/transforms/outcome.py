@@ -75,7 +75,8 @@ class OutcomeTransform(Module, ABC):
             The current outcome transform, subset to the specified output indices.
         """
         raise NotImplementedError(
-            f"{self.__class__.__name__} does not implement the `subset_output` method"
+            f"{self.__class__.__name__} does not implement the "
+            "`subset_output` method"
         )
 
     def untransform(

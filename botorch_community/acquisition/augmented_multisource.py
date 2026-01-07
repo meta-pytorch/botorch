@@ -23,6 +23,7 @@ from __future__ import annotations
 from typing import Dict, Optional, Tuple, Union
 
 import torch
+
 from botorch.acquisition import UpperConfidenceBound
 from botorch.acquisition.objective import PosteriorTransform
 from botorch.exceptions import UnsupportedError
