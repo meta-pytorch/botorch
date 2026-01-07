@@ -883,7 +883,7 @@ class KroneckerMultiTaskGP(ExactGP, GPyTorchModel, FantasizeMixin):
 
     def train(self, val=True, *args, **kwargs):
         if val:
-            fixed_cache_names = ["data_data_roots", "train_full_covar", "task_root"]
+            fixed_cache_names = ["predictive_mean_cache", "train_full_covar"]
             for name in fixed_cache_names:
                 try:
                     pop_from_cache(self, name)
