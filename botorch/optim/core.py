@@ -18,7 +18,6 @@ from time import monotonic
 from typing import Any
 
 import numpy.typing as npt
-
 from botorch.optim.closures import NdarrayOptimizationClosure
 from botorch.optim.stopping import StoppingCriterion
 from botorch.optim.utils.numpy_utils import get_bounds_as_ndarray

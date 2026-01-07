@@ -23,7 +23,6 @@ from botorch.utils.test_helpers import (
     get_sample_moments,
     standardize_moments,
 )
-
 from botorch.utils.testing import BotorchTestCase
 from botorch.utils.transforms import is_ensemble
 from gpytorch.kernels import MaternKernel, ScaleKernel

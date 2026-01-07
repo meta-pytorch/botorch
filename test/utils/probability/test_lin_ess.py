@@ -7,9 +7,7 @@
 from __future__ import annotations
 
 import itertools
-
 import math
-
 from unittest.mock import patch
 
 import torch

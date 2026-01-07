@@ -17,7 +17,6 @@ from botorch.models.utils.inducing_point_allocators import (
     UnitQualityFunction,
 )
 from botorch.utils.testing import BotorchTestCase
-
 from gpytorch.kernels import MaternKernel, ScaleKernel
 from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.mlls import VariationalELBO

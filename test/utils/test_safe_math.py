@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import itertools
-
 import math
 from abc import abstractmethod
 from collections.abc import Callable

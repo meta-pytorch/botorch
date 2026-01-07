@@ -284,9 +284,9 @@ class PFNModel(Model):
             device=self.train_X.device,
         )
         if self.style is not None:
-            assert (
-                style_kwargs == {}
-            ), "Cannot provide both style and style_hyperparameters."
+            assert style_kwargs == {}, (
+                "Cannot provide both style and style_hyperparameters."
+            )
             style_kwargs["style"] = (
                 self.style[None]
                 .repeat(batch_size, 1, 1)

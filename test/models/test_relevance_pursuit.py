@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import itertools
 import warnings
-
 from functools import partial
 from unittest.mock import patch
 
@@ -30,19 +29,16 @@ from botorch.models.relevance_pursuit import (
     get_posterior_over_support,
     RelevancePursuitMixin,
 )
-
 from botorch.models.robust_relevance_pursuit_model import (
     FRACTIONS_OF_OUTLIERS,
     RobustRelevancePursuitSingleTaskGP,
 )
 from botorch.models.transforms.input import Normalize
 from botorch.test_functions.base import constant_outlier_generator, CorruptedTestProblem
-
 from botorch.test_functions.synthetic import Ackley
 from botorch.utils.constraints import NonTransformedInterval
 from botorch.utils.testing import BotorchTestCase
 from gpytorch.constraints import Interval
-
 from gpytorch.kernels import RBFKernel, ScaleKernel
 from gpytorch.likelihoods.noise_models import HomoskedasticNoise
 from gpytorch.means import ZeroMean

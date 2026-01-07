@@ -9,13 +9,11 @@ r"""Representations for different kinds of data."""
 from __future__ import annotations
 
 import dataclasses
-
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, fields
 from typing import Any
 
 import torch
-
 from torch import device as Device, dtype as Dtype, LongTensor, Size, Tensor
 
 

@@ -106,8 +106,12 @@ class TestBaseModel(BotorchTestCase):
 
     def test_construct_inputs(self) -> None:
         model = NotSoAbstractBaseModel()
-        with self.subTest("Wrong training data type"), self.assertRaisesRegex(
-            TypeError, "Expected `training_data` to be a `SupervisedDataset`, but got "
+        with (
+            self.subTest("Wrong training data type"),
+            self.assertRaisesRegex(
+                TypeError,
+                "Expected `training_data` to be a `SupervisedDataset`, but got ",
+            ),
         ):
             model.construct_inputs(training_data=None)
 

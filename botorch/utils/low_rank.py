@@ -14,7 +14,6 @@ from gpytorch.distributions.multitask_multivariate_normal import (
     MultitaskMultivariateNormal,
 )
 from linear_operator.operators import BlockDiagLinearOperator, LinearOperator
-
 from linear_operator.utils.cholesky import psd_safe_cholesky
 from linear_operator.utils.errors import NanError
 from torch import Tensor

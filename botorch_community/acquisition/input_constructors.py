@@ -16,7 +16,6 @@ from __future__ import annotations
 from typing import Any, Hashable, List, Optional, Tuple
 
 import torch
-
 from botorch.acquisition.input_constructors import (
     acqf_input_constructor,
     get_best_f_analytic,
@@ -27,14 +26,12 @@ from botorch.acquisition.objective import (
 )
 from botorch.acquisition.utils import get_optimal_samples
 from botorch.models.model import Model
-
 from botorch.utils.datasets import SupervisedDataset
 from botorch_community.acquisition.bayesian_active_learning import (
     qBayesianQueryByComittee,
     qBayesianVarianceReduction,
     qStatisticalDistanceActiveLearning,
 )
-
 from botorch_community.acquisition.discretized import (
     DiscretizedExpectedImprovement,
     DiscretizedNoisyExpectedImprovement,

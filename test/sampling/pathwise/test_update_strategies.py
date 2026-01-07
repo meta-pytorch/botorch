@@ -133,10 +133,13 @@ class TestPathwiseUpdates(BotorchTestCase):
             )
 
         # Disable sampling of noise variables `e` used to obtain `y = f + e`
-        with delattr_ctx(model, "outcome_transform"), patch.object(
-            torch,
-            "randn_like",
-            return_value=noise_values,
+        with (
+            delattr_ctx(model, "outcome_transform"),
+            patch.object(
+                torch,
+                "randn_like",
+                return_value=noise_values,
+            ),
         ):
             prior_paths = draw_kernel_feature_paths(model, sample_shape=sample_shape)
             sample_values = prior_paths(X)

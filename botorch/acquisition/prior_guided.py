@@ -27,7 +27,6 @@ from botorch.utils.transforms import (
     t_batch_mode_transform,
 )
 from torch import Tensor
-
 from torch.nn import Module
 
 

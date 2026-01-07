@@ -27,7 +27,6 @@ from botorch.acquisition.objective import (
 )
 from botorch.generation.utils import _flip_sub_unique
 from botorch.models.model import Model
-
 from botorch.models.model_list_gp_regression import ModelListGP
 from botorch.models.multitask import MultiTaskGP
 from botorch.utils.sampling import batched_multinomial
