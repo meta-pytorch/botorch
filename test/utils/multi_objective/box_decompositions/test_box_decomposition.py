@@ -241,8 +241,8 @@ class TestBoxDecomposition(BotorchTestCase):
             bd = DummyFastPartitioning(ref_point=ref_point)
             with (
                 mock.patch(
-                    "botorch.utils.multi_objective.box_decompositions.box_decomposition."
-                    "update_local_upper_bounds_incremental",
+                    "botorch.utils.multi_objective.box_decompositions."
+                    "box_decomposition.update_local_upper_bounds_incremental",
                     wraps=update_local_upper_bounds_incremental,
                 ) as mock_update_local_upper_bounds_incremental,
                 mock.patch.object(
