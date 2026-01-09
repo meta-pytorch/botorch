@@ -11,7 +11,6 @@ from collections.abc import Sequence
 import torch
 from botorch.utils.probability.lin_ess import LinearEllipticalSliceSampler
 from botorch.utils.probability.mvnxpb import MVNXPB
-from botorch.utils.probability.utils import get_constants_like
 from torch import Tensor
 from torch.distributions.multivariate_normal import MultivariateNormal
 
@@ -68,7 +67,7 @@ class TruncatedMultivariateNormal(MultivariateNormal):
 
     def log_prob(self, value: Tensor) -> Tensor:
         r"""Approximates the true log probability."""
-        neg_inf = get_constants_like(-float("inf"), value)
+        neg_inf = float("-inf")
         inbounds = torch.logical_and(
             (self.bounds[..., 0] < value).all(-1),
             (self.bounds[..., 1] > value).all(-1),

@@ -8,10 +8,8 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Iterable, Iterator
-
 from functools import lru_cache
 from math import pi
-from numbers import Number
 from typing import Any
 
 import torch
@@ -22,8 +20,6 @@ from torch import BoolTensor, LongTensor, Tensor
 CaseNd = tuple[Callable[[], BoolTensor], Callable[[BoolTensor], Tensor]]
 
 _log_2 = math.log(2)
-_sqrt_pi = math.sqrt(pi)
-_inv_sqrt_pi = 1 / _sqrt_pi
 _inv_sqrt_2pi = 1 / math.sqrt(2 * pi)
 _inv_sqrt_2 = 1 / math.sqrt(2)
 _neg_inv_sqrt_2 = -_inv_sqrt_2
@@ -78,28 +74,6 @@ def case_dispatcher(
     return out
 
 
-@lru_cache(maxsize=None)
-def get_constants(
-    values: Number | Iterator[Number],
-    device: torch.device | None = None,
-    dtype: torch.dtype | None = None,
-) -> Tensor | tuple[Tensor, ...]:
-    r"""Returns scalar-valued Tensors containing each of the given constants.
-    Used to expedite tensor operations involving scalar arithmetic. Note that
-    the returned Tensors should not be modified in-place."""
-    if isinstance(values, Number):
-        return torch.full((), values, dtype=dtype, device=device)
-
-    return tuple(torch.full((), val, dtype=dtype, device=device) for val in values)
-
-
-def get_constants_like(
-    values: Number | Iterator[Number],
-    ref: Tensor,
-) -> Tensor | Iterator[Tensor]:
-    return get_constants(values, device=ref.device, dtype=ref.dtype)
-
-
 def gen_positional_indices(
     shape: torch.Size,
     dim: int,
@@ -132,20 +106,17 @@ def leggauss(deg: int, **tkwargs: Any) -> tuple[Tensor, Tensor]:
 
 def ndtr(x: Tensor) -> Tensor:
     r"""Standard normal CDF."""
-    half, neg_inv_sqrt_2 = get_constants_like((0.5, _neg_inv_sqrt_2), x)
-    return half * torch.erfc(neg_inv_sqrt_2 * x)
+    return 0.5 * torch.erfc(_neg_inv_sqrt_2 * x)
 
 
 def phi(x: Tensor) -> Tensor:
     r"""Standard normal PDF."""
-    inv_sqrt_2pi, neg_half = get_constants_like((_inv_sqrt_2pi, -0.5), x)
-    return inv_sqrt_2pi * (neg_half * x.square()).exp()
+    return _inv_sqrt_2pi * (-0.5 * x.square()).exp()
 
 
 def log_phi(x: Tensor) -> Tensor:
     r"""Logarithm of standard normal pdf"""
-    log_sqrt_2pi, neg_half = get_constants_like((_log_sqrt_2pi, -0.5), x)
-    return neg_half * x.square() - log_sqrt_2pi
+    return -0.5 * x.square() - _log_sqrt_2pi
 
 
 def log_ndtr(x: Tensor) -> Tensor:
@@ -163,8 +134,7 @@ def log_ndtr(x: Tensor) -> Tensor:
             f"log_Phi only supports torch.float32 and torch.float64 "
             f"dtypes, but received {x.dtype=}."
         )
-    neg_inv_sqrt_2, log_2 = get_constants_like((_neg_inv_sqrt_2, _log_2), x)
-    return log_erfc(neg_inv_sqrt_2 * x) - log_2
+    return log_erfc(_neg_inv_sqrt_2 * x) - _log_2
 
 
 def log_erfc(x: Tensor) -> Tensor:
@@ -226,8 +196,7 @@ def standard_normal_log_hazard(x: Tensor) -> Tensor:
         hazard function evaluated at `x`.
     """
     # NOTE: using _inv_sqrt_2 instead of _neg_inv_sqrt_2 means we are computing Phi(-x).
-    a, b = get_constants_like((_log_two_inv_sqrt_2pi, _inv_sqrt_2), x)
-    return a - log_erfcx(b * x)
+    return _log_two_inv_sqrt_2pi - log_erfcx(_inv_sqrt_2 * x)
 
 
 def log_prob_normal_in(a: Tensor, b: Tensor) -> Tensor:

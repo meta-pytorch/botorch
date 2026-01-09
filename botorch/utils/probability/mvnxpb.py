@@ -36,7 +36,6 @@ from botorch.utils.probability.linalg import (
 )
 from botorch.utils.probability.utils import (
     case_dispatcher,
-    get_constants_like,
     ndtr as Phi,
     phi,
     STANDARDIZED_RANGE,
@@ -161,7 +160,6 @@ class MVNXPB:
             self.log_prob_extra = None
 
         # Iteratively compute bivariate conditional approximation
-        zero = get_constants_like(0, L)  # needed when calling `torch.where` below
         num_steps = num_steps or ndim - start
         for i in range(start, start + num_steps):
             should_update_chol = self.step == piv_chol.step
@@ -194,9 +192,18 @@ class MVNXPB:
             y[..., i] = case_dispatcher(  # used to select next pivot
                 out=(phi(lb) - phi(ub)) / Phi_i,
                 cases=(  # fallback cases for enhanced numerical stability
-                    (lambda: small & (lb < -9), lambda m: ub[m]),
-                    (lambda: small & (lb > 9), lambda m: lb[m]),
-                    (lambda: small, lambda m: 0.5 * (lb[m] + ub[m])),
+                    (
+                        lambda small=small, lb=lb: small & (lb < -9),
+                        lambda m, ub=ub: ub[m],
+                    ),
+                    (
+                        lambda small=small, lb=lb: small & (lb > 9),
+                        lambda m, lb=lb: lb[m],
+                    ),
+                    (
+                        lambda small=small: small,
+                        lambda m, lb=lb, ub=ub: 0.5 * (lb[m] + ub[m]),
+                    ),
                 ),
             )
 
@@ -224,9 +231,9 @@ class MVNXPB:
                 zh, zi = bvnmom(blk_corr, *blk_lower, *blk_upper, p=blk_prob)
 
                 # Replace 1D expectations with 2D ones `L[blk, blk]^{-1} y[..., blk]`
-                mask = blk_prob > zero
-                y[..., h] = torch.where(mask, zh, zero)
-                y[..., i] = torch.where(mask, inv_Lii * (std_i * zi - Lih * zh), zero)
+                mask = blk_prob > 0
+                y[..., h] = torch.where(mask, zh, 0)
+                y[..., i] = torch.where(mask, inv_Lii * (std_i * zi - Lih * zh), 0)
 
                 # Update running approximation to log probability
                 self.log_prob = self.log_prob + safe_log(blk_prob)
