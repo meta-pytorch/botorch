@@ -160,7 +160,7 @@ def _verify_output_shape(acqf: Any, X: Tensor, output: Tensor) -> bool:
     return shapes before these errors propagate further down the line.
 
     This method checks that the `output` shape matches either the t-batch shape of X
-    or the `batch_shape` of `acqf.model`.
+    or the ``batch_shape`` of ``acqf.model``.
 
     Args:
         acqf: The AcquisitionFunction object being evaluated.
@@ -193,7 +193,7 @@ def _verify_output_shape(acqf: Any, X: Tensor, output: Tensor) -> bool:
             return True
         return False
     except (AttributeError, NotImplementedError):
-        # acqf does not have model or acqf.model does not define `batch_shape`
+        # acqf does not have model or acqf.model does not define ``batch_shape``
         warnings.warn(
             "Output shape checks failed! Expected output shape to match t-batch shape"
             f"of X, but got output with shape {output.shape} for X with shape "
@@ -349,12 +349,12 @@ def average_over_ensemble_models(
         ...         # return shape is `batch_shape x ensemble_shape`
         ...         return sample_acqvals.mean(dim=0).max(dim=-1)
         ...
-        >>> # With decorator, forward returns a `batch_shape`-dim tensor
+        >>> # With decorator, forward returns a ``batch_shape``-dim tensor
         >>> class EnsembleAcquisition:
         ...     @average_over_ensemble_models
         ...     def forward(self, X):
         ...         ... # same as above
-        ...         # return shape through decorator is `batch_shape`
+        ...         # return shape through decorator is ``batch_shape``
         ...         return sample_acqvals.mean(dim=0).max(dim=-1)
     """
 
