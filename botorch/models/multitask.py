@@ -687,7 +687,7 @@ class KroneckerMultiTaskGP(ExactGP, GPyTorchModel, FantasizeMixin):
             )
 
         X = self.transform_inputs(X)
-        train_x = self.transform_inputs(self.train_inputs[0])
+        train_x = self.train_inputs[0]
 
         # construct Ktt
         task_covar = self._task_covar_matrix
