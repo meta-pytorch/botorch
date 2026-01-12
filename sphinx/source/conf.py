@@ -13,8 +13,7 @@
 
 import os
 import sys
-
-from pkg_resources import get_distribution
+from importlib.metadata import version as get_version
 
 
 base_path = os.path.abspath(os.path.join(__file__, "..", "..", "..", "botorch"))
@@ -28,7 +27,7 @@ copyright = "2019, Meta Platforms, Inc."
 author = "Meta Platforms, Inc."
 
 # get version string
-version = get_distribution("botorch").version
+version = get_version("botorch")
 
 
 # -- General configuration ---------------------------------------------------
