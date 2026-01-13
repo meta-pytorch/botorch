@@ -506,9 +506,7 @@ def get_reasons_against_fast_path(
         why_not_fast_path.append(f"timeout_sec={timeout_sec}, it needs to be None")
     if not check_scipy_version_at_least(
         minor=SCIPY_MIN_VERSION
-    ) or check_scipy_version_at_least(
-        minor=SCIPY_UNTESTED_VERSION
-    ):  # pragma: no cover
+    ) or check_scipy_version_at_least(minor=SCIPY_UNTESTED_VERSION):  # pragma: no cover
         # In SciPy 1.15.0, the fortran implementation of L-BFGS-B was
         # translated to C changing its interface slightly.
         # Additionally, we don't know what the future might hold in scipy,
