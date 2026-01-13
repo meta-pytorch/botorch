@@ -25,9 +25,9 @@ class ModelListGP(IndependentModelList, ModelListGPyTorchModel, FantasizeMixin):
 
     This model supports different-shaped training inputs for each of its
     sub-models. It can be used with any number of single-output
-    `GPyTorchModel`\s and the models can be of different types. Use this model
+    ``GPyTorchModel``\s and the models can be of different types. Use this model
     when you have independent outputs with different training data. When
-    modeling correlations between outputs, use `MultiTaskGP`.
+    modeling correlations between outputs, use ``MultiTaskGP``.
 
     Internally, this model is just a list of individual models, but it implements
     the same input/output interface as all other BoTorch models. This makes it
@@ -35,13 +35,13 @@ class ModelListGP(IndependentModelList, ModelListGPyTorchModel, FantasizeMixin):
     at a performance cost though - if you are using a block design (i.e. the
     same number of training example for each output, and a similar model
     structure, you should consider using a batched GP model instead, such as
-    `SingleTaskGP` with batched inputs).
+    ``SingleTaskGP`` with batched inputs).
     """
 
     def __init__(self, *gp_models: GPyTorchModel) -> None:
         r"""
         Args:
-            *gp_models: A number of single-output `GPyTorchModel`\s.
+            *gp_models: A number of single-output ``GPyTorchModel``\s.
                 If models have input/output transforms, these are honored
                 individually for each model.
 
@@ -52,7 +52,7 @@ class ModelListGP(IndependentModelList, ModelListGPyTorchModel, FantasizeMixin):
         """
         super().__init__(*gp_models)
 
-    # pyre-fixme[14]: Inconsistent override. Here `X` is a List[Tensor], but in the
+    # pyre-fixme[14]: Inconsistent override. Here ``X`` is a List[Tensor], but in the
     # parent method it's a Tensor.
     def condition_on_observations(
         self, X: list[Tensor], Y: Tensor, **kwargs: Any
@@ -60,25 +60,25 @@ class ModelListGP(IndependentModelList, ModelListGPyTorchModel, FantasizeMixin):
         r"""Condition the model on new observations.
 
         Args:
-            X: A `m`-list of `batch_shape x n' x d`-dim Tensors, where `d` is the
-                dimension of the feature space, `n'` is the number of points
-                per batch, and `batch_shape` is the batch shape (must be compatible
+            X: A ``m``-list of ``batch_shape x n' x d``-dim Tensors, where ``d`` is the
+                dimension of the feature space, ``n'`` is the number of points
+                per batch, and ``batch_shape`` is the batch shape (must be compatible
                 with the batch shape of the model).
-            Y: A `batch_shape' x n' x m`-dim Tensor, where `m` is the number of
-                model outputs, `n'` is the number of points per batch, and
-                `batch_shape'` is the batch shape of the observations.
-                `batch_shape'` must be broadcastable to `batch_shape` using
-                standard broadcasting semantics. If `Y` has fewer batch dimensions
-                than `X`, its is assumed that the missing batch dimensions are
-                the same for all `Y`.
+            Y: A ``batch_shape' x n' x m``-dim Tensor, where ``m`` is the number of
+                model outputs, ``n'`` is the number of points per batch, and
+                ``batch_shape'`` is the batch shape of the observations.
+                ``batch_shape'`` must be broadcastable to ``batch_shape`` using
+                standard broadcasting semantics. If ``Y`` has fewer batch dimensions
+                than ``X``, it is assumed that the missing batch dimensions are
+                the same for all ``Y``.
             kwargs: Keyword arguments passed to
-                `IndependentModelList.get_fantasy_model`.
+                ``IndependentModelList.get_fantasy_model``.
 
         Returns:
-            A `ModelListGP` representing the original model
-            conditioned on the new observations `(X, Y)` (and possibly noise
-            observations passed in via kwargs). Here the `i`-th model has
-            `n_i + n'` training examples, where the `n'` training examples have
+            A ``ModelListGP`` representing the original model
+            conditioned on the new observations ``(X, Y)`` (and possibly noise
+            observations passed in via kwargs). Here the ``i``-th model has
+            ``n_i + n'`` training examples, where the ``n'`` training examples have
             been added and all test-time caches have been updated.
         """
         if Y.shape[-1] != self.num_outputs:

@@ -25,10 +25,10 @@ class EnsemblePosterior(Posterior):
         r"""
         Args:
             values: Values of the samples produced by this posterior as
-                a `(b) x s x q x m` tensor where `m` is the output size of the
-                model and `s` is the ensemble size.
+                a ``(b) x s x q x m`` tensor where ``m`` is the output size of the
+                model and ``s`` is the ensemble size.
             weights: Optional weights for the ensemble members as a tensor of shape
-                `(s,)`. If None, uses uniform weights.
+                ``(s,)``. If None, uses uniform weights.
         """
         if values.ndim < 3:
             raise ValueError("Values has to be at least three-dimensional.")
@@ -111,13 +111,13 @@ class EnsemblePosterior(Posterior):
 
     @property
     def mean(self) -> Tensor:
-        r"""The mean of the posterior as a `(b) x n x m`-dim Tensor."""
+        r"""The mean of the posterior as a ``(b) x n x m``-dim Tensor."""
         # Weighted average across ensemble dimension
         return (self.values * self.weights[..., None, None]).sum(dim=-3)
 
     @property
     def variance(self) -> Tensor:
-        r"""The variance of the posterior as a `(b) x n x m`-dim Tensor.
+        r"""The variance of the posterior as a ``(b) x n x m``-dim Tensor.
 
         Computed as the weighted sample variance across the ensemble outputs.
 
@@ -138,7 +138,7 @@ class EnsemblePosterior(Posterior):
 
     @property
     def mixture_mean(self) -> Tensor:
-        r"""The mixture mean of the posterior as a `(b) x n x m`-dim Tensor.
+        r"""The mixture mean of the posterior as a ``(b) x n x m``-dim Tensor.
 
         Computed as the weighted average across the ensemble outputs.
         """
@@ -148,7 +148,7 @@ class EnsemblePosterior(Posterior):
 
     @property
     def mixture_variance(self) -> Tensor:
-        r"""The mixture variance of the posterior as a `(b) x n x m`-dim Tensor.
+        r"""The mixture variance of the posterior as a ``(b) x n x m``-dim Tensor.
 
         Computed as the weighted sample variance across the ensemble outputs.
 
@@ -172,7 +172,7 @@ class EnsemblePosterior(Posterior):
         sample_shape: torch.Size = torch.Size(),  # noqa: B008
     ) -> torch.Size:
         r"""Returns the shape of the samples produced by the posterior with
-        the given `sample_shape`.
+        the given ``sample_shape``.
         """
         return sample_shape + self.values.shape[:-3] + self.values.shape[-2:]
 
@@ -187,16 +187,16 @@ class EnsemblePosterior(Posterior):
         r"""Sample from the posterior (with gradients).
 
         Based on the sample shape, base samples are generated and passed to
-        `rsample_from_base_samples`.
+        ``rsample_from_base_samples``.
 
         Args:
-            sample_shape: A `torch.Size` object specifying the sample shape. To
-                draw `n` samples, set to `torch.Size([n])`. To draw `b` batches
-                of `n` samples each, set to `torch.Size([b, n])`.
+            sample_shape: A ``torch.Size`` object specifying the sample shape. To
+                draw ``n`` samples, set to ``torch.Size([n])``. To draw ``b`` batches
+                of ``n`` samples each, set to ``torch.Size([b, n])``.
 
         Returns:
             Samples from the posterior, a tensor of shape
-            `self._extended_shape(sample_shape=sample_shape)`.
+            ``self._extended_shape(sample_shape=sample_shape)``.
         """
         if sample_shape is None or len(sample_shape) == 0:
             sample_shape = torch.Size([1])
@@ -232,18 +232,18 @@ class EnsemblePosterior(Posterior):
         samples, and enables acquisition optimization via Sample Average Approximation.
 
         Args:
-            sample_shape: A `torch.Size` object specifying the sample shape. To
-                draw `n` samples, set to `torch.Size([n])`. To draw `b` batches
-                of `n` samples each, set to `torch.Size([b, n])`.
+            sample_shape: A ``torch.Size`` object specifying the sample shape. To
+                draw ``n`` samples, set to ``torch.Size([n])``. To draw ``b`` batches
+                of ``n`` samples each, set to ``torch.Size([b, n])``.
             base_samples: A Tensor of indices as base samples of shape
-                `sample_shape`, typically obtained from `IndexSampler`.
+                ``sample_shape``, typically obtained from ``IndexSampler``.
                 This is used for deterministic optimization. The predictions of
                 the ensemble corresponding to the indices are then sampled.
 
 
         Returns:
             Samples from the posterior, a tensor of shape
-            `self._extended_shape(sample_shape=sample_shape)`.
+            ``self._extended_shape(sample_shape=sample_shape)``.
         """
         # Check that the first dimensions of base_samples match sample_shape
         if base_samples.shape != sample_shape + self.batch_shape:

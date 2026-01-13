@@ -421,7 +421,7 @@ class TestGenCandidates(TestBaseCandidateGeneration):
                         acquisition_function=mock.Mock(return_value=test_ics),
                     )
 
-            # test NaN in `x`
+            # test NaN in ``x``
             test_ics = torch.tensor([[0.0, 0.0, float("nan")]], **ckwargs)
             with self.assertRaisesRegex(RuntimeError, "array `x` are NaN."):
                 gen_candidates_scipy(
@@ -430,7 +430,7 @@ class TestGenCandidates(TestBaseCandidateGeneration):
                 )
 
     def test_gen_candidates_without_grad(self) -> None:
-        """Test with `with_grad=False` (not supported for gen_candidates_torch)."""
+        """Test with ``with_grad=False`` (not supported for gen_candidates_torch)."""
 
         self.test_gen_candidates(
             gen_candidates=gen_candidates_scipy,

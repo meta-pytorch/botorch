@@ -130,9 +130,9 @@ class PairwiseGP(Model, GP, FantasizeMixin):
     Also see [Brochu2010tutorial]_ for additional reference.
 
     Note that in [Chu2005preference]_ the likelihood of a pairwise comparison
-    is :math:`\left(\frac{f(x_1) - f(x_2)}{\sqrt{2}\sigma}\right)`, i.e. a scale is
+    is :math:``\left(\frac{f(x_1) - f(x_2)}{\sqrt{2}\sigma}\right)``, i.e. a scale is
     used in the denominator. To maintain consistency with usage of kernels
-    elsewhere in BoTorch, we instead do not include :math:`\sigma` in the code
+    elsewhere in BoTorch, we instead do not include :math:``\sigma`` in the code
     (implicitly setting it to 1) and use ScaleKernel to scale the function.
 
     In the example below, the user/decision maker has stated that they prefer
@@ -178,28 +178,28 @@ class PairwiseGP(Model, GP, FantasizeMixin):
     ) -> None:
         r"""
         Args:
-            datapoints: Either `None` or a `batch_shape x n x d` tensor of
-                training features. If either `datapoints` or `comparisons` is
-                `None`, construct a prior-only model.
-            comparisons: Either `None` or a `batch_shape x m x 2` tensor of
+            datapoints: Either ``None`` or a ``batch_shape x n x d`` tensor of
+                training features. If either ``datapoints`` or ``comparisons`` is
+                ``None``, construct a prior-only model.
+            comparisons: Either ``None`` or a ``batch_shape x m x 2`` tensor of
                 training comparisons; comparisons[i] is a noisy indicator
                 suggesting the utility value of comparisons[i, 0]-th is greater
-                than comparisons[i, 1]-th. If either `comparisons` or
-                `datapoints` is `None`, construct a prior-only model.
+                than comparisons[i, 1]-th. If either ``comparisons`` or
+                ``datapoints`` is ``None``, construct a prior-only model.
             likelihood: A PairwiseLikelihood.
             covar_module: Covariance module.
             input_transform: An input transform that is applied in the model's
                 forward pass.
             jitter: Value added to diagonal for numerical stability in
-                `psd_safe_cholesky`.
+                ``psd_safe_cholesky``.
             xtol: Stopping creteria in scipy.optimize.fsolve used to find f_map
-                in `PairwiseGP._update`. If None, default behavior is handled by
-                `PairwiseGP._update`.
-            consolidate_rtol: `rtol` passed to `consolidate_duplicates`.
-            consolidate_atol: `atol` passed to `consolidate_duplicates`.
+                in ``PairwiseGP._update``. If None, default behavior is handled by
+                ``PairwiseGP._update``.
+            consolidate_rtol: ``rtol`` passed to ``consolidate_duplicates``.
+            consolidate_atol: ``atol`` passed to ``consolidate_duplicates``.
             maxfev: The maximum number of calls to the function in
                 scipy.optimize.fsolve. If None, default behavior is handled by
-                `PairwiseGP._update`.
+                ``PairwiseGP._update``.
         """
         super().__init__()
         # Input data validation
@@ -247,7 +247,7 @@ class PairwiseGP(Model, GP, FantasizeMixin):
         # See set_train_data for additional compatibility variables.
         # Not that the datapoints here are not transformed even if input_transform
         # is not None to avoid double transformation during model fitting.
-        # self.transform_inputs is called in `forward`
+        # self.transform_inputs is called in ``forward``
         self.set_train_data(datapoints, comparisons, update_model=False)
 
         # Set hyperparameters
@@ -375,7 +375,7 @@ class PairwiseGP(Model, GP, FantasizeMixin):
         r"""Return point prediction using prior only
 
         Args:
-            X: A `batch_size x n' x d`-dim Tensor at which to evaluate prior
+            X: A ``batch_size x n' x d``-dim Tensor at which to evaluate prior
 
         Returns:
             Prior mean prediction
@@ -386,7 +386,7 @@ class PairwiseGP(Model, GP, FantasizeMixin):
         r"""Predict utility based on prior info only
 
         Args:
-            X: A `batch_size x n' x d`-dim Tensor at which to evaluate prior
+            X: A ``batch_size x n' x d``-dim Tensor at which to evaluate prior
 
         Returns:
             pred_mean: predictive mean
@@ -412,11 +412,11 @@ class PairwiseGP(Model, GP, FantasizeMixin):
         Also see [Brochu2010tutorial]_ page 26. This is needed for estimating f_map.
 
         Args:
-            utility: A Tensor of shape `batch_size x n`
-            datapoints: A Tensor of shape `batch_size x n x d` as in self.datapoints
-            D: A Tensor of shape `batch_size x m x n` as in self.D
-            covar_chol: A Tensor of shape `batch_size x n x n`, as in self.covar_chol
-            covar_inv: `None` or a Tensor of shape `batch_size x n x n`, as in
+            utility: A Tensor of shape ``batch_size x n``
+            datapoints: A Tensor of shape ``batch_size x n x d`` as in self.datapoints
+            D: A Tensor of shape ``batch_size x m x n`` as in self.D
+            covar_chol: A Tensor of shape ``batch_size x n x n``, as in self.covar_chol
+            covar_inv: ``None`` or a Tensor of shape ``batch_size x n x n``, as in
                 self.covar_inv. This is not used but is needed so that
                 PairwiseGP._grad_posterior_f has the same signature as
                 PairwiseGP._hess_posterior_f.
@@ -456,17 +456,17 @@ class PairwiseGP(Model, GP, FantasizeMixin):
         This is needed for estimating f_map
 
         Args:
-            utility: A Tensor of shape `batch_size x n`
-            datapoints: A Tensor of shape `batch_size x n x d`, as in
+            utility: A Tensor of shape ``batch_size x n``
+            datapoints: A Tensor of shape ``batch_size x n x d``, as in
                 self.datapoints. This is not used but is needed so that
-                `_hess_posterior_f` has the same signature as
-                `_grad_posterior_f`.
-            D: A Tensor of shape `batch_size x m x n` as in self.D
-            covar_chol: A Tensor of shape `batch_size x n x n`, as in
+                ``_hess_posterior_f`` has the same signature as
+                ``_grad_posterior_f``.
+            D: A Tensor of shape ``batch_size x m x n`` as in self.D
+            covar_chol: A Tensor of shape ``batch_size x n x n``, as in
                 self.covar_chol. This is not used but is needed so that
-                `_hess_posterior_f` has the same signature as
-                `_grad_posterior_f`.
-            covar_inv: A Tensor of shape `batch_size x n x n`, as in self.covar_inv
+                ``_hess_posterior_f`` has the same signature as
+                ``_grad_posterior_f``.
+            covar_inv: A Tensor of shape ``batch_size x n x n``, as in self.covar_inv
             ret_np: return a numpy array if true, otherwise a Tensor
         """
         if ret_np:
@@ -480,17 +480,17 @@ class PairwiseGP(Model, GP, FantasizeMixin):
         r"""
         Set self.hlcov_eye to self.likelihood_hess @ self.covar + I.
 
-        `self.hlcov_eye` is a utility-derived value not used during
+        ``self.hlcov_eye`` is a utility-derived value not used during
         optimization. This quantity is used so that we will be able to compute
         the predictive covariance (in PairwiseGP.forward in posterior mode) with
         better numerical stability using the substitution method:
 
-        Let `pred_cov_fac = (covar + hl^-1)`, which is needed for calculating
-        the predictive covariance = `K - k.T @ pred_cov_fac^-1 @ k`.
-        Instead of inverting `pred_cov_fac`, let `hlcov_eye = (hl @ covar + I)`
-        Then we can obtain `pred_cov_fac^-1 @ k` by solving for p in
-        `(hl @ k) p = hlcov_eye`
-        `hlcov_eye p = hl @ k`
+        Let ``pred_cov_fac = (covar + hl^-1)``, which is needed for calculating
+        the predictive covariance = ``K - k.T @ pred_cov_fac^-1 @ k``.
+        Instead of inverting ``pred_cov_fac``, let ``hlcov_eye = (hl @ covar + I)``
+        Then we can obtain ``pred_cov_fac^-1 @ k`` by solving for p in
+        ``(hl @ k) p = hlcov_eye``
+        ``hlcov_eye p = hl @ k``
         """
         hl = self.likelihood_hess  # "C" from page 27, [Brochu2010tutorial]_
         hlcov = hl @ self.covar
@@ -624,16 +624,16 @@ class PairwiseGP(Model, GP, FantasizeMixin):
         r"""Transform X and X_new into the same shape
 
         Transform the batch shape of X to be compatible
-        with `X_new` to calculate the posterior.
-        If X has the same batch size as `X_new`, return it as is.
+        with ``X_new`` to calculate the posterior.
+        If X has the same batch size as ``X_new``, return it as is.
         If one is in batch mode and the other one is not, convert both
         into batch mode.
         If both are in batch mode, this will only work if X_batch_shape
         can propagate to X_new_batch_shape
 
         Args:
-            X: A `batch_shape x q x d`-dim or `(1 x) q x d`-dim Tensor
-            X_new: A `batch_shape x q x d`-dim Tensor
+            X: A ``batch_shape x q x d``-dim or ``(1 x) q x d``-dim Tensor
+            X_new: A ``batch_shape x q x d``-dim Tensor
 
         Returns:
             Transformed X and X_new pair
@@ -654,20 +654,20 @@ class PairwiseGP(Model, GP, FantasizeMixin):
     def _util_newton_updates(
         self, dp: Tensor, x0: Tensor, max_iter: int = 1, xtol: float | None = None
     ) -> Tensor:
-        r"""Make `max_iter` newton updates on utility.
+        r"""Make ``max_iter`` newton updates on utility.
 
-        This is used in `forward` to calculate and fill in gradient into tensors.
+        This is used in ``forward`` to calculate and fill in gradient into tensors.
         Instead of doing utility -= H^-1 @ g, use substition method.
         See more explanation in _update_utility_derived_values.
         By default only need to run one iteration just to fill the the gradients.
 
         Args:
-            dp: (Transformed) datapoints. A Tensor of shape `batch_size x n x d`
+            dp: (Transformed) datapoints. A Tensor of shape ``batch_size x n x d``
                 as in self.datapoints
-            x0: A `batch_size x n` dimension tensor, initial values.
+            x0: A ``batch_size x n`` dimension tensor, initial values.
             max_iter: Max number of iterations.
-            xtol: Stop creteria. If `None`, do not stop until
-                finishing `max_iter` updates.
+            xtol: Stop creteria. If ``None``, do not stop until
+                finishing ``max_iter`` updates.
         """
         xtol = float("-Inf") if xtol is None else xtol
         D, ch = self.D, self.covar_chol
@@ -769,9 +769,9 @@ class PairwiseGP(Model, GP, FantasizeMixin):
 
         This is a batch shape from an I/O perspective, independent of the internal
         representation of the model (as e.g. in BatchedMultiOutputGPyTorchModel).
-        For a model with `m` outputs, a `test_batch_shape x q x d`-shaped input `X`
-        to the `posterior` method returns a Posterior object over an output of
-        shape `broadcast(test_batch_shape, model.batch_shape) x q x m`.
+        For a model with ``m`` outputs, a ``test_batch_shape x q x d``-shaped
+        input ``X`` to the ``posterior`` method returns a Posterior object over
+        an output of shape ``broadcast(test_batch_shape, model.batch_shape) x q x m``.
         """
         if self.datapoints is None:
             # this could happen in prior mode
@@ -785,15 +785,15 @@ class PairwiseGP(Model, GP, FantasizeMixin):
         training_data: SupervisedDataset,
     ) -> dict[str, Tensor]:
         r"""
-        Construct `Model` keyword arguments from a `RankingDataset`.
+        Construct ``Model`` keyword arguments from a ``RankingDataset``.
 
         Args:
-            training_data: A `RankingDataset`, with attributes `train_X`,
-                `train_Y`, and, optionally, `train_Yvar`.
+            training_data: A ``RankingDataset``, with attributes ``train_X``,
+                ``train_Y``, and, optionally, ``train_Yvar``.
 
         Returns:
             A dict of keyword arguments that can be used to initialize a
-            `PairwiseGP`, including `datapoints` and `comparisons`.
+            ``PairwiseGP``, including ``datapoints`` and ``comparisons``.
         """
         if not isinstance(training_data, RankingDataset):
             raise UnsupportedError(
@@ -820,15 +820,15 @@ class PairwiseGP(Model, GP, FantasizeMixin):
         r"""Set datapoints and comparisons and update model properties if needed
 
         Args:
-            datapoints: Either `None` or a `batch_shape x n x d` dimension
+            datapoints: Either ``None`` or a ``batch_shape x n x d`` dimension
                 tensor X. If there are input transformations, assume the
-                datapoints are not transformed. If either `datapoints` or
-                `comparisons` is `None`, construct a prior-only model.
-            comparisons: Either `None` or a tensor of size `batch_shape x m x
+                datapoints are not transformed. If either ``datapoints`` or
+                ``comparisons`` is ``None``, construct a prior-only model.
+            comparisons: Either ``None`` or a tensor of size `batch_shape x m x
                 2`. (i, j) means f_i is preferred over f_j. If either
-                `comparisons` or `datapoints` is `None`, construct a prior-only
+                ``comparisons`` or ``datapoints`` is ``None``, construct a prior-only
                 model.
-            strict: `strict` argument as in gpytorch.models.exact_gp for compatibility
+            strict: ``strict`` argument as in gpytorch.models.exact_gp for compatibility
                 when using fit_gpytorch_mll with input_transform.
             update_model: True if we want to refit the model (see _update) after
                 re-setting the data.
@@ -901,19 +901,19 @@ class PairwiseGP(Model, GP, FantasizeMixin):
     def load_state_dict(
         self, state_dict: dict[str, Tensor], strict: bool = False
     ) -> _IncompatibleKeys:
-        r"""Removes data related buffers from the `state_dict` and calls
-        `super().load_state_dict` with `strict=False`.
+        r"""Removes data related buffers from the ``state_dict`` and calls
+        ``super().load_state_dict`` with ``strict=False``.
 
         Args:
             state_dict: The state dict.
             strict: Boolean specifying whether or not given and instance-bound
                 state_dicts should have identical keys. Only implemented for
-                `strict=False` since buffers will filters out when calling
-                `_load_from_state_dict`.
+                ``strict=False`` since buffers will filters out when calling
+                ``_load_from_state_dict``.
 
         Returns:
-            A named tuple `_IncompatibleKeys`, containing the `missing_keys`
-            and `unexpected_keys`.
+            A named tuple ``_IncompatibleKeys``, containing the ``missing_keys``
+            and ``unexpected_keys``.
         """
         if strict:
             raise UnsupportedError("Passing strict=True is not supported.")
@@ -951,7 +951,7 @@ class PairwiseGP(Model, GP, FantasizeMixin):
         gradients of the hyperparameters.
 
         Args:
-            datapoints: A `batch_shape x n x d` Tensor,
+            datapoints: A ``batch_shape x n x d`` Tensor,
                 should be the same as self.datapoints during training
 
         Returns:
@@ -1076,16 +1076,17 @@ class PairwiseGP(Model, GP, FantasizeMixin):
         r"""Computes the posterior over model outputs at the provided points.
 
         Args:
-            X: A `batch_shape x q x d`-dim Tensor, where `d` is the dimension
-                of the feature space and `q` is the number of points considered jointly.
+            X: A ``batch_shape x q x d``-dim Tensor, where ``d`` is the
+                dimension of the feature space and ``q`` is the number of points
+                considered jointly.
             output_indices: As defined in parent Model class, not used for this model.
             observation_noise: Ignored (since noise is not identifiable from scale
                 in probit models).
             posterior_transform: An optional PosteriorTransform.
 
         Returns:
-            A `Posterior` object, representing joint
-                distributions over `q` points.
+            A ``Posterior`` object, representing joint
+                distributions over ``q`` points.
         """
         self.eval()  # make sure model is in eval mode
 
@@ -1108,14 +1109,14 @@ class PairwiseGP(Model, GP, FantasizeMixin):
         pairwise comparisons.
 
         Args:
-            X: A `batch_shape x n x d` dimension tensor X
-            Y: A tensor of size `batch_shape x m x 2`. (i, j) means
+            X: A ``batch_shape x n x d`` dimension tensor X
+            Y: A tensor of size ``batch_shape x m x 2``. (i, j) means
                 f_i is preferred over f_j
             kwargs: Not used.
 
         Returns:
-            A (deepcopied) `Model` object of the same type, representing the
-            original model conditioned on the new observations `(X, Y)`.
+            A (deepcopied) ``Model`` object of the same type, representing the
+            original model conditioned on the new observations ``(X, Y)``.
         """
         new_model = deepcopy(self)
 

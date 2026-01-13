@@ -24,15 +24,15 @@ def batched_bisect(
     r"""Batched bisection with a fixed number of steps.
 
     Args:
-        f: Target function that takes a `(b1 x ... x bk)`-dim tensor and returns a
-            `(b1 x ... x bk)`-dim tensor.
+        f: Target function that takes a ``(b1 x ... x bk)``-dim tensor and returns a
+            ``(b1 x ... x bk)``-dim tensor.
         target: Scalar target value of type float.
-        bounds: Lower and upper bounds, of size `2 x b1 x ... x bk`.
-        tol: We termniate if all elements satisfy are within `tol` of the `target`.
+        bounds: Lower and upper bounds, of size ``2 x b1 x ... x bk``.
+        tol: We terminate if all elements are within ``tol`` of the ``target``.
         max_steps: Maximum number of bisection steps.
 
     Returns:
-        Tensor X of size `b1 x ... x bk` such that `f(X) = target`.
+        Tensor X of size ``b1 x ... x bk`` such that ``f(X) = target``.
     """
     # Make sure target is actually contained in the interval
     f1, f2 = f(bounds[0]), f(bounds[1])
@@ -83,7 +83,7 @@ class GaussianMixturePosterior(GPyTorchPosterior):
     r"""A Gaussian mixture posterior.
 
     The MCMC batch dimension that corresponds to the models in the mixture is located
-    at `MCMC_DIM` (defined at the top of this file). Note that while each MCMC sample
+    at ``MCMC_DIM`` (defined at the top of this file). Note that while each MCMC sample
     corresponds to a Gaussian posterior, the posterior is rather a mixture of Gaussian
     distributions.
     """
@@ -151,7 +151,7 @@ class GaussianMixturePosterior(GPyTorchPosterior):
         r"""The t-batch range.
 
         This is used in samplers to identify the t-batch component of the
-        `base_sample_shape`. The base samples are expanded over the t-batches to
+        ``base_sample_shape``. The base samples are expanded over the t-batches to
         provide consistency in the acquisition values, i.e., to ensure that a
         candidate produces same value regardless of its position on the t-batch.
         """

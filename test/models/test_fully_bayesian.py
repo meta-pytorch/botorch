@@ -831,13 +831,13 @@ class TestSaasFullyBayesianSingleTaskGP(BotorchTestCase):
             acquisition_functions, [[5], [6, 5, 2]]
         ):
             test_X = torch.rand(*batch_shape, 1, 4, **tkwargs)
-            # Testing that the `average_over_ensemble_models` decorator works
+            # Testing that the ``average_over_ensemble_models`` decorator works
             # correctly for fully Bayesian models with log-space acquisition
             # functions.
             with patch.object(utils.transforms, "logmeanexp", wraps=logmeanexp) as mock:
                 self.assertEqual(acqf(test_X).shape, torch.Size(batch_shape))
                 # The sample-reducing acquisition functions are using the
-                # `sample_reduction` to average over the ensembles.
+                # ``sample_reduction`` to average over the ensembles.
                 if acqf._log and not isinstance(
                     acqf, SampleReducingMCAcquisitionFunction
                 ):

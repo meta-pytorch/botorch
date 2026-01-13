@@ -12,8 +12,8 @@ from torch import Tensor
 class CategoricalKernel(Kernel):
     r"""A Kernel for categorical features.
 
-    Computes `exp(-dist(x1, x2) / lengthscale)`, where
-    `dist(x1, x2)` is zero if `x1 == x2` and one if `x1 != x2`.
+    Computes ``exp(-dist(x1, x2) / lengthscale)``, where
+    ``dist(x1, x2)`` is zero if ``x1 == x2`` and one if ``x1 != x2``.
     If the last dimension is not a batch dimension, then the
     mean is considered.
 

@@ -43,12 +43,13 @@ class InfiniteWidthBNNKernel(Kernel):
         Args:
             depth: Depth of neural network.
             batch_shape: This will set a separate weight/bias var for each batch.
-                It should be :math:`B_1 \times \ldots \times B_k` if :math:`\mathbf` is
-                a :math:`B_1 \times \ldots \times B_k \times N \times D` tensor.
+                It should be :math:``B_1 \times \ldots \times B_k`` if
+                :math:``\mathbf`` is a
+                :math:``B_1 \times \ldots \times B_k \times N \times D`` tensor.
             param active_dims: Compute the covariance of only a few input dimensions.
                 The ints corresponds to the indices of the dimensions.
             param acos_eps: A small positive value to restrict acos inputs to
-                :math`[-1 + \epsilon, 1 - \epsilon]`
+                :math``[-1 + \epsilon, 1 - \epsilon]``
             param device: Device for parameters.
         """
         super().__init__(batch_shape=batch_shape, active_dims=active_dims)
@@ -106,20 +107,20 @@ class InfiniteWidthBNNKernel(Kernel):
         r"""
         For single-layer infinite-width neural networks with i.i.d. priors,
         the covariance between outputs can be computed by
-        :math:`K^0(x, x')=\sigma_b^2+\sigma_w^2\frac{x \cdot x'}{d_\text{input}}`.
+        :math:``K^0(x, x')=\sigma_b^2+\sigma_w^2\frac{x \cdot x'}{d_\text{input}}``.
 
         For deeper networks, we can recursively define the covariance as
         :math:`K^l(x, x')=\sigma_b^2+\sigma_w^2
         F_\phi(K^{l-1}(x, x'), K^{l-1}(x, x), K^{l-1}(x', x'))`
-        where :math:`F_\phi` is a deterministic function based on the
-        activation function :math:`\phi`.
+        where :math:``F_\phi`` is a deterministic function based on the
+        activation function :math:``\phi``.
 
         For ReLU activations, this yields the arc-cosine kernel, which can be computed
         analytically.
 
         Args:
-            x1: `batch_shape x n1 x d`-dim Tensor
-            x2: `batch_shape x n2 x d`-dim Tensor
+            x1: ``batch_shape x n1 x d``-dim Tensor
+            x2: ``batch_shape x n2 x d``-dim Tensor
         """
         K_12 = (
             self.weight_var * (x1.matmul(x2.transpose(-2, -1)) / x1.shape[-1])
@@ -161,8 +162,8 @@ class InfiniteWidthBNNKernel(Kernel):
     ) -> Tensor:
         """
         Args:
-            x1: `batch_shape x n1 x d`-dim Tensor
-            x2: `batch_shape x n2 x d`-dim Tensor
+            x1: ``batch_shape x n1 x d``-dim Tensor
+            x2: ``batch_shape x n2 x d``-dim Tensor
             diag: If True, only returns the diagonal of the kernel matrix.
             last_dim_is_batch: Not supported by this kernel.
         """

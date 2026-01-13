@@ -49,13 +49,13 @@ class TorchPosterior(Posterior):
         This is generally used with a sampler that produces the base samples.
 
         Args:
-            sample_shape: A `torch.Size` object specifying the sample shape. To
-                draw `n` samples, set to `torch.Size([n])`. To draw `b` batches
-                of `n` samples each, set to `torch.Size([b, n])`.
+            sample_shape: A ``torch.Size`` object specifying the sample shape. To
+                draw ``n`` samples, set to ``torch.Size([n])``. To draw ``b`` batches
+                of ``n`` samples each, set to ``torch.Size([b, n])``.
 
         Returns:
             Samples from the posterior, a tensor of shape
-            `self._extended_shape(sample_shape=sample_shape)`.
+            ``self._extended_shape(sample_shape=sample_shape)``.
         """
         if sample_shape is None:
             sample_shape = torch.Size()
@@ -81,10 +81,10 @@ class TorchPosterior(Posterior):
     def __getstate__(self) -> dict[str, Any]:
         r"""A minimal utility to support pickle protocol.
 
-        Pickle uses `__get/setstate__` to serialize / deserialize the objects.
-        Since we define `__getattr__` above, it takes precedence over these
+        Pickle uses ``__get/setstate__`` to serialize / deserialize the objects.
+        Since we define ``__getattr__`` above, it takes precedence over these
         methods, and we end up in an infinite loop unless we also define
-        `__getstate__` and `__setstate__`.
+        ``__getstate__`` and ``__setstate__``.
         """
         return self.__dict__
 
@@ -117,6 +117,6 @@ class TorchPosterior(Posterior):
         sample_shape: torch.Size = torch.Size(),  # noqa: B008
     ) -> torch.Size:
         r"""Returns the shape of the samples produced by the distribution with
-        the given `sample_shape`.
+        the given ``sample_shape``.
         """
         return self.distribution._extended_shape(sample_shape=sample_shape)

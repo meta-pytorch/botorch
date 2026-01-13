@@ -60,7 +60,7 @@ class SimpleInputTransform(InputTransform, torch.nn.Module):
         self.transform_on_train = transform_on_train
         self.transform_on_eval = True
         self.transform_on_fantasize = True
-        # to test the `input_transform.to()` call
+        # to test the ``input_transform.to()`` call
         self.register_buffer("add_value", torch.ones(1))
 
     def transform(self, X: Tensor) -> Tensor:
@@ -612,7 +612,7 @@ class TestModelListGPyTorchModel(BotorchTestCase):
             m1 = SimpleGPyTorchModel(train_X1, train_Y1)
             m2_tf = SimpleInputTransform(True)
             m2 = SimpleGPyTorchModel(train_X2, train_Y2, input_transform=m2_tf)
-            # test `input_transform.to(X)` call
+            # test ``input_transform.to(X)`` call
             self.assertEqual(m2_tf.add_value.dtype, dtype)
             self.assertEqual(m2_tf.add_value.device.type, self.device.type)
             # train models to have the train inputs preprocessed

@@ -8,7 +8,7 @@ r"""
 Multi-Fidelity Gaussian Process Regression models based on GPyTorch models.
 
 For more on Multi-Fidelity BO, see the
-`tutorial <https://botorch.org/docs/tutorials/discrete_multi_fidelity_bo>`__.
+``tutorial <https://botorch.org/docs/tutorials/discrete_multi_fidelity_bo>``__.
 
 A common use case of multi-fidelity regression modeling is optimizing a
 "high-fidelity" function that is expensive to simulate when you have access to
@@ -78,29 +78,29 @@ class SingleTaskMultiFidelityGP(SingleTaskGP):
     ) -> None:
         r"""
         Args:
-            train_X: A `batch_shape x n x (d + s)` tensor of training features,
-                where `s` is the dimension of the fidelity parameters (either one
+            train_X: A ``batch_shape x n x (d + s)`` tensor of training features,
+                where ``s`` is the dimension of the fidelity parameters (either one
                 or two).
-            train_Y: A `batch_shape x n x m` tensor of training observations.
-            train_Yvar: An optional `batch_shape x n x m` tensor of observed
+            train_Y: A ``batch_shape x n x m`` tensor of training observations.
+            train_Yvar: An optional ``batch_shape x n x m`` tensor of observed
                 measurement noise.
             iteration_fidelity: The column index for the training iteration fidelity
                 parameter (optional).
             data_fidelities: The column indices for the downsampling fidelity parameter.
                 If a list/tuple of indices is provided, a kernel will be constructed for
                 each index (optional).
-            linear_truncated: If True, use a `LinearTruncatedFidelityKernel` instead
+            linear_truncated: If True, use a ``LinearTruncatedFidelityKernel`` instead
                 of the default kernel.
             nu: The smoothness parameter for the Matern kernel: either 1/2, 3/2, or
-                5/2. Only used when `linear_truncated=True`.
+                5/2. Only used when ``linear_truncated=True``.
             likelihood: A likelihood. If omitted, use a standard GaussianLikelihood
                 with inferred noise level.
             outcome_transform: An outcome transform that is applied to the
                 training data during instantiation and to the posterior during
-                inference (that is, the `Posterior` obtained by calling
-                `.posterior` on the model will be on the original scale). We use a
-                `Standardize` transform if no `outcome_transform` is specified.
-                Pass down `None` to use no outcome transform.
+                inference (that is, the ``Posterior`` obtained by calling
+                ``.posterior`` on the model will be on the original scale). We use a
+                ``Standardize`` transform if no ``outcome_transform`` is specified.
+                Pass down ``None`` to use no outcome transform.
             input_transform: An input transform that is applied in the model's
                     forward pass.
         """
@@ -156,10 +156,10 @@ class SingleTaskMultiFidelityGP(SingleTaskGP):
         training_data: SupervisedDataset,
         fidelity_features: list[int],
     ) -> dict[str, Any]:
-        r"""Construct `Model` keyword arguments from a dict of `SupervisedDataset`.
+        r"""Construct ``Model`` keyword arguments from a dict of ``SupervisedDataset``.
 
         Args:
-            training_data: Dictionary of `SupervisedDataset`.
+            training_data: Dictionary of ``SupervisedDataset``.
             fidelity_features: Index of fidelity parameter as input columns.
         """
         inputs = super().construct_inputs(training_data=training_data)
@@ -181,15 +181,15 @@ def _setup_multifidelity_covar_module(
     Args:
         dim: The dimensionality of the training data.
         aug_batch_shape: The output-augmented batch shape as defined in
-            `BatchedMultiOutputGPyTorchModel`.
+            ``BatchedMultiOutputGPyTorchModel``.
         iteration_fidelity: The column index for the training iteration fidelity
             parameter (optional).
         data_fidelities: The column indices for the downsampling fidelity parameters
             (optional).
-        linear_truncated: If True, use a `LinearTruncatedFidelityKernel` instead
+        linear_truncated: If True, use a ``LinearTruncatedFidelityKernel`` instead
             of the default kernel.
         nu: The smoothness parameter for the Matern kernel: either 1/2, 3/2, or
-            5/2. Only used when `linear_truncated=True`.
+            5/2. Only used when ``linear_truncated=True``.
 
     Returns:
         The covariance module and subset_batch_dict.

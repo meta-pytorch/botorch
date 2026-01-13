@@ -125,20 +125,20 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
     kernel. See [Bonilla2007MTGP]_ and [Swersky2013MTBO]_ for a reference on the
     model and its use in Bayesian optimization.
 
-    By default, this model uses a `PositiveIndexKernel` for the task covariance,
+    By default, this model uses a ``PositiveIndexKernel`` for the task covariance,
     model and its use in Bayesian optimization. By default, The ICM kernel is
-    constrained to have only non-negative entries by using a `PositiveIndexKernel`
+    constrained to have only non-negative entries by using a ``PositiveIndexKernel``
     for the task covariance. The reason for this is that correlations are typically
     positive and can be difficult to estimate accurately, especially with limited data.
 
-    The model can be single-output or multi-output, determined by the `output_tasks`.
+    The model can be single-output or multi-output, determined by the ``output_tasks``.
     This model uses dimension-scaled priors on the Kernel hyperparameters, which
     work best when covariates are normalized to the unit cube and outcomes are
     standardized (zero mean, unit variance). The standardization should be applied in
     a stratified fashion at the level of the tasks, rather than across all data points.
 
-    If the `train_Yvar` is None, this model infers the noise level. If you have
-    known observation noise, you can set `train_Yvar` to a tensor containing
+    If the ``train_Yvar`` is None, this model infers the noise level. If you have
+    known observation noise, you can set ``train_Yvar`` to a tensor containing
     the noise variance measurements. WARNING: This currently does not support
     different noise levels for the different tasks.
     """
@@ -163,41 +163,42 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
         r"""Multi-Task GP model using an ICM kernel.
 
         Args:
-            train_X: A `n x (d + 1)` or `b x n x (d + 1)` (batch mode) tensor
+            train_X: A ``n x (d + 1)`` or ``b x n x (d + 1)`` (batch mode) tensor
                 of training data. One of the columns should contain the task
-                features (see `task_feature` argument).
-            train_Y: A `n x 1` or `b x n x 1` (batch mode) tensor of training
+                features (see ``task_feature`` argument).
+            train_Y: A ``n x 1`` or ``b x n x 1`` (batch mode) tensor of training
                 observations.
-            task_feature: The index of the task feature (`-d <= task_feature <= d`).
-            train_Yvar: An optional `n` or `b x n` (batch mode) tensor of observed
+            task_feature: The index of the task feature (``-d <= task_feature <= d``).
+            train_Yvar: An optional ``n`` or ``b x n`` (batch mode) tensor of observed
                 measurement noise. If None, we infer the noise.
                 Note that the inferred noise is common across all tasks.
-            mean_module: The mean function to be used. Defaults to `ConstantMean`.
+            mean_module: The mean function to be used. Defaults to ``ConstantMean``.
             covar_module: The module for computing the covariance matrix between
-                the non-task features. Defaults to `RBFKernel`.
-            likelihood: A likelihood. The default is selected based on `train_Yvar`.
-                If `train_Yvar` is None, a standard `GaussianLikelihood` with inferred
-                noise level is used. Otherwise, a FixedNoiseGaussianLikelihood is used.
+                the non-task features. Defaults to ``RBFKernel``.
+            likelihood: A likelihood. The default is selected based on ``train_Yvar``.
+                If ``train_Yvar`` is None, a standard ``GaussianLikelihood`` with
+                inferred noise level is used. Otherwise, a
+                ``FixedNoiseGaussianLikelihood`` is used.
             output_tasks: A list of task indices for which to compute model
                 outputs for. If omitted, return outputs for all task indices.
             rank: The rank to be used for the index kernel. If omitted, use a
                 full rank (i.e. number of tasks) kernel.
             task_covar_prior : A Prior on the task covariance matrix. Must operate
-                on p.s.d. matrices. A common prior for this is the `LKJ` prior.
+                on p.s.d. matrices. A common prior for this is the ``LKJ`` prior.
             all_tasks: By default, multi-task GPs infer the list of all tasks from
-                the task features in `train_X`. This is an experimental feature that
+                the task features in ``train_X``. This is an experimental feature that
                 enables creation of multi-task GPs with tasks that don't appear in the
                 training data. Note that when a task is not observed, the corresponding
                 task covariance will heavily depend on random initialization and may
                 behave unexpectedly.
             outcome_transform: An outcome transform that is applied to the
                 training data during instantiation and to the posterior during
-                inference (that is, the `Posterior` obtained by calling
-                `.posterior` on the model will be on the original scale). We use a
-                `Standardize` transform if no `outcome_transform` is specified.
-                Pass down `None` to use no outcome transform. NOTE: Standardization
+                inference (that is, the ``Posterior`` obtained by calling
+                ``.posterior`` on the model will be on the original scale). We use a
+                ``Standardize`` transform if no ``outcome_transform`` is specified.
+                Pass down ``None`` to use no outcome transform. NOTE: Standardization
                 should be applied in a stratified fashion, separately for each task.
-                Note that `.train()` will be called on the outcome transform during
+                Note that ``.train()`` will be called on the outcome transform during
                 instantiation of the model.
             input_transform: An input transform that is applied in the model's
                 forward pass.
@@ -370,15 +371,15 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
         the task feature.
 
         Args:
-            x: The full input tensor with trailing dimension of size `d + 1`.
+            x: The full input tensor with trailing dimension of size ``d + 1``.
                 Should be of float/double data type.
 
         Returns:
             3-element tuple containing
 
-            - A  `q x d` or `b x q x d` tensor with features before the task feature
-            - A  `q` or `b x q x 1` tensor with mapped task indices
-            - A  `q x d` or `b x q x d` tensor with features after the task feature
+            - A  ``q x d`` or ``b x q x d`` tensor with features before the task feature
+            - A  ``q`` or ``b x q x 1`` tensor with mapped task indices
+            - A  ``q x d`` or ``b x q x d`` tensor with features after the task feature
         """
         batch_shape = x.shape[:-2]
         # Extract task indices and convert to long
@@ -436,18 +437,19 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
         prior_config: dict | None = None,
         rank: int | None = None,
     ) -> dict[str, Any]:
-        r"""Construct `Model` keyword arguments from a dataset and other args.
+        r"""Construct ``Model`` keyword arguments from a dataset and other args.
 
         Args:
-            training_data: A `SupervisedDataset` or a `MultiTaskDataset`.
+            training_data: A ``SupervisedDataset`` or a ``MultiTaskDataset``.
             task_feature: Column index of embedded task indicator features.
             output_tasks: A list of task indices for which to compute model
                 outputs for. If omitted, return outputs for all task indices.
-            task_covar_prior: A GPyTorch `Prior` object to use as prior on
+            task_covar_prior: A GPyTorch ``Prior`` object to use as prior on
                 the cross-task covariance matrix,
             prior_config: Configuration for inter-task covariance prior.
-                Should only be used if `task_covar_prior` is not passed directly. Must
-                contain `use_LKJ_prior` indicator and should contain float value `eta`.
+                Should only be used if ``task_covar_prior`` is not passed directly.
+                Must contain ``use_LKJ_prior`` indicator and should contain float
+                value ``eta``.
             rank: The rank of the cross-task covariance matrix.
         """
         if task_covar_prior is not None and prior_config is not None:
@@ -497,8 +499,8 @@ class KroneckerMultiTaskGP(ExactGP, GPyTorchModel, FantasizeMixin):
     structure.
 
     When a multi-fidelity model has Kronecker structure, this means there is one
-    covariance kernel over the fidelity features (call it `K_f`) and another over
-    the rest of the input parameters (call it `K_i`), and the resulting covariance
+    covariance kernel over the fidelity features (call it ``K_f``) and another over
+    the rest of the input parameters (call it ``K_i``), and the resulting covariance
     across inputs and fidelities is given by the Kronecker product of the two
     covariance matrices. This is equivalent to saying the covariance between
     two input and feature pairs is given by
@@ -506,10 +508,10 @@ class KroneckerMultiTaskGP(ExactGP, GPyTorchModel, FantasizeMixin):
     K((parameter_1, fidelity_1), (parameter_2, fidelity_2))
         = K_f(fidelity_1, fidelity_2) * K_i(parameter_1, parameter_2).
 
-    Then the covariance matrix of `n_i` parameters and `n_f` fidelities can be
-    codified as a Kronecker product of an `n_i x n_i` matrix and an
-    `n_f x n_f` matrix, which is far more parsimonious than specifying the
-    whole `(n_i * n_f) x (n_i * n_f)` covariance matrix.
+    Then the covariance matrix of ``n_i`` parameters and ``n_f`` fidelities can be
+    codified as a Kronecker product of an ``n_i x n_i`` matrix and an
+    ``n_f x n_f`` matrix, which is far more parsimonious than specifying the
+    whole ``(n_i * n_f) x (n_i * n_f)`` covariance matrix.
 
     Example:
         >>> train_X = torch.rand(10, 2)
@@ -531,26 +533,26 @@ class KroneckerMultiTaskGP(ExactGP, GPyTorchModel, FantasizeMixin):
     ) -> None:
         r"""
         Args:
-            train_X: A `batch_shape x n x d` tensor of training features.
-            train_Y: A `batch_shape x n x m` tensor of training observations.
-            likelihood: A `MultitaskGaussianLikelihood`. If omitted, uses a
-                `MultitaskGaussianLikelihood` with a `GammaPrior(1.1, 0.05)`
+            train_X: A ``batch_shape x n x d`` tensor of training features.
+            train_Y: A ``batch_shape x n x m`` tensor of training observations.
+            likelihood: A ``MultitaskGaussianLikelihood``. If omitted, uses a
+                ``MultitaskGaussianLikelihood`` with a ``GammaPrior(1.1, 0.05)``
                 noise prior.
             data_covar_module: The module computing the covariance (Kernel) matrix
-                in data space. If omitted, uses an `RBFKernel`.
+                in data space. If omitted, uses an ``RBFKernel``.
             task_covar_prior : A Prior on the task covariance matrix. Must operate
-                on p.s.d. matrices. A common prior for this is the `LKJ` prior. If
-                omitted, uses `LKJCovariancePrior` with `eta` parameter as specified
-                in the keyword arguments (if not specified, use `eta=1.5`).
+                on p.s.d. matrices. A common prior for this is the ``LKJ`` prior. If
+                omitted, uses ``LKJCovariancePrior`` with ``eta`` parameter as specified
+                in the keyword arguments (if not specified, use ``eta=1.5``).
             rank: The rank of the ICM kernel. If omitted, use a full rank kernel.
             outcome_transform: An outcome transform that is applied to the
                 training data during instantiation and to the posterior during
-                inference (that is, the `Posterior` obtained by calling
-                `.posterior` on the model will be on the original scale). We use a
-                `Standardize` transform if no `outcome_transform` is specified.
-                Pass down `None` to use no outcome transform. NOTE: Standardization
+                inference (that is, the ``Posterior`` obtained by calling
+                ``.posterior`` on the model will be on the original scale). We use a
+                ``Standardize`` transform if no ``outcome_transform`` is specified.
+                Pass down ``None`` to use no outcome transform. NOTE: Standardization
                 should be applied in a stratified fashion, separately for each task.
-                Note that `.train()` will be called on the outcome transform during
+                Note that ``.train()`` will be called on the outcome transform during
                 instantiation of the model.
             input_transform: An input transform that is applied in the model's
                 forward pass.

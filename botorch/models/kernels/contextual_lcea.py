@@ -52,7 +52,7 @@ def get_permutation(decomposition: dict[str, list[int]]) -> list[int] | None:
             parameters.
     Returns:
         A permutation to reorder the parameters for (1) and (2).
-        Returning `None` means that ordering specified in `decomposition`
+        Returning ``None`` means that ordering specified in ``decomposition``
         satisfies (1) and (2).
     """
     permutation = None
@@ -399,17 +399,17 @@ class LCEAKernel(Kernel):
 
     def _eval_base_covar_perm(self, x1: Tensor, x2: Tensor) -> Tensor:
         """Computes the base covariance matrix on x1, x2, applying permutations and
-        reshaping the kernel matrix as required by `forward`.
+        reshaping the kernel matrix as required by ``forward``.
 
         NOTE: Using the notation n = num_observations, k = num_contexts, d = input_dim,
         the input tensors have to have the following shapes.
 
         Args:
-            x1: `batch_shape x n x (k*d)`-dim Tensor of kernel inputs.
-            x2: `batch_shape x n x (k*d)`-dim Tensor of kernel inputs.
+            x1: ``batch_shape x n x (k*d)``-dim Tensor of kernel inputs.
+            x2: ``batch_shape x n x (k*d)``-dim Tensor of kernel inputs.
 
         Returns:
-            `batch_shape x n x n x k x k`-dim Tensor of base covariance values.
+            ``batch_shape x n x n x k x k``-dim Tensor of base covariance values.
         """
         if self.permutation is not None:
             x1 = x1[..., self.permutation]

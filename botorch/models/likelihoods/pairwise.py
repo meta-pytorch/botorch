@@ -31,7 +31,7 @@ class PairwiseLikelihood(Likelihood, ABC):
 
     def __init__(self, max_plate_nesting: int = 1):
         """
-        Initialized like a `gpytorch.likelihoods.Likelihood`.
+        Initialized like a ``gpytorch.likelihoods.Likelihood``.
 
         Args:
             max_plate_nesting: Defaults to 1.
@@ -43,7 +43,7 @@ class PairwiseLikelihood(Likelihood, ABC):
         return a Bernoulli distribution object representing the likelihood of
         the user prefer v over u.
 
-        Note that this is not used by the `PairwiseGP` model,
+        Note that this is not used by the ``PairwiseGP`` model,
         """
         return Bernoulli(probs=self.p(utility=utility, D=D))
 
@@ -53,8 +53,8 @@ class PairwiseLikelihood(Likelihood, ABC):
         return the probability of the user prefer v over u.
 
         Args:
-            utility: A Tensor of shape `(batch_size) x n`, the utility at MAP point
-            D: D is `(batch_size x) m x n` matrix with all elements being zero in last
+            utility: A Tensor of shape ``(batch_size) x n``, the utility at MAP point
+            D: D is ``(batch_size x) m x n`` matrix with all elements being zero in last
                 dimension except at two positions D[..., i] = 1 and D[..., j] = -1
                 respectively, representing item i is preferred over item j.
             log: if true, return log probability
@@ -69,13 +69,13 @@ class PairwiseLikelihood(Likelihood, ABC):
             utility values. Useful for models using laplace approximation.
 
         Args:
-            utility: A Tensor of shape `(batch_size x) n`, the utility at MAP point
-            D: D is `(batch_size x) m x n` matrix with all elements being zero in last
+            utility: A Tensor of shape ``(batch_size x) n``, the utility at MAP point
+            D: D is ``(batch_size x) m x n`` matrix with all elements being zero in last
                 dimension except at two positions D[..., i] = 1 and D[..., j] = -1
                 respectively, representing item i is preferred over item j.
 
         Returns:
-            A `(batch_size x) n` Tensor representing the sum of negative log gradient
+            A ``(batch_size x) n`` Tensor representing the sum of negative log gradient
             values of the likelihood over all comparisons (i.e., the m dimension)
             with respect to each item.
         """
@@ -86,15 +86,15 @@ class PairwiseLikelihood(Likelihood, ABC):
             utility values. Useful for models using laplace approximation.
 
         Args:
-            utility: A Tensor of shape `(batch_size) x n`, the utility at MAP point
-            D: D is `(batch_size x) m x n` matrix with all elements being zero in last
+            utility: A Tensor of shape ``(batch_size) x n``, the utility at MAP point
+            D: D is ``(batch_size x) m x n`` matrix with all elements being zero in last
                 dimension except at two positions D[..., i] = 1 and D[..., j] = -1
                 respectively, representing item i is preferred over item j.
 
         Returns:
-            A `(batch_size x) n x n` Tensor representing the sum of negative log hessian
-            values of the likelihood over all comparisons (i.e., the m dimension) with
-            respect to each item.
+            A ``(batch_size x) n x n`` Tensor representing the sum of
+            negative log hessian values of the likelihood over all
+            comparisons (i.e., the m dimension) with respect to each item.
         """
         raise NotImplementedError
 

@@ -452,9 +452,9 @@ class TestRobustGP(BotorchTestCase):
             )
 
     def test_robust_relevance_pursuit_single_task_gp(self) -> None:
-        """Test for `RobustRelevancePursuitSingleTaskGP`, whose main purpose is to
+        """Test for ``RobustRelevancePursuitSingleTaskGP``, whose main purpose is to
         automatically dispatch to the relevance pursuit algorithm when optimized with
-        `fit_gpytorch_mll`.
+        ``fit_gpytorch_mll``.
         """
         for optimizer, dtype in itertools.product(
             [forward_relevance_pursuit, backward_relevance_pursuit],

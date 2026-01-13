@@ -48,10 +48,10 @@ class SACGP(SingleTaskGP):
         training_data: SupervisedDataset,
         decomposition: dict[str, list[int]],
     ) -> dict[str, Any]:
-        r"""Construct `Model` keyword arguments from a dict of `SupervisedDataset`.
+        r"""Construct ``Model`` keyword arguments from a dict of ``SupervisedDataset``.
 
         Args:
-            training_data: A `SupervisedDataset` containing the training data.
+            training_data: A ``SupervisedDataset`` containing the training data.
             decomposition: Dictionary of context names and their indexes of the
                 corresponding active context parameters.
         """
@@ -132,10 +132,10 @@ class LCEAGP(SingleTaskGP):
         embs_dim_list: list[int] | None = None,
         context_weight_dict: dict | None = None,
     ) -> dict[str, Any]:
-        r"""Construct `Model` keyword arguments from a dict of `SupervisedDataset`.
+        r"""Construct ``Model`` keyword arguments from a dict of ``SupervisedDataset``.
 
         Args:
-            training_data: A `SupervisedDataset` containing the training data.
+            training_data: A ``SupervisedDataset`` containing the training data.
             decomposition: Dictionary of context names and the names of the
                 corresponding active context parameters.
             train_embedding: Whether to train the embedding layer or not.

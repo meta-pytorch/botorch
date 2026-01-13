@@ -46,7 +46,7 @@ class SparseOutlierGaussianLikelihood(_GaussianLikelihoodBase):
         NOTE: Letting base_noise also use the non-transformed constraints, will lead
         to more stable optimization, but is orthogonal implementation-wise. If the base
         noise is a HomoskedasticNoise, one can pass the non-transformed constraint as
-        the `noise_constraint`.
+        the ``noise_constraint``.
 
         Example:
             >>> base_noise = HomoskedasticNoise(
@@ -60,7 +60,7 @@ class SparseOutlierGaussianLikelihood(_GaussianLikelihoodBase):
             >>> )
             >>> model = SingleTaskGP(train_X=X, train_Y=Y, likelihood=likelihood)
             >>> mll = ExactMarginalLogLikelihood(model.likelihood, model)
-            >>> # NOTE: `likelihood.noise_covar` is the `RelevancePursuitMixin`
+            >>> # NOTE: ``likelihood.noise_covar`` is the ``RelevancePursuitMixin``
             >>> sparse_module = likelihood.noise_covar
             >>> backward_relevance_pursuit(sparse_module, mll)
 
@@ -69,10 +69,11 @@ class SparseOutlierGaussianLikelihood(_GaussianLikelihoodBase):
             dim: The number of training observations, which determines the maximum
                 number of data-point-specific noise variances of the noise model.
             outlier_indices: The indices of the outliers.
-            rho_prior: Prior for `self.noise_covar`'s rho parameter.
-            rho_constraint: Constraint for `self.noise_covar`'s rho parameter. Needs to
-                be a NonTransformedInterval because exact sparsity cannot be represented
-                using smooth transforms like a softplus or sigmoid.
+            rho_prior: Prior for ``self.noise_covar``'s rho parameter.
+            rho_constraint: Constraint for ``self.noise_covar``'s rho
+                parameter. Needs to be a ``NonTransformedInterval`` because exact
+                sparsity cannot be represented using smooth transforms like a
+                softplus or sigmoid.
             batch_shape: The batch shape of the learned noise parameter (default: []).
             convex_parameterization: Whether to use the convex parameterization of rho,
                 which generally improves optimization results and is thus recommended.
@@ -91,7 +92,7 @@ class SparseOutlierGaussianLikelihood(_GaussianLikelihoodBase):
         )
         super().__init__(noise_covar=noise_covar)
 
-    # pyre-ignore[14]: Inconsistent override because the super class accepts `*params`
+    # pyre-ignore[14]: Inconsistent override because the super class accepts ``*params``
     def marginal(
         self,
         function_dist: MultivariateNormal,
@@ -131,7 +132,7 @@ class SparseOutlierNoise(Noise, RelevancePursuitMixin):
     ):
         """A noise model in the Relevance Pursuit family of models, permitting
         additional "robust" variance for a small set of outlier data points.
-        See also `SparseOutlierGaussianLikelihood`, which leverages this noise model.
+        See also ``SparseOutlierGaussianLikelihood``, which leverages this noise model.
 
         For details, see [Ament2024pursuit]_ or https://arxiv.org/abs/2410.24222.
 
@@ -147,7 +148,7 @@ class SparseOutlierNoise(Noise, RelevancePursuitMixin):
             >>> )
             >>> model = SingleTaskGP(train_X=X, train_Y=Y, likelihood=likelihood)
             >>> mll = ExactMarginalLogLikelihood(model.likelihood, model)
-            >>> # NOTE: `likelihood.noise_covar` is the `SparseOutlierNoise`
+            >>> # NOTE: ``likelihood.noise_covar`` is the ``SparseOutlierNoise``
             >>> sparse_module = likelihood.noise_covar
             >>> backward_relevance_pursuit(sparse_module, mll)
 
@@ -262,13 +263,13 @@ class SparseOutlierNoise(Noise, RelevancePursuitMixin):
 
     @property
     def _convex_rho(self) -> Tensor:
-        """Transforms the raw_rho parameter such that `rho ~= 1 / (1 - raw_rho) - 1`,
+        """Transforms the raw_rho parameter such that ``rho ~= 1 / (1 - raw_rho) - 1``,
         which is a diffeomorphism from [0, 1] to [0, inf] whose derivative is nowhere
         zero. This transforms the marginal log likelihood to be a convex function of
-        the `self.raw_rho` Parameter, when the covariance matrix is well conditioned.
+        the ``self.raw_rho`` Parameter, when the covariance matrix is well conditioned.
 
         NOTE: The convex parameterization also includes a scaling of the rho values by
-        the diagonal of the covariance matrix, which is carried out in the `marginal`
+        the diagonal of the covariance matrix, which is carried out in the ``marginal``
         call in the SparseOutlierGaussianLikelihood.
         """
         # pyre-ignore[7]: It is not have an incompatible return type, pyre just doesn't
@@ -277,20 +278,21 @@ class SparseOutlierNoise(Noise, RelevancePursuitMixin):
 
     @property
     def rho(self) -> Tensor:
-        """Dense representation of the data-point-specific variances, corresponding to
-        the latent `self.raw_rho` values, which might be represented sparsely or in the
-        convex parameterization. The last dimension is equal to the number of training
-        points `self.dim`.
+        """Dense representation of the data-point-specific variances,
+        corresponding to the latent ``self.raw_rho`` values, which might be
+        represented sparsely or in the convex parameterization. The last dimension
+        is equal to the number of training points ``self.dim``.
 
-        NOTE: `rho` differs from `self.sparse_parameter` in that the latter returns the
-        the parameter in its sparse representation when `self.is_sparse` is true, and in
-        its latent convex paramzeterization when `self.convex_parameterization` is true,
-        while `rho` always returns the data-point-specific variances, embedded in a
-        dense tensor. The dense representation is used to propagate gradients to the
-        sparse rhos in the support.
+        NOTE: ``rho`` differs from ``self.sparse_parameter`` in that the latter
+        returns the parameter in its sparse representation when ``self.is_sparse``
+        is true, and in its latent convex paramzeterization when
+        ``self.convex_parameterization`` is true, while ``rho`` always returns the
+        data-point-specific variances, embedded in a dense tensor. The dense
+        representation is used to propagate gradients to the sparse rhos in the
+        support.
 
         Returns:
-            A `batch_shape x self.dim`-dim Tensor of robustness variances.
+            A ``batch_shape x self.dim``-dim Tensor of robustness variances.
         """
         # NOTE: don't need to do transform / untransform since we are
         # enforcing NonTransformedIntervals.
@@ -300,7 +302,7 @@ class SparseOutlierNoise(Noise, RelevancePursuitMixin):
 
         # If rho_outlier is in the sparse representation, we need to pad the
         # rho values with zeros at the correct positions. The difference
-        # between this and calling RelevancePursuit's `to_dense` is that
+        # between this and calling RelevancePursuit's ``to_dense`` is that
         # the latter will propagate gradients through all rhos, whereas
         # the path here only propagates gradients to the sparse set of
         # outliers, which is important for the optimization of the support.
@@ -330,7 +332,7 @@ class SparseOutlierNoise(Noise, RelevancePursuitMixin):
 
         return rho_selection_indices
 
-    # pyre-ignore[14]: Inconsistent override because the super class accepts `*params`
+    # pyre-ignore[14]: Inconsistent override because the super class accepts ``*params``
     def forward(
         self,
         X: Tensor | list[Tensor] | None = None,
@@ -351,10 +353,11 @@ class SparseOutlierNoise(Noise, RelevancePursuitMixin):
                 rho values in the convex parameterization.
             kwargs: Any additional parameters of the base noise model, same as for
                 GPyTorch's noise model. Note that this implementation does not support
-                non-kwarg `params` arguments, which are used in GPyTorch's noise models.
+                non-kwarg ``params`` arguments, which are used in GPyTorch's
+                noise models.
 
         Returns:
-            A `batch_shape x self.dim`-dim Tensor of robustness variances.
+            A ``batch_shape x self.dim``-dim Tensor of robustness variances.
         """
         noise_covar = self.base_noise(X, shape=shape, **kwargs)
         # rho should always be applied to the training set, irrespective of whether or
@@ -374,8 +377,8 @@ class SparseOutlierNoise(Noise, RelevancePursuitMixin):
         #   d501c284d05a1186868dc3fb20e0fa6ad32d32ac/
         #   gpytorch/models/exact_prediction_strategies.py#L387
         # )
-        # 3) In the model's `posterior` method, if `observation_noise` is True, in which
-        # case the test inputs will be passed to the likelihood:
+        # 3) In the model's ``posterior`` method, if ``observation_noise`` is
+        # True, in which case the test inputs will be passed to the likelihood:
         # (
         #    https://github.com/meta-pytorch/botorch/blob/
         #    4190f74363757ad97bfb0b437402b749ae50ba4c/
@@ -447,7 +450,7 @@ class SparseOutlierNoise(Noise, RelevancePursuitMixin):
             mll: The marginal likelihood, containing the model to optimize.
 
         Returns:
-            A `batch_shape x self.dim`-dim Tensor of optimal rho deltas.
+            A ``batch_shape x self.dim``-dim Tensor of optimal rho deltas.
         """
         # train() is important, since we want to evaluate the prior with mll.model(X),
         # but in eval(), __call__ gives the posterior.

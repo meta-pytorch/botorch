@@ -27,7 +27,7 @@ def _make_X_full(X: Tensor, output_indices: list[int], tf: int) -> Tensor:
 
     Args:
         X: The raw input tensor (without task information).
-        output_indices: The output indices to generate (passed in via `posterior`).
+        output_indices: The output indices to generate (passed in via ``posterior``).
         tf: The task feature index.
 
     Returns:
@@ -58,29 +58,29 @@ def multioutput_to_batch_mode_transform(
     independent batch.
 
     Args:
-        train_X: A `n x d` or `input_batch_shape x n x d` (batch mode) tensor of
+        train_X: A ``n x d`` or ``input_batch_shape x n x d`` (batch mode) tensor of
             training features.
-        train_Y: A `n x m` or `target_batch_shape x n x m` (batch mode) tensor of
+        train_Y: A ``n x m`` or ``target_batch_shape x n x m`` (batch mode) tensor of
             training observations.
         num_outputs: number of outputs
-        train_Yvar: A `n x m` or `target_batch_shape x n x m` tensor of observed
+        train_Yvar: A ``n x m`` or ``target_batch_shape x n x m`` tensor of observed
             measurement noise.
 
     Returns:
         3-element tuple containing
 
-        - A `input_batch_shape x m x n x d` tensor of training features.
-        - A `target_batch_shape x m x n` tensor of training observations.
-        - A `target_batch_shape x m x n` tensor observed measurement noise.
+        - A ``input_batch_shape x m x n x d`` tensor of training features.
+        - A ``target_batch_shape x m x n`` tensor of training observations.
+        - A ``target_batch_shape x m x n`` tensor observed measurement noise.
     """
-    # make train_Y `batch_shape x m x n`
+    # make train_Y ``batch_shape x m x n``
     train_Y = train_Y.transpose(-1, -2)
-    # expand train_X to `batch_shape x m x n x d`
+    # expand train_X to ``batch_shape x m x n x d``
     train_X = train_X.unsqueeze(-3).expand(
         train_X.shape[:-2] + torch.Size([num_outputs]) + train_X.shape[-2:]
     )
     if train_Yvar is not None:
-        # make train_Yvar `batch_shape x m x n`
+        # make train_Yvar ``batch_shape x m x n``
         train_Yvar = train_Yvar.transpose(-1, -2)
     return train_X, train_Y, train_Yvar
 
@@ -92,14 +92,14 @@ def add_output_dim(X: Tensor, original_batch_shape: torch.Size) -> tuple[Tensor,
     of the training inputs, but can also include extra batch dimensions.
 
     Args:
-        X: A `(new_batch_shape) x (original_batch_shape) x n x d` tensor of
+        X: A ``(new_batch_shape) x (original_batch_shape) x n x d`` tensor of
             features.
         original_batch_shape: the batch shape of the model's training inputs.
 
     Returns:
         2-element tuple containing
 
-        - A `(new_batch_shape) x (original_batch_shape) x m x n x d` tensor of
+        - A ``(new_batch_shape) x (original_batch_shape) x m x n x d`` tensor of
             features.
         - The index corresponding to the output dimension.
     """
@@ -115,7 +115,7 @@ def add_output_dim(X: Tensor, original_batch_shape: torch.Size) -> tuple[Tensor,
                 f"batch dimensions of the training inputs. Got {X.shape=} "
                 f"and {original_batch_shape=}."
             )
-    # insert `m` dimension
+    # insert ``m`` dimension
     X = X.unsqueeze(-3)
     output_dim_idx = max(len(original_batch_shape), len(X_batch_shape))
     return X, output_dim_idx
@@ -124,7 +124,7 @@ def add_output_dim(X: Tensor, original_batch_shape: torch.Size) -> tuple[Tensor,
 def check_no_nans(Z: Tensor) -> None:
     r"""Check that tensor does not contain NaN values.
 
-    Raises an InputDataError if `Z` contains NaN values.
+    Raises an InputDataError if ``Z`` contains NaN values.
 
     Args:
         Z: The input tensor.
@@ -143,11 +143,11 @@ def check_min_max_scaling(
     r"""Check that tensor is normalized to the unit cube.
 
     Args:
-        X: A `batch_shape x n x d` input tensor. Typically the training inputs
+        X: A ``batch_shape x n x d`` input tensor. Typically the training inputs
             of a model.
-        strict: If True, require `X` to be scaled to the unit cube (rather than
+        strict: If True, require ``X`` to be scaled to the unit cube (rather than
             just to be contained within the unit cube).
-        atol: The tolerance for the boundary check. Only used if `strict=True`.
+        atol: The tolerance for the boundary check. Only used if ``strict=True``.
         raise_on_fail: If True, raise an exception instead of a warning.
         ignore_dims: Subset of dimensions where the min-max scaling check is omitted.
     """
@@ -186,9 +186,9 @@ def check_standardization(
     r"""Check that tensor is standardized (zero mean, unit variance).
 
     Args:
-        Y: The input tensor of shape `batch_shape x n x m`. Typically the
+        Y: The input tensor of shape ``batch_shape x n x m``. Typically the
             train targets of a model. Standardization is checked across the
-            `n`-dimension.
+            ``n``-dimension.
         atol_mean: The tolerance for the mean check.
         atol_std: The tolerance for the std check.
         raise_on_fail: If True, raise an exception instead of a warning.
@@ -234,16 +234,16 @@ def validate_input_scaling(
     r"""Helper function to validate input data to models.
 
     Args:
-        train_X: A `n x d` or `batch_shape x n x d` (batch mode) tensor of
+        train_X: A ``n x d`` or ``batch_shape x n x d`` (batch mode) tensor of
             training features.
-        train_Y: A `n x m` or `batch_shape x n x m` (batch mode) tensor of
+        train_Y: A ``n x m`` or ``batch_shape x n x m`` (batch mode) tensor of
             training observations.
-        train_Yvar: A `batch_shape x n x m` or `batch_shape x n x m` (batch mode)
+        train_Yvar: A ``batch_shape x n x m`` or ``batch_shape x n x m`` (batch mode)
             tensor of observed measurement noise.
         raise_on_fail: If True, raise an error instead of emitting a warning
             (only for normalization/standardization checks, an error is always
             raised if NaN values are present).
-        ignore_X_dims: For this subset of dimensions from `{1, ..., d}`, ignore the
+        ignore_X_dims: For this subset of dimensions from ``{1, ..., d}``, ignore the
             min-max scaling check.
         check_nans_only: If True, only check for NaN values. Skips min-max scaling
             and standardization checks. This is used when the model is provided
@@ -253,11 +253,11 @@ def validate_input_scaling(
     This function is typically called inside the constructor of standard BoTorch
     models. It validates the following:
     (i) none of the inputs contain NaN values
-    (ii) the training data (`train_X`) is normalized to the unit cube for all
-    dimensions except those in `ignore_X_dims`.
-    (iii) the training targets (`train_Y`) are standardized (zero mean, unit var)
+    (ii) the training data (``train_X``) is normalized to the unit cube for all
+    dimensions except those in ``ignore_X_dims``.
+    (iii) the training targets (``train_Y``) are standardized (zero mean, unit var)
     No checks (other than the NaN check) are performed for observed variances
-    (`train_Yvar`) at this point.
+    (``train_Yvar``) at this point.
     """
     if settings.validate_input_scaling.off():
         return
@@ -282,9 +282,9 @@ def mod_batch_shape(module: Module, names: list[str], b: int) -> None:
     Args:
         module: The module to be modified.
         names: The list of names to access the attribute. If the full name of
-            the module is `"module.sub_module.leaf_module"`, this will be
-            `["sub_module", "leaf_module"]`.
-        b: The new size of the last element of the module's `batch_shape`
+            the module is ``"module.sub_module.leaf_module"``, this will be
+            ``["sub_module", "leaf_module"]``.
+        b: The new size of the last element of the module's ``batch_shape``
             attribute.
     """
     if len(names) == 0:
@@ -315,8 +315,8 @@ def detect_duplicates(
     rtol: float = 0,
     atol: float = 1e-8,
 ) -> Iterator[tuple[int, int]]:
-    """Returns an iterator over index pairs `(duplicate index, original index)` for all
-    duplicate entries of `X`. Supporting 2-d Tensor only.
+    """Returns an iterator over index pairs ``(duplicate index, original index)``
+    for all duplicate entries of ``X``. Supporting 2-d Tensor only.
 
     Args:
         X: the datapoints tensor with potential duplicated entries
@@ -401,7 +401,7 @@ def consolidate_duplicates(
 
 
 class fantasize(_Flag):
-    r"""A flag denoting whether we are currently in a `fantasize` context."""
+    r"""A flag denoting whether we are currently in a ``fantasize`` context."""
 
     _state: bool = False
 
@@ -417,17 +417,17 @@ def get_task_value_remapping(
     Args:
         observed_task_values: A sorted long-valued tensor of task values.
         all_task_values: A sorted long-valued tensor of task values.
-        dtype: The dtype of the model inputs (e.g. `X`), which the new
+        dtype: The dtype of the model inputs (e.g. ``X``), which the new
             task values should have mapped to (e.g. float, double).
         default_task_value: The default task value to use for missing task values.
 
     Returns:
-        A tensor of shape `task_values.max() + 1` that maps task values
-        to new task values. The indexing operation `mapper[task_value]`
+        A tensor of shape ``task_values.max() + 1`` that maps task values
+        to new task values. The indexing operation ``mapper[task_value]``
         will produce a tensor of new task values, of the same shape as
-        the original. The elements of the `mapper` tensor that do not
-        appear in the original `task_values` are mapped to `nan`. The
-        return value will be `None`, when the task values are contiguous
+        the original. The elements of the ``mapper`` tensor that do not
+        appear in the original ``task_values`` are mapped to ``nan``. The
+        return value will be ``None``, when the task values are contiguous
         integers starting from zero.
     """
     if dtype not in (torch.float, torch.double):

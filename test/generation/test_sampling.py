@@ -52,9 +52,9 @@ class TestMaxPosteriorSampling(BotorchTestCase):
             batch_shapes, dtypes, (5, 6), (1, 2), (1, 2)
         ):
             tkwargs = {"device": self.device, "dtype": dtype}
-            # X is `batch_shape x N x d` = batch_shape x N x 1.
+            # X is ``batch_shape x N x d`` = batch_shape x N x 1.
             X = torch.randn(*batch_shape, N, d, **tkwargs)
-            # the event shape is `num_samples x batch_shape x N x m`
+            # the event shape is ``num_samples x batch_shape x N x m``
             psamples = torch.zeros(num_samples, *batch_shape, N, 1, **tkwargs)
             psamples[..., 0, :] = 1.0
 
@@ -174,9 +174,9 @@ class TestConstrainedMaxPosteriorSampling(BotorchTestCase):
         ]:
             tkwargs = {"device": self.device, "dtype": dtype}
             expected_shape = torch.Size(list(batch_shape) + [num_samples] + [d])
-            # X is `batch_shape x N x d` = batch_shape x N x 1.
+            # X is ``batch_shape x N x d`` = batch_shape x N x 1.
             X = torch.randn(*batch_shape, N, d, **tkwargs)
-            # the event shape is `num_samples x batch_shape x N x m`
+            # the event shape is ``num_samples x batch_shape x N x m``
             psamples = torch.zeros(num_samples, *batch_shape, N, 1, **tkwargs)
             psamples[..., 0, :] = 1.0
 
@@ -236,7 +236,7 @@ class TestConstrainedMaxPosteriorSampling(BotorchTestCase):
                 )
                 self.assertAllClose(X_true, X_cand)
 
-        # Test `_convert_samples_to_scores`
+        # Test ``_convert_samples_to_scores``
         N, num_constraints, batch_shape = 10, 3, torch.Size([2])
         X = torch.randn(*batch_shape, N, d, **tkwargs)
         Y_samples = torch.rand(num_samples, *batch_shape, N, 1, **tkwargs)

@@ -39,8 +39,8 @@ class TestMixedSingleTaskGP(BotorchTestCase):
             (torch.Size([2]), 2, 3, torch.double, False, True),
         ):
             tkwargs = {"device": self.device, "dtype": dtype}
-            # The model by default uses a `Standardize` outcome transform, so
-            # to test without that transform we need to explicitly pass in `None`.
+            # The model by default uses a ``Standardize`` outcome transform, so
+            # to test without that transform we need to explicitly pass in ``None``.
             outcome_transform_kwargs = {} if use_octf else {"outcome_transform": None}
 
             train_X, train_Y = get_random_data(

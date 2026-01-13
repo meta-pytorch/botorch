@@ -81,15 +81,16 @@ class TestTransformedPosterior(BotorchTestCase):
                 with self.assertRaises(NotImplementedError):
                     p_tf_2.variance
 
-        # check that `mean` works even if posterior doesn't have `variance`
+        # check that ``mean`` works even if posterior doesn't have ``variance``
         for error in (AttributeError, NotImplementedError):
 
             class DummyPosterior:
                 mean = torch.zeros(5)
+                _error_type = error
 
                 @property
                 def variance(self):
-                    raise error
+                    raise self._error_type
 
             post = DummyPosterior()
             transformed_post = TransformedPosterior(

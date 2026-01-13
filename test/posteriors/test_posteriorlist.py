@@ -16,7 +16,7 @@ class TestPosteriorList(BotorchTestCase):
     def test_scalarize_posterior_two_posteriors(self) -> None:
         """
         Test that when a PosteriorList has two posteriors, result of
-        `scalarize_posterior` matches quantitative expectations, analyitically
+        ``scalarize_posterior`` matches quantitative expectations, analyitically
         computed by hand.
         """
         m = 1
@@ -51,7 +51,7 @@ class TestPosteriorList(BotorchTestCase):
     def test_scalarize_posterior_one_posterior(self) -> None:
         """
         Test that when a PosteriorList has one posterior, result of
-        `scalarize_posterior` matches result of calling `scalarize_posterior`
+        ``scalarize_posterior`` matches result of calling ``scalarize_posterior``
         on that posterior.
         """
         m = 1
@@ -77,8 +77,8 @@ class TestPosteriorList(BotorchTestCase):
 
     def test_scalarize_posterior_raises_not_implemented(self) -> None:
         """
-        Test that `scalarize_posterior` raises `NotImplementedError` when provided
-        input shapes that are not supported for `PosteriorList`.
+        Test that ``scalarize_posterior`` raises ``NotImplementedError`` when provided
+        input shapes that are not supported for ``PosteriorList``.
         """
         for batch_shape, m, lazy, dtype in itertools.product(
             ([], [3]), (1, 2), (False, True), (torch.float, torch.double)

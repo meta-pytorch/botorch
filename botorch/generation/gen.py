@@ -68,12 +68,12 @@ def gen_candidates_scipy(
     timeout_sec: float | None = None,
     use_parallel_mode: bool | None = None,
 ) -> tuple[Tensor, Tensor]:
-    r"""Generate a set of candidates using `scipy.optimize.minimize`.
+    r"""Generate a set of candidates using ``scipy.optimize.minimize``.
 
     Optimizes an acquisition function starting from a set of initial candidates
-    using `scipy.optimize.minimize` via a numpy converter.
+    using ``scipy.optimize.minimize`` via a numpy converter.
     We use SLSQP, if constraints are present, and LBFGS-B otherwise.
-    As `scipy.optimize.minimize` does not support optimizating a batch of problems, we
+    As ``scipy.optimize.minimize`` does not support optimizating a batch of problems, we
     treat optimizing a set of candidates as a single optimization problem by
     summing together their acquisition values.
 
@@ -85,34 +85,35 @@ def gen_candidates_scipy(
         upper_bounds: Maximum values for each column of initial_conditions.
         inequality constraints: A list of tuples (indices, coefficients, rhs),
             with each tuple encoding an inequality constraint of the form
-            `\sum_i (X[indices[i]] * coefficients[i]) >= rhs`.
+            ``\sum_i (X[indices[i]] * coefficients[i]) >= rhs``.
         equality constraints: A list of tuples (indices, coefficients, rhs),
             with each tuple encoding an inequality constraint of the form
-            `\sum_i (X[indices[i]] * coefficients[i]) = rhs`.
+            ``\sum_i (X[indices[i]] * coefficients[i]) = rhs``.
         nonlinear_inequality_constraints: A list of tuples representing the nonlinear
             inequality constraints. The first element in the tuple is a callable
-            representing a constraint of the form `callable(x) >= 0`. In case of an
-            intra-point constraint, `callable()`takes in an one-dimensional tensor of
-            shape `d` and returns a scalar. In case of an inter-point constraint,
-            `callable()` takes a two dimensional tensor of shape `q x d` and again
+            representing a constraint of the form ``callable(x) >= 0``. In case of an
+            intra-point constraint, ``callable()``takes in an one-dimensional tensor of
+            shape ``d`` and returns a scalar. In case of an inter-point constraint,
+            ``callable()`` takes a two dimensional tensor of shape ``q x d`` and again
             returns a scalar. The second element is a boolean, indicating if it is an
-            intra-point or inter-point constraint (`True` for intra-point. `False` for
+            intra-point or inter-point constraint (``True`` for intra-point.
+            ``False`` for
             inter-point). For more information on intra-point vs inter-point
-            constraints, see the docstring of the `inequality_constraints` argument to
-            `optimize_acqf()`. The constraints will later be passed to the scipy
+            constraints, see the docstring of the ``inequality_constraints`` argument to
+            ``optimize_acqf()``. The constraints will later be passed to the scipy
             solver.
         options: Options used to control the optimization including "method"
-            and "maxiter". Select method for `scipy.optimize.minimize` using the
+            and "maxiter". Select method for ``scipy.optimize.minimize`` using the
             "method" key. By default uses L-BFGS-B for box-constrained problems
             and SLSQP if inequality or equality constraints are present. If
-            `with_grad=False`, then we use a two-point finite difference estimate
+            ``with_grad=False``, then we use a two-point finite difference estimate
             of the gradient.
         fixed_features: Mapping[int, float | Tensor] | None,
             all generated candidates will have features fixed to these values.
-            If passing tensors as values, they should have either shape `b` or
-            `b x q` to fix the same feature to different values in the batch.
+            If passing tensors as values, they should have either shape ``b`` or
+            ``b x q`` to fix the same feature to different values in the batch.
             Assumes values to be compatible with lower_bounds and upper_bounds!
-        timeout_sec: Timeout (in seconds) for `scipy.optimize.minimize` routine -
+        timeout_sec: Timeout (in seconds) for ``scipy.optimize.minimize`` routine -
             if provided, optimization will stop after this many seconds and return
             the best solution found so far.
         use_parallel_mode: If None uses the parallel implementation of l-bfgs-b,
@@ -121,11 +122,11 @@ def gen_candidates_scipy(
             possible.
             If using parallel mode, each item in the batch dimension is treated as a
             separate optimization problem, we enforce the shape of the initial
-            conditions to be `b x q x d` or `q x d`, and we assume the
-            `acquisition_function` does not treat elements differently in the batch
+            conditions to be ``b x q x d`` or ``q x d``, and we assume the
+            ``acquisition_function`` does not treat elements differently in the batch
             dimension (it is simply a batched function).
             If False, forces the use of the serial implementation through
-            `scipy.optimize.minimize`.
+            ``scipy.optimize.minimize``.
 
     Returns:
         2-element tuple containing
@@ -324,7 +325,7 @@ def gen_candidates_scipy(
                 equality_constraints=_no_fixed_features.equality_constraints,
             )
             if _no_fixed_features.nonlinear_inequality_constraints:
-                # Make sure `batch_limit` is 1 for now.
+                # Make sure ``batch_limit`` is 1 for now.
                 if not (len(candidates_.shape) == 3 and candidates_.shape[0] == 1):
                     raise ValueError(
                         "`batch_limit` must be 1 when non-linear inequality "
@@ -519,10 +520,10 @@ def gen_candidates_torch(
     fixed_features: Mapping[int, float | Tensor] | None = None,
     timeout_sec: float | None = None,
 ) -> tuple[Tensor, Tensor]:
-    r"""Generate a set of candidates using a `torch.optim` optimizer.
+    r"""Generate a set of candidates using a ``torch.optim`` optimizer.
 
     Optimizes an acquisition function starting from a set of initial candidates
-    using an optimizer from `torch.optim`.
+    using an optimizer from ``torch.optim``.
 
     Args:
         initial_conditions: Starting points for optimization.
@@ -546,7 +547,7 @@ def gen_candidates_torch(
             is used across the q dimension.
             Assumes values to be compatible with lower_bounds and upper_bounds!
         timeout_sec: Timeout (in seconds) for optimization. If provided,
-            `gen_candidates_torch` will stop after this many seconds and return
+            ``gen_candidates_torch`` will stop after this many seconds and return
             the best solution found so far.
 
     Returns:
@@ -641,13 +642,13 @@ def get_best_candidates(batch_candidates: Tensor, batch_values: Tensor) -> Tenso
     r"""Extract best (q-batch) candidate from batch of candidates
 
     Args:
-        batch_candidates: A `b x q x d` tensor of `b` q-batch candidates, or a
-            `b x d` tensor of `b` single-point candidates.
-        batch_values: A tensor with `b` elements containing the value of the
+        batch_candidates: A ``b x q x d`` tensor of ``b`` q-batch candidates, or a
+            ``b x d`` tensor of ``b`` single-point candidates.
+        batch_values: A tensor with ``b`` elements containing the value of the
             respective candidate (higher is better).
 
     Returns:
-        A tensor of size `q x d` (if q-batch mode) or `d` from batch_candidates
+        A tensor of size ``q x d`` (if q-batch mode) or ``d`` from batch_candidates
         with the highest associated value.
 
     Example:
