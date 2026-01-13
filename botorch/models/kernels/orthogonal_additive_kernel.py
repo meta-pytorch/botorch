@@ -50,11 +50,11 @@ class OrthogonalAdditiveKernel(Kernel):
     ):
         """
         Args:
-            base_kernel: The kernel which to orthogonalize and evaluate in `forward`.
+            base_kernel: The kernel which to orthogonalize and evaluate in ``forward``.
             dim: Input dimensionality of the kernel.
             quad_deg: Number of integration nodes for orthogonalization.
             second_order: Toggles second order interactions. If true, both the time and
-                space complexity of evaluating the kernel are quadratic in `dim`.
+                space complexity of evaluating the kernel are quadratic in ``dim``.
             batch_shape: Optional batch shape for the kernel and its parameters.
             dtype: Initialization dtype for required Tensors.
             device: Initialization device for required Tensors.
@@ -139,22 +139,22 @@ class OrthogonalAdditiveKernel(Kernel):
         independently.
 
         Args:
-            x1: `batch_shape x n1 x d`-dim Tensor in [0, 1]^dim.
-            x2: `batch_shape x n2 x d`-dim Tensor in [0, 1]^dim.
+            x1: ``batch_shape x n1 x d``-dim Tensor in [0, 1]^dim.
+            x2: ``batch_shape x n2 x d``-dim Tensor in [0, 1]^dim.
 
         Returns:
-            A `batch_shape x d x n1 x n2`-dim Tensor of kernel matrices.
+            A ``batch_shape x d x n1 x n2``-dim Tensor of kernel matrices.
         """
         return self.base_kernel(x1, x2, last_dim_is_batch=True).to_dense()
 
     @property
     def offset(self) -> Tensor:
-        """Returns the `batch_shape`-dim Tensor of zeroth-order coefficients."""
+        """Returns the ``batch_shape``-dim Tensor of zeroth-order coefficients."""
         return self.coeff_constraint.transform(self.raw_offset)
 
     @property
     def coeffs_1(self) -> Tensor:
-        """Returns the `batch_shape x d`-dim Tensor of first-order coefficients."""
+        """Returns the ``batch_shape x d``-dim Tensor of first-order coefficients."""
         return self.coeff_constraint.transform(self.raw_coeffs_1)
 
     @property
@@ -169,7 +169,7 @@ class OrthogonalAdditiveKernel(Kernel):
         efficient than the einsum-based implementation below.
 
         Returns:
-            `batch_shape x d x d`-dim Tensor of second-order coefficients.
+            ``batch_shape x d x d``-dim Tensor of second-order coefficients.
         """
         if self.raw_coeffs_2 is not None:
             C2 = self.coeff_constraint.transform(self.raw_coeffs_2)
@@ -217,13 +217,13 @@ class OrthogonalAdditiveKernel(Kernel):
         """Computes the kernel matrix k(x1, x2).
 
         Args:
-            x1: `batch_shape x n1 x d`-dim Tensor in [0, 1]^dim.
-            x2: `batch_shape x n2 x d`-dim Tensor in [0, 1]^dim.
+            x1: ``batch_shape x n1 x d``-dim Tensor in [0, 1]^dim.
+            x2: ``batch_shape x n2 x d``-dim Tensor in [0, 1]^dim.
             diag: If True, only returns the diagonal of the kernel matrix.
             last_dim_is_batch: Not supported by this kernel.
 
         Returns:
-            A `batch_shape x n1 x n2`-dim Tensor of kernel matrices.
+            A ``batch_shape x n1 x n2``-dim Tensor of kernel matrices.
         """
         if last_dim_is_batch:
             raise UnsupportedError(
@@ -231,7 +231,7 @@ class OrthogonalAdditiveKernel(Kernel):
             )
         K_ortho = self._orthogonal_base_kernels(x1, x2)  # batch_shape x d x n1 x n2
 
-        # contracting over d, leading to `batch_shape x n x n`-dim tensor, i.e.:
+        # contracting over d, leading to ``batch_shape x n x n``-dim tensor, i.e.:
         #   K1 = torch.sum(self.coeffs_1[..., None, None] * K_ortho, dim=-3)
         K1 = torch.einsum(self.coeffs_1, [..., 0], K_ortho, [..., 0, 1, 2], [..., 1, 2])
         # adding the non-batch dimensions to offset
@@ -241,7 +241,8 @@ class OrthogonalAdditiveKernel(Kernel):
             # NOTE: K2 here is equivalent to:
             #   K2 = K_ortho.unsqueeze(-4) * K_ortho.unsqueeze(-3)  # d x d x n x n
             #   K2 = (self.coeffs_2[..., None, None] * K2).sum(dim=(-4, -3))
-            # but avoids forming the `batch_shape x d x d x n x n`-dim tensor in memory.
+            # but avoids forming the ``batch_shape x d x d x n x n``-dim tensor
+            # in memory.
             # Reducing over the dimensions with the O(d^2) quadratic terms:
             K2 = torch.einsum(
                 K_ortho,
@@ -257,16 +258,16 @@ class OrthogonalAdditiveKernel(Kernel):
         return K if not diag else K.diag()  # poor man's diag (TODO)
 
     def _orthogonal_base_kernels(self, x1: Tensor, x2: Tensor) -> Tensor:
-        """Evaluates the set of `d` orthogonalized base kernels on (x1, x2).
+        """Evaluates the set of ``d`` orthogonalized base kernels on (x1, x2).
         Note that even if the base kernel is positive, the orthogonalized versions
         can - and usually do - take negative values.
 
         Args:
-            x1: `batch_shape x n1 x d`-dim inputs to the kernel.
-            x2: `batch_shape x n2 x d`-dim inputs to the kernel.
+            x1: ``batch_shape x n1 x d``-dim inputs to the kernel.
+            x2: ``batch_shape x n2 x d``-dim inputs to the kernel.
 
         Returns:
-            A `batch_shape x d x n1 x n2`-dim Tensor.
+            A ``batch_shape x d x n1 x n2``-dim Tensor.
         """
         _check_hypercube(x1, "x1")
         if x1 is not x2:
@@ -283,7 +284,7 @@ class OrthogonalAdditiveKernel(Kernel):
         return K_ortho
 
     def normalizer(self, eps: float = 1e-6) -> Tensor:
-        """Integrates the `d` orthogonalized base kernels over `[0, 1] x [0, 1]`.
+        """Integrates the ``d`` orthogonalized base kernels over ``[0, 1] x [0, 1]``.
         NOTE: If the module is in train mode, this needs to re-compute the normalizer
         each time because the underlying parameters might have changed.
 
@@ -291,7 +292,7 @@ class OrthogonalAdditiveKernel(Kernel):
             eps: Minimum value constraint on the normalizers. Avoids division by zero.
 
         Returns:
-            A `d`-dim tensor of normalization constants.
+            A ``d``-dim tensor of normalization constants.
         """
         if self.train() or getattr(self, "_normalizer", None) is None:
             self._normalizer = (self.w.T @ self.k(self.z, self.z) @ self.w).clamp(eps)
@@ -306,11 +307,11 @@ def leggauss(
     device: torch.device | None = None,
 ) -> tuple[Tensor, Tensor]:
     """Computes Gauss-Legendre quadrature nodes and weights. Wraps
-    `numpy.polynomial.legendre.leggauss` and returns Torch Tensors.
+    ``numpy.polynomial.legendre.leggauss`` and returns Torch Tensors.
 
     Args:
         deg: Number of sample points and weights. Integrates poynomials of degree
-            `2 * deg + 1` exactly.
+            ``2 * deg + 1`` exactly.
         a, b: Lower and upper bound of integration domain.
         dtype: Desired floating point type of the return Tensors.
         device: Desired device type of the return Tensors.
@@ -329,7 +330,7 @@ def leggauss(
 
 
 def _check_hypercube(x: Tensor, name: str) -> None:
-    """Raises a `ValueError` if an element `x` is not in [0, 1].
+    """Raises a ``ValueError`` if an element ``x`` is not in [0, 1].
 
     Args:
         x: Tensor to be checked.
@@ -341,20 +342,20 @@ def _check_hypercube(x: Tensor, name: str) -> None:
 
 
 def _reverse_triu_indices(d: int) -> list[int]:
-    """Computes a list of indices which, upon indexing a `d * (d - 1) / 2 + 1`-dim
+    """Computes a list of indices which, upon indexing a ``d * (d - 1) / 2 + 1``-dim
     Tensor whose last element is zero, will lead to a vectorized representation of
     an upper-triangular matrix, whose diagonal is set to zero and whose super-diagonal
-    elements are set to the `d * (d - 1) / 2` values in the original tensor.
+    elements are set to the ``d * (d - 1) / 2`` values in the original tensor.
 
     NOTE: This is a helper function for Orthogonal Additive Kernels, and allows the
-    implementation to only register `d * (d - 1) / 2` parameters to model the second
+    implementation to only register ``d * (d - 1) / 2`` parameters to model the second
     order interactions, instead of the full d^2 redundant terms.
 
     Args:
-        d: Dimensionality that gives rise to the `d * (d - 1) / 2` quadratic terms.
+        d: Dimensionality that gives rise to the ``d * (d - 1) / 2`` quadratic terms.
 
     Returns:
-        A list of integer indices in `[0, d * (d - 1) / 2]`. See above for details.
+        A list of integer indices in ``[0, d * (d - 1) / 2]``. See above for details.
     """
     indices = []
     j = 0

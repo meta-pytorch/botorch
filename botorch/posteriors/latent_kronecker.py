@@ -51,11 +51,11 @@ class LatentKroneckerGPPosterior(GPyTorchPosterior):
 
         Args:
             model: The LatentKroneckerGP model to which this posterior belongs to.
-            X: A `(batch_shape) x q x d`-dim Tensor, where `d` is the dimension
-                of the feature space and `q` is the number of points considered
+            X: A ``(batch_shape) x q x d``-dim Tensor, where ``d`` is the dimension
+                of the feature space and ``q`` is the number of points considered
                 jointly, on which the posterior shall be evaluated.
-            T: A `(batch_shape) x t x 1`-dim Tensor of `T`-locations at which to
-                evaluate the posterior. If None, defaults to using `self.train_T`.
+            T: A ``(batch_shape) x t x 1``-dim Tensor of ``T``-locations at which to
+                evaluate the posterior. If None, defaults to using ``self.train_T``.
         """
         self._dtype = X.dtype
         self._device = X.device
@@ -84,8 +84,8 @@ class LatentKroneckerGPPosterior(GPyTorchPosterior):
     def base_sample_shape(self):
         r"""The shape of a base sample used for constructing posterior samples.
 
-        Overwrites the standard `base_sample_shape` call to inform samplers that
-        `n_train_full + n_train + n_test` samples are needed rather than n samples.
+        Overwrites the standard ``base_sample_shape`` call to inform samplers that
+        ``n_train_full + n_train + n_test`` samples are needed rather than n samples.
         """
         n_train_full = (
             self.model.train_inputs[0].shape[-2] * self.model.train_T.shape[-2]
@@ -99,7 +99,7 @@ class LatentKroneckerGPPosterior(GPyTorchPosterior):
         r"""The t-batch range.
 
         This is used in samplers to identify the t-batch component of the
-        `base_sample_shape`. The base samples are expanded over the t-batches to
+        ``base_sample_shape``. The base samples are expanded over the t-batches to
         provide consistency in the acquisition values, i.e., to ensure that a
         candidate produces same value regardless of its position on the t-batch.
         """
@@ -110,7 +110,7 @@ class LatentKroneckerGPPosterior(GPyTorchPosterior):
         sample_shape: torch.Size = torch.Size(),  # noqa: B008
     ) -> torch.Size:
         r"""Returns the shape of the samples produced by the distribution with
-        the given `sample_shape`.
+        the given ``sample_shape``.
         """
         x_shape = self.X.shape[-2:-1]
         t_shape = self.T.shape[-2:-1]
@@ -129,16 +129,16 @@ class LatentKroneckerGPPosterior(GPyTorchPosterior):
         Since this posterior is a dummy object, call the model to perform sampling.
 
         Args:
-            sample_shape: A `torch.Size` object specifying the sample shape. To
-                draw `n` samples, set to `torch.Size([n])`. To draw `b` batches
-                of `n` samples each, set to `torch.Size([b, n])`.
-            base_samples: A Tensor of `N(0, I)` base samples of shape
-                `sample_shape x base_sample_shape`, typically obtained from
-                a `Sampler`. This is used for deterministic optimization.
+            sample_shape: A ``torch.Size`` object specifying the sample shape. To
+                draw ``n`` samples, set to ``torch.Size([n])``. To draw ``b`` batches
+                of ``n`` samples each, set to ``torch.Size([b, n])``.
+            base_samples: A Tensor of ``N(0, I)`` base samples of shape
+                ``sample_shape x base_sample_shape``, typically obtained from
+                a ``Sampler``. This is used for deterministic optimization.
 
         Returns:
             Samples from the posterior, a tensor of shape
-            `self._extended_shape(sample_shape=sample_shape)`.
+            ``self._extended_shape(sample_shape=sample_shape)``.
         """
         if base_samples.shape[: len(sample_shape)] != sample_shape:
             raise RuntimeError(
@@ -155,13 +155,13 @@ class LatentKroneckerGPPosterior(GPyTorchPosterior):
         r"""Sample from the posterior (with gradients).
 
         Args:
-            sample_shape: A `torch.Size` object specifying the sample shape. To
-                draw `n` samples, set to `torch.Size([n])`. To draw `b` batches
-                of `n` samples each, set to `torch.Size([b, n])`.
+            sample_shape: A ``torch.Size`` object specifying the sample shape. To
+                draw ``n`` samples, set to ``torch.Size([n])``. To draw ``b`` batches
+                of ``n`` samples each, set to ``torch.Size([b, n])``.
 
         Returns:
             Samples from the posterior, a tensor of shape
-            `self._extended_shape(sample_shape=sample_shape)`.
+            ``self._extended_shape(sample_shape=sample_shape)``.
         """
         if sample_shape is None:
             sample_shape = torch.Size([1])

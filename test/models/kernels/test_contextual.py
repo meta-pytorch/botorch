@@ -96,7 +96,7 @@ class ContextualKernelTest(BotorchTestCase):
         res = kernel(x1, x2).to_dense()
         self.assertEqual(res.shape, torch.Size([batch_dim, num_obs, num_obs]))
 
-        # testing efficient `einsum` with naive `sum` implementation
+        # testing efficient ``einsum`` with naive ``sum`` implementation
         context_covar = kernel._eval_context_covar()
         if x1.dim() > context_covar.dim():
             context_covar = context_covar.expand(

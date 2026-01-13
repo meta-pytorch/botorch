@@ -62,7 +62,7 @@ class GPyTorchModel(Model, ABC):
     r"""Abstract base class for models based on GPyTorch models.
 
     The easiest way to use this is to subclass a model from a GPyTorch model
-    class (e.g. an `ExactGP`) and this `GPyTorchModel`. See e.g. `SingleTaskGP`.
+    class (e.g. an ``ExactGP``) and this ``GPyTorchModel``. See e.g. ``SingleTaskGP``.
     """
 
     likelihood: Likelihood
@@ -71,24 +71,24 @@ class GPyTorchModel(Model, ABC):
     def _validate_tensor_args(
         X: Tensor, Y: Tensor, Yvar: Tensor | None = None, strict: bool = True
     ) -> None:
-        r"""Checks that `Y` and `Yvar` have an explicit output dimension if strict.
+        r"""Checks that ``Y`` and ``Yvar`` have an explicit output dimension if strict.
         Checks that the dtypes of the inputs match, and warns if using float.
 
-        This also checks that `Yvar` has the same trailing dimensions as `Y`. Note
-        we only infer that an explicit output dimension exists when `X` and `Y` have
-        the same `batch_shape`.
+        This also checks that ``Yvar`` has the same trailing dimensions as ``Y``. Note
+        we only infer that an explicit output dimension exists when ``X`` and ``Y`` have
+        the same ``batch_shape``.
 
         Args:
-            X: A `batch_shape x n x d`-dim Tensor, where `d` is the dimension of
-                the feature space, `n` is the number of points per batch, and
-                `batch_shape` is the batch shape (potentially empty).
-            Y: A `batch_shape' x n x m`-dim Tensor, where `m` is the number of
-                model outputs, `n'` is the number of points per batch, and
-                `batch_shape'` is the batch shape of the observations.
-            Yvar: A `batch_shape' x n x m` tensor of observed measurement noise.
+            X: A ``batch_shape x n x d``-dim Tensor, where ``d`` is the dimension of
+                the feature space, ``n`` is the number of points per batch, and
+                ``batch_shape`` is the batch shape (potentially empty).
+            Y: A ``batch_shape' x n x m``-dim Tensor, where ``m`` is the number of
+                model outputs, ``n'`` is the number of points per batch, and
+                ``batch_shape'`` is the batch shape of the observations.
+            Yvar: A ``batch_shape' x n x m`` tensor of observed measurement noise.
                 Note: this will be None when using a model that infers the noise
-                level (e.g. a `SingleTaskGP`).
-            strict: A boolean indicating whether to check that `Y` and `Yvar`
+                level (e.g. a ``SingleTaskGP``).
+            strict: A boolean indicating whether to check that ``Y`` and ``Yvar``
                 have an explicit output dimension.
         """
         if X.dim() != Y.dim():
@@ -139,11 +139,12 @@ class GPyTorchModel(Model, ABC):
     def batch_shape(self) -> torch.Size:
         r"""The batch shape of the model.
 
-        This is a batch shape from an I/O perspective, independent of the internal
-        representation of the model (as e.g. in BatchedMultiOutputGPyTorchModel).
-        For a model with `m` outputs, a `test_batch_shape x q x d`-shaped input `X`
-        to the `posterior` method returns a Posterior object over an output of
-        shape `broadcast(test_batch_shape, model.batch_shape) x q x m`.
+        This is a batch shape from an I/O perspective, independent of the
+        internal representation of the model (as e.g. in
+        BatchedMultiOutputGPyTorchModel). For a model with ``m`` outputs, a
+        ``test_batch_shape x q x d``-shaped input ``X`` to the ``posterior``
+        method returns a Posterior object over an output of shape
+        ``broadcast(test_batch_shape, model.batch_shape) x q x m``.
         """
         return self.train_inputs[0].shape[:-2]
 
@@ -153,8 +154,8 @@ class GPyTorchModel(Model, ABC):
         return self._num_outputs
 
     # pyre-fixme[14]: Inconsistent override.
-    # `botorch.models.gpytorch.GPyTorchModel.posterior` overrides method defined
-    # in `Model` inconsistently. Could not find parameter `output_indices` in
+    # ``botorch.models.gpytorch.GPyTorchModel.posterior`` overrides method defined
+    # in ``Model`` inconsistently. Could not find parameter ``output_indices`` in
     # overriding signature.
     def posterior(
         self,
@@ -166,24 +167,24 @@ class GPyTorchModel(Model, ABC):
         r"""Computes the posterior over model outputs at the provided points.
 
         Args:
-            X: A `(batch_shape) x q x d`-dim Tensor, where `d` is the dimension
-                of the feature space and `q` is the number of points considered
+            X: A ``(batch_shape) x q x d``-dim Tensor, where ``d`` is the dimension
+                of the feature space and ``q`` is the number of points considered
                 jointly.
             observation_noise: If True, add the observation noise from the
                 likelihood to the posterior. If a Tensor, use it directly as the
-                observation noise (must be of shape `(batch_shape) x q`). It is
+                observation noise (must be of shape ``(batch_shape) x q``). It is
                 assumed to be in the outcome-transformed space if an outcome
                 transform is used.
             posterior_transform: An optional PosteriorTransform.
 
         Returns:
-            A `GPyTorchPosterior` object, representing a batch of `b` joint
-            distributions over `q` points. Includes observation noise if
+            A ``GPyTorchPosterior`` object, representing a batch of ``b`` joint
+            distributions over ``q`` points. Includes observation noise if
             specified.
         """
         self.eval()  # make sure model is in eval mode
-        # input transforms are applied at `posterior` in `eval` mode, and at
-        # `model.forward()` at the training time
+        # input transforms are applied at ``posterior`` in ``eval`` mode, and at
+        # ``model.forward()`` at the training time
         X = self.transform_inputs(X)
         with gpt_posterior_settings():
             # NOTE: BoTorch's GPyTorchModels also inherit from GPyTorch's ExactGP, thus
@@ -212,24 +213,24 @@ class GPyTorchModel(Model, ABC):
         r"""Condition the model on new observations.
 
         Args:
-            X: A `batch_shape x n' x d`-dim Tensor, where `d` is the dimension of
-                the feature space, `n'` is the number of points per batch, and
-                `batch_shape` is the batch shape (must be compatible with the
+            X: A ``batch_shape x n' x d``-dim Tensor, where ``d`` is the dimension of
+                the feature space, ``n'`` is the number of points per batch, and
+                ``batch_shape`` is the batch shape (must be compatible with the
                 batch shape of the model).
-            Y: A `batch_shape' x n x m`-dim Tensor, where `m` is the number of
-                model outputs, `n'` is the number of points per batch, and
-                `batch_shape'` is the batch shape of the observations.
-                `batch_shape'` must be broadcastable to `batch_shape` using
-                standard broadcasting semantics. If `Y` has fewer batch dimensions
-                than `X`, its is assumed that the missing batch dimensions are
-                the same for all `Y`.
-            noise: If not `None`, a tensor of the same shape as `Y` representing
+            Y: A ``batch_shape' x n x m``-dim Tensor, where ``m`` is the number of
+                model outputs, ``n'`` is the number of points per batch, and
+                ``batch_shape'`` is the batch shape of the observations.
+                ``batch_shape'`` must be broadcastable to ``batch_shape`` using
+                standard broadcasting semantics. If ``Y`` has fewer batch dimensions
+                than ``X``, its is assumed that the missing batch dimensions are
+                the same for all ``Y``.
+            noise: If not ``None``, a tensor of the same shape as ``Y`` representing
                 the associated noise variance.
-            kwargs: Passed to `self.get_fantasy_model`.
+            kwargs: Passed to ``self.get_fantasy_model``.
 
         Returns:
-            A `Model` object of the same type, representing the original model
-            conditioned on the new observations `(X, Y)` (and possibly noise
+            A ``Model`` object of the same type, representing the original model
+            conditioned on the new observations ``(X, Y)`` (and possibly noise
             observations passed in via kwargs).
 
         Example:
@@ -254,7 +255,7 @@ class GPyTorchModel(Model, ABC):
         if hasattr(self, "outcome_transform"):
             # And do the same for the outcome transform, if it exists.
             if not isinstance(self, BatchedMultiOutputGPyTorchModel):
-                # `noise` is assumed to already be outcome-transformed.
+                # ``noise`` is assumed to already be outcome-transformed.
                 Y, _ = self.outcome_transform(Y=Y, Yvar=Yvar, X=X)
         # Validate using strict=False, since we cannot tell if Y has an explicit
         # output dimension. Do not check shapes when fantasizing as they are
@@ -404,16 +405,16 @@ class BatchedMultiOutputGPyTorchModel(GPyTorchModel):
         r"""Get the raw batch shape and output-augmented batch shape of the inputs.
 
         Args:
-            train_X: A `n x d` or `batch_shape x n x d` (batch mode) tensor of training
-                features.
-            train_Y: A `n x m` or `batch_shape x n x m` (batch mode) tensor of
-                training observations.
+            train_X: A ``n x d`` or ``batch_shape x n x d`` (batch mode) tensor
+                of training features.
+            train_Y: A ``n x m`` or ``batch_shape x n x m`` (batch mode) tensor
+                of training observations.
 
         Returns:
             2-element tuple containing
 
-            - The `input_batch_shape`
-            - The output-augmented batch shape: `input_batch_shape x (m)`
+            - The ``input_batch_shape``
+            - The output-augmented batch shape: ``input_batch_shape x (m)``
         """
         input_batch_shape = train_X.shape[:-2]
         aug_batch_shape = input_batch_shape
@@ -426,9 +427,9 @@ class BatchedMultiOutputGPyTorchModel(GPyTorchModel):
         r"""Store the number of outputs and the batch shape.
 
         Args:
-            train_X: A `n x d` or `batch_shape x n x d` (batch mode) tensor of training
-                features.
-            train_Y: A `n x m` or `batch_shape x n x m` (batch mode) tensor of
+            train_X: A ``n x d`` or ``batch_shape x n x d`` (batch mode) tensor of
+                training features.
+            train_Y: A ``n x m`` or ``batch_shape x n x m`` (batch mode) tensor of
                 training observations.
         """
         self._num_outputs = train_Y.shape[-1]
@@ -442,9 +443,9 @@ class BatchedMultiOutputGPyTorchModel(GPyTorchModel):
 
         This is a batch shape from an I/O perspective, independent of the internal
         representation of the model (as e.g. in BatchedMultiOutputGPyTorchModel).
-        For a model with `m` outputs, a `test_batch_shape x q x d`-shaped input `X`
-        to the `posterior` method returns a Posterior object over an output of
-        shape `broadcast(test_batch_shape, model.batch_shape) x q x m`.
+        For a model with ``m`` outputs, a ``test_batch_shape x q x d``-shaped
+        input ``X`` to the ``posterior`` method returns a Posterior object over
+        an output of shape ``broadcast(test_batch_shape, model.batch_shape) x q x m``.
         """
         return self._input_batch_shape
 
@@ -456,20 +457,20 @@ class BatchedMultiOutputGPyTorchModel(GPyTorchModel):
         transformed into the left-most batch dimension.
 
         Args:
-            X: A `n x d` or `batch_shape x n x d` (batch mode) tensor of training
+            X: A ``n x d`` or ``batch_shape x n x d`` (batch mode) tensor of training
                 features.
-            Y: A `n x m` or `batch_shape x n x m` (batch mode) tensor of
+            Y: A ``n x m`` or ``batch_shape x n x m`` (batch mode) tensor of
                 training observations.
-            Yvar: A `n x m` or `batch_shape x n x m` (batch mode) tensor of
+            Yvar: A ``n x m`` or ``batch_shape x n x m`` (batch mode) tensor of
                 observed measurement noise. Note: this will be None when using a model
-                that infers the noise level (e.g. a `SingleTaskGP`).
+                that infers the noise level (e.g. a ``SingleTaskGP``).
 
         Returns:
             3-element tuple containing
 
-            - A `input_batch_shape x (m) x n x d` tensor of training features.
-            - A `target_batch_shape x (m) x n` tensor of training observations.
-            - A `target_batch_shape x (m) x n` tensor observed measurement noise
+            - A ``input_batch_shape x (m) x n x d`` tensor of training features.
+            - A ``target_batch_shape x (m) x n`` tensor of training observations.
+            - A ``target_batch_shape x (m) x n`` tensor observed measurement noise
                 (or None).
         """
         if self._num_outputs > 1:
@@ -487,20 +488,20 @@ class BatchedMultiOutputGPyTorchModel(GPyTorchModel):
         """Adds the observation noise to the posterior.
 
         Args:
-            X: A tensor of shape `batch_shape x q x d`.
-            mvn: A `MultivariateNormal` object representing the posterior over the true
-                latent function.
+            X: A tensor of shape ``batch_shape x q x d``.
+            mvn: A ``MultivariateNormal`` object representing the posterior over
+                the true latent function.
             num_outputs: The number of outputs of the model.
             observation_noise: If True, add the observation noise from the
                 likelihood to the posterior. If a Tensor, use it directly as the
-                observation noise (must be of shape `(batch_shape) x q x m`).
+                observation noise (must be of shape ``(batch_shape) x q x m``).
 
         Returns:
             The posterior predictive.
         """
         if observation_noise is False:
             return mvn
-        # noise_shape is `broadcast(test_batch_shape, model.batch_shape) x m x q`
+        # noise_shape is ``broadcast(test_batch_shape, model.batch_shape) x m x q``
         noise_shape = mvn.batch_shape + mvn.event_shape
         if torch.is_tensor(observation_noise):
             # TODO: Validate noise shape
@@ -527,7 +528,7 @@ class BatchedMultiOutputGPyTorchModel(GPyTorchModel):
         return mvn
 
     # pyre-ignore[14]: Inconsistent override. Could not find parameter
-    # `Keywords(typing.Any)` in overriding signature.
+    # ``Keywords(typing.Any)`` in overriding signature.
     def posterior(
         self,
         X: Tensor,
@@ -538,8 +539,8 @@ class BatchedMultiOutputGPyTorchModel(GPyTorchModel):
         r"""Computes the posterior over model outputs at the provided points.
 
         Args:
-            X: A `(batch_shape) x q x d`-dim Tensor, where `d` is the dimension
-                of the feature space and `q` is the number of points considered
+            X: A ``(batch_shape) x q x d``-dim Tensor, where ``d`` is the dimension
+                of the feature space and ``q`` is the number of points considered
                 jointly.
             output_indices: A list of indices, corresponding to the outputs over
                 which to compute the posterior (if the model is multi-output).
@@ -548,17 +549,17 @@ class BatchedMultiOutputGPyTorchModel(GPyTorchModel):
                 computes the posterior over all model outputs.
             observation_noise: If True, add the observation noise from the
                 likelihood to the posterior. If a Tensor, use it directly as the
-                observation noise (must be of shape `(batch_shape) x q x m`).
+                observation noise (must be of shape ``(batch_shape) x q x m``).
             posterior_transform: An optional PosteriorTransform.
 
         Returns:
-            A `GPyTorchPosterior` object, representing `batch_shape` joint
-            distributions over `q` points and the outputs selected by
-            `output_indices` each. Includes observation noise if specified.
+            A ``GPyTorchPosterior`` object, representing ``batch_shape`` joint
+            distributions over ``q`` points and the outputs selected by
+            ``output_indices`` each. Includes observation noise if specified.
         """
         self.eval()  # make sure model is in eval mode
-        # input transforms are applied at `posterior` in `eval` mode, and at
-        # `model.forward()` at the training time
+        # input transforms are applied at ``posterior`` in ``eval`` mode, and at
+        # ``model.forward()`` at the training time
         X = self.transform_inputs(X)
         with gpt_posterior_settings():
             # insert a dimension for the output dimension
@@ -596,29 +597,29 @@ class BatchedMultiOutputGPyTorchModel(GPyTorchModel):
             return posterior_transform(posterior=posterior, X=X)
         return posterior
 
-    # pyre-ignore[14]: Inconsistent override. Could not find parameter `noise`.
+    # pyre-ignore[14]: Inconsistent override. Could not find parameter ``noise``.
     def condition_on_observations(
         self, X: Tensor, Y: Tensor, **kwargs: Any
     ) -> BatchedMultiOutputGPyTorchModel:
         r"""Condition the model on new observations.
 
         Args:
-            X: A `batch_shape x n' x d`-dim Tensor, where `d` is the dimension of
-                the feature space, `m` is the number of points per batch, and
-                `batch_shape` is the batch shape (must be compatible with the
+            X: A ``batch_shape x n' x d``-dim Tensor, where ``d`` is the dimension of
+                the feature space, ``m`` is the number of points per batch, and
+                ``batch_shape`` is the batch shape (must be compatible with the
                 batch shape of the model).
-            Y: A `batch_shape' x n' x m`-dim Tensor, where `m` is the number of
-                model outputs, `n'` is the number of points per batch, and
-                `batch_shape'` is the batch shape of the observations.
-                `batch_shape'` must be broadcastable to `batch_shape` using
-                standard broadcasting semantics. If `Y` has fewer batch dimensions
-                than `X`, its is assumed that the missing batch dimensions are
-                the same for all `Y`.
+            Y: A ``batch_shape' x n' x m``-dim Tensor, where ``m`` is the number of
+                model outputs, ``n'`` is the number of points per batch, and
+                ``batch_shape'`` is the batch shape of the observations.
+                ``batch_shape'`` must be broadcastable to ``batch_shape`` using
+                standard broadcasting semantics. If ``Y`` has fewer batch dimensions
+                than ``X``, its is assumed that the missing batch dimensions are
+                the same for all ``Y``.
 
         Returns:
-            A `BatchedMultiOutputGPyTorchModel` object of the same type with
-            `n + n'` training examples, representing the original model
-            conditioned on the new observations `(X, Y)` (and possibly noise
+            A ``BatchedMultiOutputGPyTorchModel`` object of the same type with
+            ``n + n'`` training examples, representing the original model
+            conditioned on the new observations ``(X, Y)`` (and possibly noise
             observations passed in via kwargs).
 
         Example:
@@ -634,7 +635,7 @@ class BatchedMultiOutputGPyTorchModel(GPyTorchModel):
         noise = kwargs.get("noise")
         if hasattr(self, "outcome_transform"):
             # We need to apply transforms before shifting batch indices around.
-            # `noise` is assumed to already be outcome-transformed.
+            # ``noise`` is assumed to already be outcome-transformed.
             Y, _ = self.outcome_transform(Y, X=X)
         # Do not check shapes when fantasizing as they are not expected to match.
         if fantasize_flag.off():
@@ -644,8 +645,8 @@ class BatchedMultiOutputGPyTorchModel(GPyTorchModel):
             inputs, targets, noise = multioutput_to_batch_mode_transform(
                 train_X=X, train_Y=Y, num_outputs=self._num_outputs, train_Yvar=noise
             )
-            # `multioutput_to_batch_mode_transform` removes the output dimension,
-            # which is necessary for `condition_on_observations`
+            # ``multioutput_to_batch_mode_transform`` removes the output dimension,
+            # which is necessary for ``condition_on_observations``
             targets = targets.unsqueeze(-1)
             if noise is not None:
                 noise = noise.unsqueeze(-1)
@@ -741,9 +742,9 @@ class ModelListGPyTorchModel(ModelList, GPyTorchModel, ABC):
 
         This is a batch shape from an I/O perspective, independent of the internal
         representation of the model (as e.g. in BatchedMultiOutputGPyTorchModel).
-        For a model with `m` outputs, a `test_batch_shape x q x d`-shaped input `X`
-        to the `posterior` method returns a Posterior object over an output of
-        shape `broadcast(test_batch_shape, model.batch_shape) x q x m`.
+        For a model with ``m`` outputs, a ``test_batch_shape x q x d``-shaped
+        input ``X`` to the ``posterior`` method returns a Posterior object over
+        an output of shape ``broadcast(test_batch_shape, model.batch_shape) x q x m``.
         """
         batch_shapes = {m.batch_shape for m in self.models}
         if len(batch_shapes) > 1:
@@ -780,9 +781,9 @@ class ModelListGPyTorchModel(ModelList, GPyTorchModel, ABC):
         ignored.
 
         Args:
-            X: A `b x q x d`-dim Tensor, where `d` is the dimension of the
-                feature space, `q` is the number of points considered jointly,
-                and `b` is the batch dimension.
+            X: A ``b x q x d``-dim Tensor, where ``d`` is the dimension of the
+                feature space, ``q`` is the number of points considered jointly,
+                and ``b`` is the batch dimension.
             output_indices: A list of indices, corresponding to the outputs over
                 which to compute the posterior (if the model is multi-output).
                 Can be used to speed up computation if only a subset of the
@@ -790,30 +791,30 @@ class ModelListGPyTorchModel(ModelList, GPyTorchModel, ABC):
                 computes the posterior over all model outputs.
             observation_noise: If True, add the observation noise from the
                 respective likelihoods to the posterior. If a Tensor of shape
-                `(batch_shape) x q x m`, use it directly as the observation
-                noise (with `observation_noise[...,i]` added to the posterior
-                of the `i`-th model).
+                ``(batch_shape) x q x m``, use it directly as the observation
+                noise (with ``observation_noise[...,i]`` added to the posterior
+                of the ``i``-th model).
             posterior_transform: An optional PosteriorTransform.
 
         Returns:
-            - If no `posterior_transform` is provided and the component models have no
-                `outcome_transform`, or if the component models only use linear outcome
-                transforms like `Standardize` (i.e. not `Log`), returns a
-                `GPyTorchPosterior` or `GaussianMixturePosterior` object,
-                representing `batch_shape` joint distributions over `q` points
-                and the outputs selected by `output_indices` each. Includes
-                measurement noise if `observation_noise` is specified.
-            - If no `posterior_transform` is provided and component models have
-                nonlinear transforms like `Log`, returns a `PosteriorList` with
-                sub-posteriors of type `TransformedPosterior`
-            - If `posterior_transform` is provided, that posterior transform will be
-               applied and will determine the return type. This could potentially be
-               any subclass of `Posterior`, but common choices give a
-               `GPyTorchPosterior`.
+            - If no ``posterior_transform`` is provided and the component models
+                have no ``outcome_transform``, or if the component models only use
+                linear outcome transforms like ``Standardize`` (i.e. not ``Log``),
+                returns a ``GPyTorchPosterior`` or ``GaussianMixturePosterior``
+                object, representing ``batch_shape`` joint distributions over
+                ``q`` points and the outputs selected by ``output_indices`` each.
+                Includes measurement noise if ``observation_noise`` is specified.
+            - If no ``posterior_transform`` is provided and component models have
+                nonlinear transforms like ``Log``, returns a ``PosteriorList`` with
+                sub-posteriors of type ``TransformedPosterior``
+            - If ``posterior_transform`` is provided, that posterior transform
+               will be applied and will determine the return type. This could be
+               any subclass of ``Posterior``, but common choices give a
+               ``GPyTorchPosterior``.
         """
 
-        # Nonlinear transforms untransform to a `TransformedPosterior`,
-        # which can't be made into a `GPyTorchPosterior`
+        # Nonlinear transforms untransform to a ``TransformedPosterior``,
+        # which can't be made into a ``GPyTorchPosterior``
         returns_untransformed = any(
             hasattr(mod, "outcome_transform") and (not mod.outcome_transform._is_linear)
             for mod in self.models
@@ -873,9 +874,9 @@ class ModelListGPyTorchModel(ModelList, GPyTorchModel, ABC):
     def _broadcast_mvns(self, mvns: list[MultivariateNormal]) -> MultivariateNormal:
         """Broadcasts the batch shapes of the given MultivariateNormals.
 
-        The MVNs will have a batch shape of `input_batch_shape x model_batch_shape`.
+        The MVNs will have a batch shape of ``input_batch_shape x model_batch_shape``.
         If the model batch shapes are broadcastable, we will broadcast the mvns to
-        a batch shape of `input_batch_shape x self.batch_shape`.
+        a batch shape of ``input_batch_shape x self.batch_shape``.
 
         Args:
             mvns: A list of MultivariateNormals.
@@ -906,8 +907,8 @@ class ModelListGPyTorchModel(ModelList, GPyTorchModel, ABC):
 class MultiTaskGPyTorchModel(GPyTorchModel, ABC):
     r"""Abstract base class for multi-task models based on GPyTorch models.
 
-    This class provides the `posterior` method to models that implement a
-    "long-format" multi-task GP in the style of `MultiTaskGP`.
+    This class provides the ``posterior`` method to models that implement a
+    "long-format" multi-task GP in the style of ``MultiTaskGP``.
     """
 
     def _extract_targets_and_noise(self) -> tuple[Tensor, Tensor | None]:
@@ -939,7 +940,7 @@ class MultiTaskGPyTorchModel(GPyTorchModel, ABC):
     ) -> MultivariateNormal:
         """Adds the observation noise to the posterior.
 
-        If the likelihood is a `FixedNoiseGaussianLikelihood`, then
+        If the likelihood is a ``FixedNoiseGaussianLikelihood``, then
         the average noise per task is computed, and a diagonal noise
         matrix is added to the posterior covariance matrix, where
         the noise per input is the average noise for its respective
@@ -950,11 +951,11 @@ class MultiTaskGPyTorchModel(GPyTorchModel, ABC):
         TODO: implement support for task-specific inferred noise levels.
 
         Args:
-            X: A tensor of shape `batch_shape x q x d + 1`,
-                where `d` is the dimension of the feature space and the `+ 1`
+            X: A tensor of shape ``batch_shape x q x d + 1``,
+                where ``d`` is the dimension of the feature space and the ``+ 1``
                 dimension is the task feature / index.
-            mvn: A `MultivariateNormal` object representing the posterior over the true
-                latent function.
+            mvn: A ``MultivariateNormal`` object representing the posterior over
+                the true latent function.
             num_outputs: The number of outputs of the model.
             observation_noise: If True, add observation noise from the respective
                 likelihood. Tensor input is currently not supported.
@@ -984,7 +985,7 @@ class MultiTaskGPyTorchModel(GPyTorchModel, ABC):
                 noise_by_task[..., task_feature] = self.likelihood.noise[
                     ..., mask
                 ].mean(dim=-1)
-            # noise_shape is `broadcast(test_batch_shape, model.batch_shape) x q`
+            # noise_shape is ``broadcast(test_batch_shape, model.batch_shape) x q``
             noise_shape = (
                 broadcast_shapes(X.shape[:-2], self.batch_shape) + X.shape[-2:-1]
             )
@@ -1001,7 +1002,7 @@ class MultiTaskGPyTorchModel(GPyTorchModel, ABC):
         return self.likelihood(mvn, X)
 
     # pyre-ignore[14]: Inconsistent override. Could not find parameter
-    # `Keywords(typing.Any)` in overriding signature.
+    # ``Keywords(typing.Any)`` in overriding signature.
     def posterior(
         self,
         X: Tensor,
@@ -1012,28 +1013,29 @@ class MultiTaskGPyTorchModel(GPyTorchModel, ABC):
         r"""Computes the posterior over model outputs at the provided points.
 
         Args:
-            X: A tensor of shape `batch_shape x q x d` or `batch_shape x q x (d + 1)`,
-                where `d` is the dimension of the feature space (not including task
-                indices) and `q` is the number of points considered jointly. The `+ 1`
-                dimension is the optional task feature / index. If given, the model
-                produces the outputs for the given task indices. If omitted, the
-                model produces outputs for tasks in in `self._output_tasks` (specified
-                as `output_tasks` while constructing the model), which can overwritten
-                using `output_indices`.
+            X: A tensor of shape ``batch_shape x q x d`` or
+                ``batch_shape x q x (d + 1)``, where ``d`` is the dimension of the
+                feature space (not including task indices) and ``q`` is the number
+                of points considered jointly. The ``+ 1`` dimension is the optional
+                task feature / index. If given, the model produces the outputs for
+                the given task indices. If omitted, the model produces outputs for
+                tasks in in ``self._output_tasks`` (specified as ``output_tasks``
+                while constructing the model), which can overwritten using
+                ``output_indices``.
             output_indices: A list of task values over which to compute the posterior.
-                Only used if `X` does not include the task feature. If omitted,
-                defaults to `self._output_tasks`.
+                Only used if ``X`` does not include the task feature. If omitted,
+                defaults to ``self._output_tasks``.
             observation_noise: If True, add observation noise from the respective
                 likelihoods. If a Tensor, specifies the observation noise levels
                 to add.
             posterior_transform: An optional PosteriorTransform.
 
         Returns:
-            A `GPyTorchPosterior` object, representing `batch_shape` joint
-            distributions over `q` points. If the task features are included in `X`,
+            A ``GPyTorchPosterior`` object, representing ``batch_shape`` joint
+            distributions over ``q`` points. If the task features are included in ``X``,
             the posterior will be single output. Otherwise, the posterior will be
             single or multi output corresponding to the tasks included in
-            either the `output_indices` or `self._output_tasks`.
+            either the ``output_indices`` or ``self._output_tasks``.
         """
         includes_task_feature = X.shape[-1] == self.num_non_task_features + 1
         if includes_task_feature:
@@ -1058,8 +1060,8 @@ class MultiTaskGPyTorchModel(GPyTorchModel, ABC):
         # Make sure all task feature values are valid.
         task_features = self._map_tasks(task_values=task_features)
         self.eval()  # make sure model is in eval mode
-        # input transforms are applied at `posterior` in `eval` mode, and at
-        # `model.forward()` at the training time
+        # input transforms are applied at ``posterior`` in ``eval`` mode, and at
+        # ``model.forward()`` at the training time
         X_full = self.transform_inputs(X_full)
         with gpt_posterior_settings():
             mvn = self(X_full)

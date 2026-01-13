@@ -18,19 +18,19 @@ def _reshape_base_samples_non_interleaved(
 ) -> Tensor:
     r"""Reshape base samples to account for non-interleaved MT-MVNs.
 
-    This method is important for making sure that the `n`th base sample
-    only effects the posterior sample for the `p`th point if `p >= n`.
-    Without this reshaping, for M>=2, the posterior samples for all `n`
+    This method is important for making sure that the ``n``th base sample
+    only effects the posterior sample for the ``p``th point if ``p >= n``.
+    Without this reshaping, for M>=2, the posterior samples for all ``n``
     points would be affected.
 
     Args:
         mvn: A MultitaskMultivariateNormal distribution.
-        base_samples: A `sample_shape x `batch_shape` x n x m`-dim
+        base_samples: A ``sample_shape x ``batch_shape`` x n x m``-dim
             tensor of base_samples.
         sample_shape: The sample shape.
 
     Returns:
-        A `sample_shape x `batch_shape` x n x m`-dim tensor of
+        A ``sample_shape x ``batch_shape`` x n x m``-dim tensor of
             base_samples suitable for a non-interleaved-multi-task
             or single-task covariance matrix.
     """

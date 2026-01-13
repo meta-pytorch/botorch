@@ -24,7 +24,7 @@ def _flip_sub_unique(x: Tensor, k: int) -> Tensor:
 
     Args:
         x: A single-dimensional tensor
-        k: the number of elements to return
+        k: The number of elements to return.
 
     Returns:
         A tensor with min(k, |x|) elements.
@@ -84,7 +84,7 @@ def _remove_fixed_features_from_optimization(
     Given a set of non-empty fixed features, this function effectively reduces the
     dimensionality of the domain that the acquisition function is being optimized
     over by removing the set of fixed features. Consequently, this function returns a
-    new `FixedFeatureAcquisitionFunction`, new constraints, and bounds defined over
+    new ``FixedFeatureAcquisitionFunction``, new constraints, and bounds defined over
     unfixed features.
 
     Args:
@@ -96,17 +96,17 @@ def _remove_fixed_features_from_optimization(
         initial_conditions: Starting points for optimization w.r.t. the complete domain.
         d: Dimensionality of the original domain.
         lower_bounds: Minimum values for each column of initial_conditions.
-        upper_bounds: Minimum values for each column of initial_conditions.
-        inequality constraints: A list of tuples (indices, coefficients, rhs),
+        upper_bounds: Maximum values for each column of initial_conditions.
+        inequality_constraints: A list of tuples (indices, coefficients, rhs),
             with each tuple encoding an inequality constraint of the form
-            `sum_i (X[indices[i]] * coefficients[i]) >= rhs`.
-        equality constraints: A list of tuples (indices, coefficients, rhs),
+            ``sum_i (X[indices[i]] * coefficients[i]) >= rhs``.
+        equality_constraints: A list of tuples (indices, coefficients, rhs),
             with each tuple encoding an inequality constraint of the form
-            `sum_i (X[indices[i]] * coefficients[i]) = rhs`.
-        nonlinear_inequality_constraints: A list of callables with that represent
-            non-linear inequality constraints of the form `callable(x) >= 0`. Each
-            callable is expected to take a `(num_restarts) x q x d`-dim tensor as
-            an input and return a `(num_restarts) x q`-dim tensor with the
+            ``sum_i (X[indices[i]] * coefficients[i]) = rhs``.
+        nonlinear_inequality_constraints: A list of callables that represent
+            non-linear inequality constraints of the form ``callable(x) >= 0``. Each
+            callable is expected to take a ``(num_restarts) x q x d``-dim tensor as
+            an input and return a ``(num_restarts) x q``-dim tensor with the
             constraint values.
 
     Returns:

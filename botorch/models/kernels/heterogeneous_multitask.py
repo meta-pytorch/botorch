@@ -23,17 +23,17 @@ LOG_OUTPUTSCALE_CONSTRAINT = LogTransformedInterval(1e-2, 1e4, initial_value=10)
 
 
 class DeltaKernel(Kernel):
-    r"""A kernel that evaluates `x1 == x2 == 1`."""
+    r"""A kernel that evaluates ``x1 == x2 == 1``."""
 
     def forward(self, x1: Tensor, x2: Tensor, **params) -> Tensor:
         r"""Evaluate the kernel.
 
         Args:
-            x1: A tensor of shape `batch_shape x q1 x 1`.
-            x2: A tensor of shape `batch_shape x q2 x 1`.
+            x1: A tensor of shape ``batch_shape x q1 x 1``.
+            x2: A tensor of shape ``batch_shape x q2 x 1``.
 
         Returns:
-            A tensor of shape `batch_shape x q1 x q2` containing 1 where
+            A tensor of shape ``batch_shape x q1 x q2`` containing 1 where
             x1 == x2 == 1 and 0 otherwise.
         """
         assert x1.shape[-1] == x2.shape[-1] == 1, "DeltaKernel expects 1D inputs!"
@@ -71,14 +71,15 @@ class MultiTaskConditionalKernel(Kernel):
 
     This kernel was introduced in [Deshwal2024Heterogeneous]_.
 
-    * This kernel conditionally combines multiple sub-kernels to calculate covariances.
-    * The kernel operates on `full_feature_dim + 1` dimensional inputs, with the `+ 1`
-        dimension representing the task feature.
+    * This kernel conditionally combines multiple sub-kernels to calculate
+      covariances.
+    * The kernel operates on ``full_feature_dim + 1`` dimensional inputs,
+      with the ``+ 1`` dimension representing the task feature.
     * Given a list of indices representing the active feature dimensions for each task,
         the feature space is split into several non-overlapping subsets and a base
         kernel gets constructed for each of these subset dimensions.
     * The task feature is embedded into a binary tensor, which, together with a
-        `DeltaKernel`, determines which of the sub-kernels are added together for
+        ``DeltaKernel``, determines which of the sub-kernels are added together for
         the given inputs.
     * There is an additional Combinatorial kernel that operates over the binary
         embedding of task features.
@@ -96,7 +97,7 @@ class MultiTaskConditionalKernel(Kernel):
         Args:
             feature_indices: A list of lists of integers specifying the indices
                 that select the features of a given task from the full tensor of
-                features. The `i`th element of the list should contain `d_i`
+                features. The ``i``th element of the list should contain ``d_i``
                 integers. These are the active indices for the given task.
             task_feature_index: Index of the task feature in the input tensor.
             use_saas_prior: If True, use SAAS prior for the Matern kernels.
@@ -145,10 +146,10 @@ class MultiTaskConditionalKernel(Kernel):
         which kernels are active for the given task.
 
         Args:
-            x_task: A tensor of task features of shape `batch x q`.
+            x_task: A tensor of task features of shape ``batch x q``.
 
         Returns:
-            A binary tensor of shape `batch x q x len(self.kernels)`.
+            A binary tensor of shape ``batch x q x len(self.kernels)``.
             NOTE: The tensor has the same dtype as the input tensor.
             Returning a non-float tensor leads to downstream errors.
         """
@@ -161,24 +162,24 @@ class MultiTaskConditionalKernel(Kernel):
         r"""Evaluate the kernel on the given inputs.
 
         Args:
-            x1: A `batch_shape x q1 x d`-dim tensor of inputs.
-            x2: A `batch_shape x q2 x d`-dim tensor of inputs.
+            x1: A ``batch_shape x q1 x d``-dim tensor of inputs.
+            x2: A ``batch_shape x q2 x d``-dim tensor of inputs.
 
         Returns:
-            A `batch_shape x q1 x q2`-dim tensor of kernel values.
+            A ``batch_shape x q1 x q2``-dim tensor of kernel values.
         """
         x1_binary = self.map_task_to_binary(x1[..., self.task_feature_index])
         x2_binary = self.map_task_to_binary(x2[..., self.task_feature_index])
-        # This is a list of `batch_shape x q1 x q2`-dim tensors.
+        # This is a list of ``batch_shape x q1 x q2``-dim tensors.
         kernel_evals = [k(x1, x2, **params) for k in self.kernels]
-        # This is a `batch_shape x q1 x q2`-dim tensor.
+        # This is a ``batch_shape x q1 x q2``-dim tensor.
         if self.use_combinatorial_kernel:
             base_evals = self.combinatorial_kernel(x1_binary, x2_binary, **params)
         else:
             base_evals = torch.zeros(
                 *x1.shape[:-1], x2.shape[-2], dtype=x1.dtype, device=x1.device
             )
-        # This is a list of `batch_shape x q1 x q2`-dim tensors.
+        # This is a list of ``batch_shape x q1 x q2``-dim tensors.
         delta_evals = [
             self.delta_kernel(x1_b, x2_b, **params)
             for x1_b, x2_b in zip(
@@ -216,14 +217,14 @@ def find_subsets(feature_indices: list[list[int]]) -> list[set[int]]:
         as the input, cast to a set.
         If input contains two iterables, the output should be the intersection
         of the two inputs and the differences of the two. I.e., for an input of
-        `[[1, 2, 3, 4], [1, 2, 5]]`, the output would be `[{1, 2}, {3, 4}, {5}]`.
+        ``[[1, 2, 3, 4], [1, 2, 5]]``, the output would be ``[{1, 2}, {3, 4}, {5}]``.
         For larger inputs, the same logic applies. The key point is that we want
         the subsets to be as large as possible. For the above example,
-        `[{1, 2}, {3}, {4}, {5}]` would not be acceptable since `{3}` and `{4}`
+        ``[{1, 2}, {3}, {4}, {5}]`` would not be acceptable since ``{3}`` and ``{4}``
         can be joined together into a single subset of same inputs.
-        However, if the inputs included a third iterable `[1, 2, 3]`, then
-        `[{1, 2}, {3}, {4}, {5}]` would be the correct output since `3` appears
-        in both inputs `[1, 2, 3, 4]` and `[1, 2, 3]`, but `4` only appears in
+        However, if the inputs included a third iterable ``[1, 2, 3]``, then
+        ``[{1, 2}, {3}, {4}, {5}]`` would be the correct output since ``3`` appears
+        in both inputs ``[1, 2, 3, 4]`` and ``[1, 2, 3]``, but ``4`` only appears in
         the first one.
         The unit tests for this function provides some additional examples.
     """
@@ -255,13 +256,13 @@ def map_subsets(
 ) -> tuple[dict[tuple[int], list[int]], list[list[int]]]:
     """Map the given list of subsets of indices to the indices of feature lists they
     are subsets of. Additionally, construct a reverse mapping, a list of length
-    `len(feature_indices)`, where each element is a list of length `len(subsets)`.
-    Reverse mapping can be thought of as a `len(feature_indices) x len(subsets)`
-    matrix, where element (i, j) is 1 if `subsets[j]` is contained in
-    `feature_indices[i]` and 0 otherwise.
+    ``len(feature_indices)``, where each element is a list of length ``len(subsets)``.
+    Reverse mapping can be thought of as a ``len(feature_indices) x len(subsets)``
+    matrix, where element (i, j) is 1 if ``subsets[j]`` is contained in
+    ``feature_indices[i]`` and 0 otherwise.
 
     Args:
-        subsets: A list of sets of indices. Obtained using `find_subsets`.
+        subsets: A list of sets of indices. Obtained using ``find_subsets``.
         feature_indices: A list of lists of integers specifying the indices
             mapping the features from a given task to the full tensor of features.
 
@@ -271,16 +272,16 @@ def map_subsets(
             of feature lists it is subsets of.
         A list where each element of the list (with index i) contains a binary
             list (indexed by j) representing whether the corresponding subset
-            (`subsets[j]`) is active for (i.e., a subset of) the corresponding
-            feature list (`feature_indices[i]`).
+            (``subsets[j]``) is active for (i.e., a subset of) the corresponding
+            feature list (``feature_indices[i]``).
 
     Examples:
         >>> feature_indices = [[1, 2, 3, 4], [1, 2, 5]]
         >>> subsets = find_subsets(feature_indices)
-        >>> # `subsets` is `[{1, 2}, {3, 4}, {5}]`.
+        >>> # ``subsets`` is ``[{1, 2}, {3, 4}, {5}]``.
         >>> map_subsets(subsets, feature_indices)
-        >>> # Should produce `{(1, 2): [0, 1], (3, 4): [0], (5): [1]}`
-        >>> # and `[[1, 1, 0], [1, 0, 1]]`.
+        >>> # Should produce ``{(1, 2): [0, 1], (3, 4): [0], (5): [1]}``
+        >>> # and ``[[1, 1, 0], [1, 0, 1]]``.
     """
     feature_index_map = {
         tuple(s): [

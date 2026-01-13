@@ -478,7 +478,7 @@ class TestMultiTaskGP(BotorchTestCase):
                     task_feature=task_feature,
                     prior_config={"use_LKJ_prior": True, "eta": "not_number"},
                 )
-            # Test that presence of `prior` and `prior_config` kwargs at the
+            # Test that presence of ``prior`` and ``prior_config`` kwargs at the
             # same time causes error.
             with self.assertRaisesRegex(ValueError, "Only one of"):
                 data_dict = model.construct_inputs(

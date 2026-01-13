@@ -68,7 +68,7 @@ class LatentKroneckerGP(GPyTorchModel, ExactGP, FantasizeMixin):
     with pathwise conditioning can be found in [lin2023sampling]_.
 
     NOTE: This model requires iterative methods for efficient posterior inference.
-    To enable iterative methods, the `use_iterative_methods` helper function can be
+    To enable iterative methods, the ``use_iterative_methods`` helper function can be
     used as a context manager.
 
     Example:
@@ -94,23 +94,24 @@ class LatentKroneckerGP(GPyTorchModel, ExactGP, FantasizeMixin):
     ) -> None:
         r"""
         Args:
-            train_X: A `batch_shape x n x d` tensor of training features.
-            train_T: A `batch_shape x t x 1` tensor of training time steps.
-            train_Y: A `batch_shape x n x t` tensor of training observations,
-                corresponding to the Cartesian product of `train_X` and `train_T`.
+            train_X: A ``batch_shape x n x d`` tensor of training features.
+            train_T: A ``batch_shape x t x 1`` tensor of training time steps.
+            train_Y: A ``batch_shape x n x t`` tensor of training observations,
+                corresponding to the Cartesian product of ``train_X`` and ``train_T``.
             likelihood: A likelihood. If omitted, use a standard
-                `GaussianLikelihood` with inferred homoskedastic noise level.
+                ``GaussianLikelihood`` with inferred homoskedastic noise level.
             mean_module_X: The mean function to be used for X.
-                If omitted, a `ZeroMean` will be used.
+                If omitted, a ``ZeroMean`` will be used.
             mean_module_T: The mean function to be used for T.
-                If omitted, a `ZeroMean` will be used.
+                If omitted, a ``ZeroMean`` will be used.
             covar_module_X: The module computing the covariance matrix of X.
-                If omitted, a `MaternKernel` will be used.
+                If omitted, a ``MaternKernel`` will be used.
             covar_module_T: The module computing the covariance matrix of T.
-                If omitted, a `MaternKernel` wrapped in a `ScaleKernel` will be used.
+                If omitted, a ``MaternKernel`` wrapped in a ``ScaleKernel``
+                will be used.
             input_transform: An input transform that is applied to X.
             outcome_transform: An outcome transform that is applied to Y.
-                Note that `.train()` will be called on the outcome transform during
+                Note that ``.train()`` will be called on the outcome transform during
                 instantiation of the model.
             input_transform: An input transform that is applied in the model's
                 forward pass.
@@ -223,9 +224,9 @@ class LatentKroneckerGP(GPyTorchModel, ExactGP, FantasizeMixin):
         Computes the joint distribution at the given input locations.
 
         Args:
-            X: A tensor of `X`-locations at which to compute the joint distribution.
-            T: A tensor of `T`-locations at which to compute the joint distribution.
-                If None, defaults to using `self.train_T`.
+            X: A tensor of ``X``-locations at which to compute the joint distribution.
+            T: A tensor of ``T``-locations at which to compute the joint distribution.
+                If None, defaults to using ``self.train_T``.
 
         Returns:
             MultivariateNormal: The joint distribution at the specified input locations.
@@ -261,21 +262,21 @@ class LatentKroneckerGP(GPyTorchModel, ExactGP, FantasizeMixin):
         r"""Computes the posterior over model outputs at the provided points.
 
         Args:
-            X: A `(batch_shape) x q x d`-dim Tensor, where `d` is the dimension
-                of the feature space and `q` is the number of points considered
+            X: A ``(batch_shape) x q x d``-dim Tensor, where ``d`` is the dimension
+                of the feature space and ``q`` is the number of points considered
                 jointly.
-            T: A `(batch_shape) x t x 1`-dim Tensor of `T`-locations at which to
-                compute the posterior. If None, defaults to using `self.train_T`.
+            T: A ``(batch_shape) x t x 1``-dim Tensor of ``T``-locations at which to
+                compute the posterior. If None, defaults to using ``self.train_T``.
             observation_noise: If True, add the observation noise from the
                 likelihood to the posterior. If a Tensor, use it directly as the
-                observation noise (must be of shape `(batch_shape) x q`). It is
+                observation noise (must be of shape ``(batch_shape) x q``). It is
                 assumed to be in the outcome-transformed space if an outcome
                 transform is used.
             posterior_transform: An optional PosteriorTransform.
 
         Returns:
-            A `GPyTorchPosterior` object, representing a batch of `b` joint
-            distributions over `q` points. Includes observation noise if
+            A ``GPyTorchPosterior`` object, representing a batch of ``b`` joint
+            distributions over ``q`` points. Includes observation noise if
             specified.
         """
         if posterior_transform is not None:
@@ -305,21 +306,21 @@ class LatentKroneckerGP(GPyTorchModel, ExactGP, FantasizeMixin):
         base_samples: Tensor,
         observation_noise: bool | Tensor = False,
     ) -> Tensor:
-        r"""Sample from the posterior distribution at the provided points `X`
-        using Matheron's rule, requiring `n + 2 n_train` base samples.
+        r"""Sample from the posterior distribution at the provided points ``X``
+        using Matheron's rule, requiring ``n + 2 n_train`` base samples.
 
         Args:
-            X: A `(batch_shape) x q x d`-dim Tensor, where `d` is the dimension
-                of the feature space and `q` is the number of points considered
+            X: A ``(batch_shape) x q x d``-dim Tensor, where ``d`` is the dimension
+                of the feature space and ``q`` is the number of points considered
                 jointly
-            T: A `(batch_shape) x t x 1`-dim Tensor of `T`-locations at which to
+            T: A ``(batch_shape) x t x 1``-dim Tensor of ``T``-locations at which to
                 evaluate the posterior samples.
-            base_samples: A Tensor of `N(0, I)` base samples of shape
-                `sample_shape x base_sample_shape`, typically obtained from
-                a `Sampler`. This is used for deterministic optimization.
+            base_samples: A Tensor of ``N(0, I)`` base samples of shape
+                ``sample_shape x base_sample_shape``, typically obtained from
+                a ``Sampler``. This is used for deterministic optimization.
         Returns:
             Samples from the posterior, a tensor of shape
-            `self._extended_shape(sample_shape=sample_shape)`.
+            ``self._extended_shape(sample_shape=sample_shape)``.
         """
         # toggle eval mode to switch the behavior of input / outcome transforms
         # this also implicitly applies the input transform to the train_inputs
@@ -445,11 +446,11 @@ class LatentKroneckerGP(GPyTorchModel, ExactGP, FantasizeMixin):
             training_data: A SupervisedDataset containing training inputs and outputs.
 
         Returns:
-            A dictionary with keys `train_X`, `train_T`, and `train_Y`, where:
-                - `train_X`: The unique feature values (excluding the T dimension).
-                - `train_T`: The unique feature values of the T dimension.
-                - `train_Y`: The outputs aligned with the Cartesian product of
-                    `train_X` and `train_T`, with missing values filled as NaN.
+            A dictionary with keys ``train_X``, ``train_T``, and ``train_Y``, where:
+                - ``train_X``: The unique feature values (excluding the T dimension).
+                - ``train_T``: The unique feature values of the T dimension.
+                - ``train_Y``: The outputs aligned with the Cartesian product of
+                    ``train_X`` and ``train_T``, with missing values filled as NaN.
         """
         model_inputs = super().construct_inputs(training_data=training_data)
 
