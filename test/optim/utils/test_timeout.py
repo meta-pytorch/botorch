@@ -63,7 +63,7 @@ class TestMinimizeWithTimeout(BotorchTestCase):
             self.assertTrue(res.success)
             self.assertTrue("foo" in check_set)
 
-        # set up callback for method `trust-constr` w/ different signature
+        # set up callback for method ``trust-constr`` w/ different signature
         check_set.clear()
         self.assertFalse("foo" in check_set)
 

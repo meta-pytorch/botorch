@@ -132,7 +132,7 @@ class TestHomotopy(BotorchTestCase):
             f=lambda x: 5 - (x - p).sum(dim=-1, keepdims=True) ** 2
         )
         acqf = PosteriorMean(model=model)
-        # test raise warning on using `fixed_features` argument
+        # test raise warning on using ``fixed_features`` argument
         message = (
             "The `fixed_features` argument is deprecated, "
             "use `fixed_features_list` instead."
@@ -282,7 +282,7 @@ class TestHomotopy(BotorchTestCase):
             post_processing_func=lambda x: x.round(),
             return_full_tree=True,
         )
-        # First time we expect to call `prune_candidates` with 4 candidates
+        # First time we expect to call ``prune_candidates`` with 4 candidates
         self.assertEqual(
             prune_candidates_mock.call_args_list[0][1]["candidates"].shape,
             torch.Size([4, 1]),

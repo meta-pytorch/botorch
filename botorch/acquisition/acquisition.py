@@ -44,7 +44,7 @@ class AcquisitionFunction(Module, ABC):
         r"""Informs the acquisition function about pending design points.
 
         Args:
-            X_pending: `n x d` Tensor with `n` `d`-dim design points that have
+            X_pending: ``n x d`` Tensor with ``n`` ``d``-dim design points that have
                 been submitted for evaluation but have not yet been evaluated.
         """
         if X_pending is not None:
@@ -64,12 +64,12 @@ class AcquisitionFunction(Module, ABC):
         r"""Evaluate the acquisition function on the candidate set X.
 
         Args:
-            X: A `(b) x q x d`-dim Tensor of `(b)` t-batches with `q` `d`-dim
+            X: A ``(b) x q x d``-dim Tensor of ``(b)`` t-batches with ``q`` ``d``-dim
                 design points each.
 
         Returns:
-            A `(b)`-dim Tensor of acquisition function values at the given
-            design points `X`.
+            A ``(b)``-dim Tensor of acquisition function values at the given
+            design points ``X``.
         """
         pass  # pragma: no cover
 
@@ -97,11 +97,11 @@ class OneShotAcquisitionFunction(AcquisitionFunction, ABC):
         r"""Extract the candidates from a full "one-shot" parameterization.
 
         Args:
-            X_full: A `b x q_aug x d`-dim Tensor with `b` t-batches of `q_aug`
+            X_full: A ``b x q_aug x d``-dim Tensor with ``b`` t-batches of ``q_aug``
                 design points each.
 
         Returns:
-            A `b x q x d`-dim Tensor with `b` t-batches of `q` design points each.
+            A ``b x q x d``-dim Tensor with ``b`` t-batches of ``q`` design points each.
         """
         pass  # pragma: no cover
 
@@ -110,7 +110,7 @@ class MCSamplerMixin(ABC):
     r"""A mix-in for adding sampler functionality into an acquisition function class.
 
     Attributes:
-        _default_sample_shape: The `sample_shape` for the default sampler.
+        _default_sample_shape: The ``sample_shape`` for the default sampler.
     """
 
     _default_sample_shape = torch.Size([512])
@@ -120,8 +120,8 @@ class MCSamplerMixin(ABC):
 
         Args:
             sampler: The sampler used to draw base samples for MC-based acquisition
-                functions. If `None`, a sampler is generated on the fly within
-                the `get_posterior_samples` method using `get_sampler`.
+                functions. If ``None``, a sampler is generated on the fly within
+                the ``get_posterior_samples`` method using ``get_sampler``.
         """
         self.sampler = sampler
 

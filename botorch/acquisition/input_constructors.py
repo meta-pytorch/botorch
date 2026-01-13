@@ -193,7 +193,7 @@ def get_acqf_input_constructor(
             to retrieve the input constructor.
 
     Returns:
-        The input constructor associated with `acqf_cls`.
+        The input constructor associated with ``acqf_cls``.
 
     """
     if acqf_cls not in ACQF_INPUT_CONSTRUCTOR_REGISTRY:
@@ -210,13 +210,13 @@ def allow_only_specific_variable_kwargs(f: Callable[..., T]) -> Callable[..., T]
     Decorator for allowing a function to accept keyword arguments that are not
     explicitly listed in the function signature, but only specific ones.
 
-    This decorator is applied in `acqf_input_constructor` so that all constructors
-    obtained with `acqf_input_constructor` allow keyword
-    arguments such as `training_data` and `objective`, even if they do not appear
-    in the signature of `f`. Any other keyword arguments will raise an error.
+    This decorator is applied in ``acqf_input_constructor`` so that all constructors
+    obtained with ``acqf_input_constructor`` allow keyword
+    arguments such as ``training_data`` and ``objective``, even if they do not appear
+    in the signature of ``f``. Any other keyword arguments will raise an error.
     """
     allowed = {
-        # `training_data` and/or `X_baseline` are needed to compute baselines
+        # ``training_data`` and/or ``X_baseline`` are needed to compute baselines
         # for some EI-type acquisition functions.
         "training_data",
         "X_baseline",
@@ -317,12 +317,12 @@ def construct_inputs_best_f(
     best_f: float | Tensor | None = None,
     maximize: bool = True,
 ) -> dict[str, Any]:
-    r"""Construct kwargs for the acquisition functions requiring `best_f`.
+    r"""Construct kwargs for the acquisition functions requiring ``best_f``.
 
     Args:
         model: The model to be used in the acquisition function.
         training_data: Dataset(s) used to train the model.
-            Used to determine default value for `best_f`.
+            Used to determine default value for ``best_f``.
         best_f: Threshold above (or below) which improvement is defined.
         posterior_transform: The posterior transform to be used in the
             acquisition function.
@@ -353,9 +353,9 @@ def construct_inputs_pof(
 
     Args:
         model: The model to be used in the acquisition function.
-        constraints_tuple: A tuple of `(A, b)`. For `k` outcome constraints
-            and `m` outputs at `f(x)``, `A` is `k x m` and `b` is `k x 1` such
-            that `A f(x) <= b`.
+        constraints_tuple: A tuple of ``(A, b)``. For ``k`` outcome constraints
+            and ``m`` outputs at `f(x)``, ``A`` is ``k x m`` and ``b`` is ``k x 1`` such
+            that ``A f(x) <= b``.
 
 
     Returns:
@@ -384,12 +384,12 @@ def construct_inputs_logcei(
     Args:
         model: The model to be used in the acquisition function.
         training_data: Dataset(s) used to train the model.
-            Used to determine default value for `best_f`.
+            Used to determine default value for ``best_f``.
         objective_index: The index of the objective.
-        constraints_tuple: A tuple of `(A, b)`. For `k` outcome constraints
-            and `m` outputs at `f(x)``, `A` is `k x m` and `b` is `k x 1` such
-            that `A f(x) <= b`.
-        best_f: Either a scalar or a `b`-dim Tensor (batch mode) representing
+        constraints_tuple: A tuple of ``(A, b)``. For ``k`` outcome constraints
+            and ``m`` outputs at `f(x)``, ``A`` is ``k x m`` and ``b`` is ``k x 1`` such
+            that ``A f(x) <= b``.
+        best_f: Either a scalar or a ``b``-dim Tensor (batch mode) representing
                 the best feasible function value observed so far (assumed noiseless).
         maximize: If True, consider the problem a maximization problem.
 
@@ -425,13 +425,13 @@ def construct_inputs_ucb(
     beta: float | Tensor = 0.2,
     maximize: bool = True,
 ) -> dict[str, Any]:
-    r"""Construct kwargs for `UpperConfidenceBound`.
+    r"""Construct kwargs for ``UpperConfidenceBound``.
 
     Args:
         model: The model to be used in the acquisition function.
         posterior_transform: The posterior transform to be used in the
             acquisition function.
-        beta: Either a scalar or a one-dim tensor with `b` elements (batch mode)
+        beta: Either a scalar or a one-dim tensor with ``b`` elements (batch mode)
             representing the trade-off parameter between mean and covariance
         maximize: If True, consider the problem a maximization problem.
 
@@ -453,7 +453,7 @@ def construct_inputs_noisy_ei(
     num_fantasies: int = 20,
     maximize: bool = True,
 ) -> dict[str, Any]:
-    r"""Construct kwargs for `NoisyExpectedImprovement`.
+    r"""Construct kwargs for ``NoisyExpectedImprovement``.
 
     Args:
         model: The model to be used in the acquisition function.
@@ -493,19 +493,19 @@ def construct_inputs_qSimpleRegret(
         objective: The objective to be used in the acquisition function.
         posterior_transform: The posterior transform to be used in the
             acquisition function.
-        X_pending: A `batch_shape, m x d`-dim Tensor of `m` design points
+        X_pending: A ``batch_shape, m x d``-dim Tensor of ``m`` design points
             that have points that have been submitted for function evaluation
             but have not yet been evaluated.
         sampler: The sampler used to draw base samples. If omitted, uses
             the acquisition functions's default sampler.
         constraints: A list of constraint callables which map a Tensor of posterior
-            samples of dimension `sample_shape x batch-shape x q x m`-dim to a
-            `sample_shape x batch-shape x q`-dim Tensor. The associated constraints
+            samples of dimension ``sample_shape x batch-shape x q x m``-dim to a
+            ``sample_shape x batch-shape x q``-dim Tensor. The associated constraints
             are considered satisfied if the output is less than zero.
-        X_baseline: A `batch_shape x r x d`-dim Tensor of `r` design points
+        X_baseline: A ``batch_shape x r x d``-dim Tensor of ``r`` design points
             that have already been observed. These points are considered as
             the potential best design point. If omitted, checks that all
-            training_data have the same input features and take the first `X`.
+            training_data have the same input features and take the first ``X``.
 
     Returns:
         A dict mapping kwarg names of the constructor to values.
@@ -541,7 +541,7 @@ def construct_inputs_qEI(
     constraints: list[Callable[[Tensor], Tensor]] | None = None,
     eta: Tensor | float = 1e-3,
 ) -> dict[str, Any]:
-    r"""Construct kwargs for the `qExpectedImprovement` constructor.
+    r"""Construct kwargs for the ``qExpectedImprovement`` constructor.
 
     Args:
         model: The model to be used in the acquisition function.
@@ -549,19 +549,19 @@ def construct_inputs_qEI(
         objective: The objective to be used in the acquisition function.
         posterior_transform: The posterior transform to be used in the
             acquisition function.
-        X_pending: A `m x d`-dim Tensor of `m` design points that have been
+        X_pending: A ``m x d``-dim Tensor of ``m`` design points that have been
             submitted for function evaluation but have not yet been evaluated.
             Concatenated into X upon forward call.
         sampler: The sampler used to draw base samples. If omitted, uses
             the acquisition functions's default sampler.
         best_f: Threshold above (or below) which improvement is defined.
         constraints: A list of constraint callables which map a Tensor of posterior
-            samples of dimension `sample_shape x batch-shape x q x m`-dim to a
-            `sample_shape x batch-shape x q`-dim Tensor. The associated constraints
+            samples of dimension ``sample_shape x batch-shape x q x m``-dim to a
+            ``sample_shape x batch-shape x q``-dim Tensor. The associated constraints
             are considered satisfied if the output is less than zero.
         eta: Temperature parameter(s) governing the smoothness of the sigmoid
             approximation to the constraint indicators. For more details, on this
-            parameter, see the docs of `compute_smoothed_feasibility_indicator`.
+            parameter, see the docs of ``compute_smoothed_feasibility_indicator``.
 
     Returns:
         A dict mapping kwarg names of the constructor to values.
@@ -602,7 +602,7 @@ def construct_inputs_qLogEI(
     tau_max: float = TAU_MAX,
     tau_relu: float = TAU_RELU,
 ) -> dict[str, Any]:
-    r"""Construct kwargs for the `qExpectedImprovement` constructor.
+    r"""Construct kwargs for the ``qExpectedImprovement`` constructor.
 
     Args:
         model: The model to be used in the acquisition function.
@@ -610,19 +610,19 @@ def construct_inputs_qLogEI(
         objective: The objective to be used in the acquisition function.
         posterior_transform: The posterior transform to be used in the
             acquisition function.
-        X_pending: A `m x d`-dim Tensor of `m` design points that have been
+        X_pending: A ``m x d``-dim Tensor of ``m`` design points that have been
             submitted for function evaluation but have not yet been evaluated.
             Concatenated into X upon forward call.
         sampler: The sampler used to draw base samples. If omitted, uses
             the acquisition functions's default sampler.
         best_f: Threshold above (or below) which improvement is defined.
         constraints: A list of constraint callables which map a Tensor of posterior
-            samples of dimension `sample_shape x batch-shape x q x m`-dim to a
-            `sample_shape x batch-shape x q`-dim Tensor. The associated constraints
+            samples of dimension ``sample_shape x batch-shape x q x m``-dim to a
+            ``sample_shape x batch-shape x q``-dim Tensor. The associated constraints
             are considered satisfied if the output is less than zero.
         eta: Temperature parameter(s) governing the smoothness of the sigmoid
             approximation to the constraint indicators. For more details, on this
-            parameter, see the docs of `compute_smoothed_feasibility_indicator`.
+            parameter, see the docs of ``compute_smoothed_feasibility_indicator``.
         fat: Toggles the logarithmic / linear asymptotic behavior of the smooth
             approximation to the ReLU.
         tau_max: Temperature parameter controlling the sharpness of the smooth
@@ -662,24 +662,24 @@ def construct_inputs_LogPF(
     fat: bool = True,
     tau_max: float = TAU_MAX,
 ) -> dict[str, Any]:
-    r"""Construct kwargs for the `qExpectedImprovement` constructor.
+    r"""Construct kwargs for the ``qExpectedImprovement`` constructor.
 
     Args:
         model: The model to be used in the acquisition function.
         constraints: A list of constraint callables which map a Tensor of posterior
-            samples of dimension `sample_shape x batch-shape x q x m`-dim to a
-            `sample_shape x batch-shape x q`-dim Tensor. The associated constraints
+            samples of dimension ``sample_shape x batch-shape x q x m``-dim to a
+            ``sample_shape x batch-shape x q``-dim Tensor. The associated constraints
             are considered satisfied if the output is less than zero.
         posterior_transform: The posterior transform to be used in the
             acquisition function.
-        X_pending: A `m x d`-dim Tensor of `m` design points that have been
+        X_pending: A ``m x d``-dim Tensor of ``m`` design points that have been
             submitted for function evaluation but have not yet been evaluated.
             Concatenated into X upon forward call.
         sampler: The sampler used to draw base samples. If omitted, uses
             the acquisition functions's default sampler.
         eta: Temperature parameter(s) governing the smoothness of the sigmoid
             approximation to the constraint indicators. For more details, on this
-            parameter, see the docs of `compute_smoothed_feasibility_indicator`.
+            parameter, see the docs of ``compute_smoothed_feasibility_indicator``.
         fat: Toggles the logarithmic / linear asymptotic behavior of the smooth
             approximation to the ReLU.
         tau_max: Temperature parameter controlling the sharpness of the smooth
@@ -714,7 +714,7 @@ def construct_inputs_qNEI(
     constraints: list[Callable[[Tensor], Tensor]] | None = None,
     eta: Tensor | float = 1e-3,
 ) -> dict[str, Any]:
-    r"""Construct kwargs for the `qNoisyExpectedImprovement` constructor.
+    r"""Construct kwargs for the ``qNoisyExpectedImprovement`` constructor.
 
     Args:
         model: The model to be used in the acquisition function.
@@ -722,29 +722,29 @@ def construct_inputs_qNEI(
         objective: The objective to be used in the acquisition function.
         posterior_transform: The posterior transform to be used in the
             acquisition function.
-        X_pending: A `m x d`-dim Tensor of `m` design points that have been
+        X_pending: A ``m x d``-dim Tensor of ``m`` design points that have been
             submitted for function evaluation but have not yet been evaluated.
             Concatenated into X upon forward call.
         sampler: The sampler used to draw base samples. If omitted, uses
             the acquisition functions's default sampler.
-        X_baseline: A `batch_shape x r x d`-dim Tensor of `r` design points
+        X_baseline: A ``batch_shape x r x d``-dim Tensor of ``r`` design points
             that have already been observed. These points are considered as
             the potential best design point. If omitted, checks that all
-            training_data have the same input features and take the first `X`.
-        prune_baseline: If True, remove points in `X_baseline` that are
+            training_data have the same input features and take the first ``X``.
+        prune_baseline: If True, remove points in ``X_baseline`` that are
             highly unlikely to be the best point. This can significantly
             improve performance and is generally recommended.
         cache_root: A boolean indicating whether to cache the root
-            decomposition over `X_baseline` and use low-rank updates.
+            decomposition over ``X_baseline`` and use low-rank updates.
             If None, will be set to True if the model supports it and False
             otherwise.
         constraints: A list of constraint callables which map a Tensor of posterior
-            samples of dimension `sample_shape x batch-shape x q x m`-dim to a
-            `sample_shape x batch-shape x q`-dim Tensor. The associated constraints
+            samples of dimension ``sample_shape x batch-shape x q x m``-dim to a
+            ``sample_shape x batch-shape x q``-dim Tensor. The associated constraints
             are considered satisfied if the output is less than zero.
         eta: Temperature parameter(s) governing the smoothness of the sigmoid
             approximation to the constraint indicators. For more details, on this
-            parameter, see the docs of `compute_smoothed_feasibility_indicator`.
+            parameter, see the docs of ``compute_smoothed_feasibility_indicator``.
 
     Returns:
         A dict mapping kwarg names of the constructor to values.
@@ -788,7 +788,7 @@ def construct_inputs_qLogNEI(
     tau_relu: float = TAU_RELU,
     incremental: bool = True,
 ):
-    r"""Construct kwargs for the `qLogNoisyExpectedImprovement` constructor.
+    r"""Construct kwargs for the ``qLogNoisyExpectedImprovement`` constructor.
 
     Args:
         model: The model to be used in the acquisition function.
@@ -796,25 +796,25 @@ def construct_inputs_qLogNEI(
         objective: The objective to be used in the acquisition function.
         posterior_transform: The posterior transform to be used in the
             acquisition function.
-        X_pending: A `m x d`-dim Tensor of `m` design points that have been
+        X_pending: A ``m x d``-dim Tensor of ``m`` design points that have been
             submitted for function evaluation but have not yet been evaluated.
             Concatenated into X upon forward call.
         sampler: The sampler used to draw base samples. If omitted, uses
             the acquisition functions's default sampler.
-        X_baseline: A `batch_shape x r x d`-dim Tensor of `r` design points
+        X_baseline: A ``batch_shape x r x d``-dim Tensor of ``r`` design points
             that have already been observed. These points are considered as
             the potential best design point. If omitted, checks that all
-            training_data have the same input features and take the first `X`.
-        prune_baseline: If True, remove points in `X_baseline` that are
+            training_data have the same input features and take the first ``X``.
+        prune_baseline: If True, remove points in ``X_baseline`` that are
             highly unlikely to be the best point. This can significantly
             improve performance and is generally recommended.
         constraints: A list of constraint callables which map a Tensor of posterior
-            samples of dimension `sample_shape x batch-shape x q x m`-dim to a
-            `sample_shape x batch-shape x q`-dim Tensor. The associated constraints
+            samples of dimension ``sample_shape x batch-shape x q x m``-dim to a
+            ``sample_shape x batch-shape x q``-dim Tensor. The associated constraints
             are considered satisfied if the output is less than zero.
         eta: Temperature parameter(s) governing the smoothness of the sigmoid
             approximation to the constraint indicators. For more details, on this
-            parameter, see the docs of `compute_smoothed_feasibility_indicator`.
+            parameter, see the docs of ``compute_smoothed_feasibility_indicator``.
         fat: Toggles the use of the fat-tailed non-linearities to smoothly approximate
             the constraints indicator function.
         tau_max: Temperature parameter controlling the sharpness of the smooth
@@ -862,7 +862,7 @@ def construct_inputs_qPI(
     constraints: list[Callable[[Tensor], Tensor]] | None = None,
     eta: Tensor | float = 1e-3,
 ) -> dict[str, Any]:
-    r"""Construct kwargs for the `qProbabilityOfImprovement` constructor.
+    r"""Construct kwargs for the ``qProbabilityOfImprovement`` constructor.
 
     Args:
         model: The model to be used in the acquisition function.
@@ -870,7 +870,7 @@ def construct_inputs_qPI(
         objective: The objective to be used in the acquisition function.
         posterior_transform: The posterior transform to be used in the
             acquisition function.
-        X_pending: A `m x d`-dim Tensor of `m` design points that have been
+        X_pending: A ``m x d``-dim Tensor of ``m`` design points that have been
             submitted for function evaluation but have not yet been evaluated.
             Concatenated into X upon forward call.
         sampler: The sampler used to draw base samples. If omitted, uses
@@ -880,15 +880,15 @@ def construct_inputs_qPI(
             approximations of the function, but result in gradients
             estimates with higher variance.
         best_f: The best objective value observed so far (assumed noiseless). Can
-            be a `batch_shape`-shaped tensor, which in case of a batched model
+            be a ``batch_shape``-shaped tensor, which in case of a batched model
             specifies potentially different values for each element of the batch.
         constraints: A list of constraint callables which map a Tensor of posterior
-            samples of dimension `sample_shape x batch-shape x q x m`-dim to a
-            `sample_shape x batch-shape x q`-dim Tensor. The associated constraints
+            samples of dimension ``sample_shape x batch-shape x q x m``-dim to a
+            ``sample_shape x batch-shape x q``-dim Tensor. The associated constraints
             are considered satisfied if the output is less than zero.
         eta: Temperature parameter(s) governing the smoothness of the sigmoid
             approximation to the constraint indicators. For more details, on this
-            parameter, see the docs of `compute_smoothed_feasibility_indicator`.
+            parameter, see the docs of ``compute_smoothed_feasibility_indicator``.
 
     Returns:
         A dict mapping kwarg names of the constructor to values.
@@ -926,24 +926,24 @@ def construct_inputs_qUCB(
     constraints: list[Callable[[Tensor], Tensor]] | None = None,
     beta: float = 0.2,
 ) -> dict[str, Any]:
-    r"""Construct kwargs for the `qUpperConfidenceBound` constructor.
+    r"""Construct kwargs for the ``qUpperConfidenceBound`` constructor.
 
     Args:
         model: The model to be used in the acquisition function.
         objective: The objective to be used in the acquisition function.
         posterior_transform: The posterior transform to be used in the
             acquisition function.
-        X_pending: A `m x d`-dim Tensor of `m` design points that have been
+        X_pending: A ``m x d``-dim Tensor of ``m`` design points that have been
             submitted for function evaluation but have not yet been evaluated.
             Concatenated into X upon forward call.
         sampler: The sampler used to draw base samples. If omitted, uses
             the acquisition functions's default sampler.
-        X_baseline: A `batch_shape x r x d`-dim Tensor of `r` design points
+        X_baseline: A ``batch_shape x r x d``-dim Tensor of ``r`` design points
             that have already been observed. These points are used to
             compute with infeasible cost when there are constraints.
         constraints: A list of constraint callables which map a Tensor of posterior
-            samples of dimension `sample_shape x batch-shape x q x m`-dim to a
-            `sample_shape x batch-shape x q`-dim Tensor. The associated constraints
+            samples of dimension ``sample_shape x batch-shape x q x m``-dim to a
+            ``sample_shape x batch-shape x q``-dim Tensor. The associated constraints
             are considered satisfied if the output is less than zero.
         beta: Controls tradeoff between mean and standard deviation in UCB.
 
@@ -991,7 +991,7 @@ def construct_inputs_EHVI(
     alpha: float | None = None,
     Y_pmean: Tensor | None = None,
 ) -> dict[str, Any]:
-    r"""Construct kwargs for `ExpectedHypervolumeImprovement` constructor."""
+    r"""Construct kwargs for ``ExpectedHypervolumeImprovement`` constructor."""
     num_objectives = objective_thresholds.shape[0]
     if constraints is not None:
         raise NotImplementedError("EHVI does not yet support outcome constraints.")
@@ -1053,8 +1053,8 @@ def construct_inputs_qEHVI(
     qmc: bool = True,
 ) -> dict[str, Any]:
     r"""
-    Construct kwargs for `qExpectedHypervolumeImprovement` and
-    `qLogExpectedHypervolumeImprovement`.
+    Construct kwargs for ``qExpectedHypervolumeImprovement`` and
+    ``qLogExpectedHypervolumeImprovement``.
     """
     X = _get_dataset_field(
         training_data,
@@ -1068,7 +1068,7 @@ def construct_inputs_qEHVI(
         Y_pmean = model.posterior(X).mean
     # For HV-based acquisition functions we pass the constraint transform directly
     if constraints is not None:
-        # Adjust `Y_pmean` to contain feasible points only.
+        # Adjust ``Y_pmean`` to contain feasible points only.
         feas = torch.stack([c(Y_pmean) <= 0 for c in constraints], dim=-1).all(dim=-1)
         Y_pmean = Y_pmean[feas]
 
@@ -1138,7 +1138,7 @@ def construct_inputs_qNEHVI(
     incremental_nehvi: bool = True,
     cache_root: bool | None = None,
 ) -> dict[str, Any]:
-    r"""Construct kwargs for `qNoisyExpectedHypervolumeImprovement`'s constructor."""
+    r"""Construct kwargs for ``qNoisyExpectedHypervolumeImprovement``'s constructor."""
     if X_baseline is None:
         X_baseline = _get_dataset_field(
             training_data,
@@ -1213,7 +1213,7 @@ def construct_inputs_qLogNEHVI(
     tau_max: float = TAU_MAX,
 ) -> dict[str, Any]:
     """
-    Construct kwargs for `qLogNoisyExpectedHypervolumeImprovement`'s constructor."
+    Construct kwargs for ``qLogNoisyExpectedHypervolumeImprovement``'s constructor."
     """
     return {
         **construct_inputs_qNEHVI(
@@ -1258,35 +1258,35 @@ def construct_inputs_qLogNParEGO(
     tau_max: float = TAU_MAX,
     tau_relu: float = TAU_RELU,
 ):
-    r"""Construct kwargs for the `qLogNoisyExpectedImprovement` constructor.
+    r"""Construct kwargs for the ``qLogNoisyExpectedImprovement`` constructor.
 
     Args:
         model: The model to be used in the acquisition function.
         training_data: Dataset(s) used to train the model.
-        scalarization_weights: A `m`-dim Tensor of weights to be used in the
+        scalarization_weights: A ``m``-dim Tensor of weights to be used in the
             Chebyshev scalarization. If omitted, samples from the unit simplex.
         objective: The MultiOutputMCAcquisitionObjective under which the samples are
             evaluated before applying Chebyshev scalarization.
-            Defaults to `IdentityMultiOutputObjective()`.
-        X_pending: A `m x d`-dim Tensor of `m` design points that have been
+            Defaults to ``IdentityMultiOutputObjective()``.
+        X_pending: A ``m x d``-dim Tensor of ``m`` design points that have been
             submitted for function evaluation but have not yet been evaluated.
             Concatenated into X upon forward call.
         sampler: The sampler used to draw base samples. If omitted, uses
             the acquisition functions's default sampler.
-        X_baseline: A `batch_shape x r x d`-dim Tensor of `r` design points
+        X_baseline: A ``batch_shape x r x d``-dim Tensor of ``r`` design points
             that have already been observed. These points are considered as
             the potential best design point. If omitted, checks that all
-            training_data have the same input features and take the first `X`.
-        prune_baseline: If True, remove points in `X_baseline` that are
+            training_data have the same input features and take the first ``X``.
+        prune_baseline: If True, remove points in ``X_baseline`` that are
             highly unlikely to be the best point. This can significantly
             improve performance and is generally recommended.
         constraints: A list of constraint callables which map a Tensor of posterior
-            samples of dimension `sample_shape x batch-shape x q x m`-dim to a
-            `sample_shape x batch-shape x q`-dim Tensor. The associated constraints
+            samples of dimension ``sample_shape x batch-shape x q x m``-dim to a
+            ``sample_shape x batch-shape x q``-dim Tensor. The associated constraints
             are considered satisfied if the output is less than zero.
         eta: Temperature parameter(s) governing the smoothness of the sigmoid
             approximation to the constraint indicators. For more details, on this
-            parameter, see the docs of `compute_smoothed_feasibility_indicator`.
+            parameter, see the docs of ``compute_smoothed_feasibility_indicator``.
         fat: Toggles the use of the fat-tailed non-linearities to smoothly approximate
             the constraints indicator function.
         tau_max: Temperature parameter controlling the sharpness of the smooth
@@ -1329,7 +1329,7 @@ def construct_inputs_qMES(
     maximize: bool = True,
     # TODO: qMES also supports other inputs, such as num_fantasies
 ) -> dict[str, Any]:
-    r"""Construct kwargs for `qMaxValueEntropy` constructor."""
+    r"""Construct kwargs for ``qMaxValueEntropy`` constructor."""
 
     X = _get_dataset_field(training_data, "X", first_only=True)
     _kw = {"device": X.device, "dtype": X.dtype}
@@ -1390,7 +1390,7 @@ def construct_inputs_qKG(
     with_current_value: bool = False,
     **optimize_objective_kwargs: TOptimizeObjectiveKwargs,
 ) -> dict[str, Any]:
-    r"""Construct kwargs for `qKnowledgeGradient` constructor."""
+    r"""Construct kwargs for ``qKnowledgeGradient`` constructor."""
 
     inputs_qkg = {
         "model": model,
@@ -1428,7 +1428,7 @@ def construct_inputs_qHVKG(
     num_pareto: int = 10,
     **optimize_objective_kwargs: TOptimizeObjectiveKwargs,
 ) -> dict[str, Any]:
-    r"""Construct kwargs for `qKnowledgeGradient` constructor."""
+    r"""Construct kwargs for ``qKnowledgeGradient`` constructor."""
 
     X = _get_dataset_field(training_data, "X", first_only=True)
     _bounds = torch.as_tensor(bounds, dtype=X.dtype, device=X.device)
@@ -1476,7 +1476,7 @@ def construct_inputs_qMFKG(
     num_fantasies: int = 64,
     **optimize_objective_kwargs: TOptimizeObjectiveKwargs,
 ) -> dict[str, Any]:
-    r"""Construct kwargs for `qMultiFidelityKnowledgeGradient` constructor."""
+    r"""Construct kwargs for ``qMultiFidelityKnowledgeGradient`` constructor."""
 
     X = _get_dataset_field(training_data, "X", first_only=True)
     _bounds = torch.as_tensor(bounds, dtype=X.dtype, device=X.device)
@@ -1525,7 +1525,7 @@ def construct_inputs_qMFHVKG(
     **optimize_objective_kwargs: TOptimizeObjectiveKwargs,
 ) -> dict[str, Any]:
     r"""
-    Construct kwargs for `qMultiFidelityHypervolumeKnowledgeGradient` constructor.
+    Construct kwargs for ``qMultiFidelityHypervolumeKnowledgeGradient`` constructor.
     """
 
     inputs_mf = construct_inputs_mf_base(
@@ -1591,7 +1591,7 @@ def construct_inputs_qMFMES(
     candidate_size: int = 1000,
     maximize: bool = True,
 ) -> dict[str, Any]:
-    r"""Construct kwargs for `qMultiFidelityMaxValueEntropy` constructor."""
+    r"""Construct kwargs for ``qMultiFidelityMaxValueEntropy`` constructor."""
     inputs_mf = construct_inputs_mf_base(
         target_fidelities=target_fidelities,
         fidelity_weights=fidelity_weights,
@@ -1619,10 +1619,10 @@ def construct_inputs_analytic_eubo(
     objective: LearnedObjective | None = None,
     posterior_transform: PosteriorTransform | None = None,
 ) -> dict[str, Any]:
-    r"""Construct kwargs for the `AnalyticExpectedUtilityOfBestOption` constructor.
+    r"""Construct kwargs for the ``AnalyticExpectedUtilityOfBestOption`` constructor.
 
-    `model` is the primary model defined over the parameter space. It can be the
-    outcome model in BOPE or the preference model in PBO. `pref_model` is the model
+    ``model`` is the primary model defined over the parameter space. It can be the
+    outcome model in BOPE or the preference model in PBO. ``pref_model`` is the model
     defined over the outcome/metric space, which is typically the preference model
     in BOPE.
 
@@ -1654,7 +1654,7 @@ def construct_inputs_analytic_eubo(
             "previous_winner": previous_winner,
         }
     else:
-        # construct a deterministic fixed single sample model from `model`
+        # construct a deterministic fixed single sample model from ``model``
         # i.e., performing EUBO-zeta by default as described
         # in https://arxiv.org/abs/2203.11382
         # using pref_model.dim instead of model.num_outputs here as MTGP's
@@ -1679,10 +1679,10 @@ def construct_inputs_qeubo(
     posterior_transform: PosteriorTransform | None = None,
     X_pending: Tensor | None = None,
 ) -> dict[str, Any]:
-    r"""Construct kwargs for the `qExpectedUtilityOfBestOption` (qEUBO) constructor.
+    r"""Construct kwargs for the ``qExpectedUtilityOfBestOption`` (qEUBO) constructor.
 
-    `model` is the primary model defined over the parameter space. It can be the
-    outcomde model in BOPE or the preference model in PBO. `pref_model` is the model
+    ``model`` is the primary model defined over the parameter space. It can be the
+    outcomde model in BOPE or the preference model in PBO. ``pref_model`` is the model
     defined over the outcome/metric space, which is typically the preference model
     in BOPE.
 
@@ -1711,7 +1711,7 @@ def construct_inputs_qeubo(
             "X_pending": X_pending,
         }
     else:
-        # construct a deterministic fixed single sample model from `model`
+        # construct a deterministic fixed single sample model from ``model``
         # i.e., performing EUBO-zeta by default as described
         # in https://arxiv.org/abs/2203.11382
         # using pref_model.dim instead of model.num_outputs here as MTGP's
@@ -1765,19 +1765,19 @@ def get_best_f_mc(
     Computes the maximum value of the objective over the training data.
 
     Args:
-        training_data: Has fields Y, which is evaluated by `objective`, and X,
-            which is used as `X_baseline`. `Y` is of shape
-            `batch_shape x q x m`.
+        training_data: Has fields Y, which is evaluated by ``objective``, and X,
+            which is used as ``X_baseline``. ``Y`` is of shape
+            ``batch_shape x q x m``.
         objective: The objective under which to evaluate the training data. If
-            omitted, uses `IdentityMCObjective`.
-        posterior_transform: An optional PosteriorTransform to apply to `Y`
+            omitted, uses ``IdentityMCObjective``.
+        posterior_transform: An optional PosteriorTransform to apply to ``Y``
             before computing the objective.
         constraints: For assessing feasibility.
-        model: Used by `compute_best_feasible_objective` when there are no
+        model: Used by ``compute_best_feasible_objective`` when there are no
             feasible observations.
 
     Returns:
-        A Tensor of shape `batch_shape`.
+        A Tensor of shape ``batch_shape``.
     """
     if isinstance(training_data, dict) and not _field_is_shared(
         training_data, fieldname="X"
@@ -1812,10 +1812,10 @@ def get_best_f_mc(
                 "acquisition functions)."
             )
         objective = IdentityMCObjective()
-    # `Y` is of shape `(batch_shape) x q x m`; `MCAcquisitionObjective`s expect
-    # inputs `sample_shape x (batch_shape) x q x m`.
-    # For most objectives, `obj` will have shape `1 x (batch_shape) x q`, but
-    # with a `LearnedObjective` it can be `num_samples x (batch_shape) x q`.
+    # ``Y`` is of shape ``(batch_shape) x q x m``; ``MCAcquisitionObjective``s expect
+    # inputs ``sample_shape x (batch_shape) x q x m``.
+    # For most objectives, ``obj`` will have shape ``1 x (batch_shape) x q``, but
+    # with a ``LearnedObjective`` it can be ``num_samples x (batch_shape) x q``.
     obj = objective(Y.unsqueeze(0), X=X_baseline)
     obj = obj.mean(dim=0)  # taking mean over monte carlo samples
     return compute_best_feasible_objective(
@@ -1850,22 +1850,22 @@ def optimize_objective(
 
     Args:
         model: The model to be used in the objective.
-        bounds: A `2 x d` tensor of lower and upper bounds for each column of `X`.
+        bounds: A ``2 x d`` tensor of lower and upper bounds for each column of ``X``.
         q: The cardinality of input sets on which the objective is to be evaluated.
         objective: The objective to optimize.
         posterior_transform: The posterior transform to be used in the
             acquisition function.
-        linear_constraints: A tuple of (A, b). Given `k` linear constraints on a
-            `d`-dimensional space, `A` is `k x d` and `b` is `k x 1` such that
-            `A x <= b`. (Not used by single task models).
-        fixed_features: A dictionary of feature assignments `{feature_index: value}` to
-            hold fixed during generation.
+        linear_constraints: A tuple of (A, b). Given ``k`` linear constraints on a
+            ``d``-dimensional space, ``A`` is ``k x d`` and ``b`` is ``k x 1`` such that
+            ``A x <= b``. (Not used by single task models).
+        fixed_features: A dictionary of feature assignments
+            ``{feature_index: value}`` to hold fixed during generation.
         qmc: Toggle for enabling (qmc=1) or disabling (qmc=0) use of Quasi Monte Carlo.
         mc_samples: Integer number of samples used to estimate Monte Carlo objectives.
         seed_inner: Integer seed used to initialize the sampler passed to MCObjective.
         optimizer_options: Table used to lookup keyword arguments for the optimizer.
         post_processing_func: A function that post-processes an optimization
-            result appropriately (i.e. according to `round-trip` transformations).
+            result appropriately (i.e. according to ``round-trip`` transformations).
         batch_initial_conditions: A Tensor of initial values for the optimizer.
         sequential: If False, uses joint optimization, otherwise uses sequential
             optimization.
@@ -2027,8 +2027,8 @@ def _construct_constraint_dict_from_tuple(
     constraints_tuple: tuple, acqf_class: type[AcquisitionFunction]
 ) -> dict[str, Any]:
     """
-    Construct a dictionary of the form `{i: [lower, upper]}`,
-    where `i` is the output index, and `lower` and `upper` are
+    Construct a dictionary of the form ``{i: [lower, upper]}``,
+    where ``i`` is the output index, and ``lower`` and ``upper`` are
     lower and upper bounds on that output (resp. interpreted
     as -Inf / Inf if None).
     """

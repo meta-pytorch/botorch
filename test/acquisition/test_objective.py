@@ -224,7 +224,7 @@ class TestExpectationPosteriorTransform(BotorchTestCase):
         # q = 2, n_w = 2, m = 2, leading to 8 values for loc and 8x8 cov.
         org_loc = torch.tensor([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0], **tkwargs)
         # We have 2 4x4 matrices with 0s as filler. Each block is for one outcome.
-        # Each 2x2 sub block corresponds to `n_w`.
+        # Each 2x2 sub block corresponds to ``n_w``.
         org_covar = torch.tensor(
             [
                 [1.0, 0.8, 0.3, 0.2, 0.0, 0.0, 0.0, 0.0],
@@ -250,7 +250,7 @@ class TestExpectationPosteriorTransform(BotorchTestCase):
         org_mvn = MultitaskMultivariateNormal(
             # The return of mvn.loc and the required input are different.
             # We constructed it according to the output of mvn.loc,
-            # reshaping here to have the required `b x n x t` shape.
+            # reshaping here to have the required ``b x n x t`` shape.
             org_loc.view(3, 2, 4).transpose(-2, -1),
             to_linear_operator(org_covar),
             interleaved=True,  # To test the error.

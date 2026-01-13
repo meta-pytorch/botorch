@@ -76,7 +76,8 @@ def scipy_minimize(
             NdarrayOptimizationClosure instance.
         parameters: A dictionary of tensors to be optimized.
         bounds: A dictionary mapping parameter names to lower and upper bounds.
-        callback: A callable taking `parameters` and an OptimizationResult as arguments.
+        callback: A callable taking ``parameters`` and an OptimizationResult as
+            arguments.
         x0: An optional initialization vector passed to scipy.optimize.minimize.
         method: Solver type, passed along to scipy.optimize.minimize.
         options: Dictionary of solver options, passed along to scipy.optimize.minimize.
@@ -159,18 +160,21 @@ def torch_minimize(
 
     Args:
         closure: Callable that returns a tensor and an iterable of gradient tensors.
-            Responsible for setting relevant parameters' `grad` attributes.
+            Responsible for setting relevant parameters' ``grad`` attributes.
         parameters: A dictionary of tensors to be optimized.
-        bounds: An optional dictionary of bounds for elements of `parameters`.
-        callback: A callable taking `parameters` and an OptimizationResult as arguments.
-        optimizer: A `torch.optim.Optimizer` instance or a factory that takes
-            a list of parameters and returns an `Optimizer` instance.
-        scheduler: A `torch.optim.lr_scheduler._LRScheduler` instance or a factory
-            that takes a `Optimizer` instance and returns a `_LRSchedule` instance.
+        bounds: An optional dictionary of bounds for elements of ``parameters``.
+        callback: A callable taking ``parameters`` and an OptimizationResult as
+            arguments.
+        optimizer: A ``torch.optim.Optimizer`` instance or a factory that takes
+            a list of parameters and returns an ``Optimizer`` instance.
+        scheduler: A ``torch.optim.lr_scheduler._LRScheduler`` instance or a factory
+            that takes a ``Optimizer`` instance and returns a ``_LRSchedule`` instance.
         step_limit: Integer specifying a maximum number of optimization steps.
-            One of `step_limit`, `stopping_criterion`, or `timeout_sec` must be passed.
+            One of ``step_limit``, ``stopping_criterion``, or ``timeout_sec`` must
+            be passed.
         timeout_sec: Timeout in seconds before terminating the optimization loop.
-            One of `step_limit`, `stopping_criterion`, or `timeout_sec` must be passed.
+            One of ``step_limit``, ``stopping_criterion``, or ``timeout_sec`` must
+            be passed.
         stopping_criterion: A StoppingCriterion for the optimization loop.
 
     Returns:

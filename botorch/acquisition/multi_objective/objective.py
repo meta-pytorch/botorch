@@ -31,19 +31,19 @@ class MCMultiOutputObjective(MCAcquisitionObjective):
         r"""Evaluate the multi-output objective on the samples.
 
         Args:
-            samples: A `sample_shape x batch_shape x q x m`-dim Tensors of samples from
-                a model posterior.
-            X: A `batch_shape x q x d`-dim Tensors of inputs.
+            samples: A ``sample_shape x batch_shape x q x m``-dim Tensors of
+                samples from a model posterior.
+            X: A ``batch_shape x q x d``-dim Tensors of inputs.
 
         Returns:
-            A `sample_shape x batch_shape x q x m'`-dim Tensor of objective values with
-            `m'` the output dimension. This assumes maximization in each output
-            dimension).
+            A ``sample_shape x batch_shape x q x m'``-dim Tensor of objective
+            values with ``m'`` the output dimension. This assumes maximization
+            in each output dimension).
 
         This method is usually not called directly, but via the objectives.
 
         Example:
-            >>> # `__call__` method:
+            >>> # ``__call__`` method:
             >>> samples = sampler(posterior)
             >>> outcomes = multi_obj(samples)
         """
@@ -76,9 +76,9 @@ class IdentityMCMultiOutputObjective(MCMultiOutputObjective):
         r"""Initialize Objective.
 
         Args:
-            outcomes: A list of the `m'` indices that the weights should be
+            outcomes: A list of the ``m'`` indices that the weights should be
                 applied to.
-            num_outcomes: The total number of outcomes `m`
+            num_outcomes: The total number of outcomes ``m``
         """
         super().__init__()
         if outcomes is not None:
@@ -119,10 +119,10 @@ class WeightedMCMultiOutputObjective(IdentityMCMultiOutputObjective):
         r"""Initialize Objective.
 
         Args:
-            weights: `m'`-dim tensor of outcome weights.
-            outcomes: A list of the `m'` indices that the weights should be
+            weights: ``m'``-dim tensor of outcome weights.
+            outcomes: A list of the ``m'`` indices that the weights should be
                 applied to.
-            num_outcomes: the total number of outcomes `m`
+            num_outcomes: the total number of outcomes ``m``
         """
         super().__init__(outcomes=outcomes, num_outcomes=num_outcomes)
         if weights.ndim != 1:
@@ -154,12 +154,13 @@ class FeasibilityWeightedMCMultiOutputObjective(MCMultiOutputObjective):
         This applies feasibility weighting before calculating the objective value.
         Defaults to identity if no constraints or objective is present.
 
-        NOTE: By passing in a single-output `MCAcquisitionObjective` as the `objective`,
-        this can be used as a single-output `MCAcquisitionObjective` as well.
+        NOTE: By passing in a single-output ``MCAcquisitionObjective`` as the
+        ``objective``, this can be used as a single-output
+        ``MCAcquisitionObjective`` as well.
 
         Args:
             model: A fitted Model.
-            X_baseline: An `n x d`-dim tensor of points already observed.
+            X_baseline: An ``n x d``-dim tensor of points already observed.
             constraint_idcs: The outcome indices of the constraints. Constraints are
                 handled by weighting the samples according to a sigmoid approximation
                 of feasibility. A positive constraint outcome implies feasibility.

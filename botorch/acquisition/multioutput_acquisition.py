@@ -33,19 +33,19 @@ class MultiOutputAcquisitionFunction(AcquisitionFunction, ABC):
         r"""Evaluate the acquisition function on the candidate set X.
 
         Args:
-            X: A `(b) x q x d`-dim Tensor of `(b)` t-batches with `q` `d`-dim
+            X: A ``(b) x q x d``-dim Tensor of ``(b)`` t-batches with ``q`` ``d``-dim
                 design points each.
 
         Returns:
-            A `(b) x m`-dim Tensor of acquisition function values at the given
-            design points `X`.
+            A ``(b) x m``-dim Tensor of acquisition function values at the given
+            design points ``X``.
         """
 
     def set_X_pending(self, X_pending: Tensor | None) -> None:
         r"""Set the pending points.
 
         Args:
-            X_pending: A `batch_shape x m x d`-dim Tensor of `m` design points that
+            X_pending: A ``batch_shape x m x d``-dim Tensor of ``m`` design points that
                 have points that have been submitted for function evaluation
                 (but may not yet have been evaluated).
         """
@@ -62,8 +62,8 @@ class MultiOutputPosteriorMean(MultiOutputAcquisitionFunction):
         be achieved by setting the corresponding weights to negative.
 
         Args:
-            acqfs: A list of `m` acquisition functions.
-            weights: A one-dimensional tensor with `m` elements representing the
+            acqfs: A list of ``m`` acquisition functions.
+            weights: A one-dimensional tensor with ``m`` elements representing the
                 weights on the outputs.
         """
         super().__init__(model=model)
@@ -85,12 +85,12 @@ class MultiOutputPosteriorMean(MultiOutputAcquisitionFunction):
         r"""Evaluate the acquisition function on the candidate set X.
 
         Args:
-            X: A `(b) x q x d`-dim Tensor of `(b)` t-batches with `q` `d`-dim
+            X: A ``(b) x q x d``-dim Tensor of ``(b)`` t-batches with ``q`` ``d``-dim
                 design points each.
 
         Returns:
-            A `(b) x m`-dim Tensor of acquisition function values at the given
-            design points `X`.
+            A ``(b) x m``-dim Tensor of acquisition function values at the given
+            design points ``X``.
         """
         mean = self.model.posterior(X).mean.squeeze(-2)
         if self.weights is not None:
@@ -105,7 +105,7 @@ class MultiOutputAcquisitionFunctionWrapper(MultiOutputAcquisitionFunction):
         r"""Constructor for the AcquisitionFunction base class.
 
         Args:
-            acqfs: A list of `m` acquisition functions.
+            acqfs: A list of ``m`` acquisition functions.
         """
         # We could set the model to be an ensemble model consistent of the
         # model used in each acqf
@@ -116,11 +116,11 @@ class MultiOutputAcquisitionFunctionWrapper(MultiOutputAcquisitionFunction):
         r"""Evaluate the acquisition function on the candidate set X.
 
         Args:
-            X: A `(b) x q x d`-dim Tensor of `(b)` t-batches with `q` `d`-dim
+            X: A ``(b) x q x d``-dim Tensor of ``(b)`` t-batches with ``q`` ``d``-dim
                 design points each.
 
         Returns:
-            A `(b) x m`-dim Tensor of acquisition function values at the given
-            design points `X`.
+            A ``(b) x m``-dim Tensor of acquisition function values at the given
+            design points ``X``.
         """
         return torch.stack([acqf(X) for acqf in self.acqfs], dim=-1)

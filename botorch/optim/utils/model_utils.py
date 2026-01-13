@@ -79,7 +79,7 @@ def get_parameters_and_bounds(
         requires_grad: Optional Boolean used to filter parameters based on whether
             or not their require_grad attribute matches the user provided value.
         default_bounds: Default lower and upper bounds for constrained parameters
-            with `None` typed bounds.
+            with ``None`` typed bounds.
 
     Returns:
         A dictionary of parameters and a dictionary of parameter bounds.
@@ -113,7 +113,7 @@ def get_name_filter(
 ) -> Callable[[str | tuple[str, Any, ...]], bool]:
     r"""Returns a binary function that filters strings (or iterables whose first
     element is a string) according to a bank of excluded patterns. Typically, used
-    in conjunction with generators such as `module.named_parameters()`.
+    in conjunction with generators such as ``module.named_parameters()``.
 
     Args:
         patterns: A collection of regular expressions or strings that
@@ -163,7 +163,7 @@ def sample_all_priors(model: GPyTorchModel, max_retries: int = 100) -> None:
         for i in range(max_retries):
             try:
                 # Set sample shape, so that the prior samples have the same shape
-                # as `closure(module)` without having to be repeated.
+                # as ``closure(module)`` without having to be repeated.
                 prior_shape = prior._extended_shape()
                 if prior_shape.numel() == 1:
                     # For a univariate prior we can sample the size of the closure.

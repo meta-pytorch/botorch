@@ -42,15 +42,15 @@ from torch import Tensor
 def get_default_partitioning_alpha(num_objectives: int) -> float:
     r"""Determines an approximation level based on the number of objectives.
 
-    If `alpha` is 0, FastNondominatedPartitioning should be used. Otherwise,
+    If ``alpha`` is 0, FastNondominatedPartitioning should be used. Otherwise,
     an approximate NondominatedPartitioning should be used with approximation
-    level `alpha`.
+    level ``alpha``.
 
     Args:
         num_objectives: the number of objectives.
 
     Returns:
-        The approximation level `alpha`.
+        The approximation level ``alpha``.
     """
     if num_objectives <= 4:
         return 0.0
@@ -75,39 +75,39 @@ def prune_inferior_points_multi_objective(
 ) -> Tensor:
     r"""Prune points from an input tensor that are unlikely to be pareto optimal.
 
-    Given a model, an objective, and an input tensor `X`, this function returns
-    the subset of points in `X` that have some probability of being pareto
+    Given a model, an objective, and an input tensor ``X``, this function returns
+    the subset of points in ``X`` that have some probability of being pareto
     optimal, better than the reference point, and feasible. This function uses
-    sampling to estimate the probabilities, the higher the number of points `n`
-    in `X` the higher the number of samples `num_samples` should be to obtain
+    sampling to estimate the probabilities, the higher the number of points ``n``
+    in ``X`` the higher the number of samples ``num_samples`` should be to obtain
     accurate estimates.
 
     Args:
         model: A fitted model. Batched models are currently not supported.
-        X: An input tensor of shape `n x d`. Batched inputs are currently not
+        X: An input tensor of shape ``n x d``. Batched inputs are currently not
             supported.
         ref_point: The reference point.
         objective: The objective under which to evaluate the posterior.
         constraints: A list of callables, each mapping a Tensor of dimension
-            `sample_shape x batch-shape x q x m` to a Tensor of dimension
-            `sample_shape x batch-shape x q`, where negative values imply
+            ``sample_shape x batch-shape x q x m`` to a Tensor of dimension
+            ``sample_shape x batch-shape x q``, where negative values imply
             feasibility.
         num_samples: The number of samples used to compute empirical
             probabilities of being the best point.
         max_frac: The maximum fraction of points to retain. Must satisfy
-            `0 < max_frac <= 1`. Ensures that the number of elements in the
-            returned tensor does not exceed `ceil(max_frac * n)`.
+            ``0 < max_frac <= 1``. Ensures that the number of elements in the
+            returned tensor does not exceed ``ceil(max_frac * n)``.
         marginalize_dim: A batch dimension that should be marginalized.
             For example, this is useful when using a batched fully Bayesian
             model.
 
     Returns:
-        A `n' x d` with subset of points in `X`, where
+        A ``n' x d`` with subset of points in ``X``, where
 
             n' = min(N_nz, ceil(max_frac * n))
 
-        with `N_nz` the number of points in `X` that have non-zero (empirical,
-        under `num_samples` samples) probability of being pareto optimal.
+        with ``N_nz`` the number of points in ``X`` that have non-zero (empirical,
+        under ``num_samples`` samples) probability of being pareto optimal.
     """
     max_points, obj_vals, infeas = _prune_inferior_shared_processing(
         model=model,
@@ -142,33 +142,33 @@ def compute_sample_box_decomposition(
 ) -> Tensor:
     r"""Computes the box decomposition associated with some sampled optimal
     objectives. This also supports the single-objective and constrained optimization
-    setting. An objective `y` is feasible if `y <= 0`.
+    setting. An objective ``y`` is feasible if ``y <= 0``.
 
     To take advantage of batch computations, we pad the hypercell bounds with a
-    `2 x (M + K)`-dim Tensor of zeros `[0, 0]`.
+    ``2 x (M + K)``-dim Tensor of zeros ``[0, 0]``.
 
     Args:
-        pareto_fronts: A `num_pareto_samples x num_pareto_points x M` dim Tensor
+        pareto_fronts: A ``num_pareto_samples x num_pareto_points x M`` dim Tensor
             containing the sampled optimal set of objectives.
-        partitioning: A `BoxDecomposition` module that is used to obtain the
+        partitioning: A ``BoxDecomposition`` module that is used to obtain the
             hyper-rectangle bounds for integration. In the unconstrained case, this
             gives the partition of the dominated space. In the constrained case, this
             gives the partition of the feasible dominated space union the infeasible
             space.
         maximize: If true, the box-decomposition is computed assuming maximization.
-        num_constraints: The number of constraints `K`.
+        num_constraints: The number of constraints ``K``.
 
     Returns:
-        A `num_pareto_samples x 2 x J x (M + K)`-dim Tensor containing the bounds for
-        the hyper-rectangles. The number `J` is the smallest number of boxes needed
+        A ``num_pareto_samples x 2 x J x (M + K)``-dim Tensor containing the bounds for
+        the hyper-rectangles. The number ``J`` is the smallest number of boxes needed
         to partition all the Pareto samples.
     """
     tkwargs: dict[str, Any] = {
         "dtype": pareto_fronts.dtype,
         "device": pareto_fronts.device,
     }
-    # We will later compute `norm.log_prob(NEG_INF)`, this is `-inf` if `NEG_INF` is
-    # too small.
+    # We will later compute ``norm.log_prob(NEG_INF)``, this is ``-inf``
+    # if ``NEG_INF`` is too small.
     NEG_INF = -1e10
 
     if pareto_fronts.ndim != 3:
@@ -205,7 +205,7 @@ def compute_sample_box_decomposition(
                 partitioning(ref_point=ref_point, Y=weight * pareto_fronts[i, :, :])
             ]
 
-        # `num_pareto_samples x 2 x J x (M + K)`
+        # ``num_pareto_samples x 2 x J x (M + K)``
         hypercell_bounds = (
             BoxDecompositionList(*bd_list).get_hypercell_bounds().movedim(0, 1)
         )
@@ -216,14 +216,14 @@ def compute_sample_box_decomposition(
 
     # Add an extra box for the inequality constraint.
     if K > 0:
-        # `num_pareto_samples x 2 x (J - 1) x K`
+        # ``num_pareto_samples x 2 x (J - 1) x K``
         feasible_boxes = torch.zeros(hypercell_bounds.shape[:-1] + (K,), **tkwargs)
 
         feasible_boxes[..., 0, :, :] = NEG_INF
-        # `num_pareto_samples x 2 x (J - 1) x (M + K)`
+        # ``num_pareto_samples x 2 x (J - 1) x (M + K)``
         hypercell_bounds = torch.cat([hypercell_bounds, feasible_boxes], dim=-1)
 
-        # `num_pareto_samples x 2 x 1 x (M + K)`
+        # ``num_pareto_samples x 2 x 1 x (M + K)``
         infeasible_box = torch.zeros(
             hypercell_bounds.shape[:-2] + (1, M + K), **tkwargs
         )
@@ -231,10 +231,10 @@ def compute_sample_box_decomposition(
         infeasible_box[..., 0, :, 0:M] = NEG_INF
         infeasible_box[..., 1, :, 0:M] = -NEG_INF
 
-        # `num_pareto_samples x 2 x J x (M + K)`
+        # ``num_pareto_samples x 2 x J x (M + K)``
         hypercell_bounds = torch.cat([hypercell_bounds, infeasible_box], dim=-2)
 
-    # `num_pareto_samples x 2 x J x (M + K)`
+    # ``num_pareto_samples x 2 x J x (M + K)``
     return hypercell_bounds
 
 
@@ -250,7 +250,7 @@ def random_search_optimizer(
 
     Args:
         model: The model.
-        bounds: A `2 x d`-dim Tensor containing the input bounds.
+        bounds: A ``2 x d``-dim Tensor containing the input bounds.
         num_points: The number of optimal points to be outputted.
         maximize: If true, we consider a maximization problem.
         pop_size: The number of function evaluations per try.
@@ -259,8 +259,8 @@ def random_search_optimizer(
     Returns:
         A two-element tuple containing
 
-        - A `num_points x d`-dim Tensor containing the collection of optimal inputs.
-        - A `num_points x M`-dim Tensor containing the collection of optimal
+        - A ``num_points x d``-dim Tensor containing the collection of optimal inputs.
+        - A ``num_points x M``-dim Tensor containing the collection of optimal
             objectives.
     """
     tkwargs: dict[str, Any] = {"dtype": bounds.dtype, "device": bounds.device}
@@ -316,7 +316,7 @@ def sample_optimal_points(
     Args:
         model: The model. This does not support models which include fantasy
             observations.
-        bounds: A `2 x d`-dim Tensor containing the input bounds.
+        bounds: A ``2 x d``-dim Tensor containing the input bounds.
         num_samples: The number of GP samples.
         num_points: The number of optimal points to be outputted.
         optimizer: A callable that solves the deterministic optimization problem.
@@ -326,9 +326,9 @@ def sample_optimal_points(
     Returns:
         A two-element tuple containing
 
-        - A `num_samples x num_points x d`-dim Tensor containing the collection of
+        - A ``num_samples x num_points x d``-dim Tensor containing the collection of
             optimal inputs.
-        - A `num_samples x num_points x M`-dim Tensor containing the collection of
+        - A ``num_samples x num_points x M``-dim Tensor containing the collection of
             optimal objectives.
     """
     tkwargs: dict[str, Any] = {"dtype": bounds.dtype, "device": bounds.device}

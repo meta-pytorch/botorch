@@ -58,10 +58,10 @@ FULLY_BAYESIAN_ERROR_MSG = (
 
 class qJointEntropySearch(AcquisitionFunction, MCSamplerMixin):
     r"""The acquisition function for the Joint Entropy Search, where the batches
-    `q > 1` are supported through the lower bound formulation.
+    ``q > 1`` are supported through the lower bound formulation.
 
     This acquisition function computes the mutual information between the observation
-    at a candidate point `X` and the optimal input-output pair.
+    at a candidate point ``X`` and the optimal input-output pair.
 
     See [Tu2022joint]_ for a discussion on the estimation procedure.
     """
@@ -81,13 +81,13 @@ class qJointEntropySearch(AcquisitionFunction, MCSamplerMixin):
 
         Args:
             model: A fitted single-outcome model.
-            optimal_inputs: A `num_samples x d`-dim tensor containing the sampled
-                optimal inputs of dimension `d`. We assume for simplicity that each
+            optimal_inputs: A ``num_samples x d``-dim tensor containing the sampled
+                optimal inputs of dimension ``d``. We assume for simplicity that each
                 sample only contains one optimal set of inputs.
-            optimal_outputs: A `num_samples x 1`-dim Tensor containing the optimal
-                set of objectives of dimension `1`.
+            optimal_outputs: A ``num_samples x 1``-dim Tensor containing the optimal
+                set of objectives of dimension ``1``.
             condition_noiseless: Whether to condition on noiseless optimal observations
-                `f*` [Hvarfner2022joint]_ or noisy optimal observations `y*`
+                ``f*`` [Hvarfner2022joint]_ or noisy optimal observations ``y*``
                 [Tu2022joint]_. These are sampled identically, so this only controls
                 the fashion in which the GP is reshaped as a result of conditioning
                 on the optimum.
@@ -96,7 +96,7 @@ class qJointEntropySearch(AcquisitionFunction, MCSamplerMixin):
                 estimate is computed: Lower bound" ("LB") or "Monte Carlo" ("MC").
                 Lower Bound is recommended due to the relatively high variance
                 of the MC estimator.
-            X_pending: A `m x d`-dim Tensor of `m` design points that have been
+            X_pending: A ``m x d``-dim Tensor of ``m`` design points that have been
                 submitted for function evaluation, but have not yet been evaluated.
             num_samples: The number of Monte Carlo samples used for the Monte Carlo
                 estimate.
@@ -169,15 +169,15 @@ class qJointEntropySearch(AcquisitionFunction, MCSamplerMixin):
     @t_batch_mode_transform()
     @average_over_ensemble_models
     def forward(self, X: Tensor) -> Tensor:
-        r"""Evaluates qJointEntropySearch at the design points `X`.
+        r"""Evaluates qJointEntropySearch at the design points ``X``.
 
         Args:
-            X: A `batch_shape x q x d`-dim Tensor of `batch_shape` t-batches with `q`
-            `d`-dim design points each.
+            X: A ``batch_shape x q x d``-dim Tensor of ``batch_shape``
+                t-batches with ``q`` ``d``-dim design points each.
 
         Returns:
-            A `batch_shape`-dim Tensor of acquisition values at the given design
-            points `X`.
+            A ``batch_shape``-dim Tensor of acquisition values at the given design
+            points ``X``.
         """
         if self.estimation_type == "LB":
             res = self._compute_lower_bound_information_gain(X)
@@ -193,15 +193,15 @@ class qJointEntropySearch(AcquisitionFunction, MCSamplerMixin):
     def _compute_lower_bound_information_gain(
         self, X: Tensor, return_parts: bool = False
     ) -> Tensor:
-        r"""Evaluates the lower bound information gain at the design points `X`.
+        r"""Evaluates the lower bound information gain at the design points ``X``.
 
         Args:
-            X: A `batch_shape x q x d`-dim Tensor of `batch_shape` t-batches with `q`
-            `d`-dim design points each.
+            X: A ``batch_shape x q x d``-dim Tensor of ``batch_shape``
+                t-batches with ``q`` ``d``-dim design points each.
 
         Returns:
-            A `batch_shape`-dim Tensor of acquisition values at the given design
-            points `X`.
+            A ``batch_shape``-dim Tensor of acquisition values at the given design
+            points ``X``.
         """
         initial_posterior = self.initial_model.posterior(
             X, observation_noise=True, posterior_transform=self.posterior_transform
@@ -288,15 +288,15 @@ class qJointEntropySearch(AcquisitionFunction, MCSamplerMixin):
     def _compute_monte_carlo_information_gain(
         self, X: Tensor, return_parts: bool = False
     ) -> Tensor:
-        r"""Evaluates the lower bound information gain at the design points `X`.
+        r"""Evaluates the lower bound information gain at the design points ``X``.
 
         Args:
-            X: A `batch_shape x q x d`-dim Tensor of `batch_shape` t-batches with `q`
-            `d`-dim design points each.
+            X: A ``batch_shape x q x d``-dim Tensor of ``batch_shape``
+                t-batches with ``q`` ``d``-dim design points each.
 
         Returns:
-            A `batch_shape`-dim Tensor of acquisition values at the given design
-            points `X`.
+            A ``batch_shape``-dim Tensor of acquisition values at the given design
+            points ``X``.
         """
         initial_posterior = self.initial_model.posterior(
             X, observation_noise=True, posterior_transform=self.posterior_transform

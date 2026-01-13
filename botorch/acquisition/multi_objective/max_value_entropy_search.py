@@ -37,7 +37,7 @@ class qMultiObjectiveMaxValueEntropy(
     r"""The acquisition function for MESMO.
 
     This is no longer available. We recommend
-    `qLowerBoundMultiObjectiveMaxValueEntropySearch` as a replacement.
+    ``qLowerBoundMultiObjectiveMaxValueEntropySearch`` as a replacement.
     """
 
     def __init__(self, *args, **kwargs) -> None:
@@ -52,10 +52,10 @@ class qLowerBoundMultiObjectiveMaxValueEntropySearch(
     LowerBoundMultiObjectiveEntropySearch
 ):
     r"""The acquisition function for the multi-objective Max-value Entropy Search,
-    where the batches `q > 1` are supported through the lower bound formulation.
+    where the batches ``q > 1`` are supported through the lower bound formulation.
 
     This acquisition function computes the mutual information between the observation
-    at a candidate point `X` and the Pareto optimal outputs.
+    at a candidate point ``X`` and the Pareto optimal outputs.
 
     See [Tu2022]_ for a discussion on the estimation procedure.
 
@@ -80,13 +80,13 @@ class qLowerBoundMultiObjectiveMaxValueEntropySearch(
 
         Args:
             model: A fitted batch model with 'M' number of outputs.
-            hypercell_bounds:  A `num_pareto_samples x 2 x J x M`-dim Tensor
-                containing the hyper-rectangle bounds for integration, where `J` is
+            hypercell_bounds:  A ``num_pareto_samples x 2 x J x M``-dim Tensor
+                containing the hyper-rectangle bounds for integration, where ``J`` is
                 the number of hyper-rectangles. In the unconstrained case, this gives
                 the partition of the dominated space. In the constrained case, this
                 gives the partition of the feasible dominated space union the
                 infeasible space.
-            X_pending: A `m x d`-dim Tensor of `m` design points that have been
+            X_pending: A ``m x d``-dim Tensor of ``m`` design points that have been
                 submitted for function evaluation, but have not yet been evaluated.
             estimation_type: A string to determine which entropy estimate is
                 computed: "0", "LB", "LB2", or "MC".
@@ -109,29 +109,29 @@ class qLowerBoundMultiObjectiveMaxValueEntropySearch(
         r"""Compute the posterior statistics.
 
         Args:
-            X: A `batch_shape x q x d`-dim Tensor of inputs.
+            X: A ``batch_shape x q x d``-dim Tensor of inputs.
 
         Returns:
             A dictionary containing the posterior variables used to estimate the
             entropy.
 
-            - "initial_entropy": A `batch_shape`-dim Tensor containing the entropy of
-                the Gaussian random variable `p(Y| X, D_n)`.
-            - "posterior_mean": A `batch_shape x num_pareto_samples x q x 1 x M`-dim
-                Tensor containing the posterior mean at the input `X`.
+            - "initial_entropy": A ``batch_shape``-dim Tensor containing the entropy of
+                the Gaussian random variable ``p(Y| X, D_n)``.
+            - "posterior_mean": A ``batch_shape x num_pareto_samples x q x 1 x M``-dim
+                Tensor containing the posterior mean at the input ``X``.
             - "posterior_variance": A `batch_shape x num_pareto_samples x q x 1 x
-                M`-dim Tensor containing the posterior variance at the input `X`
+                M``-dim Tensor containing the posterior variance at the input ``X`
                 excluding the observation noise.
-            - "observation_noise": A `batch_shape x num_pareto_samples x q x 1 x M`
-                -dim Tensor containing the observation noise at the input `X`.
-            - "posterior_with_noise": The posterior distribution at `X` which
+            - "observation_noise": A ``batch_shape x num_pareto_samples x q x 1 x M``
+                -dim Tensor containing the observation noise at the input ``X``.
+            - "posterior_with_noise": The posterior distribution at ``X`` which
                 includes the observation noise. This is used to compute the marginal
-                log-probabilities with respect to `p(y| x, D_n)` for `x` in `X`.
+                log-probabilities with respect to ``p(y| x, D_n)`` for ``x`` in ``X``.
         """
         tkwargs = {"dtype": X.dtype, "device": X.device}
         CLAMP_LB = torch.finfo(tkwargs["dtype"]).eps
 
-        # Compute the initial entropy term depending on `X`.
+        # Compute the initial entropy term depending on ``X``.
         # TODO: Below we compute posterior_plus_noise twice:
         #  (1) Firstly, we compute p(Y| X, D_n) when computing the initial entropy
         #  (2) Secondly, we compute p(y| x, D_n) for x in X in order to compute
@@ -146,8 +146,8 @@ class qLowerBoundMultiObjectiveMaxValueEntropySearch(
             * self.model.num_outputs
             * (1 + torch.log(2 * pi * torch.ones(1, **tkwargs)))
         )
-        # The variance initially has shape `batch_shape x (q*M) x (q*M)`
-        # prior_entropy has shape `batch_shape x num_fantasies`
+        # The variance initially has shape ``batch_shape x (q*M) x (q*M)``
+        # prior_entropy has shape ``batch_shape x num_fantasies``
         initial_entropy = add_term + 0.5 * torch.logdet(
             posterior_plus_noise.mvn.covariance_matrix
         )
@@ -158,10 +158,10 @@ class qLowerBoundMultiObjectiveMaxValueEntropySearch(
             X.unsqueeze(-2), observation_noise=True
         )
 
-        # `batch_shape x q x 1 x M`
+        # ``batch_shape x q x 1 x M``
         mean = posterior_plus_noise.mean
         var_plus_noise = posterior_plus_noise.variance.clamp_min(CLAMP_LB)
-        # Expand shapes to `batch_shape x num_pareto_samples x q x 1 x M`
+        # Expand shapes to ``batch_shape x num_pareto_samples x q x 1 x M``
         new_shape = (
             mean.shape[:-3] + torch.Size([self.num_pareto_samples]) + mean.shape[-3:]
         )
@@ -202,10 +202,10 @@ class qLowerBoundMultiObjectiveMaxValueEntropySearch(
                 samples.
         """
 
-        # `num_mc_samples x batch_shape x q x 1 x M`
+        # ``num_mc_samples x batch_shape x q x 1 x M``
         samples = self.get_posterior_samples(posterior)
 
-        # `num_mc_samples x batch_shape x q`
+        # ``num_mc_samples x batch_shape x q``
         if self.model.num_outputs == 1:
             samples_log_prob = posterior.mvn.log_prob(samples.squeeze(-1))
         else:
@@ -220,7 +220,7 @@ class qLowerBoundMultiObjectiveMaxValueEntropySearch(
         )
         samples = samples.unsqueeze(-4).expand(new_shape)
 
-        # Expand shape to `num_mc_samples x batch_shape x num_pareto_samples x q`
+        # Expand shape to ``num_mc_samples x batch_shape x num_pareto_samples x q``
         new_shape = (
             samples_log_prob.shape[:-1]
             + torch.Size([self.num_pareto_samples])
@@ -235,14 +235,14 @@ class qLowerBoundMultiObjectiveMaxValueEntropySearch(
     @average_over_ensemble_models
     def forward(self, X: Tensor) -> Tensor:
         r"""Evaluates qLowerBoundMultiObjectiveMaxValueEntropySearch at the design
-        points `X`.
+        points ``X``.
 
         Args:
-            X: A `batch_shape x q x d`-dim Tensor of `batch_shape` t-batches with `q`
-            `d`-dim design points each.
+            X: A ``batch_shape x q x d``-dim Tensor of ``batch_shape`` t-batches with
+            ``q`` ``d``-dim design points each.
 
         Returns:
-            A `batch_shape`-dim Tensor of acquisition values at the given design
-            points `X`.
+            A ``batch_shape``-dim Tensor of acquisition values at the given design
+            points ``X``.
         """
         return self._compute_lower_bound_information_gain(X)

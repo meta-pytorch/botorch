@@ -71,35 +71,35 @@ class MOMF(qExpectedHypervolumeImprovement):
 
         Args:
             model: A fitted model. There are two default assumptions in the training
-                data. `train_X` should have fidelity parameter `s` as the last dimension
-                of the input and `train_Y` contains a trust objective as its last
-                dimension.
-            ref_point: A list or tensor with `m+1` elements representing the reference
+                data. ``train_X`` should have fidelity parameter ``s`` as the last
+                dimension of the input and ``train_Y`` contains a trust objective as
+                its last dimension.
+            ref_point: A list or tensor with ``m+1`` elements representing the reference
                 point (in the outcome space) w.r.t. to which compute the hypervolume.
-                The '+1' takes care of the trust objective appended to `train_Y`.
+                The '+1' takes care of the trust objective appended to ``train_Y``.
                 This is a reference point for the objective values (i.e. after
-                applying`objective` to the samples).
-            partitioning: A `NondominatedPartitioning` module that provides the non-
+                applying``objective`` to the samples).
+            partitioning: A ``NondominatedPartitioning`` module that provides the non-
                 dominated front and a partitioning of the non-dominated space in hyper-
                 rectangles. If constraints are present, this partitioning must only
                 include feasible points.
             sampler: The sampler used to draw base samples. If not given,
-                a sampler is generated using `get_sampler`.
+                a sampler is generated using ``get_sampler``.
             objective: The MCMultiOutputObjective under which the samples are evaluated.
-                Defaults to `IdentityMCMultiOutputObjective()`.
+                Defaults to ``IdentityMCMultiOutputObjective()``.
             constraints: A list of callables, each mapping a Tensor of dimension
-                `sample_shape x batch-shape x q x m` to a Tensor of dimension
-                `sample_shape x batch-shape x q`, where negative values imply
+                ``sample_shape x batch-shape x q x m`` to a Tensor of dimension
+                ``sample_shape x batch-shape x q``, where negative values imply
                 feasibility. The acquisition function will compute expected feasible
                 hypervolume.
-            X_pending: A `batch_shape x m x d`-dim Tensor of `m` design points that have
-                points that have been submitted for function evaluation but have not yet
-                been evaluated. Concatenated into `X` upon forward call. Copied and set
-                to have no gradient.
+            X_pending: A ``batch_shape x m x d``-dim Tensor of ``m`` design
+                points that have points that have been submitted for function
+                evaluation but have not yet been evaluated. Concatenated into ``X``
+                upon forward call. Copied and set to have no gradient.
             cost_call: A callable cost function mapping a Tensor of dimension
-                `batch_shape x q x d` to a cost Tensor of dimension
-                `batch_shape x q x m`. Defaults to an AffineCostModel with
-                `C(s) = 1 + s`.
+                ``batch_shape x q x d`` to a cost Tensor of dimension
+                ``batch_shape x q x m``. Defaults to an AffineCostModel with
+                ``C(s) = 1 + s``.
             eta: The temperature parameter for the sigmoid function used for the
                 differentiable approximation of the constraints. In case of a float the
                 same eta is used for every constraint in constraints. In case of a

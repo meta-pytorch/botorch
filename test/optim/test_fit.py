@@ -136,7 +136,7 @@ class TestFitGPyTorchMLLScipy(BotorchTestCase):
                 )
             )
 
-        # Test `closure_kwargs`
+        # Test ``closure_kwargs``
         with self.subTest("closure_kwargs"):
             mock_closure = MagicMock(side_effect=StopIteration("foo"))
             with self.assertRaisesRegex(StopIteration, "foo"):
@@ -227,7 +227,7 @@ class TestFitGPyTorchMLLTorch(BotorchTestCase):
                 and mll.likelihood.noise_covar.raw_noise <= 456
             )
 
-        # Test `closure_kwargs`
+        # Test ``closure_kwargs``
         with self.subTest("closure_kwargs"):
             mock_closure = MagicMock(side_effect=StopIteration("foo"))
             with self.assertRaisesRegex(StopIteration, "foo"):

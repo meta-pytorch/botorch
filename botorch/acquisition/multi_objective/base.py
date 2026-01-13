@@ -54,9 +54,10 @@ class MultiObjectiveAnalyticAcquisitionFunction(AcquisitionFunction):
 
     @abstractmethod
     def forward(self, X: Tensor) -> Tensor:
-        r"""Takes in a `batch_shape x 1 x d` X Tensor of t-batches with `1` `d`-dim
-        design point each, and returns a Tensor with shape `batch_shape'`, where
-        `batch_shape'` is the broadcasted batch shape of model and input `X`.
+        r"""Takes in a ``batch_shape x 1 x d`` X Tensor of t-batches with ``1``
+        ``d``-dim design point each, and returns a Tensor with shape
+        ``batch_shape'``, where ``batch_shape'`` is the broadcasted batch shape of
+        model and input ``X``.
         """
         pass  # pragma: no cover
 
@@ -69,10 +70,11 @@ class MultiObjectiveAnalyticAcquisitionFunction(AcquisitionFunction):
 class MultiObjectiveMCAcquisitionFunction(AcquisitionFunction, MCSamplerMixin, ABC):
     r"""Abstract base class for Multi-Objective batch acquisition functions.
 
-    NOTE: This does not inherit from `MCAcquisitionFunction` to avoid circular imports.
+    NOTE: This does not inherit from ``MCAcquisitionFunction`` to avoid circular
+    imports.
 
     Args:
-        _default_sample_shape: The `sample_shape` for the default sampler.
+        _default_sample_shape: The ``sample_shape`` for the default sampler.
     """
 
     _default_sample_shape = torch.Size([128])
@@ -86,20 +88,20 @@ class MultiObjectiveMCAcquisitionFunction(AcquisitionFunction, MCSamplerMixin, A
         eta: Tensor | float = 1e-3,
         X_pending: Tensor | None = None,
     ) -> None:
-        r"""Constructor for the `MultiObjectiveMCAcquisitionFunction` base class.
+        r"""Constructor for the ``MultiObjectiveMCAcquisitionFunction`` base class.
 
         Args:
             model: A fitted model.
             sampler: The sampler used to draw base samples. If not given,
-                a sampler is generated using `get_sampler`.
+                a sampler is generated using ``get_sampler``.
                 NOTE: For posteriors that do not support base samples,
                 a sampler compatible with intended use case must be provided.
-                See `ForkedRNGSampler` and `StochasticSampler` as examples.
+                See ``ForkedRNGSampler`` and ``StochasticSampler`` as examples.
             objective: The MCMultiOutputObjective under which the samples are
-                evaluated. Defaults to `IdentityMCMultiOutputObjective()`.
+                evaluated. Defaults to ``IdentityMCMultiOutputObjective()``.
             constraints: A list of callables, each mapping a Tensor of dimension
-                `sample_shape x batch-shape x q x m` to a Tensor of dimension
-                `sample_shape x batch-shape x q`, where negative values imply
+                ``sample_shape x batch-shape x q x m`` to a Tensor of dimension
+                ``sample_shape x batch-shape x q``, where negative values imply
                 feasibility.
             eta: The temperature parameter for the sigmoid function used for the
                 differentiable approximation of the constraints. In case of a float the
@@ -107,7 +109,7 @@ class MultiObjectiveMCAcquisitionFunction(AcquisitionFunction, MCSamplerMixin, A
                 tensor the length of the tensor must match the number of provided
                 constraints. The i-th constraint is then estimated with the i-th
                 eta value.
-            X_pending:  A `m x d`-dim Tensor of `m` design points that have
+            X_pending:  A ``m x d``-dim Tensor of ``m`` design points that have
                 points that have been submitted for function evaluation
                 but have not yet been evaluated.
         """
@@ -143,10 +145,10 @@ class MultiObjectiveMCAcquisitionFunction(AcquisitionFunction, MCSamplerMixin, A
 
     @abstractmethod
     def forward(self, X: Tensor) -> Tensor:
-        r"""Takes in a `batch_shape x q x d` X Tensor of t-batches with `q` `d`-dim
-        design points each, and returns a Tensor with shape `batch_shape'`, where
-        `batch_shape'` is the broadcasted batch shape of model and input `X`. Should
-        utilize the result of `set_X_pending` as needed to account for pending function
-        evaluations.
+        r"""Takes in a ``batch_shape x q x d`` X Tensor of t-batches with ``q``
+        ``d``-dim design points each, and returns a Tensor with shape
+        ``batch_shape'``, where ``batch_shape'`` is the broadcasted batch shape of
+        model and input ``X``. Should utilize the result of ``set_X_pending`` as
+        needed to account for pending function evaluations.
         """
         pass  # pragma: no cover

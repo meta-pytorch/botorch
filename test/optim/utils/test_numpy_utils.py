@@ -40,7 +40,7 @@ class TestNumpyUtils(BotorchTestCase):
         self.assertFalse(np.shares_memory(base, result))
         self.assertEqual(result.dtype, np.float32)
 
-        # Test that `clone` does not get called on non-CPU tensors
+        # Test that ``clone`` does not get called on non-CPU tensors
         mock_tensor = MagicMock()
         mock_tensor.cpu.return_value = mock_tensor
         mock_tensor.device.return_value = "foo"

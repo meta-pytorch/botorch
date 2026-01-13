@@ -43,14 +43,14 @@ class PathwiseThompsonSampling(AcquisitionFunction):
     ) -> None:
         r"""Single-outcome TS.
 
-        If using a multi-output `model`, the acquisition function requires either an
-        `objective` or a `posterior_transform` that transforms the multi-output
+        If using a multi-output ``model``, the acquisition function requires either an
+        ``objective`` or a ``posterior_transform`` that transforms the multi-output
         posterior samples to single-output posterior samples.
 
         Args:
             model: A fitted GP model.
             objective: The MCAcquisitionObjective under which the samples are
-                evaluated. Defaults to `IdentityMCObjective()`.
+                evaluated. Defaults to ``IdentityMCObjective()``.
             posterior_transform: An optional PosteriorTransform.
         """
 
@@ -105,10 +105,10 @@ class PathwiseThompsonSampling(AcquisitionFunction):
         r"""Evaluate the pathwise posterior sample draws on the candidate set X.
 
         Args:
-            X: A `batch_shape x q x d`-dim batched tensor of `d`-dim design points.
+            X: A ``batch_shape x q x d``-dim batched tensor of ``d``-dim design points.
 
         Returns:
-            A `batch_shape`-dim tensor of evaluations on the posterior sample draws,
+            A ``batch_shape``-dim tensor of evaluations on the posterior sample draws,
             where the samples are summed over the q-batch dimension.
         """
         objective_values = self._pathwise_forward(X)  # batch_shape x q
@@ -123,10 +123,11 @@ class PathwiseThompsonSampling(AcquisitionFunction):
         """Evaluate the pathwise posterior sample draws on the candidate set X.
 
         Args:
-            X: A `batch_shape x q x d`-dim batched tensor of `d`-dim design points.
+            X: A ``batch_shape x q x d``-dim batched tensor of ``d``-dim design points.
 
         Returns:
-            A `batch_shape x q`-dim tensor of evaluations on the posterior sample draws.
+            A ``batch_shape x q``-dim tensor of evaluations on the posterior
+            sample draws.
         """
         batch_size = X.shape[-2]
         # batch_shape x q x 1 x d
@@ -151,7 +152,7 @@ class PathwiseThompsonSampling(AcquisitionFunction):
             posterior_values = self.posterior_transform.evaluate(
                 Y=posterior_values, X=X
             )
-        # objective removes the `m` dimension
+        # objective removes the ``m`` dimension
         objective_values = self.objective(posterior_values)  # batch_shape x q
         return objective_values
 
@@ -159,24 +160,24 @@ class PathwiseThompsonSampling(AcquisitionFunction):
         """Subselecting a value associated with a single sample in the ensemble for each
         element of samples that is not associated with an ensemble dimension.
 
-        NOTE: 1) uses `self.model` and `is_ensemble` to determine whether or not an
-        ensembling dimension is present. 2) uses `self.ensemble_indices` to select the
-        value associated with a single sample in the ensemble. `ensemble_indices`
+        NOTE: 1) uses ``self.model`` and ``is_ensemble`` to determine whether or not an
+        ensembling dimension is present. 2) uses ``self.ensemble_indices`` to select the
+        value associated with a single sample in the ensemble. ``ensemble_indices``
         contains uniformly randomly sample indices for each element of the ensemble, but
         is cached to make the evaluation of the acquisition function deterministic.
 
         Args:
-            values: A `batch_shape x num_draws x q [x num_ensemble] x m`-dim Tensor.
+            values: A ``batch_shape x num_draws x q [x num_ensemble] x m``-dim Tensor.
 
         Returns:
-            A`batch_shape x num_draws x q x m`-dim where each element is contains a
-            single sample from the ensemble, selected with `self.ensemble_indices`.
+            A``batch_shape x num_draws x q x m``-dim where each element is contains a
+            single sample from the ensemble, selected with ``self.ensemble_indices``.
         """
         if not is_ensemble(self.model):
             return values
 
         ensemble_dim = -2
-        # `ensemble_indices` are fixed so that the acquisition function becomes
+        # ``ensemble_indices`` are fixed so that the acquisition function becomes
         # deterministic for the same input and can be optimized with LBFGS.
         # ensemble indices have shape num_paths x 1 x m
         self.ensemble_indices = self.ensemble_indices.to(device=values.device)

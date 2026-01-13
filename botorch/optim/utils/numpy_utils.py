@@ -40,23 +40,23 @@ def as_ndarray(
         inplace: Boolean indicating whether memory should be shared if possible.
 
     Returns:
-        An ndarray with the same data as `values`.
+        An ndarray with the same data as ``values``.
     """
     with torch.no_grad():
         out = values.cpu()  # maybe transfer to cpu
 
-        # Determine whether or not to `clone`
+        # Determine whether or not to ``clone``
         if (
-            # cond 1: are we not in `inplace` mode?
+            # cond 1: are we not in ``inplace`` mode?
             not inplace
-            # cond 2: did we already copy when calling `cpu` above?
+            # cond 2: did we already copy when calling ``cpu`` above?
             and out.device == values.device
-            # cond 3: will we copy when calling `astype` below?
+            # cond 3: will we copy when calling ``astype`` below?
             and (dtype is None or out.dtype == torch_to_numpy_dtype_dict[dtype])
         ):
             out = out.clone()
 
-        # Convert to ndarray and maybe cast to `dtype`
+        # Convert to ndarray and maybe cast to ``dtype``
         out = out.numpy()
         return out.astype(dtype, copy=False)
 
