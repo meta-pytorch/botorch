@@ -51,16 +51,32 @@ from torch import Tensor
 class SingleTaskMultiFidelityGP(SingleTaskGP):
     r"""A single task multi-fidelity GP model.
 
-    A SingleTaskGP model using a DownsamplingKernel for the data fidelity
-    parameter (if present) and an ExponentialDecayKernel for the iteration
-    fidelity parameter (if present).
+    By default, this model uses a LinearTruncatedFidelityKernel for modeling
+    the relationship between fidelities. This kernel is described in [Wu2019mf]_.
 
-    This kernel is described in [Wu2019mf]_.
+    Note:
+        This model assumes that the lowest fidelity level corresponds to the lowest
+        numerical value (e.g., 0), and the highest fidelity corresponds to the highest
+        numerical value. Higher fidelity evaluations are assumed to be more accurate
+        representations of the true function values.
 
     Example:
         >>> train_X = torch.rand(20, 4)
         >>> train_Y = train_X.pow(2).sum(dim=-1, keepdim=True)
         >>> model = SingleTaskMultiFidelityGP(train_X, train_Y, data_fidelities=[3])
+        >>> # To query the model at the highest fidelity (assuming max fidelity is 3):
+        >>> from botorch.acquisition import LogExpectedImprovement
+        >>> from botorch.acquisition.fixed_feature import (
+        ...     FixedFeatureAcquisitionFunction
+        ... )
+        >>> acq_func = FixedFeatureAcquisitionFunction(
+        >>>     acq_function=LogExpectedImprovement(
+        >>>         model=model, best_f=best_f
+        >>>     ),
+        >>>     d=4,
+        >>>     columns=[3],  # fidelity column
+        >>>     values=[3]    # highest fidelity value
+        >>> )
     """
 
     def __init__(
@@ -89,8 +105,10 @@ class SingleTaskMultiFidelityGP(SingleTaskGP):
             data_fidelities: The column indices for the downsampling fidelity parameter.
                 If a list/tuple of indices is provided, a kernel will be constructed for
                 each index (optional).
-            linear_truncated: If True, use a `LinearTruncatedFidelityKernel` instead
-                of the default kernel.
+            linear_truncated: If True (default), use a `LinearTruncatedFidelityKernel`
+                which models increasing correlation between higher fidelities.
+                If False, use a combination of an `ExponentialDecayKernel`
+                for iteration fidelity and `DownsamplingKernel` for data fidelities.
             nu: The smoothness parameter for the Matern kernel: either 1/2, 3/2, or
                 5/2. Only used when `linear_truncated=True`.
             likelihood: A likelihood. If omitted, use a standard GaussianLikelihood

@@ -40,6 +40,15 @@ class LinearTruncatedFidelityKernel(Kernel):
         polynomial kernel between `x_1[..., [f_1, f_2]]` and
         `x_2[..., [f_1, f_2]]`.
 
+    Note:
+        Fidelity interpretation:
+        - Higher numerical values represent higher fidelities (e.g., 3 > 2 > 1 > 0)
+        - The kernel implementation internally clamps fidelity values to the range [0,1]
+        - The kernel is designed so that higher fidelity points have higher correlation
+            with each other than with lower fidelity points
+        - When using with SingleTaskMultiFidelityGP, ensure your fidelity values
+            follow this convention (higher numeric value = higher fidelity)
+
     Example:
         >>> x = torch.randn(10, 5)
         >>> # Non-batch: Simple option
