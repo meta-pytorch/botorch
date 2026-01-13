@@ -24,7 +24,7 @@ class StoppingCriterion(Protocol):
 
         Args:
             fvals: tensor containing function values for the current iteration. If
-                `fvals` contains more than one element, then the stopping criterion is
+                ``fvals`` contains more than one element, then the stopping criterion is
                 evaluated element-wise and True is returned if the stopping criterion is
                 true for all elements.
 
@@ -45,14 +45,14 @@ class StoppingCriterion(Protocol):
 class ExpMAStoppingCriterion:
     r"""Exponential moving average stopping criterion.
 
-    Computes an exponentially weighted moving average over window length `n_window`
+    Computes an exponentially weighted moving average over window length ``n_window``
     and checks whether the relative decrease in this moving average between steps
-    is less than a provided tolerance level. That is, in iteration `i`, it computes
+    is less than a provided tolerance level. That is, in iteration ``i``, it computes
 
         v[i,j] := fvals[i - n_window + j] * w[j]
 
-    for all `j = 0, ..., n_window`, where `w[j] = exp(-eta * (1 - j / n_window))`.
-    Letting `ma[i] := sum_j(v[i,j])`, the criterion evaluates to `True` whenever
+    for all ``j = 0, ..., n_window``, where ``w[j] = exp(-eta * (1 - j / n_window))``.
+    Letting ``ma[i] := sum_j(v[i,j])``, the criterion evaluates to ``True`` whenever
 
         (ma[i-1] - ma[i]) / abs(ma[i-1]) < rel_tol (if minimize=True)
         (ma[i] - ma[i-1]) / abs(ma[i-1]) < rel_tol (if minimize=False)
@@ -89,7 +89,7 @@ class ExpMAStoppingCriterion:
 
         Args:
             fvals: tensor containing function values for the current iteration. If
-                `fvals` contains more than one element, then the stopping criterion is
+                ``fvals`` contains more than one element, then the stopping criterion is
                 evaluated element-wise and True is returned if the stopping criterion is
                 true for all elements.
 

@@ -63,7 +63,7 @@ class qNegIntegratedPosteriorVariance(AcquisitionFunction):
 
         Args:
             model: A fitted model.
-            mc_points: A `batch_shape x N x d` tensor of points to use for
+            mc_points: A ``batch_shape x N x d`` tensor of points to use for
                 MC-integrating the posterior variance. Usually, these are qMC
                 samples on the whole design space, but biased sampling directly
                 allows weighted integration of the posterior variance.
@@ -73,7 +73,7 @@ class qNegIntegratedPosteriorVariance(AcquisitionFunction):
             posterior_transform: A PosteriorTransform. If using a multi-output model,
                 a PosteriorTransform that transforms the multi-output posterior into a
                 single-output posterior is required.
-            X_pending: A `n' x d`-dim Tensor of `n'` design points that have
+            X_pending: A ``n' x d``-dim Tensor of ``n'`` design points that have
                 points that have been submitted for function evaluation but
                 have not yet been evaluated.
         """
@@ -133,7 +133,7 @@ class PairwiseMCPosteriorVariance(MCAcquisitionFunction):
 
     Given a model and an objective, calculate the posterior sample variance
     of the objective on the difference of pairs of points. See more implementation
-    details in `forward`. This acquisition function is typically used with a
+    details in ``forward``. This acquisition function is typically used with a
     pairwise model (e.g., PairwiseGP) and a likelihood/link function
     on the pair difference (e.g., logistic or probit) for pure exploration
     """
@@ -160,13 +160,13 @@ class PairwiseMCPosteriorVariance(MCAcquisitionFunction):
     @t_batch_mode_transform()
     @average_over_ensemble_models
     def forward(self, X: Tensor) -> Tensor:
-        r"""Evaluate PairwiseMCPosteriorVariance on the candidate set `X`.
+        r"""Evaluate PairwiseMCPosteriorVariance on the candidate set ``X``.
 
         Args:
-            X: A `batch_size x q x d`-dim Tensor. q should be a multiple of 2.
+            X: A ``batch_size x q x d``-dim Tensor. q should be a multiple of 2.
 
         Returns:
-            Tensor of shape `batch_size x q` representing the posterior variance
+            Tensor of shape ``batch_size x q`` representing the posterior variance
             of link function at X that active learning hopes to maximize
         """
         if X.shape[-2] == 0 or X.shape[-2] % 2 != 0:

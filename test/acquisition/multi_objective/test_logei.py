@@ -40,7 +40,7 @@ class TestLogQExpectedHypervolumeImprovement(BotorchTestCase):
         """NOTE: The purpose of this test is to test the numerical particularities
         of the qLogEHVI. For further tests including the non-numerical features of the
         acquisition function, please see the corresponding tests - unified with qEHVI -
-        in `multi_objective/test_monte_carlo.py`.
+        in ``multi_objective/test_monte_carlo.py``.
         """
         tkwargs = {"device": self.device, "dtype": dtype}
         ref_point = [0.0, 0.0]
@@ -49,7 +49,7 @@ class TestLogQExpectedHypervolumeImprovement(BotorchTestCase):
             [[4.0, 5.0], [5.0, 5.0], [8.5, 3.5], [8.5, 3.0], [9.0, 1.0]], **tkwargs
         )
         partitioning = NondominatedPartitioning(ref_point=t_ref_point)
-        # the event shape is `b x q x m` = 1 x 1 x 2
+        # the event shape is ``b x q x m`` = 1 x 1 x 2
         samples = torch.zeros(1, 1, 2, **tkwargs)
         mm = MockModel(MockPosterior(samples=samples))
         partitioning.update(Y=pareto_Y)

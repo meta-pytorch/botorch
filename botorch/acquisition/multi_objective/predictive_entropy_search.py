@@ -44,7 +44,7 @@ class qMultiObjectivePredictiveEntropySearch(AcquisitionFunction):
     both single and multiple objectives as well as batching.
 
     This acquisition function approximates the mutual information between the
-    observation at a candidate point `X` and the Pareto optimal input using the
+    observation at a candidate point ``X`` and the Pareto optimal input using the
     moment-matching procedure known as expectation propagation (EP).
 
     See the Appendix of [Garrido-Merchan2019]_ for the description of the EP
@@ -54,38 +54,38 @@ class qMultiObjectivePredictiveEntropySearch(AcquisitionFunction):
     (i) The PES acquisition function estimated using EP is sometimes not
     differentiable, and therefore we advise using a finite-difference estimate of
     the gradient as opposed to the gradients identified using automatic
-    differentiation, which occasionally outputs `nan` values.
+    differentiation, which occasionally outputs ``nan`` values.
 
-    The source of this differentiability is in the `_update_damping` function, which
-    finds the damping factor `a` that is used to update the EP parameters
-    `a * param_new + (1 - a) * param_old`. The damping factor has to ensure
-    that the updated covariance matrices, `a * cov_f_new + (1 - a) cov_f_old`, is
+    The source of this differentiability is in the ``_update_damping`` function, which
+    finds the damping factor ``a`` that is used to update the EP parameters
+    ``a * param_new + (1 - a) * param_old``. The damping factor has to ensure
+    that the updated covariance matrices, ``a * cov_f_new + (1 - a) cov_f_old``, is
     positive semi-definiteness. We follow the original paper, which identifies
-    `a` via a successive halving scheme i.e. we check `a=1` then `a=0.5` etc. This
-    procedure means `a` is a function of the test input `X`. This function is not
-    differentiable  in `X`.
+    ``a`` via a successive halving scheme i.e. we check ``a=1`` then ``a=0.5`` etc. This
+    procedure means ``a`` is a function of the test input ``X``. This function is not
+    differentiable  in ``X``.
 
     (ii) EP could potentially fail for a number of reasons:
 
-        (a) When the sampled Pareto optimal points `x_p` is poor compared to the
-        training or testing data `x_n`.
+        (a) When the sampled Pareto optimal points ``x_p`` is poor compared to the
+        training or testing data ``x_n``.
 
-        (b) When the training or testing data `x_n` is close the Pareto optimal
-        points `x_p`.
+        (b) When the training or testing data ``x_n`` is close the Pareto optimal
+        points ``x_p``.
 
         (c) When the convergence threshold is set too small.
 
 
         Problem (a) occurs because we have to compute the variable:
-        `alpha = (mean(x_n) - mean(x_p)) / std(x_n - x_p)`, which becomes very
-        large when `x_n` is better than `x_p` with high-probability. This leads to a
-        log(0) error when we compute `log(1 - cdf(alpha))`. We have preemptively
-        clamped some values depending on `1`alpha` in order to mitigate this.
+        ``alpha = (mean(x_n) - mean(x_p)) / std(x_n - x_p)``, which becomes very
+        large when ``x_n`` is better than ``x_p`` with high-probability. This leads to a
+        log(0) error when we compute ``log(1 - cdf(alpha))``. We have preemptively
+        clamped some values depending on ``1``alpha` in order to mitigate this.
 
         Problem (b) occurs because we have to compute matrix inverses for the
         two-dimensional marginals (x_n, x_p). To address this we manually add jitter
-        to the diagonal of the covariance matrix i.e. `ep_jitter` when training and
-        `test_jitter` when testing. The default choice is not always appropriate
+        to the diagonal of the covariance matrix i.e. ``ep_jitter`` when training and
+        ``test_jitter`` when testing. The default choice is not always appropriate
         because the same jitter is used for the inversion of the covariance
         and precision matrix, which are on different scales.
 
@@ -113,13 +113,13 @@ class qMultiObjectivePredictiveEntropySearch(AcquisitionFunction):
         r"""Multi-objective predictive entropy search acquisition function.
 
         Args:
-            model: A fitted batched model with `M` number of outputs.
-            pareto_sets: A `num_pareto_samples x P x d`-dim tensor containing the
-                Pareto optimal set of inputs, where `P` is the number of pareto
+            model: A fitted batched model with ``M`` number of outputs.
+            pareto_sets: A ``num_pareto_samples x P x d``-dim tensor containing the
+                Pareto optimal set of inputs, where ``P`` is the number of pareto
                 optimal points. The points in each sample have to be discrete
                 otherwise expectation propagation will fail.
             maximize: If true, we consider a maximization problem.
-            X_pending: A `m x d`-dim Tensor of `m` design points that have been
+            X_pending: A ``m x d``-dim Tensor of ``m`` design points that have been
                 submitted for function evaluation, but have not yet been evaluated.
             max_ep_iterations: The maximum number of expectation propagation
                 iterations. (The minimum number of iterations is set at 3.)
@@ -131,7 +131,7 @@ class qMultiObjectivePredictiveEntropySearch(AcquisitionFunction):
                 phase.
             threshold: The convergence threshold for expectation propagation. This
                 assesses the relative change in the mean and covariance. We default
-                to one percent change i.e. `threshold = 1e-2`.
+                to one percent change i.e. ``threshold = 1e-2``.
         """
         super().__init__(model=model)
 
@@ -213,10 +213,10 @@ class qMultiObjectivePredictiveEntropySearch(AcquisitionFunction):
         pred_f_nat_cov = pred_nat_cov[..., 0:M, :, :]
 
         # initialize the marginals
-        # `num_pareto_samples x M x (N + P)`
+        # ``num_pareto_samples x M x (N + P)``
         mean_f = pred_f_mean.clone()
         nat_mean_f = pred_f_nat_mean.clone()
-        # `num_pareto_samples x M x (N + P) x (N + P)`
+        # ``num_pareto_samples x M x (N + P) x (N + P)``
         cov_f = pred_f_cov.clone()
         nat_cov_f = pred_f_nat_cov.clone()
 
@@ -224,9 +224,9 @@ class qMultiObjectivePredictiveEntropySearch(AcquisitionFunction):
         # are optimal in the feasible space i.e. any point in the feasible space
         # should not dominate the Pareto efficient points.
 
-        # `num_pareto_samples x M x (N + P) x P x 2`
+        # ``num_pareto_samples x M x (N + P) x P x 2``
         omega_f_nat_mean = torch.zeros((num_pareto_samples, M, N + P, P, 2), **tkwargs)
-        # `num_pareto_samples x M x (N + P) x P x 2 x 2`
+        # ``num_pareto_samples x M x (N + P) x P x 2 x 2``
         omega_f_nat_cov = torch.zeros(
             (num_pareto_samples, M, N + P, P, 2, 2), **tkwargs
         )
@@ -331,15 +331,15 @@ class qMultiObjectivePredictiveEntropySearch(AcquisitionFunction):
         self._omega_f_nat_cov = omega_f_nat_cov
 
     def _compute_information_gain(self, X: Tensor) -> Tensor:
-        r"""Evaluate qMultiObjectivePredictiveEntropySearch on the candidate set `X`.
+        r"""Evaluate qMultiObjectivePredictiveEntropySearch on the candidate set ``X``.
 
         Args:
-            X: A `batch_shape x q x d`-dim Tensor of t-batches with `q` `d`-dim
+            X: A ``batch_shape x q x d``-dim Tensor of t-batches with ``q`` ``d``-dim
                 design points each.
 
         Returns:
-            A `batch_shape'`-dim Tensor of Predictive Entropy Search values at the
-            given design points `X`.
+            A ``batch_shape'``-dim Tensor of Predictive Entropy Search values at the
+            given design points ``X``.
         """
         tkwargs = {"dtype": X.dtype, "device": X.device}
         batch_shape = X.shape[0:-2]
@@ -358,7 +358,7 @@ class qMultiObjectivePredictiveEntropySearch(AcquisitionFunction):
         new_shape = batch_shape + torch.Size([num_pareto_samples]) + X.shape[-2:]
         expanded_X = X.unsqueeze(-3).expand(new_shape)
         expanded_ps = self.pareto_sets.expand(X.shape[0:-2] + self.pareto_sets.shape)
-        # `batch_shape x num_pareto_samples x (q + P) x d`
+        # ``batch_shape x num_pareto_samples x (q + P) x d``
         aug_X = torch.cat([expanded_X, expanded_ps], dim=-2)
 
         ###########################################################################
@@ -396,11 +396,11 @@ class qMultiObjectivePredictiveEntropySearch(AcquisitionFunction):
         ###########################################################################
         # INITIALIZE THE EP FACTORS
         ###########################################################################
-        # `batch_shape x num_pareto_samples x M x (q + P) x P x 2`
+        # ``batch_shape x num_pareto_samples x M x (q + P) x P x 2``
         omega_f_nat_mean = torch.zeros(
             batch_shape + torch.Size([num_pareto_samples, M, q + P, P, 2]), **tkwargs
         )
-        # `batch_shape x num_pareto_samples x M x (q + P) x P x 2 x 2`
+        # ``batch_shape x num_pareto_samples x M x (q + P) x P x 2 x 2``
         omega_f_nat_cov = torch.zeros(
             batch_shape + torch.Size([num_pareto_samples, M, q + P, P, 2, 2]), **tkwargs
         )
@@ -479,15 +479,15 @@ class qMultiObjectivePredictiveEntropySearch(AcquisitionFunction):
     @t_batch_mode_transform()
     @average_over_ensemble_models
     def forward(self, X: Tensor) -> Tensor:
-        r"""Evaluate qMultiObjectivePredictiveEntropySearch on the candidate set `X`.
+        r"""Evaluate qMultiObjectivePredictiveEntropySearch on the candidate set ``X``.
 
         Args:
-            X: A `batch_shape x q x d`-dim Tensor of t-batches with `q` `d`-dim
+            X: A ``batch_shape x q x d``-dim Tensor of t-batches with ``q`` ``d``-dim
                 design points each.
 
         Returns:
-            A `batch_shape'`-dim Tensor of acquisition values at the given design
-            points `X`.
+            A ``batch_shape'``-dim Tensor of acquisition values at the given design
+            points ``X``.
         """
         return self._compute_information_gain(X)
 
@@ -502,10 +502,10 @@ def log_cdf_robust(x: Tensor) -> Tensor:
         log(cdf(x)).
 
     Args:
-        x: a `x_shape`-dim Tensor.
+        x: a ``x_shape``-dim Tensor.
 
     Returns
-        A `x_shape`-dim Tensor.
+        A ``x_shape``-dim Tensor.
     """
     CLAMP_LB = torch.finfo(x.dtype).eps
     NEG_INF = torch.finfo(x.dtype).min
@@ -529,7 +529,7 @@ def _initialize_predictive_matrices(
     mean is Sigma^{-1} mu and the natural covariance is Sigma^{-1}.
 
     Args:
-        X: A `batch_shape x R x d`-dim Tensor.
+        X: A ``batch_shape x R x d``-dim Tensor.
         model: The fitted model.
         observation_noise: If true, the posterior is computed with observation noise.
         jitter: The jitter added to the covariance matrix.
@@ -538,20 +538,20 @@ def _initialize_predictive_matrices(
     Return:
         A four-element tuple containing
 
-        - pred_nat_mean: A `batch_shape x num_outputs x R `-dim Tensor containing the
+        - pred_nat_mean: A ``batch_shape x num_outputs x R ``-dim Tensor containing the
             predictive natural mean vectors.
-        - pred_nat_cov: A `batch_shape x num_outputs x R x R`-dim Tensor containing
+        - pred_nat_cov: A ``batch_shape x num_outputs x R x R``-dim Tensor containing
             the predictive natural covariance matrices.
-        - pred_mean: A `batch_shape x num_outputs x R`-dim Tensor containing the
+        - pred_mean: A ``batch_shape x num_outputs x R``-dim Tensor containing the
             predictive mean vectors.
-        - pred_cov: A `batch_shape x num_outputs x R x R`-dim Tensor containing the
+        - pred_cov: A ``batch_shape x num_outputs x R x R``-dim Tensor containing the
             predictive covariance matrices.
     """
     tkwargs = {"dtype": X.dtype, "device": X.device}
     # compute the predictive mean and covariances at X
     posterior = model.posterior(X, observation_noise=observation_noise)
 
-    # `batch_shape x (R * num_outputs) x (R * num_outputs)`
+    # ``batch_shape x (R * num_outputs) x (R * num_outputs)``
     init_pred_cov = posterior.mvn.covariance_matrix
     num_outputs = model.num_outputs
     R = int(init_pred_cov.shape[-1] / num_outputs)
@@ -561,23 +561,23 @@ def _initialize_predictive_matrices(
         )
         for m in range(num_outputs)
     ]
-    # `batch_shape x R x R x num_outputs` (before swap axes)
-    # `batch_shape x num_outputs x R * R`
+    # ``batch_shape x R x R x num_outputs`` (before swap axes)
+    # ``batch_shape x num_outputs x R * R``
     pred_cov = torch.cat(pred_cov, axis=-1).swapaxes(-2, -1).swapaxes(-3, -2)
     identity = torch.diag_embed(torch.ones(pred_cov.shape[:-1], **tkwargs))
     pred_cov = pred_cov + jitter * identity
 
-    # `batch_shape x num_outputs x R`
+    # ``batch_shape x num_outputs x R``
     pred_mean = posterior.mean.swapaxes(-2, -1)
 
     #############################################################
     if natural:
         # natural parameters
-        # `batch_shape x num_outputs x R x R`
+        # ``batch_shape x num_outputs x R x R``
         cholesky_pred_cov, _ = torch.linalg.cholesky_ex(pred_cov)
         pred_nat_cov = torch.cholesky_inverse(cholesky_pred_cov)
 
-        # `batch_shape x num_outputs x R`
+        # ``batch_shape x num_outputs x R``
         pred_nat_mean = torch.einsum("...ij,...j->...i", pred_nat_cov, pred_mean)
 
         return pred_nat_mean, pred_nat_cov, pred_mean, pred_cov
@@ -588,16 +588,16 @@ def _initialize_predictive_matrices(
 def _get_omega_f_contribution(
     mean: Tensor, cov: Tensor, N: int, P: int, M: int
 ) -> tuple[Tensor, Tensor]:
-    r"""Extract the mean vector and covariance matrix corresponding to the `2 x 2`
-    multivariate normal blocks in the objective model between the points in `X` and
+    r"""Extract the mean vector and covariance matrix corresponding to the ``2 x 2``
+    multivariate normal blocks in the objective model between the points in ``X`` and
     the Pareto optimal set.
 
     [There is likely a more efficient way to do this.]
 
     Args:
-        mean: A `batch_shape x M x (N + P)`-dim Tensor containing the natural
+        mean: A ``batch_shape x M x (N + P)``-dim Tensor containing the natural
             mean matrix for the objectives.
-        cov: A `batch_shape x M x (N + P) x (N + P)`-dim Tensor containing
+        cov: A ``batch_shape x M x (N + P) x (N + P)``-dim Tensor containing
             the natural mean matrix for the objectives.
         N: The number of design points.
         P: The number of Pareto optimal points.
@@ -606,31 +606,31 @@ def _get_omega_f_contribution(
     Return:
         A two-element tuple containing
 
-        - mean_fX_fS: A `batch_shape x M x (N + P) x P x 2`-dim Tensor containing the
+        - mean_fX_fS: A ``batch_shape x M x (N + P) x P x 2``-dim Tensor containing the
             means of the inputs and Pareto optimal points.
-        - cov_fX_fS: A `batch_shape x M x (N + P) x P x 2 x 2`-dim Tensor containing
+        - cov_fX_fS: A ``batch_shape x M x (N + P) x P x 2 x 2``-dim Tensor containing
             the covariances between the inputs and Pareto optimal points.
     """
     tkwargs = {"dtype": mean.dtype, "device": mean.device}
     batch_shape = mean.shape[:-2]
-    # `batch_shape x M x (N + P) x P x 2 x 2`
+    # ``batch_shape x M x (N + P) x P x 2 x 2``
     cov_fX_fS = torch.zeros(batch_shape + torch.Size([M, N + P, P, 2, 2]), **tkwargs)
-    # `batch_shape x M x (N + P) x P x 2`
+    # ``batch_shape x M x (N + P) x P x 2``
     mean_fX_fS = torch.zeros(batch_shape + torch.Size([M, N + P, P, 2]), **tkwargs)
 
-    # `batch_shape x M x (N + P) x P`
+    # ``batch_shape x M x (N + P) x P``
     mean_fX_fS[..., 0] = mean.unsqueeze(-1).expand(mean.shape + torch.Size([P]))
-    # `batch_shape x M x (N + P) x P`
+    # ``batch_shape x M x (N + P) x P``
     mean_fX_fS[..., 1] = (
         mean[..., N:].unsqueeze(-2).expand(mean.shape + torch.Size([P]))
     )
-    # `batch_shape x M x (N + P) x P`
+    # ``batch_shape x M x (N + P) x P``
     cov_fX_fS[..., 0, 0] = (
         cov[..., range(N + P), range(N + P)]
         .unsqueeze(-1)
         .expand(batch_shape + torch.Size([M, N + P, P]))
     )
-    # `batch_shape x M x (N + P) x P`
+    # ``batch_shape x M x (N + P) x P``
     cov_fX_fS[..., 1, 1] = (
         cov[..., range(N, N + P), range(N, N + P)]
         .unsqueeze(-2)
@@ -638,7 +638,7 @@ def _get_omega_f_contribution(
     )
 
     for p in range(P):
-        # `batch_shape x M x (N + P)`
+        # ``batch_shape x M x (N + P)``
         cov_p = cov[..., range(N + P), N + p]
         cov_fX_fS[..., p, 0, 1] = cov_p
         cov_fX_fS[..., p, 1, 0] = cov_p
@@ -650,13 +650,13 @@ def _replace_pareto_diagonal(A: Tensor) -> Tensor:
     """Replace the pareto diagonal with identity matricx.
 
     The Pareto diagonal of the omega factor shouldn't be updated because does not
-    contribute anything: `omega(x_p, x_p) = 1` for any pareto optimal input `x_p`.
+    contribute anything: ``omega(x_p, x_p) = 1`` for any pareto optimal input ``x_p``.
 
     Args:
-        A: a `batch_shape x M x (N + P) x P x 2 x 2`-dim Tensor.
+        A: a ``batch_shape x M x (N + P) x P x 2 x 2``-dim Tensor.
 
     Returns:
-        A `batch_shape x M x (N + P) x P x 2 x 2`-dim Tensor, where the Pareto
+        A ``batch_shape x M x (N + P) x P x 2 x 2``-dim Tensor, where the Pareto
         diagonal is padded with identity matrices.
     """
     tkwargs = {"dtype": A.dtype, "device": A.device}
@@ -685,13 +685,13 @@ def _update_omega(
     r"""Computes the new omega factors by matching the moments.
 
     Args:
-        mean_f: A `batch_shape x M x (N + P)`-dim Tensor containing the mean vector
+        mean_f: A ``batch_shape x M x (N + P)``-dim Tensor containing the mean vector
             for the objectives.
-        cov_f: A `batch_shape x M x (N + P) x (N + P)`-dim Tensor containing the
+        cov_f: A ``batch_shape x M x (N + P) x (N + P)``-dim Tensor containing the
             covariance matrix for the objectives.
-        omega_f_nat_mean: A `batch_shape x M x (N + P) x P x 2`-dim Tensor containing
+        omega_f_nat_mean: A ``batch_shape x M x (N + P) x P x 2``-dim Tensor containing
             the omega natural mean factors for the objective matrix.
-        omega_f_nat_cov: A `batch_shape x M x (N + P) x P x 2 x 2`-dim Tensor
+        omega_f_nat_cov: A ``batch_shape x M x (N + P) x P x 2 x 2``-dim Tensor
             containing the omega natural covariance factors for the objective matrix.
         N: The number of design points.
         M: The number of Pareto optimal points.
@@ -702,9 +702,9 @@ def _update_omega(
     Return:
         A two-element tuple containing
 
-        - omega_f_nat_mean_new: A `batch_shape x M x (N + P) x P x 2` containing the
+        - omega_f_nat_mean_new: A ``batch_shape x M x (N + P) x P x 2`` containing the
             new omega natural mean factors for the objective matrix.
-        - omega_f_nat_cov_new: A `batch_shape x M x (N + P) x P x 2 x 2` containing
+        - omega_f_nat_cov_new: A ``batch_shape x M x (N + P) x P x 2 x 2`` containing
             the new omega natural covariance factors for the objective matrix.
     """
     tkwargs = {"dtype": mean_f.dtype, "device": mean_f.device}
@@ -714,8 +714,8 @@ def _update_omega(
     ###############################################################################
     # EXTRACT THE NECESSARY COMPONENTS
     ###############################################################################
-    # `batch_shape x M x (N + P) x P x 2`-dim mean
-    # `batch_shape x M x (N + P) x P x 2 x 2`-dim covariance
+    # ``batch_shape x M x (N + P) x P x 2``-dim mean
+    # ``batch_shape x M x (N + P) x P x 2 x 2``-dim covariance
     mean_fX_fS, cov_fX_fS = _get_omega_f_contribution(mean_f, cov_f, N, P, M)
     identity = torch.diag_embed(torch.ones(cov_fX_fS.shape[:-1], **tkwargs))
     # remove the Pareto diagonal
@@ -742,52 +742,52 @@ def _update_omega(
     ###############################################################################
     # COMPUTE THE NORMALIZATION CONSTANT
     ###############################################################################
-    # `batch_shape x M x (N + P) x P`
+    # ``batch_shape x M x (N + P) x P``
     # Equation 29
     cav_var_fX_minus_fS = (
         cav_cov_f[..., 0, 0] + cav_cov_f[..., 1, 1] - 2 * cav_cov_f[..., 0, 1]
     ).clamp_min(CLAMP_LB)
     cav_std_fX_minus_fS = torch.sqrt(cav_var_fX_minus_fS).clamp_min(CLAMP_LB)
 
-    # `batch_shape x M x (N + P) x P`
+    # ``batch_shape x M x (N + P) x P``
     cav_mean_fX_minus_fS = weight * (cav_mean_f[..., 0] - cav_mean_f[..., 1])
 
     # Equation 30
     cav_alpha = cav_mean_fX_minus_fS / cav_std_fX_minus_fS
     # compute alpha pdf and cdf
     normal_alpha = Normal(torch.zeros_like(cav_alpha), torch.ones_like(cav_alpha))
-    # `batch_shape x M x (N + P) x P`
+    # ``batch_shape x M x (N + P) x P``
     cav_alpha_log_cdf = log_cdf_robust(cav_alpha)
-    # `batch_shape x M x (N + P) x P`
+    # ``batch_shape x M x (N + P) x P``
     cav_alpha_log_pdf = normal_alpha.log_prob(cav_alpha).clamp_min(NEG_INF)
-    # `batch_shape x (N + P) x P`
+    # ``batch_shape x (N + P) x P``
     cav_sum_alpha_log_cdf = torch.sum(cav_alpha_log_cdf, dim=-3).clamp_min(NEG_INF)
 
     # compute normalization constant Z
     # Equation 35
     cav_log_zeta = torch.log1p(-torch.exp(cav_sum_alpha_log_cdf)).clamp_min(NEG_INF)
 
-    # Need to clamp log values to prevent `exp(-inf) = nan`
+    # Need to clamp log values to prevent ``exp(-inf) = nan``
     cav_logZ = cav_log_zeta
 
     # Equation 40 [first bit]
-    # `batch_shape x (N + P) x P`
+    # ``batch_shape x (N + P) x P``
     cav_log_rho = -cav_logZ + cav_sum_alpha_log_cdf
 
     # Equation 40 [second bit]
-    # `batch_shape x M x (N + P) x P`
+    # ``batch_shape x M x (N + P) x P``
     cav_log_rho = cav_log_rho.unsqueeze(-3) - cav_alpha_log_cdf + cav_alpha_log_pdf
     cav_rho = -torch.exp(cav_log_rho).clamp(NEG_INF, -NEG_INF)
     ###############################################################################
     # COMPUTE THE PARTIAL DERIVATIVES
     ###############################################################################
-    # `batch_shape x M x (N + P) x P x 2`
-    # Final vector: `[1, -1]`
+    # ``batch_shape x M x (N + P) x P x 2``
+    # Final vector: ``[1, -1]``
     ones_mean = torch.ones(cav_mean_f.shape, **tkwargs)
     ones_mean[..., 1] = -ones_mean[..., 1]
 
-    # `batch_shape x M x (N + P) x P x 2 x 2`
-    # Final matrix: `[[1, -1], [-1, 1]]`
+    # ``batch_shape x M x (N + P) x P x 2 x 2``
+    # Final matrix: ``[[1, -1], [-1, 1]]``
     ones_cov = torch.ones(cav_cov_f.shape, **tkwargs)
     ones_cov[..., 0, 1] = -ones_cov[..., 0, 1]
     ones_cov[..., 1, 0] = -ones_cov[..., 1, 0]
@@ -855,13 +855,13 @@ def _safe_update_omega(
     is not possible then this returns the initial omega factors.
 
     Args:
-        mean_f: A `batch_shape x M x (N + P)`-dim Tensor containing the mean vector
+        mean_f: A ``batch_shape x M x (N + P)``-dim Tensor containing the mean vector
             for the objectives.
-        cov_f: A `batch_shape x M x (N + P) x (N + P)`-dim Tensor containing the
+        cov_f: A ``batch_shape x M x (N + P) x (N + P)``-dim Tensor containing the
             covariance matrix for the objectives.
-        omega_f_nat_mean: A `batch_shape x M x (N + P) x P x 2`-dim Tensor containing
+        omega_f_nat_mean: A ``batch_shape x M x (N + P) x P x 2``-dim Tensor containing
             the omega natural mean factors for the objective matrix.
-        omega_f_nat_cov: A `batch_shape x M x (N + P) x P x 2 x 2`-dim Tensor
+        omega_f_nat_cov: A ``batch_shape x M x (N + P) x P x 2 x 2``-dim Tensor
             containing the omega natural covariance factors for the objective
             matrix.
         N: The number of design points.
@@ -873,9 +873,9 @@ def _safe_update_omega(
     Return:
         A two-element tuple containing
 
-        - omega_f_nat_mean_new: A `batch_shape x M x (N + P) x P x 2` containing the
+        - omega_f_nat_mean_new: A ``batch_shape x M x (N + P) x P x 2`` containing the
             new omega natural mean factors for the objective matrix.
-        - omega_f_nat_cov_new: A `batch_shape x M x (N + P) x P x 2 x 2` containing
+        - omega_f_nat_cov_new: A ``batch_shape x M x (N + P) x P x 2 x 2`` containing
             the new omega natural covariance factors for the objective matrix.
     """
     try:
@@ -909,13 +909,13 @@ def _update_marginals(
     r"""Computes the new marginal by summing up all the natural factors.
 
     Args:
-        pred_f_nat_mean: A `batch_shape x M x (N + P)`-dim Tensor containing the
+        pred_f_nat_mean: A ``batch_shape x M x (N + P)``-dim Tensor containing the
             natural predictive mean matrix for the objectives.
-        pred_f_nat_cov: A `batch_shape x M x (N + P) x (N + P)`-dim Tensor containing
+        pred_f_nat_cov: A ``batch_shape x M x (N + P) x (N + P)``-dim Tensor containing
             the natural predictive covariance matrix for the objectives.
-        omega_f_nat_mean: A `batch_shape x M x (N + P) x P x 2`-dim Tensor containing
+        omega_f_nat_mean: A ``batch_shape x M x (N + P) x P x 2``-dim Tensor containing
             the omega natural mean factors for the objective matrix.
-        omega_f_nat_cov: A `batch_shape x M x (N + P) x P x 2 x 2`-dim Tensor
+        omega_f_nat_cov: A ``batch_shape x M x (N + P) x P x 2 x 2``-dim Tensor
             containing the omega natural covariance factors for the objective matrix.
         N: The number of design points.
         P: The number of Pareto optimal points.
@@ -923,13 +923,13 @@ def _update_marginals(
     Returns:
         A two-element tuple containing
 
-        - nat_mean_f: A `batch_shape x M x (N + P)`-dim Tensor containing the updated
+        - nat_mean_f: A ``batch_shape x M x (N + P)``-dim Tensor containing the updated
             natural mean matrix for the objectives.
-        - nat_cov_f: A `batch_shape x M x (N + P) x (N + P)`-dim Tensor containing
+        - nat_cov_f: A ``batch_shape x M x (N + P) x (N + P)``-dim Tensor containing
             the updated natural predictive covariance matrix for the objectives.
     """
 
-    # `batch_shape x M x (N + P)`
+    # ``batch_shape x M x (N + P)``
     nat_mean_f = pred_f_nat_mean.clone()
     # `batch_shape x M x (N + P) x (N + P)
     nat_cov_f = pred_f_nat_cov.clone()
@@ -942,29 +942,29 @@ def _update_marginals(
     omega_f_nat_mean[..., range(N, N + P), range(P), :] = 0
     omega_f_nat_cov[..., range(N, N + P), range(P), :, :] = 0
 
-    # `batch_shape x M x (N + P)`
+    # ``batch_shape x M x (N + P)``
     # sum over the pareto dim
     nat_mean_f = nat_mean_f + omega_f_nat_mean[..., 0].sum(dim=-1)
-    # `batch_shape x M x P`
+    # ``batch_shape x M x P``
     # sum over the data dim
     nat_mean_f[..., N:] = nat_mean_f[..., N:] + omega_f_nat_mean[..., 1].sum(dim=-2)
 
-    # `batch_shape x M x (N + P)`
+    # ``batch_shape x M x (N + P)``
     nat_cov_f[..., range(N + P), range(N + P)] = nat_cov_f[
         ..., range(N + P), range(N + P)
     ] + omega_f_nat_cov[..., 0, 0].sum(dim=-1)
-    # `batch_shape x M x P`
+    # ``batch_shape x M x P``
     nat_cov_f[..., range(N, N + P), range(N, N + P)] = nat_cov_f[
         ..., range(N, N + P), range(N, N + P)
     ] + omega_f_nat_cov[..., 1, 1].sum(dim=-2)
 
     for p in range(P):
-        # `batch_shape x M x (N + P)`
+        # ``batch_shape x M x (N + P)``
         nat_cov_f[..., range(N + P), N + p] = (
             nat_cov_f[..., range(N + P), N + p] + omega_f_nat_cov[..., p, 0, 1]
         )
 
-        # `batch_shape x M x (N + P)`
+        # ``batch_shape x M x (N + P)``
         nat_cov_f[..., N + p, range(N + P)] = (
             nat_cov_f[..., N + p, range(N + P)] + omega_f_nat_cov[..., p, 1, 0]
         )
@@ -980,14 +980,14 @@ def _damped_update(
     r"""Computes the damped updated for natural factor.
 
     Args:
-        old_factor: A `batch_shape x param_shape`-dim Tensor containing the old
+        old_factor: A ``batch_shape x param_shape``-dim Tensor containing the old
             natural factor.
-        new_factor: A `batch_shape x param_shape`-dim Tensor containing the new
+        new_factor: A ``batch_shape x param_shape``-dim Tensor containing the new
             natural factor.
-        damping_factor: A `batch_shape`-dim Tensor containing the damping factor.
+        damping_factor: A ``batch_shape``-dim Tensor containing the damping factor.
 
     Returns:
-        A `batch_shape x param_shape`-dim Tensor containing the updated natural
+        A ``batch_shape x param_shape``-dim Tensor containing the updated natural
         factor.
     """
     bs = damping_factor.shape
@@ -1010,19 +1010,19 @@ def _update_damping(
     definite by trying a Cholesky decomposition.
 
     Args:
-        nat_cov: A `batch_shape x R x R`-dim Tensor containing the old natural
+        nat_cov: A ``batch_shape x R x R``-dim Tensor containing the old natural
             covariance matrix.
-        nat_cov_new: A `batch_shape x R x R`-dim Tensor containing the new natural
+        nat_cov_new: A ``batch_shape x R x R``-dim Tensor containing the new natural
             covariance matrix.
-        damping_factor: A`batch_shape`-dim Tensor containing the damping factor.
+        damping_factor: A``batch_shape``-dim Tensor containing the damping factor.
         jitter: The amount of jitter added before matrix inversion.
 
     Returns:
         A two-element tuple containing
 
-        - A `batch_shape x param_shape`-dim Tensor containing the updated damping
+        - A ``batch_shape x param_shape``-dim Tensor containing the updated damping
             factor.
-        - A `batch_shape x R x R`-dim Tensor containing the Cholesky factor.
+        - A ``batch_shape x R x R``-dim Tensor containing the Cholesky factor.
     """
     tkwargs = {"dtype": nat_cov.dtype, "device": nat_cov.device}
     df = damping_factor
@@ -1078,22 +1078,22 @@ def _update_damping_when_converged(
     relative change in the entries of the mean and covariance matrix.
 
     Args:
-        mean_old: A `batch_shape x R`-dim Tensor containing the old natural mean
+        mean_old: A ``batch_shape x R``-dim Tensor containing the old natural mean
             matrix for the objective.
-        mean_new: A `batch_shape x R`-dim Tensor containing the new natural mean
+        mean_new: A ``batch_shape x R``-dim Tensor containing the new natural mean
             matrix for the objective.
-        cov_old: A `batch_shape x R x R`-dim Tensor containing the old natural
+        cov_old: A ``batch_shape x R x R``-dim Tensor containing the old natural
             covariance matrix for the objective.
-        cov_new: A `batch_shape x R x R`-dim Tensor containing the new natural
+        cov_new: A ``batch_shape x R x R``-dim Tensor containing the new natural
             covariance matrix for the objective.
         iteration: The current iteration number
-        damping_factor: A `batch_shape`-dim Tensor containing the damping factor.
+        damping_factor: A ``batch_shape``-dim Tensor containing the damping factor.
 
     Returns:
-        - A `batch_shape x param_shape`-dim Tensor containing the updated damping
+        - A ``batch_shape x param_shape``-dim Tensor containing the updated damping
         factor.
-        - Difference between `mean_new` and `mean_old`
-        - Difference between `cov_new` and `cov_old`
+        - Difference between ``mean_new`` and ``mean_old``
+        - Difference between ``cov_new`` and ``cov_old``
     """
     df = damping_factor.clone()
     delta_mean = mean_new - mean_old
@@ -1124,25 +1124,25 @@ def _augment_factors_with_cached_factors(
     Args:
         q: The batch size.
         N: The number of training points.
-        omega_f_nat_mean: A `batch_shape x num_pareto_samples x M x (q + P) x P x 2`
-            -dim Tensor containing the omega natural mean for the objective at `X`.
-        cached_omega_f_nat_mean: A `num_pareto_samples x M x (N + P) x P x 2`-dim
-            Tensor containing the omega natural mean for the objective at `X`.
+        omega_f_nat_mean: A ``batch_shape x num_pareto_samples x M x (q + P) x P x 2``
+            -dim Tensor containing the omega natural mean for the objective at ``X``.
+        cached_omega_f_nat_mean: A ``num_pareto_samples x M x (N + P) x P x 2``-dim
+            Tensor containing the omega natural mean for the objective at ``X``.
         omega_f_nat_cov: A `batch_shape x num_pareto_samples x M x (q + P) x P x 2
             x 2` -dim Tensor containing the omega natural covariance for the
-            objective at `X`.
-        cached_omega_f_nat_cov: A `num_pareto_samples x M x (N + P) x P x 2 x 2`-dim
-            Tensor containing the omega covariance mean for the objective at `X`.
+            objective at ``X``.
+        cached_omega_f_nat_cov: A ``num_pareto_samples x M x (N + P) x P x 2 x 2``-dim
+            Tensor containing the omega covariance mean for the objective at ``X``.
 
     Returns:
         A two-element tuple containing
 
         - omega_f_nat_mean_new: A `batch_shape x num_pareto_samples x M x (q + P)
             x P x 2`-dim Tensor containing the omega natural mean for the objective
-            at `X`.
+            at ``X``.
         - omega_f_nat_cov_new: A `batch_shape x num_pareto_samples x M x (q + P) x
             P x 2 x 2`-dim Tensor containing the omega natural covariance for the
-            objective at `X`.
+            objective at ``X``.
     """
     ##############################################################################
     # omega_f_nat_mean
@@ -1171,12 +1171,12 @@ def _compute_log_determinant(cov: Tensor, q: int) -> Tensor:
     matrices averaged over the Pareto samples.
 
     Args:
-        cov: A `batch_shape x num_pareto_samples x num_outputs x (q + P) x (q + P)`
+        cov: A ``batch_shape x num_pareto_samples x num_outputs x (q + P) x (q + P)``
             -dim Tensor containing the covariance matrices.
         q: The batch size.
 
     Return:
-        log_det_cov: A `batch_shape`-dim Tensor containing the sum of the
+        log_det_cov: A ``batch_shape``-dim Tensor containing the sum of the
             determinants for each output.
     """
     log_det_cov = torch.logdet(cov[..., 0:q, 0:q])

@@ -37,7 +37,7 @@ class TestUtils(BotorchTestCase):
             self.assertEqual(
                 expected_val, get_default_partitioning_alpha(num_objectives=m)
             )
-        # In `BotorchTestCase.setUp` warnings are filtered, so here we
+        # In ``BotorchTestCase.setUp`` warnings are filtered, so here we
         # remove the filter to ensure a warning is issued as expected.
         warnings.resetwarnings()
         with warnings.catch_warnings(record=True) as ws:
@@ -69,7 +69,7 @@ class TestMultiObjectiveUtils(BotorchTestCase):
             tkwargs["dtype"] = dtype
             X = torch.rand(3, 2, **tkwargs)
             ref_point = torch.tensor([0.25, 0.25], **tkwargs)
-            # the event shape is `q x m` = 3 x 2
+            # the event shape is ``q x m`` = 3 x 2
             samples = torch.tensor([[1.0, 2.0], [2.0, 1.0], [3.0, 4.0]], **tkwargs)
             mm = MockModel(MockPosterior(samples=samples))
             # test that a batched X raises errors
@@ -77,7 +77,7 @@ class TestMultiObjectiveUtils(BotorchTestCase):
                 prune_inferior_points_multi_objective(
                     model=mm, X=X.expand(2, 3, 2), ref_point=ref_point
                 )
-            # test that a batched model raises errors (event shape is `q x m` = 3 x m)
+            # test that a batched model raises errors (event shape is ``q x m`` = 3 x m)
             mm2 = MockModel(MockPosterior(samples=samples.expand(2, 3, 2)))
             with self.assertRaises(UnsupportedError):
                 prune_inferior_points_multi_objective(

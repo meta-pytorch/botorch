@@ -57,14 +57,14 @@ def get_acquisition_function(
         acquisition_function_name: Name of the acquisition function.
         model: A fitted model.
         objective: A MCAcquisitionObjective.
-        X_observed: A `m1 x d`-dim Tensor of `m1` design points that have
+        X_observed: A ``m1 x d``-dim Tensor of ``m1`` design points that have
             already been observed.
         posterior_transform: A PosteriorTransform (optional).
-        X_pending: A `m2 x d`-dim Tensor of `m2` design points whose evaluation
+        X_pending: A ``m2 x d``-dim Tensor of ``m2`` design points whose evaluation
             is pending.
         constraints: A list of callables, each mapping a Tensor of dimension
-            `sample_shape x batch-shape x q x m` to a Tensor of dimension
-            `sample_shape x batch-shape x q`, where negative values imply
+            ``sample_shape x batch-shape x q x m`` to a Tensor of dimension
+            ``sample_shape x batch-shape x q``, where negative values imply
             feasibility. Used for all acquisition functions except qSR and qUCB.
         eta: The temperature parameter for the sigmoid function used for the
             differentiable approximation of the constraints. In case of a float the

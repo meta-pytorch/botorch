@@ -112,10 +112,10 @@ class TestQExpectedImprovement(BotorchTestCase):
 
     def _test_q_expected_improvement(self, dtype: torch.dtype) -> None:
         tkwargs: dict[str, Any] = {"device": self.device, "dtype": dtype}
-        # the event shape is `b x q x t` = 1 x 1 x 1
+        # the event shape is ``b x q x t`` = 1 x 1 x 1
         samples = torch.zeros(1, 1, 1, **tkwargs)
         mm = MockModel(MockPosterior(samples=samples))
-        # X is `q x d` = 1 x 1. X is a dummy and unused b/c of mocking
+        # X is ``q x d`` = 1 x 1. X is a dummy and unused b/c of mocking
         X = torch.zeros(1, 1, **tkwargs)
 
         # basic test
@@ -176,7 +176,7 @@ class TestQExpectedImprovement(BotorchTestCase):
                     self._test_q_expected_improvement_batch(dtype)
 
     def _test_q_expected_improvement_batch(self, dtype: torch.dtype) -> None:
-        # the event shape is `b x q x t` = 2 x 2 x 1
+        # the event shape is ``b x q x t`` = 2 x 2 x 1
         samples = torch.zeros(2, 2, 1, device=self.device, dtype=dtype)
         samples[0, 0, 0] = 1.0
         mm = MockModel(MockPosterior(samples=samples))
@@ -246,13 +246,13 @@ class TestQNoisyExpectedImprovement(BotorchTestCase):
                     self._test_q_noisy_expected_improvement(dtype)
 
     def _test_q_noisy_expected_improvement(self, dtype: torch.dtype) -> None:
-        # the event shape is `b x q x t` = 1 x 2 x 1
+        # the event shape is ``b x q x t`` = 1 x 2 x 1
         samples_noisy = torch.tensor([0.0, 1.0], device=self.device, dtype=dtype)
         samples_noisy = samples_noisy.view(1, 2, 1)
-        # X_baseline is `q' x d` = 1 x 1
+        # X_baseline is ``q' x d`` = 1 x 1
         X_baseline = torch.zeros(1, 1, device=self.device, dtype=dtype)
         mm_noisy = MockModel(MockPosterior(samples=samples_noisy))
-        # X is `q x d` = 1 x 1
+        # X is ``q x d`` = 1 x 1
         X = torch.zeros(1, 1, device=self.device, dtype=dtype)
 
         # basic test
@@ -345,11 +345,11 @@ class TestQNoisyExpectedImprovement(BotorchTestCase):
                     self._test_q_noisy_expected_improvement_batch(dtype)
 
     def _test_q_noisy_expected_improvement_batch(self, dtype: torch.dtype) -> None:
-        # the event shape is `b x q x t` = 2 x 3 x 1
+        # the event shape is ``b x q x t`` = 2 x 3 x 1
         samples_noisy = torch.zeros(2, 3, 1, device=self.device, dtype=dtype)
         samples_noisy[0, -1, 0] = 1.0
         mm_noisy = MockModel(MockPosterior(samples=samples_noisy))
-        # X is `q x d` = 1 x 1
+        # X is ``q x d`` = 1 x 1
         X = torch.zeros(2, 2, 1, device=self.device, dtype=dtype)
         X_baseline = torch.zeros(1, 1, device=self.device, dtype=dtype)
 
@@ -650,10 +650,10 @@ class TestQNoisyExpectedImprovement(BotorchTestCase):
 class TestQProbabilityOfImprovement(BotorchTestCase):
     def test_q_probability_of_improvement(self):
         for dtype in (torch.float, torch.double):
-            # the event shape is `b x q x t` = 1 x 1 x 1
+            # the event shape is ``b x q x t`` = 1 x 1 x 1
             samples = torch.zeros(1, 1, 1, device=self.device, dtype=dtype)
             mm = MockModel(MockPosterior(samples=samples))
-            # X is `q x d` = 1 x 1. X is a dummy and unused b/c of mocking
+            # X is ``q x d`` = 1 x 1. X is a dummy and unused b/c of mocking
             X = torch.zeros(1, 1, device=self.device, dtype=dtype)
 
             # basic test
@@ -700,7 +700,7 @@ class TestQProbabilityOfImprovement(BotorchTestCase):
             self.assertEqual(sum(issubclass(w.category, BotorchWarning) for w in ws), 1)
 
     def test_q_probability_of_improvement_batch(self):
-        # the event shape is `b x q x t` = 2 x 2 x 1
+        # the event shape is ``b x q x t`` = 2 x 2 x 1
         for dtype in (torch.float, torch.double):
             samples = torch.zeros(2, 2, 1, device=self.device, dtype=dtype)
             samples[0, 0, 0] = 1.0
@@ -761,10 +761,10 @@ class TestQProbabilityOfImprovement(BotorchTestCase):
 class TestQSimpleRegret(BotorchTestCase):
     def test_q_simple_regret(self):
         for dtype in (torch.float, torch.double):
-            # the event shape is `b x q x t` = 1 x 1 x 1
+            # the event shape is ``b x q x t`` = 1 x 1 x 1
             samples = torch.zeros(1, 1, 1, device=self.device, dtype=dtype)
             mm = MockModel(MockPosterior(samples=samples))
-            # X is `q x d` = 1 x 1. X is a dummy and unused b/c of mocking
+            # X is ``q x d`` = 1 x 1. X is a dummy and unused b/c of mocking
             X = torch.zeros(1, 1, device=self.device, dtype=dtype)
 
             # basic test
@@ -811,7 +811,7 @@ class TestQSimpleRegret(BotorchTestCase):
             self.assertEqual(sum(issubclass(w.category, BotorchWarning) for w in ws), 1)
 
     def test_q_simple_regret_batch(self):
-        # the event shape is `b x q x t` = 2 x 2 x 1
+        # the event shape is ``b x q x t`` = 2 x 2 x 1
         for dtype in (torch.float, torch.double):
             samples = torch.zeros(2, 2, 1, device=self.device, dtype=dtype)
             samples[0, 0, 0] = 1.0
@@ -873,10 +873,10 @@ class TestQUpperConfidenceBound(BotorchTestCase):
 
     def test_q_confidence_bound(self):
         for dtype in (torch.float, torch.double):
-            # the event shape is `b x q x t` = 1 x 1 x 1
+            # the event shape is ``b x q x t`` = 1 x 1 x 1
             samples = torch.zeros(1, 1, 1, device=self.device, dtype=dtype)
             mm = MockModel(MockPosterior(samples=samples))
-            # X is `q x d` = 1 x 1. X is a dummy and unused b/c of mocking
+            # X is ``q x d`` = 1 x 1. X is a dummy and unused b/c of mocking
             X = torch.zeros(1, 1, device=self.device, dtype=dtype)
 
             # basic test
@@ -1015,7 +1015,7 @@ class TestQPosteriorStandardDeviation(BotorchTestCase):
     def test_q_pstd(self):
         n_samples = 128
         for dtype in (torch.float, torch.double):
-            # the event shape is `b x q x t` = 1 x 1 x 1
+            # the event shape is ``b x q x t`` = 1 x 1 x 1
             samples = draw_sobol_normal_samples(
                 1,
                 n_samples,
@@ -1028,7 +1028,7 @@ class TestQPosteriorStandardDeviation(BotorchTestCase):
             mm = MockModel(
                 MockPosterior(samples=samples, base_shape=torch.Size([1, 1, 1]))
             )
-            # X is `q x d` = 1 x 1. X is a dummy and unused b/c of mocking
+            # X is ``q x d`` = 1 x 1. X is a dummy and unused b/c of mocking
             X = torch.zeros(1, 1, device=self.device, dtype=dtype)
 
             # basic test
@@ -1080,7 +1080,7 @@ class TestQPosteriorStandardDeviation(BotorchTestCase):
             self.assertEqual(sum(issubclass(w.category, BotorchWarning) for w in ws), 1)
 
     def test_q_pstd_batch(self):
-        # the event shape is `b x q x t` = 2 x 2 x 1
+        # the event shape is ``b x q x t`` = 2 x 2 x 1
         for dtype in (torch.float, torch.double):
             samples = torch.zeros(2, 2, 1, device=self.device, dtype=dtype)
             samples[0, 0, 0] = 1.0
@@ -1196,7 +1196,7 @@ class TestMCAcquisitionFunctionWithConstraints(BotorchTestCase):
             cacqf(X)
 
         # Test highlighting both common and different behavior of the old
-        # `ConstrainedMCObjective` and new `constraints` implementation.
+        # ``ConstrainedMCObjective`` and new ``constraints`` implementation.
         # 1. Highlighting difference:
         q = 1
         samples = torch.randn(n, q, m, device=self.device, dtype=dtype)
@@ -1206,9 +1206,9 @@ class TestMCAcquisitionFunctionWithConstraints(BotorchTestCase):
             constraints=[infeasible_con],
             infeasible_cost=0.0,
         )
-        # The old `ConstrainedMCObjective`-based implementation does not scale
+        # The old ``ConstrainedMCObjective``-based implementation does not scale
         # the best_f value by the feasibility indicator, while the new
-        # `constraints`-based implementation does. Therefore, the old version
+        # ``constraints``-based implementation does. Therefore, the old version
         # yields an acquisition value of 1, even though the constraint is not
         # satisfied.
         best_f = -1.0

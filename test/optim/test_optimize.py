@@ -551,7 +551,8 @@ class TestOptimizeAcqf(BotorchTestCase):
         self, mock_minimize, mock_minimize_with_timeout
     ) -> None:
         """
-        Check that the right value of `timeout_sec` is passed to `minimize_with_timeout`
+        Check that the right value of ``timeout_sec`` is passed
+        to ``minimize_with_timeout``
         """
 
         num_restarts = 2
@@ -804,10 +805,10 @@ class TestOptimizeAcqf(BotorchTestCase):
 
     def test_optimize_acqf_warns_on_opt_failure(self):
         """
-        Test error handling in `scipy.optimize.minimize`.
+        Test error handling in ``scipy.optimize.minimize``.
 
         Expected behavior is that a warning is raised when optimization fails
-        in `scipy.optimize.minimize`, and then it restarts and tries again.
+        in ``scipy.optimize.minimize``, and then it restarts and tries again.
 
         This is a test case cooked up to fail. It is trying to optimize
         sin(1/x), which is pathological near zero, given a starting point near
@@ -846,15 +847,15 @@ class TestOptimizeAcqf(BotorchTestCase):
 
     def test_optimize_acqf_successfully_restarts_on_opt_failure(self):
         """
-        Test that `optimize_acqf` can succeed after restarting on opt failure.
+        Test that ``optimize_acqf`` can succeed after restarting on opt failure.
 
-        With the given seed (5), `optimize_acqf` will choose an initial
+        With the given seed (5), ``optimize_acqf`` will choose an initial
         condition that causes failure in the first run of
-        `gen_candidates_scipy`, then re-tries with a new starting point and
+        ``gen_candidates_scipy``, then re-tries with a new starting point and
         succeed.
 
         Also tests that this can be turned off by setting
-        `retry_on_optimization_warning = False`.
+        ``retry_on_optimization_warning = False``.
         """
         num_restarts, raw_samples, dim = 1, 1, 1
 
@@ -916,13 +917,13 @@ class TestOptimizeAcqf(BotorchTestCase):
 
     def test_optimize_acqf_warns_on_second_opt_failure(self):
         """
-        Test that `optimize_acqf` warns if it fails on a second optimization try.
+        Test that ``optimize_acqf`` warns if it fails on a second optimization try.
 
-        With the given seed (230), `optimize_acqf` will choose an initial
+        With the given seed (230), ``optimize_acqf`` will choose an initial
         condition that causes failure in the first run of
-        `gen_candidates_scipy`, then re-tries and still does not succeed. Since
+        ``gen_candidates_scipy``, then re-tries and still does not succeed. Since
         this doesn't happen with seeds 0 - 229, this test might be broken by
-        future refactorings affecting calls to `torch`.
+        future refactorings affecting calls to ``torch``.
         """
         num_restarts, raw_samples, dim = 1, 1, 1
 
@@ -1162,7 +1163,7 @@ class TestOptimizeAcqf(BotorchTestCase):
                     options={"batch_limit": 5},
                 )
             # If there are non-linear inequality constraints an initial condition
-            # generator object `ic_generator` must be supplied.
+            # generator object ``ic_generator`` must be supplied.
             with self.assertRaisesRegex(
                 RuntimeError,
                 "`ic_generator` must be given if "
@@ -1885,7 +1886,7 @@ class TestOptimizeAcqfCyclic(BotorchTestCase):
                     for _ in range(q)
                 ]
                 if cycle_j == 0:
-                    # return `q` candidates for first call
+                    # return ``q`` candidates for first call
                     candidate_rvs.append(
                         torch.cat([rv[0] for rv in gcs_return_vals], dim=-2)
                     )

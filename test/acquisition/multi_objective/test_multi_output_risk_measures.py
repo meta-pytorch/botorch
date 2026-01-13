@@ -258,8 +258,8 @@ class TestMVaR(BotorchTestCase):
             MVaR(n_w=5, alpha=3.0)
 
         def set_equals(t1: Tensor, t2: Tensor) -> bool:
-            r"""Check if two `k x m`-dim tensors are equivalent after possibly
-            reordering the `k` dimension. Ignores duplicate entries.
+            r"""Check if two ``k x m``-dim tensors are equivalent after possibly
+            reordering the ``k`` dimension. Ignores duplicate entries.
             """
             t1 = t1.unique(dim=0)
             t2 = t2.unique(dim=0)
@@ -289,7 +289,7 @@ class TestMVaR(BotorchTestCase):
             ]  # returns a batch list of k x m
             self.assertTrue(set_equals(mvar_counting, mvar_vectorized))
             self.assertTrue(set_equals(mvar_counting, expected_set))
-            # check that the `filter_dominated` works correctly
+            # check that the ``filter_dominated`` works correctly
             mvar = MVaR(
                 n_w=5,
                 alpha=0.4,
@@ -343,7 +343,7 @@ class TestMVaR(BotorchTestCase):
             self.assertTrue(
                 all(set_equals(mvar_counting[i], mvar_vectorized[i]) for i in range(4))
             )
-            # check that the MVaR is dominated by `alpha` fraction (maximization).
+            # check that the MVaR is dominated by ``alpha`` fraction (maximization).
             dominated_count = (
                 (Y[0].unsqueeze(-2) >= mvar_counting[0]).all(dim=-1).sum(dim=0)
             )
@@ -357,7 +357,7 @@ class TestMVaR(BotorchTestCase):
 
             # test forward pass
             for use_counting in (True, False):
-                # with `expectation=True`
+                # with ``expectation=True``
                 mvar = MVaR(
                     n_w=10,
                     alpha=0.5,
@@ -392,7 +392,7 @@ class TestMVaR(BotorchTestCase):
                 )
             )
 
-            # with `expectation=False`
+            # with ``expectation=False``
             mvar = MVaR(
                 n_w=10,
                 alpha=0.5,
