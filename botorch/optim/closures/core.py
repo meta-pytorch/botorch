@@ -33,7 +33,8 @@ class ForwardBackwardClosure:
 
         Args:
             forward: Callable that returns a tensor.
-            parameters: A dictionary of tensors whose `grad` fields are to be returned.
+            parameters: A dictionary of tensors whose ``grad`` fields are to
+                be returned.
         """
         self.forward = forward
         self.parameters = parameters
@@ -63,8 +64,8 @@ class NdarrayOptimizationClosure:
         Args:
             closure: A ForwardBackwardClosure instance.
             parameters: A dictionary of tensors representing the closure's state.
-                Expected to correspond with the first `len(parameters)` optional
-                gradient tensors returned by `closure`.
+                Expected to correspond with the first ``len(parameters)`` optional
+                gradient tensors returned by ``closure``.
         """
 
         self.closure = closure

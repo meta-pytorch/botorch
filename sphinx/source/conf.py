@@ -65,6 +65,11 @@ exclude_patterns = []
 # The name of the Pygments (syntax highlighting) style to use.
 pygments_style = "sphinx"
 
+# The default role for single backticks (``text``). Setting to "literal" renders
+# them as inline code instead of attempting to create cross-references, which
+# avoids ambiguous reference warnings for common terms like ``batch_shape``.
+default_role = "literal"
+
 # Default options for autodoc directives. Applied to all autodoc directives
 autodoc_default_options = {
     "undoc-members": True,
@@ -74,7 +79,7 @@ autodoc_default_options = {
 # show type hints in the method description
 autodoc_typehints = "description"
 
-# Inlcude init docstrings into body of autoclass directives
+# Include init docstrings into body of autoclass directives
 autoclass_content = "both"
 
 
@@ -197,5 +202,5 @@ epub_exclude_files = ["search.html"]
 
 # -- Options for todo extension ----------------------------------------------
 
-# If true, `todo` and `todoList` produce output, else they produce nothing.
+# If true, ``todo`` and ``todoList`` produce output, else they produce nothing.
 todo_include_todos = True

@@ -39,7 +39,7 @@ class TestCostAwareUtilities(BotorchTestCase):
     def test_InverseCostWeightedUtility(self):
         for batch_shape in ([], [2]):
             for dtype in (torch.float, torch.double):
-                # the event shape is `batch_shape x q x t`
+                # the event shape is ``batch_shape x q x t``
                 mean = 1 + torch.rand(
                     *batch_shape, 2, 1, device=self.device, dtype=dtype
                 )
@@ -136,8 +136,8 @@ class TestCostAwareUtilities(BotorchTestCase):
                 # test evaluation_mask
                 multi_output_mean = torch.cat([mean, 2 * mean], dim=-1)
 
-                def cost_fn(X):
-                    return multi_output_mean
+                def cost_fn(X, mom=multi_output_mean):
+                    return mom
 
                 mm = GenericDeterministicModel(f=cost_fn, num_outputs=2)
                 icwu = InverseCostWeightedUtility(mm)

@@ -63,9 +63,9 @@ INIT_OPTION_KEYS = {
 @dataclasses.dataclass(frozen=True)
 class OptimizeAcqfInputs:
     """
-    Container for inputs to `optimize_acqf`.
+    Container for inputs to ``optimize_acqf``.
 
-    See docstring for `optimize_acqf` for explanation of parameters.
+    See docstring for ``optimize_acqf`` for explanation of parameters.
     """
 
     acq_function: AcquisitionFunction | None
@@ -199,7 +199,7 @@ def _optimize_acqf_all_features_fixed(
     acq_function: AcquisitionFunction,
 ) -> tuple[Tensor, Tensor]:
     """
-    Helper function for `optimize_acqf` for the trivial case where
+    Helper function for ``optimize_acqf`` for the trivial case where
     all features are fixed.
     """
     X = torch.tensor(
@@ -263,9 +263,9 @@ def _optimize_acqf_sequential_q(
     opt_inputs: OptimizeAcqfInputs,
 ) -> tuple[Tensor, Tensor]:
     """
-    Helper function for `optimize_acqf` when sequential=True and q > 1.
+    Helper function for ``optimize_acqf`` when sequential=True and q > 1.
 
-    For each of `q` times, generate a single candidate greedily, then add it to
+    For each of ``q`` times, generate a single candidate greedily, then add it to
     the list of pending points.
     """
     _validate_sequential_inputs(opt_inputs)
@@ -357,7 +357,7 @@ def _optimize_acqf_batch(opt_inputs: OptimizeAcqfInputs) -> tuple[Tensor, Tensor
         required_num_restarts -= provided_initial_conditions.shape[0]
 
     if opt_inputs.raw_samples is not None and required_num_restarts > 0:
-        # pyre-ignore[28]: Unexpected keyword argument `acq_function`
+        # pyre-ignore[28]: Unexpected keyword argument ``acq_function``
         # to anonymous call.
         generated_initial_conditions = opt_inputs.get_ic_generator()(
             acq_function=opt_inputs.acq_function,
@@ -607,21 +607,21 @@ def optimize_acqf(
 
     A high-level description (missing exceptions for special setups):
 
-    This function optimizes the acquisition function `acq_function` in two steps:
+    This function optimizes the acquisition function ``acq_function`` in two steps:
 
-    i) It will sample `raw_samples` random points using Sobol sampling in the bounds
-    `bounds` and pass on the "best" `num_restarts` many.
-    The default way to find these "best" is via `gen_batch_initial_conditions`
-    (deviating for some acq functions, see `get_ic_generator`),
+    i) It will sample ``raw_samples`` random points using Sobol sampling in the bounds
+    ``bounds`` and pass on the "best" ``num_restarts`` many.
+    The default way to find these "best" is via ``gen_batch_initial_conditions``
+    (deviating for some acq functions, see ``get_ic_generator``),
     which by default performs Boltzmann sampling on the acquisition function value
-    (The behavior of step (i) can be further controlled by specifying `ic_generator`
-    or `batch_initial_conditions`.)
+    (The behavior of step (i) can be further controlled by specifying ``ic_generator``
+    or ``batch_initial_conditions``.)
 
-    ii) A batch of the `num_restarts` points (or joint sets of points)
+    ii) A batch of the ``num_restarts`` points (or joint sets of points)
     with the highest acquisition values in the previous step are then further
     optimized. This is by default done by LBFGS-B optimization, if no constraints are
     present, and SLSQP, if constraints are present (can be changed to
-    other optmizers via `gen_candidates`).
+    other optmizers via ``gen_candidates``).
 
     While the optimization procedure runs on CPU by default for this function,
     the acq_function can be implemented on GPU and simply move the inputs
@@ -629,53 +629,57 @@ def optimize_acqf(
 
     Args:
         acq_function: An AcquisitionFunction.
-        bounds: A `2 x d` tensor of lower and upper bounds for each column of `X`
+        bounds: A ``2 x d`` tensor of lower and upper bounds for each column of ``X``
             (if inequality_constraints is provided, these bounds can be -inf and
             +inf, respectively).
         q: The number of candidates.
         num_restarts: The number of starting points for multistart acquisition
             function optimization. Even though the name suggests this happens
             sequentually, it is done in parallel (using batched evaluations)
-            for up to `options.batch_limit` candidates (by default completely parallel).
+            for up to ``options.batch_limit`` candidates
+            (by default completely parallel).
         raw_samples: The number of samples for initialization. This is required
-            if `batch_initial_conditions` is not specified.
-        options: Options for both optimization, passed to `gen_candidates`,
-            and initialization, passed to the `ic_generator` via the `options` kwarg.
+            if ``batch_initial_conditions`` is not specified.
+        options: Options for both optimization,
+            passed to ``gen_candidates``,
+            and initialization, passed to the ``ic_generator`` via the
+            ``options`` kwarg.
         inequality_constraints: A list of tuples (indices, coefficients, rhs),
             with each tuple encoding an inequality constraint of the form
-            `\sum_i (X[indices[i]] * coefficients[i]) >= rhs`. `indices` and
-            `coefficients` should be torch tensors. See the docstring of
-            `make_scipy_linear_constraints` for an example. When q=1, or when
+            ``\sum_i (X[indices[i]] * coefficients[i]) >= rhs``. ``indices`` and
+            ``coefficients`` should be torch tensors. See the docstring of
+            ``make_scipy_linear_constraints`` for an example. When q=1, or when
             applying the same constraint to each candidate in the batch
-            (intra-point constraint), `indices` should be a 1-d tensor.
+            (intra-point constraint), ``indices`` should be a 1-d tensor.
             For inter-point constraints, in which the constraint is applied to the
-            whole batch of candidates, `indices` must be a 2-d tensor, where
-            in each row `indices[i] =(k_i, l_i)` the first index `k_i` corresponds
-            to the `k_i`-th element of the `q`-batch and the second index `l_i`
-            corresponds to the `l_i`-th feature of that element.
+            whole batch of candidates, ``indices`` must be a 2-d tensor, where
+            in each row ``indices[i] =(k_i, l_i)`` the first index ``k_i`` corresponds
+            to the ``k_i``-th element of the ``q``-batch and the second index ``l_i``
+            corresponds to the ``l_i``-th feature of that element.
         equality_constraints: A list of tuples (indices, coefficients, rhs),
             with each tuple encoding an equality constraint of the form
-            `\sum_i (X[indices[i]] * coefficients[i]) = rhs`. See the docstring of
-            `make_scipy_linear_constraints` for an example.
+            ``\sum_i (X[indices[i]] * coefficients[i]) = rhs``. See the docstring of
+            ``make_scipy_linear_constraints`` for an example.
         nonlinear_inequality_constraints: A list of tuples representing the nonlinear
             inequality constraints. The first element in the tuple is a callable
-            representing a constraint of the form `callable(x) >= 0`. In case of an
-            intra-point constraint, `callable()`takes in an one-dimensional tensor of
-            shape `d` and returns a scalar. In case of an inter-point constraint,
-            `callable()` takes a two dimensional tensor of shape `q x d` and again
+            representing a constraint of the form ``callable(x) >= 0``. In case of an
+            intra-point constraint, ``callable()``takes in an one-dimensional tensor of
+            shape ``d`` and returns a scalar. In case of an inter-point constraint,
+            ``callable()`` takes a two dimensional tensor of shape ``q x d`` and again
             returns a scalar. The second element is a boolean, indicating if it is an
-            intra-point or inter-point constraint (`True` for intra-point. `False` for
+            intra-point or inter-point constraint
+            (``True`` for intra-point. ``False`` for
             inter-point). For more information on intra-point vs inter-point
-            constraints, see the docstring of the `inequality_constraints` argument to
-            `optimize_acqf()`. The constraints will later be passed to the scipy
-            solver. You need to pass in `batch_initial_conditions` in this case.
-            Using non-linear inequality constraints also requires that `batch_limit`
+            constraints, see the docstring of the ``inequality_constraints`` argument to
+            ``optimize_acqf()``. The constraints will later be passed to the scipy
+            solver. You need to pass in ``batch_initial_conditions`` in this case.
+            Using non-linear inequality constraints also requires that ``batch_limit``
             is set to 1, which will be done automatically if not specified in
-            `options`.
-        fixed_features: A map `{feature_index: value}` for features that
+            ``options``.
+        fixed_features: A map ``{feature_index: value}`` for features that
             should be fixed to a particular value during generation.
         post_processing_func: A function that post-processes an optimization
-            result appropriately (i.e., according to `round-trip`
+            result appropriately (i.e., according to ``round-trip``
             transformations).
         batch_initial_conditions: A tensor to specify the initial conditions. Set
             this if you do not want to use default initialization strategy.
@@ -687,44 +691,46 @@ def optimize_acqf(
             and a dictionary of options, but refer to the documentation of specific
             generation functions (e.g., botorch.optim.optimize.gen_candidates_scipy
             and botorch.generation.gen.gen_candidates_torch) for method-specific
-            inputs. Default: `gen_candidates_scipy`
+            inputs. Default: ``gen_candidates_scipy``
         sequential: If False, uses joint optimization, otherwise uses sequential
             optimization for optimizing multiple joint candidates (q > 1).
         acq_function_sequence: A list of acquisition functions to be optimized
             sequentially. Must be of length q>1, and requires sequential=True. Used
             for ensembling candidates from different acquisition functions. If
-            omitted, use `acq_function` to generate all `q` candidates.
+            omitted, use ``acq_function`` to generate all ``q`` candidates.
         ic_generator: Function for generating initial conditions. Not needed when
-            `batch_initial_conditions` are provided. Defaults to
-            `gen_one_shot_kg_initial_conditions` for `qKnowledgeGradient` acquisition
-            functions and `gen_batch_initial_conditions` otherwise. Must be specified
+            ``batch_initial_conditions`` are provided. Defaults to
+            ``gen_one_shot_kg_initial_conditions`` for
+            ``qKnowledgeGradient`` acquisition
+            functions and ``gen_batch_initial_conditions`` otherwise.
+            Must be specified
             for nonlinear inequality constraints.
         timeout_sec: Max amount of time optimization can run for.
         return_full_tree: Return the full tree of optimizers of the previous
             iteration.
         retry_on_optimization_warning: Whether to retry candidate generation with a new
-            set of initial conditions when it fails with an `OptimizationWarning`.
+            set of initial conditions when it fails with an ``OptimizationWarning``.
         ic_gen_kwargs: Additional keyword arguments passed to function specified by
-            `ic_generator`
+            ``ic_generator``
 
     Returns:
         A two-element tuple containing
 
         - A tensor of generated candidates. The shape is
-            -- `q x d` if `return_best_only` is True (default)
-            -- `num_restarts x q x d` if `return_best_only` is False
-        - a tensor of associated acquisition values. If `sequential=False`,
-            this is a `(num_restarts)`-dim tensor of joint acquisition values
-            (with explicit restart dimension if `return_best_only=False`). If
-            `sequential=True`, this is a `q`-dim tensor of expected acquisition
-            values conditional on having observed candidates `0,1,...,i-1`.
+            -- ``q x d`` if ``return_best_only`` is True (default)
+            -- ``num_restarts x q x d`` if ``return_best_only`` is False
+        - a tensor of associated acquisition values. If ``sequential=False``,
+            this is a ``(num_restarts)``-dim tensor of joint acquisition values
+            (with explicit restart dimension if ``return_best_only=False``). If
+            ``sequential=True``, this is a ``q``-dim tensor of expected acquisition
+            values conditional on having observed candidates ``0,1,...,i-1``.
 
     Example:
-        >>> # generate `q=2` candidates jointly using 20 random restarts
+        >>> # generate ``q=2`` candidates jointly using 20 random restarts
         >>> # and 512 raw samples
         >>> candidates, acq_value = optimize_acqf(qEI, bounds, 2, 20, 512)
 
-        >>> generate `q=3` candidates sequentially using 15 random restarts
+        >>> generate ``q=3`` candidates sequentially using 15 random restarts
         >>> # and 256 raw samples
         >>> qEI = qExpectedImprovement(model, best_f=0.2)
         >>> bounds = torch.tensor([[0.], [1.]])
@@ -809,57 +815,59 @@ def optimize_acqf_cyclic(
     retry_on_optimization_warning: bool = True,
     **ic_gen_kwargs: Any,
 ) -> tuple[Tensor, Tensor]:
-    r"""Generate a set of `q` candidates via cyclic optimization.
+    r"""Generate a set of ``q`` candidates via cyclic optimization.
 
     Args:
         acq_function: An AcquisitionFunction
-        bounds: A `2 x d` tensor of lower and upper bounds for each column of `X`
+        bounds: A ``2 x d`` tensor of lower and upper bounds for each column of ``X``
             (if inequality_constraints is provided, these bounds can be -inf and
             +inf, respectively).
         q: The number of candidates.
         num_restarts:  Number of starting points for multistart acquisition
             function optimization.
         raw_samples: Number of samples for initialization. This is required
-            if `batch_initial_conditions` is not specified.
+            if ``batch_initial_conditions`` is not specified.
         options: Options for candidate generation.
         inequality constraints: A list of tuples (indices, coefficients, rhs),
             with each tuple encoding an inequality constraint of the form
-            `\sum_i (X[indices[i]] * coefficients[i]) >= rhs`
+            ``\sum_i (X[indices[i]] * coefficients[i]) >= rhs``
         equality constraints: A list of tuples (indices, coefficients, rhs),
             with each tuple encoding an inequality constraint of the form
-            `\sum_i (X[indices[i]] * coefficients[i]) = rhs`
-        fixed_features: A map `{feature_index: value}` for features that
+            ``\sum_i (X[indices[i]] * coefficients[i]) = rhs``
+        fixed_features: A map ``{feature_index: value}`` for features that
             should be fixed to a particular value during generation.
         post_processing_func: A function that post-processes an optimization
-            result appropriately (i.e., according to `round-trip`
+            result appropriately (i.e., according to ``round-trip``
             transformations).
         batch_initial_conditions: A tensor to specify the initial conditions.
             If no initial conditions are provided, the default initialization will
             be used.
         cyclic_options: Options for stopping criterion for outer cyclic optimization.
         ic_generator: Function for generating initial conditions. Not needed when
-            `batch_initial_conditions` are provided. Defaults to
-            `gen_one_shot_kg_initial_conditions` for `qKnowledgeGradient` acquisition
-            functions and `gen_batch_initial_conditions` otherwise. Must be specified
+            ``batch_initial_conditions`` are provided. Defaults to
+            ``gen_one_shot_kg_initial_conditions`` for
+            ``qKnowledgeGradient`` acquisition
+            functions and ``gen_batch_initial_conditions`` otherwise.
+            Must be specified
             for nonlinear inequality constraints.
         timeout_sec: Max amount of time optimization can run for.
         return_full_tree: Return the full tree of optimizers of the previous
             iteration.
         retry_on_optimization_warning: Whether to retry candidate generation with a new
-            set of initial conditions when it fails with an `OptimizationWarning`.
+            set of initial conditions when it fails with an ``OptimizationWarning``.
         ic_gen_kwargs: Additional keyword arguments passed to function specified by
-            `ic_generator`
+            ``ic_generator``
 
     Returns:
         A two-element tuple containing
 
-        - a `q x d`-dim tensor of generated candidates.
-        - a `q`-dim tensor of expected acquisition values, where the value at
-            index `i` is the acquisition value conditional on having observed
-            all candidates except candidate `i`.
+        - a ``q x d``-dim tensor of generated candidates.
+        - a ``q``-dim tensor of expected acquisition values, where the value at
+            index ``i`` is the acquisition value conditional on having observed
+            all candidates except candidate ``i``.
 
     Example:
-        >>> # generate `q=3` candidates cyclically using 15 random restarts
+        >>> # generate ``q=3`` candidates cyclically using 15 random restarts
         >>> # 256 raw samples, and 4 cycles
         >>>
         >>> qEI = qExpectedImprovement(model, best_f=0.2)
@@ -950,62 +958,63 @@ def optimize_acqf_list(
     r"""Generate a list of candidates from a list of acquisition functions.
 
     The acquisition functions are optimized in sequence, with previous candidates
-    set as `X_pending`. This is also known as sequential greedy optimization.
+    set as ``X_pending``. This is also known as sequential greedy optimization.
 
     Args:
         acq_function_list: A list of acquisition functions.
-        bounds: A `2 x d` tensor of lower and upper bounds for each column of `X`
+        bounds: A ``2 x d`` tensor of lower and upper bounds for each column of ``X``
             (if inequality_constraints is provided, these bounds can be -inf and
             +inf, respectively).
         num_restarts:  Number of starting points for multistart acquisition
             function optimization.
         raw_samples: Number of samples for initialization. This is required
-            if `batch_initial_conditions` is not specified.
+            if ``batch_initial_conditions`` is not specified.
         options: Options for candidate generation.
         inequality constraints: A list of tuples (indices, coefficients, rhs),
             with each tuple encoding an inequality constraint of the form
-            `\sum_i (X[indices[i]] * coefficients[i]) >= rhs`
+            ``\sum_i (X[indices[i]] * coefficients[i]) >= rhs``
         equality constraints: A list of tuples (indices, coefficients, rhs),
             with each tuple encoding an inequality constraint of the form
-            `\sum_i (X[indices[i]] * coefficients[i]) = rhs`
+            ``\sum_i (X[indices[i]] * coefficients[i]) = rhs``
         nonlinear_inequality_constraints: A list of tuples representing the nonlinear
             inequality constraints. The first element in the tuple is a callable
-            representing a constraint of the form `callable(x) >= 0`. In case of an
-            intra-point constraint, `callable()`takes in an one-dimensional tensor of
-            shape `d` and returns a scalar. In case of an inter-point constraint,
-            `callable()` takes a two dimensional tensor of shape `q x d` and again
+            representing a constraint of the form ``callable(x) >= 0``. In case of an
+            intra-point constraint, ``callable()``takes in an one-dimensional tensor of
+            shape ``d`` and returns a scalar. In case of an inter-point constraint,
+            ``callable()`` takes a two dimensional tensor of shape ``q x d`` and again
             returns a scalar. The second element is a boolean, indicating if it is an
-            intra-point or inter-point constraint (`True` for intra-point. `False` for
+            intra-point or inter-point constraint
+            (``True`` for intra-point. ``False`` for
             inter-point). For more information on intra-point vs inter-point
-            constraints, see the docstring of the `inequality_constraints` argument to
-            `optimize_acqf()`. The constraints will later be passed to the scipy
-            solver. You need to pass in `batch_initial_conditions` in this case.
-            Using non-linear inequality constraints also requires that `batch_limit`
+            constraints, see the docstring of the ``inequality_constraints`` argument to
+            ``optimize_acqf()``. The constraints will later be passed to the scipy
+            solver. You need to pass in ``batch_initial_conditions`` in this case.
+            Using non-linear inequality constraints also requires that ``batch_limit``
             is set to 1, which will be done automatically if not specified in
-            `options`.
-        fixed_features: A map `{feature_index: value}` for features that should
+            ``options``.
+        fixed_features: A map ``{feature_index: value}`` for features that should
             be fixed to a particular value during generation.
-        fixed_features_list: A list of maps `{feature_index: value}`. The i-th
+        fixed_features_list: A list of maps ``{feature_index: value}``. The i-th
             item represents the fixed_feature for the i-th optimization. If
-            `fixed_features_list` is provided, `optimize_acqf_mixed` is invoked.
+            ``fixed_features_list`` is provided, ``optimize_acqf_mixed`` is invoked.
         post_processing_func: A function that post-processes an optimization
-            result appropriately (i.e., according to `round-trip`
+            result appropriately (i.e., according to ``round-trip``
             transformations).
         ic_generator: Function for generating initial conditions. Not needed when
-            `batch_initial_conditions` are provided. Defaults to
-            `gen_one_shot_kg_initial_conditions` for `qKnowledgeGradient` acquisition
-            functions and `gen_batch_initial_conditions` otherwise. Must be specified
-            for nonlinear inequality constraints.
+            ``batch_initial_conditions`` are provided. Defaults to
+            ``gen_one_shot_kg_initial_conditions`` for ``qKnowledgeGradient``
+            acquisition functions and ``gen_batch_initial_conditions`` otherwise.
+            Must be specified for nonlinear inequality constraints.
         ic_gen_kwargs: Additional keyword arguments passed to function specified by
-            `ic_generator`
+            ``ic_generator``
 
     Returns:
         A two-element tuple containing
 
-        - a `q x d`-dim tensor of generated candidates.
-        - a `q`-dim tensor of expected acquisition values, where the value at
-            index `i` is the acquisition value conditional on having observed
-            all candidates except candidate `i`.
+        - a ``q x d``-dim tensor of generated candidates.
+        - a ``q``-dim tensor of expected acquisition values, where the value at
+            index ``i`` is the acquisition value conditional on having observed
+            all candidates except candidate ``i``.
     """
     if fixed_features and fixed_features_list:
         raise ValueError(
@@ -1091,68 +1100,70 @@ def optimize_acqf_mixed(
     proper conditioning on generated candidates).
 
     NOTE: This method does not support the kind of "inter-point constraints" that
-    are supported by `optimize_acqf()`.
+    are supported by ``optimize_acqf()``.
 
     Args:
         acq_function: An AcquisitionFunction
-        bounds: A `2 x d` tensor of lower and upper bounds for each column of `X`
+        bounds: A ``2 x d`` tensor of lower and upper bounds for each column of ``X``
             (if inequality_constraints is provided, these bounds can be -inf and
             +inf, respectively).
         q: The number of candidates.
         num_restarts:  Number of starting points for multistart acquisition
             function optimization.
         raw_samples: Number of samples for initialization. This is required
-            if `batch_initial_conditions` is not specified.
-        fixed_features_list: A list of maps `{feature_index: value}`. The i-th
+            if ``batch_initial_conditions`` is not specified.
+        fixed_features_list: A list of maps ``{feature_index: value}``. The i-th
             item represents the fixed_feature for the i-th optimization.
         options: Options for candidate generation.
         inequality constraints: A list of tuples (indices, coefficients, rhs),
             with each tuple encoding an inequality constraint of the form
-            `\sum_i (X[indices[i]] * coefficients[i]) >= rhs`
+            ``\sum_i (X[indices[i]] * coefficients[i]) >= rhs``
         equality constraints: A list of tuples (indices, coefficients, rhs),
             with each tuple encoding an inequality constraint of the form
-            `\sum_i (X[indices[i]] * coefficients[i]) = rhs`
+            ``\sum_i (X[indices[i]] * coefficients[i]) = rhs``
         nonlinear_inequality_constraints: A list of tuples representing the nonlinear
             inequality constraints. The first element in the tuple is a callable
-            representing a constraint of the form `callable(x) >= 0`. The `callable()`
-            takes in an one-dimensional tensor of shape `d` and returns a scalar.
+            representing a constraint of the form ``callable(x) >= 0``.
+            The ``callable()``
+            takes in an one-dimensional tensor of shape ``d`` and returns a scalar.
             The second element is a boolean, indicating if it is an
-            intra-point or inter-point constraint (`True` for intra-point. `False` for
+            intra-point or inter-point constraint
+            (``True`` for intra-point. ``False`` for
             inter-point). Since inter-point constraints are not supported by this
-            method, this has to be `True` and raises an error if being `False`.
+            method, this has to be ``True`` and raises an error if being ``False``.
         post_processing_func: A function that post-processes an optimization
-            result appropriately (i.e., according to `round-trip`
+            result appropriately (i.e., according to ``round-trip``
             transformations).
         batch_initial_conditions: A tensor to specify the initial conditions. Set
             this if you do not want to use default initialization strategy.
         return_best_only: If False, outputs the solutions corresponding to all
             random restart initializations of the optimization. Setting this keyword
-            to False is only allowed for `q=1`. Defaults to True.
+            to False is only allowed for ``q=1``. Defaults to True.
         gen_candidates: A callable for generating candidates (and their associated
             acquisition values) given a tensor of initial conditions and an
             acquisition function. Other common inputs include lower and upper bounds
             and a dictionary of options, but refer to the documentation of specific
             generation functions (e.g gen_candidates_scipy and gen_candidates_torch)
-            for method-specific inputs. Default: `gen_candidates_scipy`
+            for method-specific inputs. Default: ``gen_candidates_scipy``
         ic_generator: Function for generating initial conditions. Not needed when
-            `batch_initial_conditions` are provided. Defaults to
-            `gen_one_shot_kg_initial_conditions` for `qKnowledgeGradient` acquisition
-            functions and `gen_batch_initial_conditions` otherwise. Must be specified
-            for nonlinear inequality constraints.
+            ``batch_initial_conditions`` are provided. Defaults to
+            ``gen_one_shot_kg_initial_conditions`` for ``qKnowledgeGradient``
+            acquisition functions and ``gen_batch_initial_conditions`` otherwise.
+            Must be specified for nonlinear inequality constraints.
         timeout_sec: Max amount of time optimization can run for.
         retry_on_optimization_warning: Whether to retry candidate generation with a new
-            set of initial conditions when it fails with an `OptimizationWarning`.
+            set of initial conditions when it fails with an ``OptimizationWarning``.
         ic_gen_kwargs: Additional keyword arguments passed to function specified by
-            `ic_generator`
+            ``ic_generator``
 
     Returns:
         A two-element tuple containing
 
         - A tensor of generated candidates. The shape is
-            -- `q x d` if `return_best_only` is True (default)
-            -- `num_restarts x q x d` if `return_best_only` is False
-        - a tensor of associated acquisition values of dim `num_restarts`
-            if `return_best_only=False` else a scalar acquisition value.
+            -- ``q x d`` if ``return_best_only`` is True (default)
+            -- ``num_restarts x q x d`` if ``return_best_only`` is False
+        - a tensor of associated acquisition values of dim ``num_restarts``
+            if ``return_best_only=False`` else a scalar acquisition value.
     """
     const_err_message = (
         "Inter-point constraints are not supported for sequential optimization. "
@@ -1306,31 +1317,31 @@ def optimize_acqf_discrete(
 ) -> tuple[Tensor, Tensor]:
     r"""Optimize over a discrete set of points using batch evaluation.
 
-    For `q > 1` this function generates candidates by means of sequential
+    For ``q > 1`` this function generates candidates by means of sequential
     conditioning (rather than joint optimization), since for all but the
-    smalles number of choices the set `choices^q` of discrete points to
+    smalles number of choices the set ``choices^q`` of discrete points to
     evaluate quickly explodes.
 
     Args:
         acq_function: An AcquisitionFunction.
         q: The number of candidates.
-        choices: A `num_choices x d` tensor of possible choices.
+        choices: A ``num_choices x d`` tensor of possible choices.
         max_batch_size: The maximum number of choices to evaluate in batch.
             A large limit can cause excessive memory usage if the model has
             a large training set.
         unique: If True return unique choices, o/w choices may be repeated
-            (only relevant if `q > 1`).
-        X_avoid: An `n x d` tensor of candidates that we aren't allowed to pick.
+            (only relevant if ``q > 1``).
+        X_avoid: An ``n x d`` tensor of candidates that we aren't allowed to pick.
             These will be removed from the set of choices.
         inequality constraints: A list of tuples (indices, coefficients, rhs),
             with each tuple encoding an inequality constraint of the form
-            `\sum_i (X[indices[i]] * coefficients[i]) >= rhs`.
+            ``\sum_i (X[indices[i]] * coefficients[i]) >= rhs``.
             Infeasible points will be removed from the set of choices.
 
     Returns:
         A two-element tuple containing
 
-        - a `q x d`-dim tensor of generated candidates.
+        - a ``q x d``-dim tensor of generated candidates.
         - an associated acquisition value.
     """
     if isinstance(acq_function, OneShotAcquisitionFunction):
@@ -1429,7 +1440,7 @@ def _generate_neighbors(
 def _filter_infeasible(
     X: Tensor, inequality_constraints: list[tuple[Tensor, Tensor, float]]
 ) -> Tensor:
-    """Remove all points from `X` that don't satisfy the constraints."""
+    """Remove all points from ``X`` that don't satisfy the constraints."""
     is_feasible = torch.ones(X.shape[0], dtype=torch.bool, device=X.device)
     for inds, weights, bound in inequality_constraints:
         is_feasible &= (X[..., inds] * weights).sum(dim=-1) >= bound
@@ -1437,7 +1448,7 @@ def _filter_infeasible(
 
 
 def _filter_invalid(X: Tensor, X_avoid: Tensor) -> Tensor:
-    """Remove all occurences of `X_avoid` from `X`."""
+    """Remove all occurences of ``X_avoid`` from ``X``."""
     return X[~(X == X_avoid.unsqueeze(-2)).all(dim=-1).any(dim=-2)]
 
 
@@ -1551,12 +1562,12 @@ def optimize_acqf_discrete_local_search(
         num_restarts:  Number of starting points for multistart acquisition
             function optimization.
         raw_samples: Number of samples for initialization. This is required
-            if `batch_initial_conditions` is not specified.
+            if ``batch_initial_conditions`` is not specified.
         inequality_constraints: A list of tuples (indices, coefficients, rhs),
             with each tuple encoding an inequality constraint of the form
-            `\sum_i (X[indices[i]] * coefficients[i]) >= rhs`
-        X_avoid: An `n x d` tensor of candidates that we aren't allowed to pick.
-        batch_initial_conditions: A tensor of size `n x 1 x d` to specify the
+            ``\sum_i (X[indices[i]] * coefficients[i]) >= rhs``
+        X_avoid: An ``n x d`` tensor of candidates that we aren't allowed to pick.
+        batch_initial_conditions: A tensor of size ``n x 1 x d`` to specify the
             initial conditions. Set this if you do not want to use default
             initialization strategy.
         max_batch_size: The maximum number of choices to evaluate in batch.
@@ -1565,12 +1576,12 @@ def optimize_acqf_discrete_local_search(
         max_tries: Maximum number of iterations to try when generating initial
             conditions.
         unique: If True return unique choices, o/w choices may be repeated
-            (only relevant if `q > 1`).
+            (only relevant if ``q > 1``).
 
     Returns:
         A two-element tuple containing
 
-        - a `q x d`-dim tensor of generated candidates.
+        - a ``q x d``-dim tensor of generated candidates.
         - an associated acquisition value.
     """
     if batch_initial_conditions is not None:

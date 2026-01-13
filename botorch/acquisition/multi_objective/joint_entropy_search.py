@@ -58,17 +58,17 @@ class LowerBoundMultiObjectiveEntropySearch(AcquisitionFunction, MCSamplerMixin)
 
         Args:
             model: A fitted batch model with 'M' number of outputs.
-            pareto_sets: A `num_pareto_samples x num_pareto_points x d`-dim Tensor
+            pareto_sets: A ``num_pareto_samples x num_pareto_points x d``-dim Tensor
                 containing the sampled Pareto optimal sets of inputs.
-            pareto_fronts: A `num_pareto_samples x num_pareto_points x M`-dim Tensor
+            pareto_fronts: A ``num_pareto_samples x num_pareto_points x M``-dim Tensor
                 containing the sampled Pareto optimal sets of outputs.
-            hypercell_bounds:  A `num_pareto_samples x 2 x J x M`-dim Tensor
-                containing the hyper-rectangle bounds for integration, where `J` is
+            hypercell_bounds:  A ``num_pareto_samples x 2 x J x M``-dim Tensor
+                containing the hyper-rectangle bounds for integration, where ``J`` is
                 the number of hyper-rectangles. In the unconstrained case, this gives
                 the partition of the dominated space. In the constrained case, this
                 gives the partition of the feasible dominated space union the
                 infeasible space.
-            X_pending: A `m x d`-dim Tensor of `m` design points that have been
+            X_pending: A ``m x d``-dim Tensor of ``m`` design points that have been
                 submitted for function evaluation, but have not yet been evaluated.
             estimation_type: A string to determine which entropy estimate is
                 computed: "0", "LB", "LB2", or "MC".
@@ -132,24 +132,24 @@ class LowerBoundMultiObjectiveEntropySearch(AcquisitionFunction, MCSamplerMixin)
         r"""Compute the posterior statistics.
 
         Args:
-            X: A `batch_shape x q x d`-dim Tensor of inputs.
+            X: A ``batch_shape x q x d``-dim Tensor of inputs.
 
         Returns:
             A dictionary containing the posterior variables used to estimate the
             entropy.
 
-            - "initial_entropy": A `batch_shape`-dim Tensor containing the entropy of
-                the Gaussian random variable `p(Y| X, D_n)`.
-            - "posterior_mean": A `batch_shape x num_pareto_samples x q x 1 x M`-dim
-                Tensor containing the posterior mean at the input `X`.
-            - "posterior_variance": A `batch_shape x num_pareto_samples x q x 1 x M`
-                -dim Tensor containing the posterior variance at the input `X`
+            - "initial_entropy": A ``batch_shape``-dim Tensor containing the entropy of
+                the Gaussian random variable ``p(Y| X, D_n)``.
+            - "posterior_mean": A ``batch_shape x num_pareto_samples x q x 1 x M``-dim
+                Tensor containing the posterior mean at the input ``X``.
+            - "posterior_variance": A ``batch_shape x num_pareto_samples x q x 1 x M``
+                -dim Tensor containing the posterior variance at the input ``X``
                 excluding the observation noise.
-            - "observation_noise": A `batch_shape x num_pareto_samples x q x 1 x M`
-                -dim Tensor containing the observation noise at the input `X`.
-            - "posterior_with_noise": The posterior distribution at `X` which
+            - "observation_noise": A ``batch_shape x num_pareto_samples x q x 1 x M``
+                -dim Tensor containing the observation noise at the input ``X``.
+            - "posterior_with_noise": The posterior distribution at ``X`` which
                 includes the observation noise. This is used to compute the marginal
-                log-probabilities with respect to `p(y| x, D_n)` for `x` in `X`.
+                log-probabilities with respect to ``p(y| x, D_n)`` for ``x`` in ``X``.
         """
 
         pass  # pragma: no cover
@@ -177,15 +177,15 @@ class LowerBoundMultiObjectiveEntropySearch(AcquisitionFunction, MCSamplerMixin)
         pass  # pragma: no cover
 
     def _compute_lower_bound_information_gain(self, X: Tensor) -> Tensor:
-        r"""Evaluates the lower bound information gain at the design points `X`.
+        r"""Evaluates the lower bound information gain at the design points ``X``.
 
         Args:
-            X: A `batch_shape x q x d`-dim Tensor of `batch_shape` t-batches with `q`
-            `d`-dim design points each.
+            X: A ``batch_shape x q x d``-dim Tensor of ``batch_shape``
+                t-batches with ``q`` ``d``-dim design points each.
 
         Returns:
-            A `batch_shape`-dim Tensor of acquisition values at the given design
-            points `X`.
+            A ``batch_shape``-dim Tensor of acquisition values at the given design
+            points ``X``.
         """
         posterior_statistics = self._compute_posterior_statistics(X)
         initial_entropy = posterior_statistics["initial_entropy"]
@@ -194,7 +194,7 @@ class LowerBoundMultiObjectiveEntropySearch(AcquisitionFunction, MCSamplerMixin)
         obs_noise = posterior_statistics["observation_noise"]
 
         # Estimate the expected conditional entropy.
-        # `batch_shape x q` dim Tensor of entropy estimates
+        # ``batch_shape x q`` dim Tensor of entropy estimates
         if self.estimation_type == "0":
             conditional_entropy = _compute_entropy_noiseless(
                 hypercell_bounds=self.hypercell_bounds,
@@ -242,15 +242,15 @@ class LowerBoundMultiObjectiveEntropySearch(AcquisitionFunction, MCSamplerMixin)
     @abstractmethod
     def forward(self, X: Tensor) -> Tensor:
         r"""Compute lower bound multi-objective entropy search at the design points
-        `X`.
+        ``X``.
 
         Args:
-            X: A `batch_shape x q x d`-dim Tensor of `batch_shape` t-batches with `q`
-            `d`-dim design points each.
+            X: A ``batch_shape x q x d``-dim Tensor of ``batch_shape``
+                t-batches with ``q`` ``d``-dim design points each.
 
         Returns:
-            A `batch_shape`-dim Tensor of acquisition values at the given design
-            points `X`.
+            A ``batch_shape``-dim Tensor of acquisition values at the given design
+            points ``X``.
         """
 
         pass  # pragma: no cover
@@ -260,10 +260,10 @@ class qLowerBoundMultiObjectiveJointEntropySearch(
     LowerBoundMultiObjectiveEntropySearch
 ):
     r"""The acquisition function for the multi-objective joint entropy search, where
-    the batches `q > 1` are supported through the lower bound formulation.
+    the batches ``q > 1`` are supported through the lower bound formulation.
 
     This acquisition function computes the mutual information between the observation
-    at a candidate point `X` and the Pareto optimal input-output pairs.
+    at a candidate point ``X`` and the Pareto optimal input-output pairs.
 
     See [Tu2022]_ for a discussion on the estimation procedure.
 
@@ -290,16 +290,16 @@ class qLowerBoundMultiObjectiveJointEntropySearch(
 
         Args:
             model: A fitted batch model with 'M' number of outputs.
-            pareto_sets: A `num_pareto_samples x num_pareto_points x d`-dim Tensor
+            pareto_sets: A ``num_pareto_samples x num_pareto_points x d``-dim Tensor
                 containing the sampled Pareto optimal sets of inputs.
-            pareto_fronts: A `num_pareto_samples x num_pareto_points x M`-dim Tensor
+            pareto_fronts: A ``num_pareto_samples x num_pareto_points x M``-dim Tensor
                 containing the sampled Pareto optimal sets of outputs.
-            hypercell_bounds:  A `num_pareto_samples x 2 x J x M`-dim Tensor
+            hypercell_bounds:  A ``num_pareto_samples x 2 x J x M``-dim Tensor
                 containing the hyper-rectangle bounds for integration. In the
                 unconstrained case, this gives the partition of the dominated space.
                 In the constrained case, this gives the partition of the feasible
                 dominated space union the infeasible space.
-            X_pending: A `m x d`-dim Tensor of `m` design points that have been
+            X_pending: A ``m x d``-dim Tensor of ``m`` design points that have been
                 submitted for function evaluation, but have not yet been evaluated.
             estimation_type: A string to determine which entropy estimate is
                 computed: "0", "LB", "LB2", or "MC".
@@ -338,29 +338,29 @@ class qLowerBoundMultiObjectiveJointEntropySearch(
     ) -> dict[str, Tensor | GPyTorchPosterior]:
         r"""Compute the posterior statistics.
         Args:
-            X: A `batch_shape x q x d`-dim Tensor of inputs.
+            X: A ``batch_shape x q x d``-dim Tensor of inputs.
 
         Returns:
             A dictionary containing the posterior variables used to estimate the
             entropy.
 
-            - "initial_entropy": A `batch_shape`-dim Tensor containing the entropy of
-                the Gaussian random variable `p(Y| X, D_n)`.
-            - "posterior_mean": A `batch_shape x num_pareto_samples x q x 1 x M`-dim
-                Tensor containing the posterior mean at the input `X`.
-            - "posterior_variance": A `batch_shape x num_pareto_samples x q x 1 x M`
-                -dim Tensor containing the posterior variance at the input `X`
+            - "initial_entropy": A ``batch_shape``-dim Tensor containing the entropy of
+                the Gaussian random variable ``p(Y| X, D_n)``.
+            - "posterior_mean": A ``batch_shape x num_pareto_samples x q x 1 x M``-dim
+                Tensor containing the posterior mean at the input ``X``.
+            - "posterior_variance": A ``batch_shape x num_pareto_samples x q x 1 x M``
+                -dim Tensor containing the posterior variance at the input ``X``
                 excluding the observation noise.
-            - "observation_noise": A `batch_shape x num_pareto_samples x q x 1 x M`
-                -dim Tensor containing the observation noise at the input `X`.
-            - "posterior_with_noise": The posterior distribution at `X` which
+            - "observation_noise": A ``batch_shape x num_pareto_samples x q x 1 x M``
+                -dim Tensor containing the observation noise at the input ``X``.
+            - "posterior_with_noise": The posterior distribution at ``X`` which
                 includes the observation noise. This is used to compute the marginal
-                log-probabilities with respect to `p(y| x, D_n)` for `x` in `X`.
+                log-probabilities with respect to ``p(y| x, D_n)`` for ``x`` in ``X``.
         """
         tkwargs = {"dtype": X.dtype, "device": X.device}
         CLAMP_LB = torch.finfo(tkwargs["dtype"]).eps
 
-        # Compute the prior entropy term depending on `X`.
+        # Compute the prior entropy term depending on ``X``.
         initial_posterior_plus_noise = self.initial_model.posterior(
             X, observation_noise=True
         )
@@ -371,8 +371,8 @@ class qLowerBoundMultiObjectiveJointEntropySearch(
             * self.model.num_outputs
             * (1 + torch.log(2 * pi * torch.ones(1, **tkwargs)))
         )
-        # The variance initially has shape `batch_shape x (q*M) x (q*M)`
-        # prior_entropy has shape `batch_shape`.
+        # The variance initially has shape ``batch_shape x (q*M) x (q*M)``
+        # prior_entropy has shape ``batch_shape``.
         initial_entropy = add_term + 0.5 * torch.logdet(
             initial_posterior_plus_noise.mvn.covariance_matrix
         )
@@ -384,7 +384,7 @@ class qLowerBoundMultiObjectiveJointEntropySearch(
             X.unsqueeze(-2).unsqueeze(-3), observation_noise=True
         )
 
-        # `batch_shape x num_pareto_samples x q x 1 x M`
+        # ``batch_shape x num_pareto_samples x q x 1 x M``
         post_mean = conditional_posterior_with_noise.mean.swapaxes(-4, -3)
         post_var_with_noise = conditional_posterior_with_noise.variance.clamp_min(
             CLAMP_LB
@@ -396,7 +396,7 @@ class qLowerBoundMultiObjectiveJointEntropySearch(
             X.unsqueeze(-2).unsqueeze(-3), observation_noise=False
         )
 
-        # `batch_shape x num_pareto_samples x q x 1 x M`
+        # ``batch_shape x num_pareto_samples x q x 1 x M``
         post_var = conditional_posterior.variance.clamp_min(CLAMP_LB).swapaxes(-4, -3)
         obs_noise = (post_var_with_noise - post_var).clamp_min(CLAMP_LB)
 
@@ -414,8 +414,8 @@ class qLowerBoundMultiObjectiveJointEntropySearch(
         distribution that conditions on the Pareto optimal points.
 
         Args:
-            posterior: The conditional posterior distribution at an input `X`, where
-                we have also conditioned over the `num_pareto_samples` of optimal
+            posterior: The conditional posterior distribution at an input ``X``, where
+                we have also conditioned over the ``num_pareto_samples`` of optimal
                 points. Note that this posterior includes the observation noise.
 
         Returns:
@@ -427,18 +427,18 @@ class qLowerBoundMultiObjectiveJointEntropySearch(
                 x q`-dim Tensor containing the log-probabilities of the Monte Carlo
                 samples.
         """
-        # `num_mc_samples x batch_shape x q x num_pareto_samples x 1 x M`
+        # ``num_mc_samples x batch_shape x q x num_pareto_samples x 1 x M``
         samples = self.get_posterior_samples(posterior)
 
-        # `num_mc_samples x batch_shape x q x num_pareto_samples`
+        # ``num_mc_samples x batch_shape x q x num_pareto_samples``
         if self.model.num_outputs == 1:
             samples_log_prob = posterior.mvn.log_prob(samples.squeeze(-1))
         else:
             samples_log_prob = posterior.mvn.log_prob(samples)
 
         # Swap axes to get the correct shape:
-        # samples:`num_mc_samples x batch_shape x num_pareto_samples x q x 1 x M`
-        # log prob:`num_mc_samples x batch_shape x num_pareto_samples x q`
+        # samples:``num_mc_samples x batch_shape x num_pareto_samples x q x 1 x M``
+        # log prob:``num_mc_samples x batch_shape x num_pareto_samples x q``
 
         return samples.swapaxes(-4, -3), samples_log_prob.swapaxes(-2, -1)
 
@@ -447,15 +447,15 @@ class qLowerBoundMultiObjectiveJointEntropySearch(
     @average_over_ensemble_models
     def forward(self, X: Tensor) -> Tensor:
         r"""Evaluates qLowerBoundMultiObjectiveJointEntropySearch at the design
-        points `X`.
+        points ``X``.
 
         Args:
-            X: A `batch_shape x q x d`-dim Tensor of `batch_shape` t-batches with `q`
-            `d`-dim design points each.
+            X: A ``batch_shape x q x d``-dim Tensor of ``batch_shape``
+                t-batches with ``q`` ``d``-dim design points each.
 
         Returns:
-            A `batch_shape`-dim Tensor of acquisition values at the given design
-            points `X`.
+            A ``batch_shape``-dim Tensor of acquisition values at the given design
+            points ``X``.
         """
         return self._compute_lower_bound_information_gain(X)
 
@@ -466,22 +466,22 @@ def _compute_entropy_noiseless(
     variance: Tensor,
     observation_noise: Tensor,
 ) -> Tensor:
-    r"""Computes the entropy estimate at the design points `X` assuming noiseless
+    r"""Computes the entropy estimate at the design points ``X`` assuming noiseless
     observations. This is used for the JES-0 and MES-0 estimate.
 
     Args:
-        hypercell_bounds: A `num_pareto_samples x 2 x J x M` -dim Tensor containing
-            the box decomposition bounds, where `J = max(num_boxes)`.
-        mean: A `batch_shape x num_pareto_samples x q x 1 x M`-dim Tensor containing
+        hypercell_bounds: A ``num_pareto_samples x 2 x J x M`` -dim Tensor containing
+            the box decomposition bounds, where ``J = max(num_boxes)``.
+        mean: A ``batch_shape x num_pareto_samples x q x 1 x M``-dim Tensor containing
             the posterior mean at X.
-        variance: A `batch_shape x num_pareto_samples x q x 1 x M`-dim Tensor
+        variance: A ``batch_shape x num_pareto_samples x q x 1 x M``-dim Tensor
             containing the posterior variance at X excluding observation noise.
-        observation_noise: A `batch_shape x num_pareto_samples x q x 1 x M`-dim
+        observation_noise: A ``batch_shape x num_pareto_samples x q x 1 x M``-dim
             Tensor containing the observation noise at X.
 
     Returns:
-        A `batch_shape x q`-dim Tensor of entropy estimate at the given design points
-        `X`.
+        A ``batch_shape x q``-dim Tensor of entropy estimate at the given design points
+        ``X``.
     """
     tkwargs = {"dtype": hypercell_bounds.dtype, "device": hypercell_bounds.device}
     CLAMP_LB = torch.finfo(tkwargs["dtype"]).eps
@@ -489,7 +489,7 @@ def _compute_entropy_noiseless(
     variance_plus_noise = variance + observation_noise
 
     # Standardize the box decomposition bounds and compute normal quantities.
-    # `batch_shape x num_pareto_samples x q x 2 x J x M`
+    # ``batch_shape x num_pareto_samples x q x 2 x J x M``
     g = (hypercell_bounds.unsqueeze(-4) - mean.unsqueeze(-2)) / torch.sqrt(
         variance.unsqueeze(-2)
     )
@@ -508,20 +508,20 @@ def _compute_entropy_noiseless(
 
     # Compute the sum of ratios.
     ratios = 0.5 * (Wj * (Vjm / Wjm)) / W
-    # `batch_shape x num_pareto_samples x q x 1 x 1`
+    # ``batch_shape x num_pareto_samples x q x 1 x 1``
     ratio_term = torch.sum(ratios, dim=(-2, -1), keepdims=True)
 
     # Compute the logarithm of the variance.
     log_term = 0.5 * torch.log(variance_plus_noise).sum(-1, keepdims=True)
 
-    # `batch_shape x num_pareto_samples x q x 1 x 1`
+    # ``batch_shape x num_pareto_samples x q x 1 x 1``
     log_term = log_term + torch.log(W)
 
     # Additional constant term.
     M_plus_K = mean.shape[-1]
     add_term = 0.5 * M_plus_K * (1 + torch.log(torch.ones(1, **tkwargs) * 2 * pi))
 
-    # `batch_shape x num_pareto_samples x q`
+    # ``batch_shape x num_pareto_samples x q``
     entropy = add_term + (log_term - ratio_term).squeeze(-1).squeeze(-1)
 
     return entropy.mean(-2)
@@ -534,24 +534,24 @@ def _compute_entropy_upper_bound(
     observation_noise: Tensor,
     only_diagonal: bool = False,
 ) -> Tensor:
-    r"""Computes the entropy upper bound at the design points `X`. This is used for
-    the JES-LB and MES-LB estimate. If `only_diagonal` is True, then this computes
+    r"""Computes the entropy upper bound at the design points ``X``. This is used for
+    the JES-LB and MES-LB estimate. If ``only_diagonal`` is True, then this computes
     the entropy estimate for the JES-LB2 and MES-LB2.
 
     Args:
-        hypercell_bounds: A `num_pareto_samples x 2 x J x M` -dim Tensor containing
-            the box decomposition bounds, where `J` = max(num_boxes).
-        mean: A `batch_shape x num_pareto_samples x q x 1 x M`-dim Tensor containing
+        hypercell_bounds: A ``num_pareto_samples x 2 x J x M`` -dim Tensor containing
+            the box decomposition bounds, where ``J`` = max(num_boxes).
+        mean: A ``batch_shape x num_pareto_samples x q x 1 x M``-dim Tensor containing
             the posterior mean at X.
-        variance: A `batch_shape x num_pareto_samples x q x 1 x M`-dim Tensor
+        variance: A ``batch_shape x num_pareto_samples x q x 1 x M``-dim Tensor
             containing the posterior variance at X excluding observation noise.
-        observation_noise: A `batch_shape x num_pareto_samples x q x 1 x M`-dim
+        observation_noise: A ``batch_shape x num_pareto_samples x q x 1 x M``-dim
             Tensor containing the observation noise at X.
         only_diagonal: If true, we only compute the diagonal elements of the variance.
 
     Returns:
-        A `batch_shape x q`-dim Tensor of entropy estimate at the given design points
-        `X`.
+        A ``batch_shape x q``-dim Tensor of entropy estimate at the given design points
+        ``X``.
     """
     tkwargs = {"dtype": hypercell_bounds.dtype, "device": hypercell_bounds.device}
     CLAMP_LB = torch.finfo(tkwargs["dtype"]).eps
@@ -559,7 +559,7 @@ def _compute_entropy_upper_bound(
     variance_plus_noise = variance + observation_noise
 
     # Standardize the box decomposition bounds and compute normal quantities.
-    # `batch_shape x num_pareto_samples x q x 2 x J x M`
+    # ``batch_shape x num_pareto_samples x q x 2 x J x M``
     g = (hypercell_bounds.unsqueeze(-4) - mean.unsqueeze(-2)) / torch.sqrt(
         variance.unsqueeze(-2)
     )
@@ -588,10 +588,10 @@ def _compute_entropy_upper_bound(
     diag_weighted_sum = (Wj * variance * Vjm / Wjm / W).sum(-2, keepdims=True)
 
     if only_diagonal:
-        # `batch_shape x num_pareto_samples x q x 1 x M`
+        # ``batch_shape x num_pareto_samples x q x 1 x M``
         mean_squared = mean.pow(2)
         cross_sum = -2 * (mean * torch.sqrt(variance) * Rjm).sum(-2, keepdims=True)
-        # `batch_shape x num_pareto_samples x q x 1 x M`
+        # ``batch_shape x num_pareto_samples x q x 1 x M``
         mom2 = variance_plus_noise - diag_weighted_sum + cross_sum + mean_squared
         var = (mom2 - mom1.pow(2)).clamp_min(CLAMP_LB)
 
@@ -657,27 +657,27 @@ def _compute_entropy_monte_carlo(
     samples: Tensor,
     samples_log_prob: Tensor,
 ) -> Tensor:
-    r"""Computes the Monte Carlo entropy at the design points `X`. This is used for
+    r"""Computes the Monte Carlo entropy at the design points ``X``. This is used for
     the JES-MC and MES-MC estimate.
 
     Args:
-        hypercell_bounds: A `num_pareto_samples x 2 x J x M`-dim Tensor containing
-            the box decomposition bounds, where `J` = max(num_boxes).
-        mean: A `batch_shape x num_pareto_samples x q x 1 x M`-dim Tensor containing
+        hypercell_bounds: A ``num_pareto_samples x 2 x J x M``-dim Tensor containing
+            the box decomposition bounds, where ``J`` = max(num_boxes).
+        mean: A ``batch_shape x num_pareto_samples x q x 1 x M``-dim Tensor containing
             the posterior mean at X.
-        variance: A `batch_shape x num_pareto_samples x q x 1 x M`-dim Tensor
+        variance: A ``batch_shape x num_pareto_samples x q x 1 x M``-dim Tensor
             containing the posterior variance at X excluding observation noise.
-        observation_noise: A `batch_shape x num_pareto_samples x q x 1 x M`-dim
+        observation_noise: A ``batch_shape x num_pareto_samples x q x 1 x M``-dim
             Tensor containing the observation noise at X.
-        samples: A `num_mc_samples x batch_shape x num_pareto_samples x q x 1 x M`-dim
-            Tensor containing the noisy samples at `X` from the posterior conditioned
+        samples: A ``num_mc_samples x batch_shape x num_pareto_samples x q x 1 x M``-dim
+            Tensor containing the noisy samples at ``X`` from the posterior conditioned
             on the Pareto optimal points.
         samples_log_prob:  A `num_mc_samples x batch_shape x num_pareto_samples
             x q`-dim  Tensor containing the log probability densities of the samples.
 
     Returns:
-        A `batch_shape x q`-dim Tensor of entropy estimate at the given design points
-        `X`.
+        A ``batch_shape x q``-dim Tensor of entropy estimate at the given design points
+        ``X``.
     """
     tkwargs = {"dtype": hypercell_bounds.dtype, "device": hypercell_bounds.device}
     CLAMP_LB = torch.finfo(tkwargs["dtype"]).eps
@@ -686,11 +686,11 @@ def _compute_entropy_monte_carlo(
 
     ####################################################################
     # Standardize the box decomposition bounds and compute normal quantities.
-    # `batch_shape x num_pareto_samples x q x 2 x J x M`
+    # ``batch_shape x num_pareto_samples x q x 2 x J x M``
     g = (hypercell_bounds.unsqueeze(-4) - mean.unsqueeze(-2)) / torch.sqrt(
         variance.unsqueeze(-2)
     )
-    # `batch_shape x num_pareto_samples x q x 1 x M`
+    # ``batch_shape x num_pareto_samples x q x 1 x M``
     rho = torch.sqrt(variance / variance_plus_noise)
 
     # Compute the initial normal quantities.
@@ -702,16 +702,16 @@ def _compute_entropy_monte_carlo(
 
     # Compute W.
     Wj = torch.exp(torch.sum(torch.log(Wjm), dim=-1, keepdims=True))
-    # `batch_shape x num_pareto_samples x q x 1 x 1`
+    # ``batch_shape x num_pareto_samples x q x 1 x 1``
     W = torch.sum(Wj, dim=-2, keepdims=True).clamp_max(1.0)
 
     ####################################################################
     g = g.unsqueeze(0)
     rho = rho.unsqueeze(0).unsqueeze(-2)
-    # `num_mc_samples x batch_shape x num_pareto_samples x q x 1 x 1 x M`
+    # ``num_mc_samples x batch_shape x num_pareto_samples x q x 1 x 1 x M``
     z = ((samples - mean) / torch.sqrt(variance_plus_noise)).unsqueeze(-2)
-    # `num_mc_samples x batch_shape x num_pareto_samples x q x 2 x J x M`
-    # Clamping here is important because `1 - rho^2 = 0` at an input where
+    # ``num_mc_samples x batch_shape x num_pareto_samples x q x 2 x J x M``
+    # Clamping here is important because ``1 - rho^2 = 0`` at an input where
     # observation noise is zero.
     g_new = (g - rho * z) / torch.sqrt((1 - rho * rho).clamp_min(CLAMP_LB))
 
@@ -724,7 +724,7 @@ def _compute_entropy_monte_carlo(
 
     # Compute W+.
     Wj_new = torch.exp(torch.sum(torch.log(Wjm_new), dim=-1, keepdims=True))
-    # `num_mc_samples x batch_shape x num_pareto_samples x q x 1 x 1`
+    # ``num_mc_samples x batch_shape x num_pareto_samples x q x 1 x 1``
     W_new = torch.sum(Wj_new, dim=-2, keepdims=True).clamp_max(1.0)
 
     ####################################################################

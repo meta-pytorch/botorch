@@ -104,10 +104,10 @@ class TestQLogExpectedImprovement(BotorchTestCase):
         self.assertIn(qLogExpectedImprovement, ACQF_INPUT_CONSTRUCTOR_REGISTRY.keys())
         for dtype in (torch.float, torch.double):
             tkwargs = {"device": self.device, "dtype": dtype}
-            # the event shape is `b x q x t` = 1 x 1 x 1
+            # the event shape is ``b x q x t`` = 1 x 1 x 1
             samples = torch.zeros(1, 1, 1, **tkwargs)
             mm = MockModel(MockPosterior(samples=samples))
-            # X is `q x d` = 1 x 1. X is a dummy and unused b/c of mocking
+            # X is ``q x d`` = 1 x 1. X is a dummy and unused b/c of mocking
             X = torch.zeros(1, 1, **tkwargs)
 
             # basic test
@@ -210,7 +210,7 @@ class TestQLogExpectedImprovement(BotorchTestCase):
 
     def test_q_log_expected_improvement_batch(self):
         for dtype in (torch.float, torch.double):
-            # the event shape is `b x q x t` = 2 x 2 x 1
+            # the event shape is ``b x q x t`` = 2 x 2 x 1
             samples = torch.zeros(2, 2, 1, device=self.device, dtype=dtype)
             samples[0, 0, 0] = 1.0
             mm = MockModel(MockPosterior(samples=samples))
@@ -316,13 +316,13 @@ class TestQLogNoisyExpectedImprovement(BotorchTestCase):
             qLogNoisyExpectedImprovement, ACQF_INPUT_CONSTRUCTOR_REGISTRY.keys()
         )
         for dtype in (torch.float, torch.double):
-            # the event shape is `b x q x t` = 1 x 2 x 1
+            # the event shape is ``b x q x t`` = 1 x 2 x 1
             samples_noisy = torch.tensor([0.0, 1.0], device=self.device, dtype=dtype)
             samples_noisy = samples_noisy.view(1, 2, 1)
-            # X_baseline is `q' x d` = 1 x 1
+            # X_baseline is ``q' x d`` = 1 x 1
             X_baseline = torch.zeros(1, 1, device=self.device, dtype=dtype)
             mm_noisy = MockModel(MockPosterior(samples=samples_noisy))
-            # X is `q x d` = 1 x 1
+            # X is ``q x d`` = 1 x 1
             X = torch.zeros(1, 1, device=self.device, dtype=dtype)
 
             # basic test
@@ -450,11 +450,11 @@ class TestQLogNoisyExpectedImprovement(BotorchTestCase):
 
     def test_q_noisy_expected_improvement_batch(self):
         for dtype in (torch.float, torch.double):
-            # the event shape is `b x q x t` = 2 x 3 x 1
+            # the event shape is ``b x q x t`` = 2 x 3 x 1
             samples_noisy = torch.zeros(2, 3, 1, device=self.device, dtype=dtype)
             samples_noisy[0, -1, 0] = 1.0
             mm_noisy = MockModel(MockPosterior(samples=samples_noisy))
-            # X is `q x d` = 1 x 1
+            # X is ``q x d`` = 1 x 1
             X = torch.zeros(2, 2, 1, device=self.device, dtype=dtype)
             X_baseline = torch.zeros(1, 1, device=self.device, dtype=dtype)
 
@@ -765,7 +765,7 @@ class TestQLogProbabilityOfFeasibility(BotorchTestCase):
         sample_shape = torch.Size([2])
         samples = torch.zeros(1, 1, **tkwargs)
         mm = MockModel(MockPosterior(samples=samples))
-        # X is `q x d` = 1 x 1. X is a dummy and unused b/c of mocking
+        # X is ``q x d`` = 1 x 1. X is a dummy and unused b/c of mocking
         X = torch.zeros(1, 1, **tkwargs)
 
         # basic test

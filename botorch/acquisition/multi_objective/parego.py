@@ -45,46 +45,46 @@ class qLogNParEGO(qLogNoisyExpectedImprovement, MultiObjectiveMCAcquisitionFunct
         log-improvement acquisition functions of [Ament2023logei]_. See [Knowles2005]_
         for the original ParEGO algorithm.
 
-        This implementation assumes maximization of all objectives. If any of the model
-        outputs are to be minimized, either an `objective` should be used to negate the
-        model outputs or the `scalarization_weights` should be provided with negative
-        weights for the outputs to be minimized.
+        This implementation assumes maximization of all objectives. If any of
+        the model outputs are to be minimized, either an ``objective`` should be
+        used to negate the model outputs or the ``scalarization_weights`` should
+        be provided with negative weights for the outputs to be minimized.
 
          Args:
-            model: A fitted multi-output model, producing outputs for `m` objectives
+            model: A fitted multi-output model, producing outputs for ``m`` objectives
                 and any number of outcome constraints.
-                NOTE: The model posterior must have a `mean` attribute.
-            X_baseline: A `batch_shape x r x d`-dim Tensor of `r` design points
+                NOTE: The model posterior must have a ``mean`` attribute.
+            X_baseline: A ``batch_shape x r x d``-dim Tensor of ``r`` design points
                 that have already been observed. These points are considered as
                 the potential best design point.
-            scalarization_weights: A `m`-dim Tensor of weights to be used in the
+            scalarization_weights: A ``m``-dim Tensor of weights to be used in the
                 Chebyshev scalarization. If omitted, samples from the unit simplex.
-            sampler: The sampler used to draw base samples. See `MCAcquisitionFunction`
-                more details.
+            sampler: The sampler used to draw base samples. See
+                ``MCAcquisitionFunction`` more details.
             objective: The MultiOutputMCAcquisitionObjective under which the samples are
                 evaluated before applying Chebyshev scalarization.
-                Defaults to `IdentityMultiOutputObjective()`.
+                Defaults to ``IdentityMultiOutputObjective()``.
             constraints: A list of constraint callables which map a Tensor of posterior
-                samples of dimension `sample_shape x batch-shape x q x m'`-dim to a
-                `sample_shape x batch-shape x q`-dim Tensor. The associated constraints
-                are satisfied if `constraint(samples) < 0`.
-            X_pending: A `batch_shape x q' x d`-dim Tensor of `q'` design points
+                samples of dimension ``sample_shape x batch-shape x q x m'``-dim
+                to a ``sample_shape x batch-shape x q``-dim Tensor. The associated
+                constraints are satisfied if ``constraint(samples) < 0``.
+            X_pending: A ``batch_shape x q' x d``-dim Tensor of ``q'`` design points
                 that have points that have been submitted for function evaluation
-                but have not yet been evaluated. Concatenated into `X` upon
+                but have not yet been evaluated. Concatenated into ``X`` upon
                 forward call. Copied and set to have no gradient.
             eta: Temperature parameter(s) governing the smoothness of the sigmoid
                 approximation to the constraint indicators. See the docs of
-                `compute_(log_)smoothed_constraint_indicator` for details.
+                ``compute_(log_)smoothed_constraint_indicator`` for details.
             fat: Toggles the logarithmic / linear asymptotic behavior of the smooth
                 approximation to the ReLU.
-            prune_baseline: If True, remove points in `X_baseline` that are
+            prune_baseline: If True, remove points in ``X_baseline`` that are
                 highly unlikely to be the best point. This can significantly
                 improve performance and is generally recommended. In order to
                 customize pruning parameters, instead manually call
-                `botorch.acquisition.utils.prune_inferior_points` on `X_baseline`
+                ``botorch.acquisition.utils.prune_inferior_points`` on ``X_baseline``
                 before instantiating the acquisition function.
             cache_root: A boolean indicating whether to cache the root
-                decomposition over `X_baseline` and use low-rank updates.
+                decomposition over ``X_baseline`` and use low-rank updates.
             tau_max: Temperature parameter controlling the sharpness of the smooth
                 approximations to max.
             tau_relu: Temperature parameter controlling the sharpness of the smooth

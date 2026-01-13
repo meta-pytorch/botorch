@@ -132,7 +132,7 @@ class TestObjectiveAndConstraintIntegration(BotorchTestCase):
         for test_batch_shape in test_batch_shapes:
             self._base_test_with_learned_objective(
                 train_batch_shape=torch.Size(train_batch_shape),
-                # Batched inputs `X_baseline` are currently unsupported by
+                # Batched inputs ``X_baseline`` are currently unsupported by
                 # prune_inferior_points
                 prune_baseline=False,
                 test_batch_shape=torch.Size(test_batch_shape),
@@ -144,7 +144,7 @@ class TestObjectiveAndConstraintIntegration(BotorchTestCase):
         for test_batch_shape in test_batch_shapes:
             self._base_test_with_learned_objective(
                 train_batch_shape=torch.Size(train_batch_shape),
-                # Batched inputs `X_baseline` are currently unsupported by
+                # Batched inputs ``X_baseline`` are currently unsupported by
                 # prune_inferior_points
                 prune_baseline=False,
                 test_batch_shape=torch.Size(test_batch_shape),
@@ -219,7 +219,7 @@ class TestObjectiveAndConstraintIntegration(BotorchTestCase):
         for train_batch_shape, test_batch_shape in product(
             train_batch_shapes, test_batch_shapes
         ):
-            # Batched inputs `X_baseline` are currently unsupported by
+            # Batched inputs ``X_baseline`` are currently unsupported by
             # prune_inferior_points
             prune_baseline_ = [False] if len(train_batch_shape) > 0 else [False, True]
             for prune_baseline in prune_baseline_:

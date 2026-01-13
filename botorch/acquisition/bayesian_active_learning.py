@@ -95,7 +95,7 @@ class qBayesianActiveLearningByDisagreement(
             posterior_transform: A PosteriorTransform. If using a multi-output model,
                 a PosteriorTransform that transforms the multi-output posterior into a
                 single-output posterior is required.
-            X_pending: A `batch_shape x m x d`-dim Tensor of `m` design points
+            X_pending: A ``batch_shape x m x d``-dim Tensor of ``m`` design points
 
         """
         super().__init__(model=model)
@@ -107,16 +107,16 @@ class qBayesianActiveLearningByDisagreement(
     @t_batch_mode_transform()
     @average_over_ensemble_models
     def forward(self, X: Tensor) -> Tensor:
-        r"""Evaluate qBayesianActiveLearningByDisagreement on the candidate set `X`.
+        r"""Evaluate qBayesianActiveLearningByDisagreement on the candidate set ``X``.
         A monte carlo-estimated information gain is computed over a Gaussian Mixture
         marginal posterior, and the Gaussian conditional posterior to obtain the
-        qBayesianActiveLearningByDisagreement on the candidate set `X`.
+        qBayesianActiveLearningByDisagreement on the candidate set ``X``.
 
         Args:
-            X: `batch_shape x q x D`-dim Tensor of input points.
+            X: ``batch_shape x q x D``-dim Tensor of input points.
 
         Returns:
-            A `batch_shape x num_models`-dim Tensor of BALD values.
+            A ``batch_shape x num_models``-dim Tensor of BALD values.
         """
         posterior = self.model.posterior(
             X, observation_noise=True, posterior_transform=self.posterior_transform

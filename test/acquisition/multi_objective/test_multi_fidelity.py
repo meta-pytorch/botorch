@@ -31,7 +31,7 @@ class TestMOMF(BotorchTestCase):
                 [[4.0, 5.0], [5.0, 5.0], [8.5, 3.5], [8.5, 3.0], [9.0, 1.0]], **tkwargs
             )
             partitioning = NondominatedPartitioning(ref_point=t_ref_point)
-            # the event shape is `b x q x m` = 1 x 1 x 2
+            # the event shape is ``b x q x m`` = 1 x 1 x 2
             samples = torch.zeros(1, 1, 2, **tkwargs)
             mm = MockModel(MockPosterior(samples=samples))
             # test error if there is not pareto_Y initialized in partitioning
