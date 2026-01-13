@@ -42,9 +42,12 @@ from threadpoolctl import threadpool_limits
 from torch import Tensor
 from torch.optim import Optimizer
 
-if check_scipy_version_at_least(minor=13) and not check_scipy_version_at_least(
-    minor=17
-):
+SCIPY_MIN_VERSION: int = 13
+SCIPY_UNTESTED_VERSION: int = 18
+
+if check_scipy_version_at_least(
+    minor=SCIPY_MIN_VERSION
+) and not check_scipy_version_at_least(minor=SCIPY_UNTESTED_VERSION):
     # We only import the batched lbfgs_b code here, as it might otherwise
     # lead to import errors, if the wrong scipy version is used
     from botorch.optim.batched_lbfgs_b import (
@@ -285,11 +288,13 @@ def gen_candidates_scipy(
         for i, candidates_ in enumerate(split_candidates):
             if fixed_features:
                 fixed_features_ = {
-                    k: ff[i : i + 1].item()
-                    # from the test above, we know that we only treat one candidate
-                    # at a time thus we can use index i
-                    if torch.is_tensor(ff) and ff.ndim > 0
-                    else ff
+                    k: (
+                        ff[i : i + 1].item()
+                        # from the test above, we know that we only treat one candidate
+                        # at a time thus we can use index i
+                        if torch.is_tensor(ff) and ff.ndim > 0
+                        else ff
+                    )
                     for k, ff in fixed_features.items()
                 }
             else:
@@ -353,9 +358,11 @@ def gen_candidates_scipy(
                 constraints=constraints,
                 callback=options.get("callback", None),
                 options=minimize_options,
-                timeout_sec=timeout_sec / len(split_candidates)
-                if timeout_sec is not None
-                else None,
+                timeout_sec=(
+                    timeout_sec / len(split_candidates)
+                    if timeout_sec is not None
+                    else None
+                ),
             )
             _process_scipy_result(res=res, options=options)
             xs = res.x.reshape(candidates_.shape)
@@ -409,9 +416,11 @@ def _get_f_np_wrapper(shapeX, device, dtype, with_grad):
             if fixed_features is not None:
                 if batch_indices is not None:
                     this_fixed_features = {
-                        k: ff[batch_indices]
-                        if torch.is_tensor(ff) and ff.ndim > 0
-                        else ff
+                        k: (
+                            ff[batch_indices]
+                            if torch.is_tensor(ff) and ff.ndim > 0
+                            else ff
+                        )
                         for k, ff in fixed_features.items()
                     }
                 else:
@@ -495,8 +504,10 @@ def get_reasons_against_fast_path(
         why_not_fast_path.append(f"options={extra_keys} are not accepted")
     if timeout_sec is not None:
         why_not_fast_path.append(f"timeout_sec={timeout_sec}, it needs to be None")
-    if not check_scipy_version_at_least(minor=13) or check_scipy_version_at_least(
-        minor=17
+    if not check_scipy_version_at_least(
+        minor=SCIPY_MIN_VERSION
+    ) or check_scipy_version_at_least(
+        minor=SCIPY_UNTESTED_VERSION
     ):  # pragma: no cover
         # In SciPy 1.15.0, the fortran implementation of L-BFGS-B was
         # translated to C changing its interface slightly.
@@ -504,7 +515,8 @@ def get_reasons_against_fast_path(
         # thus we use this function to use less optimized code for too new
         # scipy versions.
         why_not_fast_path.append(
-            "Scipy version is not in the range from 1.13.0 to 1.15.x."
+            f"Scipy version is not in the range from 1.{SCIPY_MIN_VERSION}.0 to "
+            f"1.{SCIPY_UNTESTED_VERSION}.x."
         )
     return why_not_fast_path
 
