@@ -146,7 +146,7 @@ class TestMVNXPB(BotorchTestCase):
             self.assertTrue(a.allclose(b, equal_nan=True))
 
     def test_solve(self):
-        r"""Monte Carlo unit test for `solve`."""
+        r"""Monte Carlo unit test for ``solve``."""
 
         def _estimator(samples, bounds):
             accept = torch.logical_and(
@@ -201,7 +201,7 @@ class TestMVNXPB(BotorchTestCase):
             )
 
     def test_augment(self):
-        r"""Test `augment`."""
+        r"""Test ``augment``."""
         with torch.random.fork_rng():
             torch.random.manual_seed(next(self.seed_generator))
 
@@ -216,13 +216,13 @@ class TestMVNXPB(BotorchTestCase):
             cov = sqrt_cov @ sqrt_cov.transpose(-2, -1)
             bounds = self.bounds[index]
 
-            # Partially solve for `N`-dimensional integral
+            # Partially solve for ``N``-dimensional integral
             N = cov.shape[-1]
             n = torch.randint(low=1, high=N - 2, size=())
             full = MVNXPB(cov, bounds=bounds)
             full.solve(num_steps=n)
 
-            # Compare with solver run using a pre-computed `piv_chol`
+            # Compare with solver run using a pre-computed ``piv_chol``
             _perm = torch.arange(0, N, device=self.device)
             other = MVNXPB.build(
                 step=0,
@@ -238,14 +238,14 @@ class TestMVNXPB(BotorchTestCase):
             self.assertTrue(full.bounds.allclose(other.bounds))
             self.assertTrue(full.log_prob.allclose(other.log_prob))
 
-            # Reorder terms according according to `full.perm`
+            # Reorder terms according according to ``full.perm``
             perm = full.perm.detach().clone()
             _cov = cov.gather(-2, perm.unsqueeze(-1).repeat(1, 1, N))
             _cov = _cov.gather(-1, perm.unsqueeze(-2).repeat(1, N, 1))
             _istd = _cov.diagonal(dim1=-2, dim2=-1).rsqrt()
             _bounds = bounds.gather(-2, perm.unsqueeze(-1).repeat(1, 1, 2))
 
-            # Solve for same `n`-dimensional integral as `full.solve(num_steps=n)`
+            # Solve for same ``n``-dimensional integral as ``full.solve(num_steps=n)``
             init = MVNXPB(_cov[..., :n, :n], _bounds[..., :n, :])
             init.solve()
 
@@ -271,7 +271,7 @@ class TestMVNXPB(BotorchTestCase):
                 bounds=_bounds[..., n:, :],
             )
 
-            # Patch `perm` to account for different starting points
+            # Patch ``perm`` to account for different starting points
             augm_perm = augm.perm
             temp_perm = perm.gather(-1, augm_perm)
             self.assertTrue(augm_perm.equal(augm.piv_chol.perm))
@@ -287,7 +287,7 @@ class TestMVNXPB(BotorchTestCase):
             full.solve()
             augm.solve()
 
-            # Patch `perm` to account for different starting points
+            # Patch ``perm`` to account for different starting points
             augm_perm = augm.perm
             temp_perm = perm.gather(-1, augm_perm)
             self.assertTrue(augm_perm.equal(augm.piv_chol.perm))

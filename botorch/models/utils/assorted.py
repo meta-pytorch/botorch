@@ -470,7 +470,7 @@ def extract_targets_and_noise_single_output(model) -> tuple[Tensor, Tensor | Non
         model: A GPyTorch model.
 
     Returns:
-        A tuple of (Y, Yvar) where Y and Yvar have shape [batch_shape] x n x 1.
+        A tuple of (Y, Yvar) where Y and Yvar have shape ``batch_shape x n x 1``.
     """
     Y = model.train_targets.unsqueeze(-1)
     Yvar = None
@@ -486,8 +486,8 @@ def restore_targets_and_noise_single_output(
 
     Args:
         model: A GPyTorch model.
-        Y: Targets tensor in shape [batch_shape] x n x 1.
-        Yvar: Optional noise variance tensor in shape [batch_shape] x n x 1.
+        Y: Targets tensor in shape ``batch_shape x n x 1``.
+        Yvar: Optional noise variance tensor in shape ``batch_shape x n x 1``.
         strict: Whether to strictly enforce shape constraints.
     """
     Y = Y.squeeze(-1)

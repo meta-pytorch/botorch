@@ -37,10 +37,11 @@ def case_dispatcher(
 
     Args:
         out: Tensor to which case outcomes are written.
-        cases: Iterable of function pairs (pred, func), where `mask=pred()` specifies
-            whether `func` is applicable for each entry in `out`. Note that cases are
-            resolved first-come, first-serve.
-        default: Optional `func` to which all unclaimed entries of `out` are dispatched.
+        cases: Iterable of function pairs (pred, func), where ``mask=pred()``
+            specifies whether ``func`` is applicable for each entry in ``out``. Note
+            that cases are resolved first-come, first-serve.
+        default: Optional ``func`` to which all unclaimed entries of ``out`` are
+            dispatched.
     """
     active = None
     for closure, func in cases:
@@ -186,14 +187,14 @@ def log_erfcx(x: Tensor) -> Tensor:
 
 def standard_normal_log_hazard(x: Tensor) -> Tensor:
     """Computes the logarithm of the hazard function of the standard normal
-    distribution, i.e. `log(phi(x) / Phi(-x))`.
+    distribution, i.e. ``log(phi(x) / Phi(-x))``.
 
     Args:
         x: A tensor of any shape, with either float32 or float64 dtypes.
 
     Returns:
-        A Tensor of the same shape `x`, containing the values of the logarithm of the
-        hazard function evaluated at `x`.
+        A Tensor of the same shape ``x``, containing the values of the logarithm of the
+        hazard function evaluated at ``x``.
     """
     # NOTE: using _inv_sqrt_2 instead of _neg_inv_sqrt_2 means we are computing Phi(-x).
     return _log_two_inv_sqrt_2pi - log_erfcx(_inv_sqrt_2 * x)
@@ -233,22 +234,22 @@ def swap_along_dim_(
     dim: int,
     buffer: Tensor | None = None,
 ) -> Tensor:
-    r"""Swaps Tensor slices in-place along dimension `dim`.
+    r"""Swaps Tensor slices in-place along dimension ``dim``.
 
-    When passed as Tensors, `i` (and `j`) should be `dim`-dimensional tensors
-    with the same shape as `values.shape[:dim]`. The xception to this rule occurs
-    when `dim=0`, in which case `i` (and `j`) should be (at most) one-dimensional
+    When passed as Tensors, ``i`` (and ``j``) should be ``dim``-dimensional tensors
+    with the same shape as ``values.shape[:dim]``. The exception to this rule occurs
+    when ``dim=0``, in which case ``i`` (and ``j``) should be (at most) one-dimensional
     when passed as a Tensor.
 
     Args:
         values: Tensor whose values are to be swapped.
-        i: Indices for slices along dimension `dim`.
-        j: Indices for slices along dimension `dim`.
-        dim: The dimension of `values` along which to swap slices.
+        i: Indices for slices along dimension ``dim``.
+        j: Indices for slices along dimension ``dim``.
+        dim: The dimension of ``values`` along which to swap slices.
         buffer: Optional buffer used internally to store copied values.
 
     Returns:
-        The original `values` tensor.
+        The original ``values`` tensor.
     """
     dim = values.ndim + dim if dim < 0 else dim
     if dim and (
@@ -310,8 +311,8 @@ def compute_log_prob_feas_from_bounds(
     r"""Compute logarithm of the feasibility probability for each batch of mean/sigma.
 
     Args:
-        means: A `(b) x m`-dim Tensor of means.
-        sigmas: A `(b) x m`-dim Tensor of standard deviations.
+        means: A ``(b) x m``-dim Tensor of means.
+        sigmas: A ``(b) x m``-dim Tensor of standard deviations.
         con_lower_inds: 1d Tensor of indices con_lower applies to
             in the second dimension of means and sigmas.
         con_upper_inds: 1d Tensor of indices con_upper applies to
@@ -326,7 +327,7 @@ def compute_log_prob_feas_from_bounds(
             equal in length to con_both_inds.
 
     Returns:
-        A `(b)`-dim tensor of log feasibility probabilities
+        A ``(b)``-dim tensor of log feasibility probabilities
     """
     # indices are integers, so we don't cast the type
     con_upper_inds = con_upper_inds.to(device=means.device)
@@ -357,26 +358,26 @@ def compute_log_prob_feas_from_bounds(
 
 
 def percentile_of_score(data: Tensor, score: Tensor, dim: int = -1) -> Tensor:
-    """Compute the percentile rank of `score` relative to `data`.
+    """Compute the percentile rank of ``score`` relative to ``data``.
     For example, if this function returns 70 then 70% of the
-    values in `data` are below `score`.
+    values in ``data`` are below ``score``.
 
-    This implementation is based on `scipy.stats.percentileofscore`,
-    with `kind='rank'` and `nan_policy='propagate'`, which is the default.
+    This implementation is based on ``scipy.stats.percentileofscore``,
+    with ``kind='rank'`` and ``nan_policy='propagate'``, which is the default.
 
     Args:
-        data: A `... x n x output_shape`-dim Tensor of data.
-        score: A `... x 1 x output_shape`-dim Tensor of scores.
+        data: A ``... x n x output_shape``-dim Tensor of data.
+        score: A ``... x 1 x output_shape``-dim Tensor of scores.
 
     Returns:
-        A `... x output_shape`-dim Tensor of percentile ranks.
+        A ``... x output_shape``-dim Tensor of percentile ranks.
     """
     # based on scipy.stats.percentileofscore
     left = torch.count_nonzero(data < score, dim=dim)
     right = torch.count_nonzero(data <= score, dim=dim)
     plus1 = left < right
     perct = (left + right + plus1) * (50.0 / data.shape[dim])
-    # perct shape: `... x output_shape`
+    # perct shape: ``... x output_shape``
     # fill in nans due to current trial progression being nan
     nan_mask = torch.broadcast_to(torch.isnan(score.squeeze(dim)), perct.shape)
     perct[nan_mask] = torch.nan

@@ -24,8 +24,8 @@ def type_bypassing_encoder(arg: Any) -> type:
 
 class Dispatcher(MDDispatcher):
     r"""Clearing house for multiple dispatch functionality. This class extends
-    `<multipledispatch.Dispatcher>` by: (i) generalizing the argument encoding
-    convention during method lookup, (ii) implementing `__getitem__` as a dedicated
+    ``<multipledispatch.Dispatcher>`` by: (i) generalizing the argument encoding
+    convention during method lookup, (ii) implementing ``__getitem__`` as a dedicated
     method lookup function.
     """
 
@@ -37,11 +37,11 @@ class Dispatcher(MDDispatcher):
     ) -> None:
         """
         Args:
-            name: A string identifier for the `Dispatcher` instance.
+            name: A string identifier for the ``Dispatcher`` instance.
             doc: A docstring for the multiply dispatched method(s).
             encoder: A callable that individually transforms the arguments passed
                 at runtime in order to construct the key used for method lookup as
-                `tuple(map(encoder, args))`. Defaults to `type`.
+                ``tuple(map(encoder, args))``. Defaults to ``type``.
         """
         super().__init__(name=name, doc=doc)
         self._encoder = encoder
@@ -55,10 +55,10 @@ class Dispatcher(MDDispatcher):
 
         Args:
             args: A set of arguments that act as identifiers for a stored method.
-            types: A tuple of types that encodes `args`.
+            types: A tuple of types that encodes ``args``.
 
         Returns:
-            A callable corresponding to the given `args` or `types`.
+            A callable corresponding to the given ``args`` or ``types``.
         """
         if types is None:
             if args is None:
@@ -85,7 +85,7 @@ class Dispatcher(MDDispatcher):
             kwargs: Optional keyword arguments passed to the retrieved method.
 
         Returns:
-            The result of evaluating `func(*args, **kwargs)`, where `func` is
+            The result of evaluating ``func(*args, **kwargs)``, where ``func`` is
             the function obtained via method lookup.
         """
         types = self.encode_args(args)

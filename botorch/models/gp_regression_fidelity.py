@@ -8,7 +8,7 @@ r"""
 Multi-Fidelity Gaussian Process Regression models based on GPyTorch models.
 
 For more on Multi-Fidelity BO, see the
-``tutorial <https://botorch.org/docs/tutorials/discrete_multi_fidelity_bo>``__.
+`tutorial <https://botorch.org/docs/tutorials/discrete_multi_fidelity_bo>`__.
 
 A common use case of multi-fidelity regression modeling is optimizing a
 "high-fidelity" function that is expensive to simulate when you have access to

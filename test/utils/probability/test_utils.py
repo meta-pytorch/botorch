@@ -329,7 +329,7 @@ class TestProbabilityUtils(BotorchTestCase):
 
     def test_percentile_of_score(self) -> None:
         # compare to scipy.stats.percentileofscore with default settings
-        # `kind='rank'` and `nan_policy='propagate'`
+        # ``kind='rank'`` and ``nan_policy='propagate'``
         torch.manual_seed(12345)
         n = 10
         for (

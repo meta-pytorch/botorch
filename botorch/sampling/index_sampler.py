@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 r"""
-Sampler to be used with `EnsemblePosteriors` to enable
+Sampler to be used with ``EnsemblePosteriors`` to enable
 deterministic optimization of acquisition functions with ensemble models.
 """
 
@@ -19,7 +19,7 @@ from torch.distributions.multinomial import Multinomial
 
 
 class IndexSampler(MCSampler):
-    r"""A sampler that calls `posterior.rsample_from_base_samples` to
+    r"""A sampler that calls ``posterior.rsample_from_base_samples`` to
     generate the samples via index base samples."""
 
     def forward(self, posterior: EnsemblePosterior) -> Tensor:
@@ -66,5 +66,5 @@ class IndexSampler(MCSampler):
         self, posterior: EnsemblePosterior, base_sampler: IndexSampler
     ) -> None:
         r"""Null operation just needed for compatibility with
-        `CachedCholeskyAcquisitionFunction`."""
+        ``CachedCholeskyAcquisitionFunction``."""
         pass

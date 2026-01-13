@@ -590,7 +590,7 @@ class TestEnsembleLOOCV(BotorchTestCase):
     def test_fixed_noise_1d_edge_case(self) -> None:
         """Test observed_Yvar when noise has 1D shape (edge case).
 
-        This tests the `else` branch in ensemble_loo_cv where noise.dim() < 2.
+        This tests the ``else`` branch in ensemble_loo_cv where noise.dim() < 2.
         Multi-output models always have 2D+ noise, so this only applies to m=1.
         The normal 2D noise case is covered by test_matches_naive.
         """
@@ -730,7 +730,7 @@ def naive_loo_cv(
             computed independently for each batch element.
 
     Returns:
-        A tuple of (loo_means, loo_variances) with shape `batch_shape x n x m`.
+        A tuple of (loo_means, loo_variances) with shape ``batch_shape x n x m``.
     """
     from gpytorch.likelihoods import FixedNoiseGaussianLikelihood
 

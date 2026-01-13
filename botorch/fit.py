@@ -94,19 +94,20 @@ def fit_gpytorch_mll(
     Args:
         mll: A GPyTorch MarginalLogLikelihood instance.
         closure: Forward-backward closure for obtaining objective values and gradients.
-            Responsible for setting parameters' `grad` attributes. If no closure is
-            provided, one will be obtained by calling `get_loss_closure_with_grads`.
-        optimizer: User specified optimization algorithm. When `optimizer is None`,
+            Responsible for setting parameters' ``grad`` attributes. If no closure is
+            provided, one will be obtained by calling ``get_loss_closure_with_grads``.
+        optimizer: User specified optimization algorithm. When ``optimizer is None``,
             this keyword argument is omitted when calling the dispatcher.
-        closure_kwargs: Keyword arguments passed when calling `closure`.
+        closure_kwargs: Keyword arguments passed when calling ``closure``.
         optimizer_kwargs: A dictionary of keyword arguments passed when
-            calling `optimizer`.
+            calling ``optimizer``.
         **kwargs: Keyword arguments passed down through the dispatcher to
             fit subroutines. Unexpected keywords are ignored.
 
     Returns:
-        The `mll` instance. If fitting succeeded, then `mll` will be in evaluation mode,
-        i.e. `mll.training == False`. Otherwise, `mll` will be in training mode.
+        The ``mll`` instance. If fitting succeeded, then ``mll`` will be in
+        evaluation mode, i.e. ``mll.training == False``. Otherwise, ``mll``
+        will be in training mode.
     """
     if optimizer is not None:  # defer to per-method defaults
         kwargs["optimizer"] = optimizer
@@ -147,32 +148,34 @@ def _fit_fallback(
 
     Args:
         closure: Forward-backward closure for obtaining objective values and gradients.
-            Responsible for setting parameters' `grad` attributes. If no closure is
-            provided, one will be obtained by calling `get_loss_closure_with_grads`.
+            Responsible for setting parameters' ``grad`` attributes. If no closure is
+            provided, one will be obtained by calling ``get_loss_closure_with_grads``.
         optimizer: The underlying optimization algorithm to run. Should return
-            an `OptimizationResult` object, whose `fval` field records the negative
-            MLL value. Defaults to `fit_gpytorch_mll_scipy`.
-        closure_kwargs: Keyword arguments passed to `closure`.
-        optimizer_kwargs: Keyword arguments passed to `optimizer`.
+            an ``OptimizationResult`` object, whose ``fval`` field records the negative
+            MLL value. Defaults to ``fit_gpytorch_mll_scipy``.
+        closure_kwargs: Keyword arguments passed to ``closure``.
+        optimizer_kwargs: Keyword arguments passed to ``optimizer``.
         max_attempts: The maximum number of fit attempts allowed. The attempt budget
             is NOT shared between calls to this method.
-        pick_best_of_all_attempts: If True, the model will be fit `max_attempts` times,
-            and the attempt that produces largest MLL value will be returned.
-            First attempt uses the initial hyper parameter values, the subsequent
-            attempts will call `sample_all_priors` to sample the initial values.
-            If any attempt produces an error, the resulting parameters are discarded.
-            If optimizer timeout is used, the `timeout_sec` will be used as is for
-            each attempt, and it should be manually adjusted accordingly.
+        pick_best_of_all_attempts: If True, the model will be fit
+            ``max_attempts`` times, and the attempt that produces largest MLL
+            value will be returned. First attempt uses the initial hyper
+            parameter values, the subsequent attempts will call
+            ``sample_all_priors`` to sample the initial values. If any attempt
+            produces an error, the resulting parameters are discarded. If
+            optimizer timeout is used, the ``timeout_sec`` will be used as is
+            for each attempt, and it should be manually adjusted accordingly.
         warning_handler: A function used to filter warnings produced when calling
-            `optimizer`. Any unfiltered warnings (those for which `warning_handler`
-            returns `False`) will be rethrown and trigger a model fitting retry.
+            ``optimizer``. Any unfiltered warnings (those for which ``warning_handler``
+            returns ``False``) will be rethrown and trigger a model fitting retry.
         caught_exception_types: A tuple of exception types whose instances should
-            be logged at the `DEBUG` level.
+            be logged at the ``DEBUG`` level.
         **ignore: This function ignores unrecognized keyword arguments.
 
     Returns:
-        The `mll` instance. If fitting succeeded, then `mll` will be in evaluation mode,
-        i.e. `mll.training == False`. Otherwise, `mll` will be in training mode.
+        The ``mll`` instance. If fitting succeeded, then ``mll`` will be in
+        evaluation mode, i.e. ``mll.training == False``. Otherwise, ``mll``
+        will be in training mode.
     """
     # Setup
     optimizer_kwargs = {} if optimizer_kwargs is None else optimizer_kwargs
@@ -195,7 +198,7 @@ def _fit_fallback(
     # Attempt to fit the model
     for attempt in range(1, 1 + max_attempts):
         # Wrap with rollback contextmanager so that each loop iteration reloads the
-        # original state_dict upon exiting (unless we clear `ckpt`).
+        # original state_dict upon exiting (unless we clear ``ckpt``).
         with module_rollback_ctx(mll, checkpoint=ckpt, device=device("cpu")) as ckpt:
             if attempt > 1:  # resample free parameters
                 if params_nograd is None:
@@ -272,12 +275,12 @@ def _fit_list(
     r"""Fitting routine for lists of independent Gaussian processes.
 
     Args:
-        **kwargs: Passed to each of `mll.mlls`.
+        **kwargs: Passed to each of ``mll.mlls``.
 
     Returns:
-        The `mll` instance. If fitting succeeded for all of `mll.mlls`, then `mll` will
-        be in evaluation mode, i.e. `mll.training == False`. Otherwise, `mll` will be in
-        training mode.
+        The ``mll`` instance. If fitting succeeded for all of ``mll.mlls``,
+        then ``mll`` will be in evaluation mode, i.e. ``mll.training == False``.
+        Otherwise, ``mll`` will be in training mode.
     """
     mll.train()
     for sub_mll in mll.mlls:
@@ -302,17 +305,17 @@ def _fit_fallback_approximate(
 
     Args:
         closure: Forward-backward closure for obtaining objective values and gradients.
-            Responsible for setting parameters' `grad` attributes. If no closure is
-            provided, one will be obtained by calling `get_loss_closure_with_grads`.
+            Responsible for setting parameters' ``grad`` attributes. If no closure is
+            provided, one will be obtained by calling ``get_loss_closure_with_grads``.
         optimizer: The underlying optimization algorithm to run. Default to
-            `fit_gpytorch_mll_scipy` when `closure=None` and the model's internal
-            training set has no more than `full_batch_cutoff` observations; otherwise,
-            defaults to `fit_gpytorch_mll_torch`.
-        data_loader: An optional DataLoader to pass to `get_loss_closure_with_grads`.
-            May only be provided when `closure=None`.
-        full_batch_limit: Threshold for determining the default choice of `optimizer`
-            when `closure=None`.
-        **kwargs: Keyword arguments passed to `_fit_fallback`.
+            ``fit_gpytorch_mll_scipy`` when ``closure=None`` and the model's internal
+            training set has no more than ``full_batch_limit`` observations; otherwise,
+            defaults to ``fit_gpytorch_mll_torch``.
+        data_loader: An optional DataLoader to pass to ``get_loss_closure_with_grads``.
+            May only be provided when ``closure=None``.
+        full_batch_limit: Threshold for determining the default choice of ``optimizer``
+            when ``closure=None``.
+        **kwargs: Keyword arguments passed to ``_fit_fallback``.
     """
     if data_loader is not None:
         if closure is not None:
@@ -406,12 +409,12 @@ def get_fitted_map_saas_model(
     """Get a fitted MAP SAAS model with a Matern kernel.
 
     Args:
-        train_X: Tensor of shape `n x d` with training inputs.
-        train_Y: Tensor of shape `n x 1` with training targets.
-        train_Yvar: Optional tensor of shape `n x 1` with observed noise,
+        train_X: Tensor of shape ``n x d`` with training inputs.
+        train_Y: Tensor of shape ``n x 1`` with training targets.
+        train_Yvar: Optional tensor of shape ``n x 1`` with observed noise,
             inferred if None.
         input_transform: An optional input transform.
-        outcome_transform: An optional outcome transforms.
+        outcome_transform: An optional outcome transform.
         tau: Fixed value of the global shrinkage tau. If None, the model
             places a HC(0.1) prior on tau.
         optimizer_kwargs: A dict of options for the optimizer passed
@@ -449,17 +452,17 @@ def get_fitted_map_saas_ensemble(
 ) -> SaasFullyBayesianSingleTaskGP:
     """Get a fitted SAAS ensemble using several different tau values.
 
-    DEPRECATED: Please use `EnsembleMapSaasSingleTaskGP` directly!
+    DEPRECATED: Please use ``EnsembleMapSaasSingleTaskGP`` directly!
 
     Args:
-        train_X: Tensor of shape `n x d` with training inputs.
-        train_Y: Tensor of shape `n x 1` with training targets.
-        train_Yvar: Optional tensor of shape `n x 1` with observed noise,
+        train_X: Tensor of shape ``n x d`` with training inputs.
+        train_Y: Tensor of shape ``n x 1`` with training targets.
+        train_Yvar: Optional tensor of shape ``n x 1`` with observed noise,
             inferred if None.
         input_transform: An optional input transform.
-        outcome_transform: An optional outcome transforms.
-        taus: Global shrinkage values to use. If None, we sample `num_taus` values
-            from an HC(0.1) distrbution.
+        outcome_transform: An optional outcome transform.
+        taus: Global shrinkage values to use. If None, we sample ``num_taus`` values
+            from an HC(0.1) distribution.
         num_taus: Optional argument for how many taus to sample.
         optimizer_kwargs: A dict of options for the optimizer passed
             to fit_gpytorch_mll.

@@ -50,12 +50,12 @@ def construct_inputs_best_f(
     posterior_transform: PosteriorTransform | None = None,
     best_f: float | Tensor | None = None,
 ) -> dict[str, Any]:
-    r"""Construct kwargs for the acquisition functions requiring `best_f`.
+    r"""Construct kwargs for the acquisition functions requiring ``best_f``.
 
     Args:
         model: The model to be used in the acquisition function.
         training_data: Dataset(s) used to train the model.
-            Used to determine default value for `best_f`.
+            Used to determine default value for ``best_f``.
         best_f: Threshold above (or below) which improvement is defined.
         posterior_transform: The posterior transform to be used in the
             acquisition function.
@@ -82,7 +82,7 @@ def construct_inputs_noisy(
     posterior_transform: PosteriorTransform | None = None,
     X_pending: Optional[Tensor] = None,
 ) -> dict[str, Any]:
-    r"""Construct kwargs for the acquisition functions requiring `best_f`.
+    r"""Construct kwargs for the acquisition functions requiring ``best_f``.
 
     Args:
         model: The model to be used in the acquisition function.

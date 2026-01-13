@@ -51,7 +51,8 @@ class BLLPosterior(GPyTorchPosterior):
                 representing the desired dimensions.
 
         Returns:
-            A `(sample_shape) x N x output_dim`-dim Tensor of maximum posterior samples.
+            A ``(sample_shape) x N x output_dim``-dim Tensor of maximum
+            posterior samples.
         """
         n_samples = 1 if sample_shape is None else math.prod(sample_shape)
         samples_list = [self.model.sample()(self.X) for _ in range(n_samples)]

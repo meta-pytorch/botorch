@@ -104,18 +104,18 @@ def _compute_multitask_mean(
     """
     if isinstance(mean_module, MultitaskMean):
         # For MultitaskMean, include only non-task features since
-        # the output is going to be a [batch_shape] x n x num_tasks tensor.
+        # the output is going to be a ``batch_shape x n x num_tasks`` tensor.
         # From there, we extract the appropriate task mean for each point
         # according to task_idcs.
         x_mean = torch.cat([x_before, x_after], dim=-1)
         mean_x = mean_module(x_mean)
         # Extract the appropriate task mean for each point
-        # mean_x has shape [batch_shape] x n after the gather
+        # mean_x has shape ``batch_shape x n`` after the gather
         mean_x = mean_x.gather(-1, task_idcs.long()).squeeze(-1)
     else:
         # For non-MultitaskMean, include task indices in the input
         x_mean = torch.cat([x_before, task_idcs, x_after], dim=-1)
-        # mean_x has shape [batch_shape] x n regardless
+        # mean_x has shape ``batch_shape x n`` regardless
         mean_x = mean_module(x_mean)
     return mean_x
 

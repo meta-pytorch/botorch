@@ -41,9 +41,9 @@ class BoxDecomposition(Module, ABC):
         """Initialize BoxDecomposition.
 
         Args:
-            ref_point: A `m`-dim tensor containing the reference point.
+            ref_point: A ``m``-dim tensor containing the reference point.
             sort: A boolean indicating whether to sort the Pareto frontier.
-            Y: A `(batch_shape) x n x m`-dim tensor of outcomes.
+            Y: A ``(batch_shape) x n x m``-dim tensor of outcomes.
         """
         super().__init__()
         self._neg_ref_point = -ref_point
@@ -70,7 +70,7 @@ class BoxDecomposition(Module, ABC):
         r"""This returns the non-dominated set.
 
         Returns:
-            A `n_pareto x m`-dim tensor of outcomes.
+            A ``n_pareto x m``-dim tensor of outcomes.
         """
         if self._neg_pareto_Y is not None:
             return -self._neg_pareto_Y
@@ -81,7 +81,7 @@ class BoxDecomposition(Module, ABC):
         r"""Get the reference point.
 
         Returns:
-            A `m`-dim tensor of outcomes.
+            A ``m``-dim tensor of outcomes.
         """
         return -self._neg_ref_point
 
@@ -90,7 +90,7 @@ class BoxDecomposition(Module, ABC):
         r"""Get the raw outcomes.
 
         Returns:
-            A `n x m`-dim tensor of outcomes.
+            A ``n x m``-dim tensor of outcomes.
         """
         if self._neg_Y is not None:
             return -self._neg_Y
@@ -155,7 +155,7 @@ class BoxDecomposition(Module, ABC):
         r"""Partition the non-dominated space into disjoint hypercells.
 
         This method supports an arbitrary number of outcomes, but is
-        less efficient than `partition_space_2d` for the 2-outcome case.
+        less efficient than ``partition_space_2d`` for the 2-outcome case.
         """
 
     @abstractmethod
@@ -163,7 +163,7 @@ class BoxDecomposition(Module, ABC):
         r"""Get the bounds of each hypercell in the decomposition.
 
         Returns:
-            A `2 x num_cells x num_outcomes`-dim tensor containing the
+            A ``2 x num_cells x num_outcomes``-dim tensor containing the
                 lower and upper vertices bounding each hypercell.
         """
 
@@ -192,7 +192,7 @@ class BoxDecomposition(Module, ABC):
         this functionality.
 
         Args:
-            Y: A `(batch_shape) x n x m`-dim tensor of new, incremental outcomes.
+            Y: A ``(batch_shape) x n x m``-dim tensor of new, incremental outcomes.
         """
         self._update_neg_Y(Y=Y)
         self.reset()
@@ -228,7 +228,7 @@ class BoxDecomposition(Module, ABC):
         r"""Compute hypervolume that is dominated by the Pareto Froniter.
 
         Returns:
-            A `(batch_shape)`-dim tensor containing the hypervolume dominated by
+            A ``(batch_shape)``-dim tensor containing the hypervolume dominated by
                 each Pareto frontier.
         """
         if self._neg_pareto_Y is None:
@@ -262,8 +262,8 @@ class FastPartitioning(BoxDecomposition, ABC):
     ) -> None:
         """
         Args:
-            ref_point: A `m`-dim tensor containing the reference point.
-            Y: A `(batch_shape) x n x m`-dim tensor
+            ref_point: A ``m``-dim tensor containing the reference point.
+            Y: A ``(batch_shape) x n x m``-dim tensor
         """
         super().__init__(ref_point=ref_point, Y=Y, sort=ref_point.shape[-1] == 2)
 
@@ -271,7 +271,7 @@ class FastPartitioning(BoxDecomposition, ABC):
         r"""Update non-dominated front and decomposition.
 
         Args:
-            Y: A `(batch_shape) x n x m`-dim tensor of new, incremental outcomes.
+            Y: A ``(batch_shape) x n x m``-dim tensor of new, incremental outcomes.
         """
         if self._update_neg_Y(Y=Y):
             self.reset()
@@ -322,7 +322,7 @@ class FastPartitioning(BoxDecomposition, ABC):
         r"""Partition the non-dominated space into disjoint hypercells.
 
         This method supports an arbitrary number of outcomes, but is
-        less efficient than `partition_space_2d` for the 2-outcome case.
+        less efficient than ``partition_space_2d`` for the 2-outcome case.
         """
         if len(self.batch_shape) > 0:
             # this could be triggered when m=2 outcomes and
@@ -368,7 +368,7 @@ class FastPartitioning(BoxDecomposition, ABC):
         r"""Get the bounds of each hypercell in the decomposition.
 
         Returns:
-            A `2 x (batch_shape) x num_cells x m`-dim tensor containing the
+            A ``2 x (batch_shape) x num_cells x m``-dim tensor containing the
                 lower and upper vertices bounding each hypercell.
         """
         return self.hypercell_bounds

@@ -63,11 +63,11 @@ class OptimizationTimeoutError(BotorchError):
     ) -> None:
         r"""
         Args:
-            *args: Standard args to `BoTorchError`.
+            *args: Standard args to ``BotorchError``.
             current_x: A numpy array representing the current iterate.
             runtime: The total runtime in seconds after which the optimization
                 timed out.
-            **kwargs: Standard kwargs to `BoTorchError`.
+            **kwargs: Standard kwargs to ``BotorchError``.
         """
         super().__init__(*args, **kwargs)
         self.current_x = current_x
@@ -75,14 +75,14 @@ class OptimizationTimeoutError(BotorchError):
 
 
 class OptimizationGradientError(BotorchError, RuntimeError):
-    r"""Exception raised when gradient array `gradf` containts NaNs."""
+    r"""Exception raised when gradient array ``gradf`` contains NaNs."""
 
     def __init__(self, /, *args: Any, current_x: npt.NDArray, **kwargs: Any) -> None:
         r"""
         Args:
-            *args: Standard args to `BoTorchError`.
+            *args: Standard args to ``BotorchError``.
             current_x: A numpy array representing the current iterate.
-            **kwargs: Standard kwargs to `BoTorchError`.
+            **kwargs: Standard kwargs to ``BotorchError``.
         """
         super().__init__(*args, **kwargs)
         self.current_x = current_x

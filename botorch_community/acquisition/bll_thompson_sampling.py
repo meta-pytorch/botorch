@@ -15,7 +15,7 @@ from torch.func import grad
 
 
 class BLLMaxPosteriorSampling:
-    """TODO: Integrate into `SamplingStrategy` (note, here we dont require
+    """TODO: Integrate into ``SamplingStrategy`` (note, here we dont require
     X_cand to be passed but optimize the sample paths numerically as a default)."""
 
     def __init__(
@@ -33,10 +33,10 @@ class BLLMaxPosteriorSampling:
 
         Args:
             model: The VBLL model from which posterior samples are drawn. Must be an
-                instance of `AbstractBLLModel`.
+                instance of ``AbstractBLLModel``.
             num_restarts: Number of restarts for optimization-based sampling.
                 Defaults to 10.
-            bounds: Tensor of shape `2 x d` specifying the lower and upper
+            bounds: Tensor of shape ``2 x d`` specifying the lower and upper
                 bounds for sampling. If None, defaults to [(0, 1)] for each input
                 dimension.
             discrete_inputs: If True, assumes the input space is discrete and will be
@@ -44,10 +44,10 @@ class BLLMaxPosteriorSampling:
 
         Raises:
             ValueError:
-                If the provided `model` is not an instance of `AbstractBLLModel`.
+                If the provided ``model`` is not an instance of ``AbstractBLLModel``.
 
         Notes:
-            - If `bounds` is not provided, the default range [0,1] is assumed for each
+            - If ``bounds`` is not provided, the default range [0,1] is assumed for each
             input dimension.
         """
         if not isinstance(model, AbstractBLLModel):
@@ -81,14 +81,14 @@ class BLLMaxPosteriorSampling:
         r"""Sample from a Bayesian last layer model posterior.
 
         Args:
-            X_cand: A `N x d`-dim Tensor from which to sample (in the `N`
+            X_cand: A ``N x d``-dim Tensor from which to sample (in the ``N``
                 dimension) according to the maximum posterior value under the objective.
-                NOTE: X_cand is only accepted if `discrete_inputs` is `True`!
+                NOTE: X_cand is only accepted if ``discrete_inputs`` is ``True``!
             num_samples: The number of samples to draw.
 
         Returns:
-            A `num_samples x d`-dim Tensor of maximum posterior values from the model,
-            where `X[i, :]` is the `i`-th sample.
+            A ``num_samples x d``-dim Tensor of maximum posterior values from the model,
+            where ``X[i, :]`` is the ``i``-th sample.
         """
         if self.discrete_inputs and X_cand is None:
             raise ValueError("X_cand must be provided if `discrete_inputs` is True.")
@@ -148,7 +148,7 @@ def _optimize_sample_path(
 
     Returns:
         Candidate points and corresponding function values as a tuple with a
-        `num_restarts x d`-dim Tensor and `num_restarts x num_outputs`-dim Tensor,
+        ``num_restarts x d``-dim Tensor and ``num_restarts x num_outputs``-dim Tensor,
         respectively.
     """
     X_cand = torch.empty(num_restarts, f.num_inputs, dtype=torch.float64, device=device)

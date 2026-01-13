@@ -62,29 +62,30 @@ class CVResults(NamedTuple):
 def gen_loo_cv_folds(
     train_X: Tensor, train_Y: Tensor, train_Yvar: Tensor | None = None
 ) -> CVFolds:
-    r"""Generate LOO CV folds w.r.t. to `n`.
+    r"""Generate LOO CV folds w.r.t. to ``n``.
 
     Args:
-        train_X: A `n x d` or `batch_shape x n x d` (batch mode) tensor of training
+        train_X: A ``n x d`` or ``batch_shape x n x d`` (batch mode) tensor of training
             features.
-        train_Y: A `n x (m)` or `batch_shape x n x (m)` (batch mode) tensor of
+        train_Y: A ``n x (m)`` or ``batch_shape x n x (m)`` (batch mode) tensor of
             training observations.
-        train_Yvar: An `n x (m)` or `batch_shape x n x (m)` (batch mode) tensor
+        train_Yvar: An ``n x (m)`` or ``batch_shape x n x (m)`` (batch mode) tensor
             of observed measurement noise.
 
     Returns:
         CVFolds NamedTuple with the following fields:
 
-        - train_X: A `n x (n-1) x d` or `batch_shape x n x (n-1) x d` tensor of
+        - train_X: A ``n x (n-1) x d`` or ``batch_shape x n x (n-1) x d`` tensor of
           training features.
-        - test_X: A `n x 1 x d` or `batch_shape x n x 1 x d` tensor of test features.
-        - train_Y: A `n x (n-1) x m` or `batch_shape x n x (n-1) x m` tensor of
+        - test_X: A ``n x 1 x d`` or ``batch_shape x n x 1 x d`` tensor of test
+          features.
+        - train_Y: A ``n x (n-1) x m`` or ``batch_shape x n x (n-1) x m`` tensor of
           training observations.
-        - test_Y: A `n x 1 x m` or `batch_shape x n x 1 x m` tensor of test
+        - test_Y: A ``n x 1 x m`` or ``batch_shape x n x 1 x m`` tensor of test
           observations.
-        - train_Yvar: A `n x (n-1) x m` or `batch_shape x n x (n-1) x m` tensor
+        - train_Yvar: A ``n x (n-1) x m`` or ``batch_shape x n x (n-1) x m`` tensor
           of observed measurement noise.
-        - test_Yvar: A `n x 1 x m` or `batch_shape x n x 1 x m` tensor of observed
+        - test_Yvar: A ``n x 1 x m`` or ``batch_shape x n x 1 x m`` tensor of observed
           measurement noise.
 
     Example:
@@ -158,11 +159,12 @@ def batch_cross_validation(
         A CVResults tuple with the following fields
 
         - model: GPyTorchModel for batched cross validation
-        - posterior: GPyTorchPosterior where the mean has shape `n x 1 x m` or
-          `batch_shape x n x 1 x m`
-        - observed_Y: A `n x 1 x m` or `batch_shape x n x 1 x m` tensor of observations.
-        - observed_Yvar: A `n x 1 x m` or `batch_shape x n x 1 x m` tensor of observed
-          measurement noise.
+        - posterior: GPyTorchPosterior where the mean has shape ``n x 1 x m`` or
+          ``batch_shape x n x 1 x m``
+        - observed_Y: A ``n x 1 x m`` or ``batch_shape x n x 1 x m`` tensor of
+          observations.
+        - observed_Yvar: A ``n x 1 x m`` or ``batch_shape x n x 1 x m`` tensor
+          of observed measurement noise.
 
     Example:
         >>> import torch
@@ -297,7 +299,7 @@ def efficient_loo_cv(
     batch_cross_validation. This is a memory- and compute-efficient way to compute LOO,
     but it does not account for potential changes in the model parameters due to the
     removal of a single observation. This is typically ok in cases with a lot of data,
-    but can results in substantial differences (typically over-estimating performance)
+    but can result in substantial differences (typically over-estimating performance)
     in the low data regime.
 
     This function leverages a well-known linear algebraic identity to compute
@@ -321,11 +323,11 @@ def efficient_loo_cv(
         \sigma^2_{posterior,i} = \sigma^2_{LOO,i} - \sigma^2_{noise}
 
     NOTE: This function assumes the model has already been fitted and that the
-    model's `forward` method returns a `MultivariateNormal` distribution.
+    model's ``forward`` method returns a ``MultivariateNormal`` distribution.
 
     Args:
-        model: A fitted GPyTorchModel whose `forward` method returns a
-            `MultivariateNormal` distribution.
+        model: A fitted GPyTorchModel whose ``forward`` method returns a
+            ``MultivariateNormal`` distribution.
         observation_noise: If True (default), return the posterior
             predictive variance (including observation noise). If False,
             return the posterior variance of the latent function (excluding
@@ -465,8 +467,8 @@ def _compute_loo_predictions(
     noise variance.
 
     Args:
-        model: A fitted GPyTorchModel in eval mode whose `forward` method returns
-            a `MultivariateNormal` distribution.
+        model: A fitted GPyTorchModel in eval mode whose ``forward`` method returns
+            a ``MultivariateNormal`` distribution.
         observation_noise: If True (default), return the posterior
             predictive variance (including observation noise). If False,
             return the posterior variance of the latent function (excluding
@@ -474,8 +476,8 @@ def _compute_loo_predictions(
 
     Returns:
         A tuple of (loo_mean, loo_variance, train_Y) where:
-        - loo_mean: LOO predictive means with shape `... x n x 1`
-        - loo_variance: LOO predictive variances with shape `... x n x 1`
+        - loo_mean: LOO predictive means with shape ``... x n x 1``
+        - loo_variance: LOO predictive variances with shape ``... x n x 1``
         - train_Y: The training targets from the model
 
     Raises:
@@ -569,13 +571,13 @@ def _build_loo_posterior(
     r"""Build a GPyTorchPosterior from raw LOO predictions.
 
     Args:
-        loo_mean: LOO means with shape `... x m x n x 1` (multi-output) or
-            `... x n x 1` (single-output), where `...` is optional batch_shape.
+        loo_mean: LOO means with shape ``... x m x n x 1`` (multi-output) or
+            ``... x n x 1`` (single-output), where ``...`` is optional batch_shape.
         loo_variance: LOO variances with same shape as loo_mean.
         num_outputs: Number of outputs (m). 1 for single-output models.
 
     Returns:
-        A GPyTorchPosterior with shape `... x n x 1 x m`.
+        A GPyTorchPosterior with shape ``... x n x 1 x m``.
     """
     # Reshape tensors to final shape: ... x n x 1 x m
     if num_outputs > 1:
@@ -638,15 +640,15 @@ def ensemble_loo_cv(
     r"""Compute efficient LOO cross-validation for ensemble models.
 
     This function computes Leave-One-Out cross-validation for ensemble models
-    like `SaasFullyBayesianSingleTaskGP`. For these models, the `forward` method
-    returns a `MultivariateNormal` with a batch dimension containing statistics
+    like ``SaasFullyBayesianSingleTaskGP``. For these models, the ``forward`` method
+    returns a ``MultivariateNormal`` with a batch dimension containing statistics
     for all models in the ensemble.
 
     The LOO predictions from each ensemble member form a Gaussian mixture.
-    This function returns a `CVResults` with a `GaussianMixturePosterior` that
-    provides both per-member statistics (via `posterior.mean` and
-    `posterior.variance`) and aggregated mixture statistics (via
-    `posterior.mixture_mean` and `posterior.mixture_variance`).
+    This function returns a ``CVResults`` with a ``GaussianMixturePosterior`` that
+    provides both per-member statistics (via ``posterior.mean`` and
+    ``posterior.variance``) and aggregated mixture statistics (via
+    ``posterior.mixture_mean`` and ``posterior.mixture_variance``).
 
     The mixture statistics are computed using the law of total variance:
 
@@ -660,12 +662,12 @@ def ensemble_loo_cv(
     where K is the number of ensemble members.
 
     NOTE: This function assumes the model has already been fitted (e.g., using
-    `fit_fully_bayesian_model_nuts`) and that the model is an ensemble model
-    with `_is_ensemble = True`.
+    ``fit_fully_bayesian_model_nuts``) and that the model is an ensemble model
+    with ``_is_ensemble = True``.
 
     Args:
-        model: A ensemble GPyTorchModel (e.g., SaasFullyBayesianSingleTaskGP)
-            whose `forward` method returns a `MultivariateNormal` distribution
+        model: An ensemble GPyTorchModel (e.g., SaasFullyBayesianSingleTaskGP)
+            whose ``forward`` method returns a ``MultivariateNormal`` distribution
             with a batch dimension for ensemble members.
         observation_noise: If True (default), return the posterior
             predictive variance (including observation noise). If False,
@@ -675,7 +677,7 @@ def ensemble_loo_cv(
     Returns:
         CVResults: A named tuple containing:
             - model: The fitted ensemble GP model.
-            - posterior: A `GaussianMixturePosterior` with per-member shape
+            - posterior: A ``GaussianMixturePosterior`` with per-member shape
               ``n x num_models x 1 x 1``. Access per-member statistics via
               ``posterior.mean`` and ``posterior.variance``, and mixture
               statistics via ``posterior.mixture_mean`` and
@@ -749,7 +751,7 @@ def _build_ensemble_loo_posterior(
     r"""Build a GaussianMixturePosterior from raw ensemble LOO predictions.
 
     This function takes raw LOO means and variances from an ensemble model
-    (computed by `_compute_loo_predictions`) and packages them into a
+    (computed by ``_compute_loo_predictions``) and packages them into a
     GaussianMixturePosterior that provides both per-member and mixture statistics.
 
     Args:

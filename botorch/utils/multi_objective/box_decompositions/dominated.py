@@ -30,7 +30,7 @@ class DominatedPartitioning(FastPartitioning):
     def _partition_space_2d(self) -> None:
         r"""Partition the non-dominated space into disjoint hypercells.
 
-        This direct method works for `m=2` outcomes.
+        This direct method works for ``m=2`` outcomes.
         """
         cell_bounds = compute_dominated_hypercell_bounds_2d(
             # flip self.pareto_Y because it is sorted in decreasing order (since
@@ -52,7 +52,7 @@ class DominatedPartitioning(FastPartitioning):
         r"""Compute hypervolume that is dominated by the Pareto Frontier.
 
         Returns:
-            A `(batch_shape)`-dim tensor containing the hypervolume dominated by
+            A ``(batch_shape)``-dim tensor containing the hypervolume dominated by
                 each Pareto frontier.
         """
         return (

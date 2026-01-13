@@ -27,16 +27,17 @@ from torch import Tensor
 class AugmentedBranin(SyntheticTestFunction):
     r"""Augmented Branin test function for multi-fidelity optimization.
 
-    3-dimensional function with domain `[-5, 10] x [0, 15] * [0,1]`, where
+    3-dimensional function with domain ``[-5, 10] x [0, 15] * [0,1]``, where
     the last dimension of is the fidelity parameter:
 
         B(x) = (x_2 - (b - 0.1 * (1 - x_3))x_1^2 + c x_1 - r)^2 +
             10 (1-t) cos(x_1) + 10
 
-    Here `b`, `c`, `r` and `t` are constants where `b = 5.1 / (4 * math.pi ** 2)`
-    `c = 5 / math.pi`, `r = 6`, `t = 1 / (8 * math.pi)`.
-    B has infinitely many minimizers with `x_1 = -pi, pi, 3pi`
-    and `B_min = 0.397887`
+    Here ``b``, ``c``, ``r`` and ``t`` are constants where
+    ``b = 5.1 / (4 * math.pi ** 2)`` ``c = 5 / math.pi``, ``r = 6``,
+    ``t = 1 / (8 * math.pi)``.
+    B has infinitely many minimizers with ``x_1 = -pi, pi, 3pi``
+    and ``B_min = 0.397887``
     """
 
     dim = 3
@@ -64,16 +65,16 @@ class AugmentedBranin(SyntheticTestFunction):
 class AugmentedHartmann(SyntheticTestFunction):
     r"""Augmented Hartmann synthetic test function.
 
-    7-dimensional function (typically evaluated on `[0, 1]^7`), where the last
+    7-dimensional function (typically evaluated on ``[0, 1]^7``), where the last
     dimension is the fidelity parameter.
 
         H(x) = -(ALPHA_1 - 0.1 * (1-x_7)) * exp(- sum_{j=1}^6 A_1j (x_j - P_1j) ** 2) -
             sum_{i=2}^4 ALPHA_i exp( - sum_{j=1}^6 A_ij (x_j - P_ij) ** 2)
 
     H has a unique global minimizer
-    `x = [0.20169, 0.150011, 0.476874, 0.275332, 0.311652, 0.6573, 1.0]`
+    ``x = [0.20169, 0.150011, 0.476874, 0.275332, 0.311652, 0.6573, 1.0]``
 
-    with `H_min = -3.32237`
+    with ``H_min = -3.32237``
     """
 
     dim = 7
@@ -128,14 +129,14 @@ class AugmentedHartmann(SyntheticTestFunction):
 class AugmentedRosenbrock(SyntheticTestFunction):
     r"""Augmented Rosenbrock synthetic test function for multi-fidelity optimization.
 
-    d-dimensional function (usually evaluated on `[-5, 10]^(d-2) * [0, 1]^2`),
+    d-dimensional function (usually evaluated on ``[-5, 10]^(d-2) * [0, 1]^2``),
     where the last two dimensions are the fidelity parameters:
 
         f(x) = sum_{i=1}^{d-1} (100 (x_{i+1} - x_i^2 + 0.1 * (1-x_{d-1}))^2 +
             (x_i - 1 + 0.1 * (1 - x_d)^2)^2)
 
-    f has one minimizer for its global minimum at `z_1 = (1, 1, ..., 1)` with
-    `f(z_i) = 0.0`.
+    f has one minimizer for its global minimum at ``z_1 = (1, 1, ..., 1)`` with
+    ``f(z_i) = 0.0``.
     """
 
     _optimal_value = 0.0
@@ -156,7 +157,7 @@ class AugmentedRosenbrock(SyntheticTestFunction):
         """
         if dim < 3:
             raise ValueError(
-                "AugmentedRosenbrock must be defined it at least 3 dimensions"
+                "AugmentedRosenbrock must be defined in at least 3 dimensions"
             )
         self.dim = dim
         self.continuous_inds = list(range(dim))

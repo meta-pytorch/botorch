@@ -41,8 +41,8 @@ class BoxDecompositionList(Module):
         Note: Internally, we store the negative pareto set (minimization).
 
         Returns:
-            A list where the ith element is the `n_pareto_i x m`-dim tensor
-                of pareto optimal outcomes for each box_decomposition `i`.
+            A list where the ith element is the ``n_pareto_i x m``-dim tensor
+                of pareto optimal outcomes for each box_decomposition ``i``.
         """
         return [p.pareto_Y for p in self.box_decompositions]
 
@@ -53,7 +53,7 @@ class BoxDecompositionList(Module):
         Note: Internally, we store the negative reference point (minimization).
 
         Returns:
-            A `n_box_decompositions x m`-dim tensor of outcomes.
+            A ``n_box_decompositions x m``-dim tensor of outcomes.
         """
         return torch.stack([p.ref_point for p in self.box_decompositions], dim=0)
 
@@ -61,7 +61,7 @@ class BoxDecompositionList(Module):
         r"""Get the bounds of each hypercell in the decomposition.
 
         Returns:
-            A `2 x n_box_decompositions x num_cells x num_outcomes`-dim tensor
+            A ``2 x n_box_decompositions x num_cells x num_outcomes``-dim tensor
                 containing the lower and upper vertices bounding each hypercell.
         """
         bounds_list = []
@@ -96,9 +96,9 @@ class BoxDecompositionList(Module):
         r"""Update the partitioning.
 
         Args:
-            Y: A `n_box_decompositions x n x num_outcomes`-dim tensor or a list
+            Y: A ``n_box_decompositions x n x num_outcomes``-dim tensor or a list
                 where the ith  element contains the new points for
-                box_decomposition `i`.
+                box_decomposition ``i``.
         """
         if (
             torch.is_tensor(Y)
@@ -117,7 +117,7 @@ class BoxDecompositionList(Module):
         r"""Compute hypervolume that is dominated by the Pareto Froniter.
 
         Returns:
-            A `(batch_shape)`-dim tensor containing the hypervolume dominated by
+            A ``(batch_shape)``-dim tensor containing the hypervolume dominated by
                 each Pareto frontier.
         """
         return torch.stack(

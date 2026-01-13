@@ -105,7 +105,7 @@ class TestDatasets(BotorchTestCase):
         outcome_names = ["y"]
         group_indices = tensor(range(n_rows))
 
-        # Test `__init__`
+        # Test ``__init__``
         dataset = SupervisedDataset(
             X=X,
             Y=Y,
@@ -134,7 +134,7 @@ class TestDatasets(BotorchTestCase):
         self.assertIsInstance(dataset2._Y, DenseContainer)
         self.assertEqual(dataset, dataset2)
 
-        # Test `_validate`
+        # Test ``_validate``
         with self.assertRaisesRegex(ValueError, "Batch dimensions .* incompatible."):
             SupervisedDataset(
                 X=rand(1, 2),
@@ -278,7 +278,7 @@ class TestDatasets(BotorchTestCase):
         self.assertEqual(dataset.outcome_names, outcome_names)
 
     def test_ranking(self):
-        # Test `_validate`
+        # Test ``_validate``
         X_val = rand(16, 2)
         X_idx = stack([randperm(len(X_val))[:3] for _ in range(1)])
         X = SliceContainer(X_val, X_idx, event_shape=Size([3 * X_val.shape[-1]]))

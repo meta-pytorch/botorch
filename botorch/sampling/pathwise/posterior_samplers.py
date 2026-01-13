@@ -53,8 +53,8 @@ class MatheronPath(PathDict):
                                                 v
                                           "Update path"
 
-    where `=` denotes equality in distribution, :math:`f \sim GP(0, k)`,
-    :math:`y \sim N(f(X), \Sigma)`, and :math:`\epsilon \sim N(0, \Sigma)`.
+    where ``=`` denotes equality in distribution, :math:``f \sim GP(0, k)``,
+    :math:``y \sim N(f(X), \Sigma)``, and :math:``\epsilon \sim N(0, \Sigma)``.
     For more information, see [wilson2020sampling]_ and [wilson2021pathwise]_.
     """
 
@@ -88,22 +88,22 @@ def get_matheron_path_model(
     r"""Generates a deterministic model using a single Matheron path drawn
     from the model's posterior.
 
-    The deterministic model evalutes the output of `draw_matheron_paths`,
+    The deterministic model evaluates the output of ``draw_matheron_paths``,
     and reshapes it to mimic the output behavior of the model's posterior.
 
     Args:
         model: The model whose posterior is to be sampled.
         sample_shape: The shape of the sample paths to be drawn, if an ensemble
             of sample paths is desired. If this is specified, the resulting
-            deterministic model will behave as if the `sample_shape` is prepended
-            to the `batch_shape` of the model. The inputs used to evaluate the model
-            must be adjusted to match.
-        ensemble_as_batch: If True, and model is an ensemble model, the resulting path
-            model will treat the ensemble dimension as a batch dimension, which means
-            that its inputs have to contain the ensemble dimension in the -3 position,
-            i.e. `batch_shape x ensemble_size x q x d`. This is used when optimizing the
-            paths of all members of an ensemble jointly, with distinct optima for each
-            member of the ensemble.
+            deterministic model will behave as if the ``sample_shape`` is prepended
+            to the ``batch_shape`` of the model. The inputs used to evaluate
+            the model must be adjusted to match.
+        ensemble_as_batch: If True, and model is an ensemble model, the resulting
+            path model will treat the ensemble dimension as a batch dimension,
+            which means that its inputs have to contain the ensemble dimension in
+            the -3 position, i.e. ``batch_shape x ensemble_size x q x d``. This is
+            used when optimizing the paths of all members of an ensemble jointly,
+            with distinct optima for each member of the ensemble.
 
     Returns:
         A deterministic model that evaluates the Matheron path.
@@ -124,15 +124,15 @@ def draw_matheron_paths(
 ) -> MatheronPath:
     r"""Generates function draws from (an approximate) Gaussian process posterior.
 
-    When evaluted, sample paths produced by this method return Tensors with dimensions
-    `sample_dims x batch_dims x [joint_dim]`, where `joint_dim` denotes the penultimate
-    dimension of the input tensor. For multioutput models, outputs are returned as the
-    final batch dimension.
+    When evaluated, sample paths produced by this method return Tensors with
+    dimensions ``sample_dims x batch_dims x [joint_dim]``, where ``joint_dim``
+    denotes the penultimate dimension of the input tensor. For multioutput
+    models, outputs are returned as the final batch dimension.
 
     Args:
         model: Gaussian process whose posterior is to be sampled.
         sample_shape: Sizes of sample dimensions.
-        prior_sample: A callable that takes a model and a sample shape and returns
+        prior_sampler: A callable that takes a model and a sample shape and returns
             a set of sample paths representing the prior.
         update_strategy: A callable that takes a model and a tensor of prior process
             values and returns a set of sample paths representing the data.
@@ -213,7 +213,7 @@ def _draw_matheron_paths_ApproximateGP(
     with delattr_ctx(model, "outcome_transform"):
         # Generate draws from the prior
         prior_paths = prior_sampler(model=model, sample_shape=sample_shape)
-        sample_values = prior_paths.forward(Z)  # `forward` bypasses transforms
+        sample_values = prior_paths.forward(Z)  # ``forward`` bypasses transforms
 
         # Compute pathwise updates
         update_paths = update_strategy(model=model, sample_values=sample_values)

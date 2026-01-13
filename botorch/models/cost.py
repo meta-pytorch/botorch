@@ -9,7 +9,7 @@ Cost models to be used with multi-fidelity optimization.
 
 Cost models are useful for defining known cost functions when the cost of an evaluation
 is heterogeneous in fidelity. For a full worked example, see the
-``tutorial <https://botorch.org/docs/tutorials/multi_fidelity_bo>``_ on continuous
+`tutorial <https://botorch.org/docs/tutorials/multi_fidelity_bo>`_ on continuous
 multi-fidelity Bayesian Optimization.
 """
 
@@ -29,7 +29,7 @@ class AffineFidelityCostModel(DeterministicModel):
         cost = fixed_cost + sum_j weights[j] * X[fidelity_dims[j]]
 
     For a full worked example, see the
-    ``tutorial <https://botorch.org/docs/tutorials/multi_fidelity_bo>``_ on continuous
+    `tutorial <https://botorch.org/docs/tutorials/multi_fidelity_bo>`_ on continuous
     multi-fidelity Bayesian Optimization.
 
     Example:

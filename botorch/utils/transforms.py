@@ -32,10 +32,10 @@ def standardize(Y: Tensor) -> Tensor:
     data point), this function will return 0 for that batch index.
 
     Args:
-        Y: A `batch_shape x n x m`-dim tensor.
+        Y: A ``batch_shape x n x m``-dim tensor.
 
     Returns:
-        The standardized `Y`.
+        The standardized ``Y``.
 
     Example:
         >>> Y = torch.rand(4, 3)
@@ -55,10 +55,10 @@ def _update_constant_bounds(bounds: Tensor) -> Tensor:
     tensor to avoid in-place modification.
 
     Args:
-        bounds: A `2 x d`-dim tensor of lower and upper bounds.
+        bounds: A ``2 x d``-dim tensor of lower and upper bounds.
 
     Returns:
-        A `2 x d`-dim tensor of updated lower and upper bounds.
+        A ``2 x d``-dim tensor of updated lower and upper bounds.
     """
     if (constant_dims := (bounds[1] == bounds[0])).any():
         bounds = bounds.clone()
@@ -70,20 +70,20 @@ def normalize(X: Tensor, bounds: Tensor, update_constant_bounds: bool = True) ->
     r"""Min-max normalize X w.r.t. the provided bounds.
 
     Args:
-        X: `... x d` tensor of data
-        bounds: `2 x d` tensor of lower and upper bounds for each of the X's d
+        X: ``... x d`` tensor of data
+        bounds: ``2 x d`` tensor of lower and upper bounds for each of the X's d
             columns.
-        update_constant_bounds: If `True`, update the constant bounds in order to
+        update_constant_bounds: If ``True``, update the constant bounds in order to
             avoid division by zero issues. When the upper and lower bounds are
             identical for a dimension, that dimension will not be scaled. Such
             dimensions will only be shifted as
-            `new_X[..., i] = X[..., i] - bounds[0, i]`.
+            ``new_X[..., i] = X[..., i] - bounds[0, i]``.
 
     Returns:
-        A `... x d`-dim tensor of normalized data, given by
-            `(X - bounds[0]) / (bounds[1] - bounds[0])`. If all elements of `X`
-            are contained within `bounds`, the normalized values will be
-            contained within `[0, 1]^d`.
+        A ``... x d``-dim tensor of normalized data, given by
+            ``(X - bounds[0]) / (bounds[1] - bounds[0])``. If all elements of ``X``
+            are contained within ``bounds``, the normalized values will be
+            contained within ``[0, 1]^d``.
 
     Example:
         >>> X = torch.rand(4, 3)
@@ -102,21 +102,21 @@ def unnormalize(
     r"""Un-normalizes X w.r.t. the provided bounds.
 
     Args:
-        X: `... x d` tensor of data
-        bounds: `2 x d` tensor of lower and upper bounds for each of the X's d
+        X: ``... x d`` tensor of data
+        bounds: ``2 x d`` tensor of lower and upper bounds for each of the X's d
             columns.
-        update_constant_bounds: If `True`, update the constant bounds in order to
+        update_constant_bounds: If ``True``, update the constant bounds in order to
             avoid division by zero issues. When the upper and lower bounds are
             identical for a dimension, that dimension will not be scaled. Such
             dimensions will only be shifted as
-            `new_X[..., i] = X[..., i] + bounds[0, i]`. This is the inverse of
-            the behavior of `normalize` when `update_constant_bounds=True`.
+            ``new_X[..., i] = X[..., i] + bounds[0, i]``. This is the inverse of
+            the behavior of ``normalize`` when ``update_constant_bounds=True``.
 
     Returns:
-        A `... x d`-dim tensor of unnormalized data, given by
-            `X * (bounds[1] - bounds[0]) + bounds[0]`. If all elements of `X`
-            are contained in `[0, 1]^d`, the un-normalized values will be
-            contained within `bounds`.
+        A ``... x d``-dim tensor of unnormalized data, given by
+            ``X * (bounds[1] - bounds[0]) + bounds[0]``. If all elements of ``X``
+            are contained in ``[0, 1]^d``, the un-normalized values will be
+            contained within ``bounds``.
 
     Example:
         >>> X_normalized = torch.rand(4, 3)
@@ -138,8 +138,8 @@ def normalize_indices(indices: list[int] | None, d: int) -> list[int] | None:
         d: The dimension of the tensor to index.
 
     Returns:
-        A normalized list of indices such that each index is between `0` and
-        `d-1`, or None if indices is None.
+        A normalized list of indices such that each index is between ``0`` and
+        ``d-1``, or None if indices is None.
     """
     if indices is None:
         return indices
@@ -155,20 +155,20 @@ def normalize_indices(indices: list[int] | None, d: int) -> list[int] | None:
 
 def _verify_output_shape(acqf: Any, X: Tensor, output: Tensor) -> bool:
     r"""
-    Performs the output shape checks for `t_batch_mode_transform`. Output shape checks
+    Performs the output shape checks for ``t_batch_mode_transform``. Output shape checks
     help in catching the errors due to AcquisitionFunction arguments with erroneous
     return shapes before these errors propagate further down the line.
 
-    This method checks that the `output` shape matches either the t-batch shape of X
-    or the `batch_shape` of `acqf.model`.
+    This method checks that the ``output`` shape matches either the t-batch shape of X
+    or the ``batch_shape`` of ``acqf.model``.
 
     Args:
         acqf: The AcquisitionFunction object being evaluated.
-        X: The `... x q x d`-dim input tensor with an explicit t-batch.
-        output: The return value of `acqf.method(X, ...)`.
+        X: The ``... x q x d``-dim input tensor with an explicit t-batch.
+        output: The return value of ``acqf.method(X, ...)``.
 
     Returns:
-        True if `output` has the correct shape, False otherwise.
+        True if ``output`` has the correct shape, False otherwise.
     """
     try:
         X_batch_shape = X.shape[:-2]
@@ -193,7 +193,7 @@ def _verify_output_shape(acqf: Any, X: Tensor, output: Tensor) -> bool:
             return True
         return False
     except (AttributeError, NotImplementedError):
-        # acqf does not have model or acqf.model does not define `batch_shape`
+        # acqf does not have model or acqf.model does not define ``batch_shape``
         warnings.warn(
             "Output shape checks failed! Expected output shape to match t-batch shape"
             f"of X, but got output with shape {output.shape} for X with shape "
@@ -208,7 +208,7 @@ def is_fully_bayesian(model: Model) -> bool:
     r"""Check if at least one model is a fully Bayesian model.
 
     Args:
-        model: A BoTorch model (may be a `ModelList` or `ModelListGP`)
+        model: A BoTorch model (may be a ``ModelList`` or ``ModelListGP``)
 
     Returns:
        True if at least one model is a fully Bayesian model.
@@ -224,7 +224,7 @@ def is_ensemble(model: Model) -> bool:
     r"""Check if at least one model is an ensemble model.
 
     Args:
-        model: A BoTorch model (may be a `ModelList` or `ModelListGP`)
+        model: A BoTorch model (may be a ``ModelList`` or ``ModelListGP``)
 
     Returns:
        True if at least one model is an ensemble model.
@@ -246,16 +246,17 @@ def t_batch_mode_transform(
     r"""Factory for decorators enabling consistent t-batch behavior.
 
     This method creates decorators for instance methods to transform an input tensor
-    `X` to t-batch mode (i.e. with at least 3 dimensions). This assumes the tensor
-    has a q-batch dimension. The decorator also checks the q-batch size if `expected_q`
-    is provided, and the output shape if `assert_output_shape` is `True`.
+    ``X`` to t-batch mode (i.e. with at least 3 dimensions). This assumes the tensor
+    has a q-batch dimension. The decorator also checks the q-batch size if
+    ``expected_q`` is provided, and the output shape if ``assert_output_shape``
+    is ``True``.
 
     Args:
-        expected_q: The expected q-batch size of `X`. If specified, this will raise an
-            AssertionError if `X`'s q-batch size does not equal expected_q.
-        assert_output_shape: If `True`, this will raise an AssertionError if the
-            output shape does not match either the t-batch shape of `X`,
-            or the `acqf.model.batch_shape` for acquisition functions using
+        expected_q: The expected q-batch size of ``X``. If specified, this will raise an
+            AssertionError if ``X``'s q-batch size does not equal expected_q.
+        assert_output_shape: If ``True``, this will raise an AssertionError if the
+            output shape does not match either the t-batch shape of ``X``,
+            or the ``acqf.model.batch_shape`` for acquisition functions using
             batched models.
 
     Returns:
@@ -325,36 +326,39 @@ def t_batch_mode_transform(
 def average_over_ensemble_models(
     method: Callable[[AcquisitionFunction, Any], Any],
 ) -> Callable[[AcquisitionFunction, Any], Any]:
-    """Decorator for averaging acquisition values over ensemble models. For example,
-    if the model is an ensemble, `is_ensemble(model) == True` like for a SAAS model, the
-    acquisition value is averaged over the samples in the ensemble.
+    """Decorator for averaging acquisition values over ensemble models.
 
-    NOTE: If the class has a `_log` attribute, the acquisition value is averaged
+    For example, if the model is an ensemble, ``is_ensemble(model) == True``
+    like for a SAAS model, the acquisition value is averaged over the samples
+    in the ensemble.
+
+    NOTE: If the class has a ``_log`` attribute, the acquisition value is averaged
     using logmeanexp instead of mean so that the log of the averaged acquisition value
     is averaged in a numerically stable way.
 
     Args:
-        method: The method to be decorated, usually `forward`.
+        method: The method to be decorated, usually ``forward``.
 
     Returns:
         The decorated method.
 
-     Example:
-        >>> # Without decorator, forward returns a `batch_shape x ensemble_shape` tensor
+    Example:
+        >>> # Without decorator, forward returns a
+        >>> # ``batch_shape x ensemble_shape`` tensor
         >>> class SimpleAcquisition:
         ...     def forward(self, X):
         ...         samples, obj = self._get_samples_and_objectives(X)
-        ...         # shape is `sample_sample x batch_shape x ensemble_shape x q`
+        ...         # shape is ``sample_sample x batch_shape x ensemble_shape x q``
         ...         sample_acqvals = self._sample_forward(obj)
-        ...         # return shape is `batch_shape x ensemble_shape`
+        ...         # return shape is ``batch_shape x ensemble_shape``
         ...         return sample_acqvals.mean(dim=0).max(dim=-1)
         ...
-        >>> # With decorator, forward returns a `batch_shape`-dim tensor
+        >>> # With decorator, forward returns a ``batch_shape``-dim tensor
         >>> class EnsembleAcquisition:
         ...     @average_over_ensemble_models
         ...     def forward(self, X):
         ...         ... # same as above
-        ...         # return shape through decorator is `batch_shape`
+        ...         # return shape through decorator is ``batch_shape``
         ...         return sample_acqvals.mean(dim=0).max(dim=-1)
     """
 
@@ -376,10 +380,10 @@ def concatenate_pending_points(
 ) -> Callable[[Any, Tensor], Any]:
     r"""Decorator concatenating X_pending into an acquisition function's argument.
 
-    This decorator works on the `forward` method of acquisition functions taking
-    a tensor `X` as the argument. If the acquisition function has an `X_pending`
-    attribute (that is not `None`), this is concatenated into the input `X`,
-    appropriately expanding the pending points to match the batch shape of `X`.
+    This decorator works on the ``forward`` method of acquisition functions taking
+    a tensor ``X`` as the argument. If the acquisition function has an ``X_pending``
+    attribute (that is not ``None``), this is concatenated into the input ``X``,
+    appropriately expanding the pending points to match the batch shape of ``X``.
 
     Example:
         >>> class ExampleAcquisitionFunction:
@@ -402,16 +406,16 @@ def match_batch_shape(X: Tensor, Y: Tensor) -> Tensor:
     r"""Matches the batch dimension of a tensor to that of another tensor.
 
     Args:
-        X: A `batch_shape_X x q x d` tensor, whose batch dimensions that
-            correspond to batch dimensions of `Y` are to be matched to those
+        X: A ``batch_shape_X x q x d`` tensor, whose batch dimensions that
+            correspond to batch dimensions of ``Y`` are to be matched to those
             (if compatible).
-        Y: A `batch_shape_Y x q' x d` tensor.
+        Y: A ``batch_shape_Y x q' x d`` tensor.
 
     Returns:
-        A `batch_shape_Y x q x d` tensor containing the data of `X` expanded to
-        the batch dimensions of `Y` (if compatible). For instance, if `X` is
-        `b'' x b' x q x d` and `Y` is `b x q x d`, then the returned tensor is
-        `b'' x b x q x d`.
+        A ``batch_shape_Y x q x d`` tensor containing the data of ``X`` expanded to
+        the batch dimensions of ``Y`` (if compatible). For instance, if ``X`` is
+        ``b'' x b' x q x d`` and ``Y`` is ``b x q x d``, then the returned tensor is
+        ``b'' x b x q x d``.
 
     Example:
         >>> X = torch.rand(2, 1, 5, 3)

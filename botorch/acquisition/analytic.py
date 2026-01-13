@@ -239,8 +239,8 @@ class qAnalyticProbabilityOfImprovement(AnalyticAcquisitionFunction):
     This implementation uses MVNXPB, a bivariate conditioning algorithm for
     approximating P(a <= Y <= b) for multivariate normal Y.
     See [Trinh2015bivariate]_. This (analytic) approximate q-PI is given by
-    `approx-qPI(X) = P(max Y >= best_f) = 1 - P(Y < best_f), Y ~ f(X),
-    X = (x_1,...,x_q)``, where ``P(Y < best_f)` is estimated using MVNXPB.
+    ``approx-qPI(X) = P(max Y >= best_f) = 1 - P(Y < best_f), Y ~ f(X),
+    X = (x_1,...,x_q)``, where ``P(Y < best_f)`` is estimated using MVNXPB.
     """
 
     def __init__(

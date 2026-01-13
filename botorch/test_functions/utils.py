@@ -14,14 +14,14 @@ from torch import Tensor
 def round_nearest(
     X: Tensor, increment: float, bounds: tuple[float, float] | None
 ) -> Tensor:
-    r"""Rounds the input tensor to the nearest multiple of `increment`.
+    r"""Rounds the input tensor to the nearest multiple of ``increment``.
 
     Args:
         X: The input to be rounded.
         increment: The increment to round to.
         bounds: An optional tuple of two floats representing the lower and upper
-            bounds on `X`. If provided, this will round to the nearest multiple
-            of `increment` that lies within the bounds.
+            bounds on ``X``. If provided, this will round to the nearest multiple
+            of ``increment`` that lies within the bounds.
 
     Returns:
         The rounded input.

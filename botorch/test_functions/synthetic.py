@@ -122,7 +122,7 @@ class SyntheticTestFunction(BaseTestProblem, ABC):
         r"""The global optimum of the function.
 
         This can be either the minimum or maximum depending the value of
-        `self.is_minimization_problem`.
+        ``self.is_minimization_problem``.
         """
         if self._optimal_value is not None:
             return -self._optimal_value if self.negate else self._optimal_value
@@ -135,13 +135,13 @@ class SyntheticTestFunction(BaseTestProblem, ABC):
 class Ackley(SyntheticTestFunction):
     r"""Ackley test function.
 
-    d-dimensional function (usually evaluated on `[-32.768, 32.768]^d`):
+    d-dimensional function (usually evaluated on ``[-32.768, 32.768]^d``):
 
         f(x) = -A exp(-B sqrt(1/d sum_{i=1}^d x_i^2)) -
             exp(1/d sum_{i=1}^d cos(c x_i)) + A + exp(1)
 
-    f has one minimizer for its global minimum at `z_1 = (0, 0, ..., 0)` with
-    `f(z_1) = 0`.
+    f has one minimizer for its global minimum at ``z_1 = (0, 0, ..., 0)`` with
+    ``f(z_1) = 0``.
     """
 
     _optimal_value = 0.0
@@ -197,14 +197,15 @@ class Beale(SyntheticTestFunction):
 class Branin(SyntheticTestFunction):
     r"""Branin test function.
 
-    Two-dimensional function (usually evaluated on `[-5, 10] x [0, 15]`):
+    Two-dimensional function (usually evaluated on ``[-5, 10] x [0, 15]``):
 
         B(x) = (x_2 - b x_1^2 + c x_1 - r)^2 + 10 (1-t) cos(x_1) + 10
 
-    Here `b`, `c`, `r` and `t` are constants where `b = 5.1 / (4 * math.pi ** 2)`
-    `c = 5 / math.pi`, `r = 6`, `t = 1 / (8 * math.pi)`
-    B has 3 minimizers for its global minimum at `z_1 = (-pi, 12.275)`,
-    `z_2 = (pi, 2.275)`, `z_3 = (9.42478, 2.475)` with `B(z_i) = 0.397887`.
+    Here ``b``, ``c``, ``r`` and ``t`` are constants where
+    ``b = 5.1 / (4 * math.pi ** 2)`` ``c = 5 / math.pi``, ``r = 6``,
+    ``t = 1 / (8 * math.pi)``
+    B has 3 minimizers for its global minimum at ``z_1 = (-pi, 12.275)``,
+    ``z_2 = (pi, 2.275)``, ``z_3 = (9.42478, 2.475)`` with ``B(z_i) = 0.397887``.
     """
 
     dim = 2
@@ -241,12 +242,12 @@ class Bukin(SyntheticTestFunction):
 class Cosine8(SyntheticTestFunction):
     r"""Cosine Mixture test function.
 
-    8-dimensional function (usually evaluated on `[-1, 1]^8`):
+    8-dimensional function (usually evaluated on ``[-1, 1]^8``):
 
         f(x) = 0.1 sum_{i=1}^8 cos(5 pi x_i) - sum_{i=1}^8 x_i^2
 
-    f has one maximizer for its global maximum at `z_1 = (0, 0, ..., 0)` with
-    `f(z_1) = 0.8`
+    f has one maximizer for its global maximum at ``z_1 = (0, 0, ..., 0)`` with
+    ``f(z_1) = 0.8``
     """
 
     dim = 8
@@ -316,11 +317,11 @@ class DixonPrice(SyntheticTestFunction):
 class EggHolder(SyntheticTestFunction):
     r"""Eggholder test function.
 
-    Two-dimensional function (usually evaluated on `[-512, 512]^2`):
+    Two-dimensional function (usually evaluated on ``[-512, 512]^2``):
 
         E(x) = (x_2 + 47) sin(R1(x)) - x_1 * sin(R2(x))
 
-    where `R1(x) = sqrt(|x_2 + x_1 / 2 + 47|)`, `R2(x) = sqrt|x_1 - (x_2 + 47)|)`.
+    where ``R1(x) = sqrt(|x_2 + x_1 / 2 + 47|)``, ``R2(x) = sqrt|x_1 - (x_2 + 47)|)``.
     """
 
     dim = 2
@@ -340,13 +341,13 @@ class EggHolder(SyntheticTestFunction):
 class Griewank(SyntheticTestFunction):
     r"""Griewank synthetic test function.
 
-    The Griewank function is defined for any `d`, is typically evaluated on
-    `[-600, 600]^d`, and given by:
+    The Griewank function is defined for any ``d``, is typically evaluated on
+    ``[-600, 600]^d``, and given by:
 
         G(x) = sum_{i=1}^d x_i**2 / 4000 - prod_{i=1}^d cos(x_i / sqrt(i)) + 1
 
     G has many widespread local minima, which are regularly distributed.
-    The global minimum is at `z = (0, ..., 0)` with `G(z) = 0`.
+    The global minimum is at ``z = (0, ..., 0)`` with ``G(z) = 0``.
     """
 
     _optimal_value = 0.0
@@ -385,7 +386,7 @@ class Hartmann(SyntheticTestFunction):
     r"""Hartmann synthetic test function.
 
     Most commonly used is the six-dimensional version (typically evaluated on
-    `[0, 1]^6`):
+    ``[0, 1]^6``):
 
         H(x) = - sum_{i=1}^4 ALPHA_i exp( - sum_{j=1}^6 A_ij (x_j - P_ij)**2 )
 
@@ -393,7 +394,7 @@ class Hartmann(SyntheticTestFunction):
 
         z = (0.20169, 0.150011, 0.476874, 0.275332, 0.311652, 0.6573)
 
-    with `H(z) = -3.32237`.
+    with ``H(z) = -3.32237``.
     """
 
     def __init__(
@@ -487,11 +488,11 @@ class Hartmann(SyntheticTestFunction):
 class HolderTable(SyntheticTestFunction):
     r"""Holder Table synthetic test function.
 
-    Two-dimensional function (typically evaluated on `[0, 10] x [0, 10]`):
+    Two-dimensional function (typically evaluated on ``[0, 10] x [0, 10]``):
 
-        `H(x) = - | sin(x_1) * cos(x_2) * exp(| 1 - ||x|| / pi | ) |`
+        ``H(x) = - | sin(x_1) * cos(x_2) * exp(| 1 - ||x|| / pi | ) |``
 
-    H has 4 global minima with `H(z_i) = -19.2085` at
+    H has 4 global minima with ``H(z_i) = -19.2085`` at
 
         z_1 = ( 8.05502,  9.66459)
         z_2 = (-8.05502, -9.66459)
@@ -520,16 +521,16 @@ class HolderTable(SyntheticTestFunction):
 class Levy(SyntheticTestFunction):
     r"""Levy synthetic test function.
 
-    d-dimensional function (usually evaluated on `[-10, 10]^d`):
+    d-dimensional function (usually evaluated on ``[-10, 10]^d``):
 
         f(x) = sin^2(pi w_1) +
             sum_{i=1}^{d-1} (w_i-1)^2 (1 + 10 sin^2(pi w_i + 1)) +
             (w_d - 1)^2 (1 + sin^2(2 pi w_d))
 
-    where `w_i = 1 + (x_i - 1) / 4` for all `i`.
+    where ``w_i = 1 + (x_i - 1) / 4`` for all ``i``.
 
-    f has one minimizer for its global minimum at `z_1 = (1, 1, ..., 1)` with
-    `f(z_1) = 0`.
+    f has one minimizer for its global minimum at ``z_1 = (1, 1, ..., 1)`` with
+    ``f(z_1) = 0``.
     """
 
     _optimal_value = 0.0
@@ -626,7 +627,7 @@ class Michalewicz(SyntheticTestFunction):
 class Powell(SyntheticTestFunction):
     r"""Powell synthetic test function.
 
-    `d`-dim function (usually evaluated on the hypercube `[-4, 5]^d`):
+    ``d``-dim function (usually evaluated on the hypercube ``[-4, 5]^d``):
 
         P(x) = sum_{i=1}^d/4 (
         (x_{4i-3} + 10 x_{4i-2})**2
@@ -636,7 +637,7 @@ class Powell(SyntheticTestFunction):
         )
 
 
-    P has a global minimizer at `z = (0, ..., 0)` with `P(z) = 0`.
+    P has a global minimizer at ``z = (0, ..., 0)`` with ``P(z) = 0``.
     """
 
     _optimal_value = 0.0
@@ -711,12 +712,12 @@ class Rastrigin(SyntheticTestFunction):
 class Rosenbrock(SyntheticTestFunction):
     r"""Rosenbrock synthetic test function.
 
-    d-dimensional function (usually evaluated on `[-5, 10]^d`):
+    d-dimensional function (usually evaluated on ``[-5, 10]^d``):
 
         f(x) = sum_{i=1}^{d-1} (100 (x_{i+1} - x_i^2)^2 + (x_i - 1)^2)
 
-    f has one minimizer for its global minimum at `z_1 = (1, 1, ..., 1)` with
-    `f(z_i) = 0.0`.
+    f has one minimizer for its global minimum at ``z_1 = (1, 1, ..., 1)`` with
+    ``f(z_i) = 0.0``.
     """
 
     _optimal_value = 0.0
@@ -754,12 +755,12 @@ class Rosenbrock(SyntheticTestFunction):
 class Shekel(SyntheticTestFunction):
     r"""Shekel synthtetic test function.
 
-    4-dimensional function (usually evaluated on `[0, 10]^4`):
+    4-dimensional function (usually evaluated on ``[0, 10]^4``):
 
         f(x) = -sum_{i=1}^10 (sum_{j=1}^4 (x_j - A_{ji})^2 + C_i)^{-1}
 
-    f has one minimizer for its global minimum at `z_1 = (4, 4, 4, 4)` with
-    `f(z_1) = -10.5363`.
+    f has one minimizer for its global minimum at ``z_1 = (4, 4, 4, 4)`` with
+    ``f(z_1) = -10.5363``.
     """
 
     dim = 4
@@ -828,11 +829,11 @@ class SixHumpCamel(SyntheticTestFunction):
 class StyblinskiTang(SyntheticTestFunction):
     r"""Styblinski-Tang synthtetic test function.
 
-    d-dimensional function (usually evaluated on the hypercube `[-5, 5]^d`):
+    d-dimensional function (usually evaluated on the hypercube ``[-5, 5]^d``):
 
         H(x) = 0.5 * sum_{i=1}^d (x_i^4 - 16 * x_i^2 + 5 * x_i)
 
-    H has a single global mininimum `H(z) = -39.166166 * d` at `z = [-2.903534]^d`
+    H has a single global mininimum ``H(z) = -39.166166 * d`` at ``z = [-2.903534]^d``
     """
 
     def __init__(
@@ -882,7 +883,7 @@ class AckleyMixed(SyntheticTestFunction):
 
     This problem has dim-3 binary parameters and 3 continuous parameters in the
     range [0, 1]. This means dim > 3 is required. To make the problem a bit more
-    interesting, the optimal value is not at the origin, but rather at `x_opt`
+    interesting, the optimal value is not at the origin, but rather at ``x_opt``
     which is a randomly generated point.
 
     The goal is  to minimize f(x) = Ackley(x - x_opt).
@@ -1071,7 +1072,7 @@ class ConstrainedGramacy(ConstrainedSyntheticTestFunction):
         Evaluate the function (w/o observation noise) on a set of points.
 
         Args:
-            X: A `batch_shape x d`-dim tensor of point(s) at which to evaluate the
+            X: A ``batch_shape x d``-dim tensor of point(s) at which to evaluate the
                 function.
         """
         return X.sum(dim=-1)
@@ -1087,7 +1088,7 @@ class ConstrainedHartmann(Hartmann, ConstrainedSyntheticTestFunction):
     r"""Constrained Hartmann test function.
 
     This is a constrained version of the standard Hartmann test function that
-    uses `||x||_2 <= 1` as the constraint. This problem comes from [Letham2019]_.
+    uses ``||x||_2 <= 1`` as the constraint. This problem comes from [Letham2019]_.
     """
 
     num_constraints = 1
@@ -1136,7 +1137,7 @@ class ConstrainedHartmannSmooth(Hartmann, ConstrainedSyntheticTestFunction):
     r"""Smooth constrained Hartmann test function.
 
     This is a constrained version of the standard Hartmann test function that
-    uses `||x||_2^2 <= 1` as the constraint to obtain smoother constraint slack.
+    uses ``||x||_2^2 <= 1`` as the constraint to obtain smoother constraint slack.
     """
 
     num_constraints = 1
@@ -1226,7 +1227,7 @@ class WeldedBeamSO(ConstrainedSyntheticTestFunction):
     black-box constraints from [CoelloCoello2002constraint]_.
 
     For a (somewhat modified) multi-objective version, see
-    `botorch.test_functions.multi_objective.WeldedBeam`.
+    ``botorch.test_functions.multi_objective.WeldedBeam``.
     """
 
     dim = 4

@@ -110,10 +110,10 @@ class TestQLogRegionalExpectedImprovement(BotorchTestCase):
 
     def _test_q_log_regional_expected_improvement(self, dtype: torch.dtype) -> None:
         tkwargs: dict[str, Any] = {"device": self.device, "dtype": dtype}
-        # `mc_model_samples x mc_X_dev_samples x q x d` = 1 x 1 x 1 x 1
+        # ``mc_model_samples x mc_X_dev_samples x q x d`` = 1 x 1 x 1 x 1
         samples = torch.zeros(1, 1, 1, 1, **tkwargs)
         mm = MockModel(MockPosterior(samples=samples))
-        # X is `q x d` = 1 x 1. X is a dummy and unused b/c of mocking
+        # X is ``q x d`` = 1 x 1. X is a dummy and unused b/c of mocking
         X = torch.zeros(1, 1, **tkwargs)
         X_dev = torch.zeros(1, 1, **tkwargs)
         bounds = torch.tensor([[0.0], [1.0]], **tkwargs)
@@ -208,7 +208,7 @@ class TestQLogRegionalExpectedImprovement(BotorchTestCase):
     def _test_q_log_regional_expected_improvement_batch(
         self, dtype: torch.dtype
     ) -> None:
-        # `mc_model_samples x mc_X_dev_samples x q x d` = 1 x 1 x 1 x 1
+        # ``mc_model_samples x mc_X_dev_samples x q x d`` = 1 x 1 x 1 x 1
         samples = torch.zeros(2, 2, 2, 1, device=self.device, dtype=dtype)
         samples[0, 0, 0] = 1.0
         mm = MockModel(MockPosterior(samples=samples))

@@ -186,7 +186,7 @@ class TestPosteriorSamplers(BotorchTestCase):
             # torch.Size([4, 5, 2])
             # torch.Size([3, 4, 5, 2])
             # torch.Size([3, 4, 5, 2])
-            # irrespective of whether `is_ensemble` is true or false.
+            # irrespective of whether ``is_ensemble`` is true or false.
             self.assertEqual(
                 model.posterior(X).mean.shape, path_model.posterior(X).mean.shape
             )

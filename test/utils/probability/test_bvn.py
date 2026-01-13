@@ -180,7 +180,7 @@ class TestBVN(BotorchTestCase):
             self.assertAllClose(prob, test)
 
     def test_bvn(self):
-        r"""Monte Carlo unit test for `bvn`."""
+        r"""Monte Carlo unit test for ``bvn``."""
         r = self.correlations.repeat(self.nprobs_per_coeff, 1)
         solves = bvn(r, self.xl, self.yl, self.xu, self.yu)
         with self.assertRaisesRegex(UnsupportedError, "same shape"):
@@ -210,7 +210,7 @@ class TestBVN(BotorchTestCase):
         self.assertAllClose(estimates, solves, rtol=0, atol=atol)
 
     def test_bvnmom(self):
-        r"""Monte Carlo unit test for `bvn`."""
+        r"""Monte Carlo unit test for ``bvn``."""
         r = self.correlations.repeat(self.nprobs_per_coeff, 1)
         Ex, Ey = bvnmom(r, self.xl, self.yl, self.xu, self.yu)
         with self.assertRaisesRegex(UnsupportedError, "same shape"):

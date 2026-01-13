@@ -78,7 +78,7 @@ class qBayesianVarianceReduction(FullyBayesianAcquisitionFunction):
 
         Args:
             model: A fully bayesian single-outcome model.
-            X_pending: A `batch_shape, m x d`-dim Tensor of `m` design points.
+            X_pending: A ``batch_shape, m x d``-dim Tensor of ``m`` design points.
         """
         super().__init__(model)
         self.set_X_pending(X_pending)
@@ -108,7 +108,7 @@ class qBayesianQueryByComittee(FullyBayesianAcquisitionFunction):
 
         Args:
             model: A fully bayesian single-outcome model.
-            X_pending: A `batch_shape, m x d`-dim Tensor of `m` design points
+            X_pending: A ``batch_shape, m x d``-dim Tensor of ``m`` design points
         """
         super().__init__(model)
         self.set_X_pending(X_pending)
@@ -140,7 +140,7 @@ class qStatisticalDistanceActiveLearning(FullyBayesianAcquisitionFunction):
 
         Args:
             model: A fully bayesian single-outcome model.
-            X_pending: A `batch_shape, m x d`-dim Tensor of `m` design points
+            X_pending: A ``batch_shape, m x d``-dim Tensor of ``m`` design points
             distance_metric: The distance metric used. Defaults to
                 "hellinger".
         """
@@ -185,9 +185,9 @@ class qExpectedPredictiveInformationGain(FullyBayesianAcquisitionFunction):
 
         Args:
             model: A fully bayesian model (SaasFullyBayesianSingleTaskGP).
-            mc_points: A `N x d` tensor of points to use for MC-integrating the
+            mc_points: A ``N x d`` tensor of points to use for MC-integrating the
                 posterior entropy (test set).
-            X_pending: A `m x d`-dim Tensor of `m` design points.
+            X_pending: A ``m x d``-dim Tensor of ``m`` design points.
         """
         super().__init__(model)
         if mc_points.ndim != 2:
@@ -205,7 +205,7 @@ class qExpectedPredictiveInformationGain(FullyBayesianAcquisitionFunction):
         """Evaluate test set information gain.
 
         Args:
-            X: A `batch_shape x q x d`-dim Tensor of input points.
+            X: A ``batch_shape x q x d``-dim Tensor of input points.
 
         Returns:
             A Tensor of information gain values.
@@ -263,10 +263,10 @@ class qConditionalHyperparameterInformationGain(
 
         Args:
             model: A fully bayesian model (FullyBayesianSingleTaskGP).
-            mc_points: A `N x d` tensor of points to use for MC-integrating the
+            mc_points: A ``N x d`` tensor of points to use for MC-integrating the
                 posterior entropy (test set). Usually, these are qMC samples on
                 the whole design space.
-            X_pending: A `m x d`-dim Tensor of `m` design points.
+            X_pending: A ``m x d``-dim Tensor of ``m`` design points.
             sampler: The sampler used for drawing samples to approximate the entropy
                 of the Gaussian Mixture posterior.
             posterior_transform: A PosteriorTransform. If provided, the posterior
@@ -290,7 +290,7 @@ class qConditionalHyperparameterInformationGain(
     def forward(self, X: Tensor) -> Tensor:
         # Start by Conditioning on the candidate point X.
         # NOTE: Multi-task GPs are not supported. This is a limitation
-        # in the current implementation of `condition_on_observations`.
+        # in the current implementation of ``condition_on_observations``.
         posterior = self.model.posterior(
             X, observation_noise=True, posterior_transform=self.posterior_transform
         )
@@ -362,17 +362,17 @@ class qHyperparameterInformedPredictiveExploration(
 
         Args:
             model: A fully bayesian model (FullyBayesianSingleTaskGP).
-            mc_points: A `N x d` tensor of points to use for MC-integrating the
+            mc_points: A ``N x d`` tensor of points to use for MC-integrating the
                 posterior entropy (test set). Usually, these are qMC samples on
                 the whole design space.
-            bounds: A `2 x d` tensor of bounds for the design space, used for
+            bounds: A ``2 x d`` tensor of bounds for the design space, used for
                 beta tuning.
             sampler: The sampler used for drawing samples to approximate the entropy
                 of the Gaussian Mixture posterior. If None, uses default sampler.
             posterior_transform: A PosteriorTransform. If provided, the posterior
                 obtained from the model will be transformed before computing the
                 acquisition value.
-            X_pending: A `m x d`-dim Tensor of `m` design points that have been
+            X_pending: A ``m x d``-dim Tensor of ``m`` design points that have been
                 submitted for evaluation but have not yet been observed.
             beta_tuning_samples: The number of sobol samples to use for tuning
                 beta. Does not use proper acquisition function optimization due to
@@ -427,10 +427,10 @@ class qHyperparameterInformedPredictiveExploration(
         """Evaluate the acquisition function at X.
 
         Args:
-            X: A `batch_shape x q x d`-dim Tensor of input points.
+            X: A ``batch_shape x q x d``-dim Tensor of input points.
 
         Returns:
-            A `batch_shape`-dim Tensor of acquisition values.
+            A ``batch_shape``-dim Tensor of acquisition values.
         """
         q = X.shape[-2]
         # Compute tuning factor if not set or if q has changed

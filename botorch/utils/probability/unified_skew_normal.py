@@ -33,20 +33,21 @@ class UnifiedSkewNormal(Distribution):
         cross_covariance_matrix: Tensor | LinearOperator,
         validate_args: bool | None = None,
     ):
-        r"""Unified Skew Normal distribution of `Y | a < X < b` for jointly Gaussian
-        random vectors `X ∈ R^m` and `Y ∈ R^n`.
+        r"""Unified Skew Normal distribution of ``Y | a < X < b`` for jointly
+        Gaussian random vectors ``X ∈ R^m`` and ``Y ∈ R^n``.
 
-        Batch shapes `trunc.batch_shape` and `gauss.batch_shape` must be broadcastable.
-        Care should be taken when choosing `trunc.batch_shape`. When `trunc` is of lower
-        batch dimensionality than `gauss`, the user should consider expanding `trunc` to
-        hasten `UnifiedSkewNormal.log_prob`. In these cases, it is suggested that the
-        user invoke `trunc.solver` before calling `trunc.expand` to avoid paying for
-        multiple, identical solves.
+        Batch shapes ``trunc.batch_shape`` and ``gauss.batch_shape`` must be
+        broadcastable. Care should be taken when choosing ``trunc.batch_shape``.
+        When ``trunc`` is of lower batch dimensionality than ``gauss``, the user
+        should consider expanding ``trunc`` to hasten
+        ``UnifiedSkewNormal.log_prob``. In these cases, it is suggested that the
+        user invoke ``trunc.solver`` before calling ``trunc.expand`` to avoid
+        paying for multiple, identical solves.
 
         Args:
-            trunc: Distribution of `Z = (X | a < X < b) ∈ R^m`.
-            gauss: Distribution of `Y ∈ R^n`.
-            cross_covariance_matrix: Cross-covariance `Cov(X, Y) ∈ R^{m x n}`.
+            trunc: Distribution of ``Z = (X | a < X < b) ∈ R^m``.
+            gauss: Distribution of ``Y ∈ R^n``.
+            cross_covariance_matrix: Cross-covariance ``Cov(X, Y) ∈ R^{m x n}``.
             validate_args: Optional argument to super().__init__.
         """
         if len(trunc.event_shape) != len(gauss.event_shape):
@@ -92,7 +93,7 @@ class UnifiedSkewNormal(Distribution):
                 raise e
 
     def log_prob(self, value: Tensor) -> Tensor:
-        r"""Computes the log probability `ln p(Y = value | a < X < b)`."""
+        r"""Computes the log probability ``ln p(Y = value | a < X < b)``."""
         event_ndim = len(self.event_shape)
         if value.ndim < event_ndim or value.shape[-event_ndim:] != self.event_shape:
             raise ValueError(
@@ -114,8 +115,8 @@ class UnifiedSkewNormal(Distribution):
         return log_probs.view(pre_shape + self.batch_shape)
 
     def _log_prob(self, value: Tensor) -> Tensor:
-        r"""Computes the log probability `ln p(Y = value | a < X < b)`."""
-        # Center by subtracting E[X | Y = value] from `bounds`.
+        r"""Computes the log probability ``ln p(Y = value | a < X < b)``."""
+        # Center by subtracting E[X | Y = value] from ``bounds``.
         bounds = (
             self.trunc.bounds
             - self.trunc.loc.unsqueeze(-1)
@@ -208,8 +209,9 @@ class UnifiedSkewNormal(Distribution):
 
     @lazy_property
     def _orthogonalized_gauss(self) -> MultivariateNormal:
-        r"""Distribution of `Y ⊥ X = Y - E[Y | X]`, where `Y ~ gauss` and `X ~ untrunc`
-        is the untruncated version of `Z ~ trunc`."""
+        r"""Distribution of ``Y ⊥ X = Y - E[Y | X]``, where ``Y ~ gauss`` and
+        ``X ~ untrunc`` is the untruncated version of ``Z ~ trunc``.
+        """
         n = self.gauss.loc.shape[-1]
         parameters = {"loc": torch.zeros_like(self.gauss.loc)}
         if "scale_tril" in self.__dict__:

@@ -59,10 +59,10 @@ class SampleModel(nn.Module):
         """Forward pass through the sample network.
 
         Args:
-            x: Input as `batch_size x d`-dim Tensor.
+            x: Input as ``batch_size x d``-dim Tensor.
 
         Returns:
-            Output as `(sample_shape), batch_size, output_dim`-dim Tensor.
+            Output as ``(sample_shape), batch_size, output_dim``-dim Tensor.
         """
         x = self.backbone(x)
 
@@ -88,7 +88,7 @@ class VBLLNetwork(nn.Module):
         clamp_noise_init: bool = True,
         kl_scale: float = 1.0,
         backbone: nn.Module | None = None,
-        activation: nn.Module = nn.ELU(),
+        activation: nn.Module | None = None,
         device=None,
     ):
         """
@@ -114,12 +114,12 @@ class VBLLNetwork(nn.Module):
             backbone: A predefined feature extractor to be used before the VBLL layer.
                 If None, a default MLP structure is used. Defaults to None.
             activation: Activation function applied between hidden layers.
-                Defaults to `nn.ELU()`.
+                Defaults to ``nn.ELU()``.
             device: The device on which the model is stored. If None, the device is
                 inferred based on availability. Defaults to None.
 
         Notes:
-            - If a `backbone` module is provided, it is applied before the variational
+            - If a ``backbone`` module is provided, it is applied before the variational
             last layer. If not, we use a default MLP structure.
         """
         super().__init__()
@@ -130,7 +130,7 @@ class VBLLNetwork(nn.Module):
         else:
             self.device = device
 
-        self.activation = activation
+        self.activation = activation if activation is not None else nn.ELU()
         self.kl_scale = kl_scale
 
         if backbone is None:
@@ -186,10 +186,10 @@ class VBLLNetwork(nn.Module):
         """Forward pass through the VBLL network.
 
         Args:
-            x: Input as `batch_shape x in_features`-dim Tensor.
+            x: Input as ``batch_shape x in_features``-dim Tensor.
 
         Returns:
-            Output as `batch_shape x out_features`-dim Tensor.
+            Output as ``batch_shape x out_features``-dim Tensor.
         """
         x = self.backbone(x)
         return self.head(x)
@@ -206,12 +206,12 @@ class VBLLNetwork(nn.Module):
                 single sample is drawn. Defaults to None.
 
         Returns:
-            A nn.Module that takes an input tensor `x` and returns the corresponding
+            A nn.Module that takes an input tensor ``x`` and returns the corresponding
             model output tensor. The function applies the backbone transformation
             and computes the final output using the sampled parameters.
 
         Notes:
-            - If `sample_shape` is provided, multiple samples are drawn, and the
+            - If ``sample_shape`` is provided, multiple samples are drawn, and the
             function will return a batched output where the first dimension corresponds
             to different samples.
         """
@@ -270,8 +270,8 @@ class VBLLModel(AbstractBLLModel):
                 If None, a single sample is drawn. Defaults to None.
 
         Returns:
-            A nn.Module that takes an input as `batch_size x num_inputs`-dim Tensor and
-            returns a `(sample_shape), batch_size, output_dim`-dim Tensor.
+            A nn.Module that takes an input as ``batch_size x num_inputs``-dim Tensor
+            and returns a ``(sample_shape), batch_size, output_dim``-dim Tensor.
         """
         return self.model.sample_posterior_function(sample_shape)
 
@@ -279,11 +279,11 @@ class VBLLModel(AbstractBLLModel):
         """Forward pass through the VBLL model.
 
         Args:
-            X: Input as `batch_size x num_inputs`-dim Tensor.
+            X: Input as ``batch_size x num_inputs``-dim Tensor.
 
         Returns:
-            Normal distribution with `batch_size x num_outputs` as the mean and
-            `batch_size x num_outputs` as variance.
+            Normal distribution with ``batch_size x num_outputs`` as the mean and
+            ``batch_size x num_outputs`` as variance.
         """
         return self.model(X).predictive
 
@@ -301,16 +301,16 @@ class VBLLModel(AbstractBLLModel):
 
         Args:
             train_X: The input training data, expected to be a Tensor of shape
-                `num_samples x d`.
+                ``num_samples x d``.
 
             train_y: The target values for training, expected to be a Tensor of
-                shape `num_samples x num_outputs`.
+                shape ``num_samples x num_outputs``.
 
             val_X: The optional input validation data, expected to be a Tensor of shape
-                `num_val_samples x d`.
+                ``num_val_samples x d``.
 
             val_y: The optional target values for validation, expected to be a Tensor of
-                shape `num_val_samples x num_outputs`.
+                shape ``num_val_samples x num_outputs``.
 
             optimization_settings: A dict containing optimization-related settings.
                 If a key is missing, default values will be used. Available settings:
@@ -417,7 +417,7 @@ class VBLLModel(AbstractBLLModel):
 
             running_loss = []
 
-            for train_step, (x, y) in enumerate(dataloader):
+            for _train_step, (x, y) in enumerate(dataloader):
                 x, y = x.to(device), y.to(device)
                 optimizer.zero_grad()
                 out = self.model(x)
@@ -499,7 +499,7 @@ class VBLLModel(AbstractBLLModel):
         K = self.num_outputs
         mean = mean.reshape(B, N * K)
 
-        # Cov must be `(B, N*K, N*K)`
+        # Cov must be ``(B, N*K, N*K)``
         cov = cov.reshape(B, N, K, B, N, K)
         cov = torch.einsum("bnkbrl->bnkrl", cov)  # (B, N, K, N, K)
         cov = cov.reshape(B, N * K, N * K)

@@ -291,7 +291,7 @@ class GPyTorchModel(Model, ABC):
         r"""Extract targets and noise variance in the correct shape.
 
         Returns a tuple of (Y, Yvar) where Y and Yvar have shape
-        [batch_shape] x n x m, with batch_shape included only if the
+        ``batch_shape x n x m``, with batch_shape included only if the
         training data initially contained it.
         """
         if self.num_outputs > 1:
@@ -309,8 +309,8 @@ class GPyTorchModel(Model, ABC):
         r"""Restore targets and noise variance to the model.
 
         Args:
-            Y: Targets tensor in shape [batch_shape] x n x m.
-            Yvar: Optional noise variance tensor in shape [batch_shape] x n x m.
+            Y: Targets tensor in shape ``batch_shape x n x m``.
+            Yvar: Optional noise variance tensor in shape ``batch_shape x n x m``.
             strict: Whether to strictly enforce shape constraints.
         """
         if self.num_outputs > 1:
@@ -915,7 +915,7 @@ class MultiTaskGPyTorchModel(GPyTorchModel, ABC):
         r"""Extract targets and noise variance for multi-task models.
 
         Returns a tuple of (Y, Yvar) where Y and Yvar have shape
-        [batch_shape] x n x m, with batch_shape included only if the
+        ``batch_shape x n x m``, with batch_shape included only if the
         training data initially contained it.
         """
         return extract_targets_and_noise_single_output(self)
@@ -926,8 +926,8 @@ class MultiTaskGPyTorchModel(GPyTorchModel, ABC):
         r"""Restore targets and noise variance for multi-task models.
 
         Args:
-            Y: Targets tensor in shape [batch_shape] x n x m.
-            Yvar: Optional noise variance tensor in shape [batch_shape] x n x m.
+            Y: Targets tensor in shape ``batch_shape x n x m``.
+            Yvar: Optional noise variance tensor in shape ``batch_shape x n x m``.
             strict: Whether to strictly enforce shape constraints.
         """
         restore_targets_and_noise_single_output(self, Y, Yvar, strict)

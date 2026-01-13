@@ -143,7 +143,7 @@ class TestUnifiedSkewNormal(BotorchTestCase):
             usn = self.distributions[index]
             sqrt_covariance = self.sqrt_covariances[index]
 
-            # Generate draws using `rsample`
+            # Generate draws using ``rsample``
             samples_y = usn.rsample(sample_shape=torch.Size([self.mc_num_rsamples]))
             means = samples_y.mean(0)
             covar = samples_y.T.cov()

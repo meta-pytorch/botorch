@@ -16,11 +16,11 @@ def _get_logger(
 ) -> logging.Logger:
     """Gets a default botorch logger
 
-    Logging level can be tuned via botorch.setting.log_level
+    Logging level can be tuned via botorch.settings.log_level
 
     Args:
         name: Name for logger instance
-        level: Logging threshhold for the given logger. Logs of greater or
+        level: Logging threshold for the given logger. Logs of greater or
             equal severity will be printed to STDERR
     """
     logger = logging.getLogger(name)

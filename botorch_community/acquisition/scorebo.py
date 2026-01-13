@@ -64,11 +64,11 @@ class qSelfCorrectingBayesianOptimization(
 
         Args:
             model: A fully bayesian model single-outcome model.
-            optimal_inputs: A `num_samples x num_models x d`-dim tensor containing
-                the sampled optimal inputs of dimension `d`.
-            optimal_outputs: A `num_samples x num_models x 1`-dim Tensor containing
+            optimal_inputs: A ``num_samples x num_models x d``-dim tensor containing
+                the sampled optimal inputs of dimension ``d``.
+            optimal_outputs: A ``num_samples x num_models x 1``-dim Tensor containing
                 the optimal objective values.
-            X_pending: A `batch_shape, m x d`-dim Tensor of `m` design points
+            X_pending: A ``batch_shape, m x d``-dim Tensor of ``m`` design points
             distance_metric: The distance metric used. Defaults to
                 "hellinger".
         """
@@ -126,7 +126,7 @@ class qSelfCorrectingBayesianOptimization(
     @average_over_ensemble_models
     def forward(self, X: Tensor) -> Tensor:
         # since we have two MC dims (over models and optima), we need to
-        # unsqueeze a second dim to accomodate the posterior pass
+        # unsqueeze a second dim to accommodate the posterior pass
         prev_posterior = self.model.posterior(
             X.unsqueeze(MCMC_DIM),
             observation_noise=True,

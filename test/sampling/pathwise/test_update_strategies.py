@@ -132,7 +132,7 @@ class TestPathwiseUpdates(BotorchTestCase):
                 *sample_shape, *U.shape, device=U.device, dtype=U.dtype
             )
 
-        # Disable sampling of noise variables `e` used to obtain `y = f + e`
+        # Disable sampling of noise variables ``e`` used to obtain ``y = f + e``
         with (
             delattr_ctx(model, "outcome_transform"),
             patch.object(
@@ -158,7 +158,7 @@ class TestPathwiseUpdates(BotorchTestCase):
             getattr(model, "input_transform", None),
         )
 
-        # Compare with manually computed update weights `Cov(y, y)^{-1} (y - f - e)`
+        # Compare with manually computed update weights ``Cov(y, y)^{-1} (y - f - e)``
         Luu = psd_safe_cholesky(Kuu.to_dense())
         errors = U - sample_values
         if noise_values is not None:
@@ -181,7 +181,7 @@ class TestPathwiseUpdates(BotorchTestCase):
         actual_updates = update_paths(X2)
         self.assertTrue(actual_updates.allclose(expected_updates))
 
-        # Test passing `noise_covariance`
+        # Test passing ``noise_covariance``
         m = Z.shape[-2]
         update_paths = gaussian_update(
             model=model,

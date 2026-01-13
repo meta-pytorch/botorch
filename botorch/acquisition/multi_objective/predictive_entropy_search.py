@@ -80,7 +80,7 @@ class qMultiObjectivePredictiveEntropySearch(AcquisitionFunction):
         ``alpha = (mean(x_n) - mean(x_p)) / std(x_n - x_p)``, which becomes very
         large when ``x_n`` is better than ``x_p`` with high-probability. This leads to a
         log(0) error when we compute ``log(1 - cdf(alpha))``. We have preemptively
-        clamped some values depending on ``1``alpha` in order to mitigate this.
+        clamped some values depending on ``alpha`` in order to mitigate this.
 
         Problem (b) occurs because we have to compute matrix inverses for the
         two-dimensional marginals (x_n, x_p). To address this we manually add jitter

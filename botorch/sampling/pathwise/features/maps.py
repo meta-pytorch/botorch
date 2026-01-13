@@ -42,7 +42,7 @@ class KernelEvaluationMap(FeatureMap):
             feature_map(x) = output_transform(kernel(input_transform(x), points)).
 
         Args:
-            kernel: The kernel :math:`k` used to define the feature map.
+            kernel: The kernel :math:``k`` used to define the feature map.
             points: A tensor passed as the kernel's second argument.
             input_transform: An optional input transform for the module.
             output_transform: An optional output transform for the module.
@@ -79,9 +79,9 @@ class KernelEvaluationMap(FeatureMap):
 
 
 class KernelFeatureMap(FeatureMap):
-    r"""Representation of a kernel :math:`k: \mathcal{X}^2 \to \mathbb{R}` as an
-    n-dimensional feature map :math:`\phi: \mathcal{X} \to \mathbb{R}^n` satisfying:
-    :math:`k(x, x') ≈ \phi(x)^\top \phi(x')`.
+    r"""Representation of a kernel :math:``k: \mathcal{X}^2 \to \mathbb{R}`` as an
+    n-dimensional feature map :math:``\phi: \mathcal{X} \to \mathbb{R}^n`` satisfying:
+    :math:``k(x, x') ≈ \phi(x)^\top \phi(x')``.
     """
 
     def __init__(
@@ -99,7 +99,7 @@ class KernelFeatureMap(FeatureMap):
             feature_map(x) = output_transform(input_transform(x)^{T} weight + bias).
 
         Args:
-            kernel: The kernel :math:`k` used to define the feature map.
+            kernel: The kernel :math:``k`` used to define the feature map.
             weight: A tensor of weights used to linearly combine the module's inputs.
             bias: A tensor of biases to be added to the linearly combined inputs.
             input_transform: An optional input transform for the module.

@@ -5,10 +5,10 @@
 # LICENSE file in the root directory of this source tree.
 
 r"""
-This module defines the botorch model for PFNs (`PFNModel`) and it
+This module defines the botorch model for PFNs (``PFNModel``) and it
 provides handy helpers to download pretrained, public PFNs
-with `download_model` and model paths with `ModelPaths`.
-For the latter to work `pfns4bo` must be installed.
+with ``download_model`` and model paths with ``ModelPaths``.
+For the latter to work ``pfns4bo`` must be installed.
 """
 
 from __future__ import annotations
@@ -100,19 +100,19 @@ class PFNModel(Model):
         it is essential that checkpoint_url be a trusted source.
 
         Args:
-            train_X: A `n x d` tensor of training features.
-            train_Y: A `n x 1` tensor of training observations.
+            train_X: A ``n x d`` tensor of training features.
+            train_Y: A ``n x 1`` tensor of training observations.
             model: A pre-trained PFN model with the following
                 forward(train_X, train_Y, X) -> logit predictions of shape
-                `n x b x c` where c is the number of discrete buckets
-                borders: A `c+1`-dim tensor of bucket borders.
+                ``n x b x c`` where c is the number of discrete buckets
+                borders: A ``c+1``-dim tensor of bucket borders.
             checkpoint_url: The string URL of the PFN model to download and load.
                 Will be ignored if model is provided.
             train_Yvar: Observed variance of train_Y. Currently ignored.
             batch_first: Whether the batch dimension is the first dimension of
                 the input tensors. This is needed to support different PFN
-                models. For batch-first x has shape `batch x seq_len x features`
-                and for non-batch-first it has shape `seq_len x batch x features`.
+                models. For batch-first x has shape ``batch x seq_len x features``
+                and for non-batch-first it has shape ``seq_len x batch x features``.
             constant_model_kwargs: A dictionary of model kwargs that
                 will be passed to the model in each forward pass.
             input_transform: A Botorch input transform.
@@ -120,11 +120,11 @@ class PFNModel(Model):
                 produced by the PFNs training code, see github.com/automl/PFNs.
             style_hyperparameters: A dictionary of hyperparameters to be passed
                 to the style and the y-style encoders. It is useful when training
-                models with `hyperparameter_sampling` prior and its style
+                models with ``hyperparameter_sampling`` prior and its style
                 encoder. One simply supplies the dict with the unnormalized
                 hyperparameters, e.g., {"noise_std": 0.1}. Omitted values are
                 treated as unknown and the value will build a Bayesian average
-                for these, if `hyperparameter_sampling_skip_style_prob` > 0
+                for these, if ``hyperparameter_sampling_skip_style_prob`` > 0
                 during pre-training.
             style: A tensor of style values to be passed to the model. These
                 are raw style values of shape (num_styles,), which will then
@@ -206,11 +206,11 @@ class PFNModel(Model):
         r"""Computes the posterior over model outputs at the provided points.
 
         Note: The input transforms should be applied here using
-            `self.transform_inputs(X)` after the `self.eval()` call and before
-            any `model.forward` or `model.likelihood` calls.
+            ``self.transform_inputs(X)`` after the ``self.eval()`` call and before
+            any ``model.forward`` or ``model.likelihood`` calls.
 
         Args:
-            X: A b? x q? x d`-dim Tensor, where `d` is the dimension of the
+            X: A b? x q? x d``-dim Tensor, where ``d` is the dimension of the
                 feature space.
             output_indices: **Currently not supported for PFNModel.**
             observation_noise: **Currently not supported for PFNModel**.
@@ -219,7 +219,7 @@ class PFNModel(Model):
                 for minimization.
 
         Returns:
-            A `BoundedRiemannPosterior`, representing a batch of b? x q?`
+            A ``BoundedRiemannPosterior``, representing a batch of b? x q?`
             distributions.
         """
         self.pfn.eval()
@@ -350,11 +350,11 @@ class PFNModelWithPendingPoints(PFNModel):
         r"""Computes the posterior over model outputs at the provided points.
 
         Note: The input transforms should be applied here using
-            `self.transform_inputs(X)` after the `self.eval()` call and before
-            any `model.forward` or `model.likelihood` calls.
+            ``self.transform_inputs(X)`` after the ``self.eval()`` call and before
+            any ``model.forward`` or ``model.likelihood`` calls.
 
         Args:
-            X: A b? x q? x d`-dim Tensor, where `d` is the dimension of the
+            X: A b? x q? x d``-dim Tensor, where ``d` is the dimension of the
                 feature space.
             output_indices: **Currently not supported for PFNModel.**
             observation_noise: **Currently not supported for PFNModel**.
@@ -366,7 +366,7 @@ class PFNModelWithPendingPoints(PFNModel):
                 for minimization.
 
         Returns:
-            A `BoundedRiemannPosterior`, representing a batch of b? x q?`
+            A ``BoundedRiemannPosterior``, representing a batch of b? x q?`
             distributions.
         """
         self.pfn.eval()
@@ -443,7 +443,7 @@ class MultivariatePFNModel(PFNModel):
         and behave the same as PFNModel.
 
         Args:
-            X: A b? x q? x d`-dim Tensor, where `d` is the dimension of the
+            X: A b? x q? x d``-dim Tensor, where ``d` is the dimension of the
                 feature space.
             output_indices: **Currently not supported for PFNModel.**
             observation_noise: **Currently not supported for PFNModel**.

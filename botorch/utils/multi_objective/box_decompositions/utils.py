@@ -16,12 +16,12 @@ def _expand_ref_point(ref_point: Tensor, batch_shape: Size) -> Tensor:
     r"""Expand reference point to the proper batch_shape.
 
     Args:
-        ref_point: A `(batch_shape) x m`-dim tensor containing the reference
+        ref_point: A ``(batch_shape) x m``-dim tensor containing the reference
             point.
         batch_shape: The batch shape.
 
     Returns:
-        A `batch_shape x m`-dim tensor containing the expanded reference point
+        A ``batch_shape x m``-dim tensor containing the expanded reference point
     """
     if ref_point.shape[:-1] != batch_shape:
         if ref_point.ndim > 1:
@@ -46,15 +46,15 @@ def _pad_batch_pareto_frontier(
     This assumes maximization.
 
     Args:
-        Y: A `(batch_shape) x n x m`-dim tensor of points
-        ref_point: a `(batch_shape) x m`-dim tensor containing the reference point
+        Y: A ``(batch_shape) x n x m``-dim tensor of points
+        ref_point: a ``(batch_shape) x m``-dim tensor containing the reference point
         is_pareto: a boolean indicating whether the points in Y are already
             non-dominated.
-        feasibility_mask: A `(batch_shape) x n`-dim tensor of booleans indicating
+        feasibility_mask: A ``(batch_shape) x n``-dim tensor of booleans indicating
             whether each point is feasible.
 
     Returns:
-        A `(batch_shape) x max_num_pareto x m`-dim tensor of padded Pareto
+        A ``(batch_shape) x max_num_pareto x m``-dim tensor of padded Pareto
             frontiers.
     """
     tkwargs = {"dtype": Y.dtype, "device": Y.device}
@@ -108,15 +108,15 @@ def compute_local_upper_bounds(
     This uses the incremental algorithm (Alg. 1) from [Lacour17]_.
 
     Args:
-        U: A `n x m`-dim tensor containing the local upper bounds.
-        Z: A `n x m x m`-dim tensor containing the defining points.
-        z: A `m`-dim tensor containing the new point.
+        U: A ``n x m``-dim tensor containing the local upper bounds.
+        Z: A ``n x m x m``-dim tensor containing the defining points.
+        z: A ``m``-dim tensor containing the new point.
 
     Returns:
         2-element tuple containing:
 
-        - A new `n' x m`-dim tensor local upper bounds.
-        - A `n' x m x m`-dim tensor containing the defining points.
+        - A new ``n' x m``-dim tensor local upper bounds.
+        - A ``n' x m x m``-dim tensor containing the defining points.
     """
     num_outcomes = U.shape[-1]
     z_dominates_U = (U > z).all(dim=-1)
@@ -166,15 +166,15 @@ def get_partition_bounds(Z: Tensor, U: Tensor, ref_point: Tensor) -> Tensor:
     This implements Equation 2 in [Lacour17]_.
 
     Args:
-        Z: A `n x m x m`-dim tensor containing the defining points. The first
+        Z: A ``n x m x m``-dim tensor containing the defining points. The first
             dimension corresponds to u_idx, the second dimension corresponds to j,
             and Z[u_idx, j] is the set of definining points Z^j(u) where
             u = U[u_idx].
-        U: A `n x m`-dim tensor containing the local upper bounds.
-        ref_point: A `m`-dim tensor containing the reference point.
+        U: A ``n x m``-dim tensor containing the local upper bounds.
+        ref_point: A ``m``-dim tensor containing the reference point.
 
     Returns:
-        A `2 x num_cells x m`-dim tensor containing the lower and upper vertices
+        A ``2 x num_cells x m``-dim tensor containing the lower and upper vertices
             bounding each hypercell.
     """
     bounds = torch.empty(2, U.shape[0], U.shape[-1], dtype=U.dtype, device=U.device)
@@ -201,16 +201,16 @@ def update_local_upper_bounds_incremental(
     This assumes minimization.
 
     Args:
-        new_pareto_Y: A `n x m`-dim tensor containing the new
+        new_pareto_Y: A ``n x m``-dim tensor containing the new
             Pareto points.
-        U: A `n' x m`-dim tensor containing the local upper bounds.
-        Z: A `n x m x m`-dim tensor containing the defining points.
+        U: A ``n' x m``-dim tensor containing the local upper bounds.
+        Z: A ``n x m x m``-dim tensor containing the defining points.
 
     Returns:
         2-element tuple containing:
 
-        - A new `n' x m`-dim tensor local upper bounds.
-        - A `n' x m x m`-dim tensor containing the defining points
+        - A new ``n' x m``-dim tensor local upper bounds.
+        - A ``n' x m x m``-dim tensor containing the defining points
     """
     for i in range(new_pareto_Y.shape[-2]):
         U, Z = compute_local_upper_bounds(U=U, Z=Z, z=new_pareto_Y[i])
@@ -224,13 +224,13 @@ def compute_non_dominated_hypercell_bounds_2d(
     objectives.
 
     Args:
-        pareto_Y_sorted: A `(batch_shape) x n_pareto x 2`-dim tensor of pareto outcomes
-            that are sorted by the 0th dimension in increasing order. All points must be
-            better than the reference point.
-        ref_point: A `(batch_shape) x 2`-dim reference point.
+        pareto_Y_sorted: A ``(batch_shape) x n_pareto x 2``-dim tensor of pareto
+            outcomes that are sorted by the 0th dimension in increasing order. All
+            points must be better than the reference point.
+        ref_point: A ``(batch_shape) x 2``-dim reference point.
 
     Returns:
-        A `2 x (batch_shape) x n_pareto + 1 x m`-dim tensor of cell bounds.
+        A ``2 x (batch_shape) x n_pareto + 1 x m``-dim tensor of cell bounds.
     """
     # add boundary point to each front
     # the boundary point is the extreme value in each outcome
@@ -292,12 +292,12 @@ def compute_dominated_hypercell_bounds_2d(
     r"""Compute an axis-aligned partitioning of the dominated space for 2-objectives.
 
     Args:
-        pareto_Y_sorted: A `(batch_shape) x n_pareto x 2`-dim tensor of pareto outcomes
-            that are sorted by the 0th dimension in increasing order.
-        ref_point: A `2`-dim reference point.
+        pareto_Y_sorted: A ``(batch_shape) x n_pareto x 2``-dim tensor of pareto
+            outcomes that are sorted by the 0th dimension in increasing order.
+        ref_point: A ``2``-dim reference point.
 
     Returns:
-        A `2 x (batch_shape) x n_pareto x m`-dim tensor of cell bounds.
+        A ``2 x (batch_shape) x n_pareto x m``-dim tensor of cell bounds.
     """
     # add boundary point to each front
     # the boundary point is the extreme value in each outcome

@@ -43,31 +43,32 @@ try:
         ) -> None:
             """PyMOO problem for optimizing the model posterior mean using NSGA-II.
 
-            This is instantiated and used within `optimize_with_nsgaii` to define
+            This is instantiated and used within ``optimize_with_nsgaii`` to define
             the optimization problem to interface with pymoo.
 
             This assumes maximization of all objectives.
 
             Args:
-                n_var: The number of tunable parameters (`d`).
+                n_var: The number of tunable parameters (``d``).
                 n_obj: The number of objectives.
-                xl: A `d`-dim np.ndarray of lower bounds for each tunable parameter.
-                xu: A `d`-dim np.ndarray of upper bounds for each tunable parameter.
+                xl: A ``d``-dim np.ndarray of lower bounds for each tunable parameter.
+                xu: A ``d``-dim np.ndarray of upper bounds for each tunable parameter.
                 acqf: A MultiOutputAcquisitionFunction.
                 dtype: The torch dtype.
                 device: The torch device.
                 acqf: The acquisition function to optimize.
-                ref_point: A list or tensor with `m` elements representing the reference
-                    point (in the outcome space), which is treated as a lower bound
-                    on the objectives, after applying `objective` to the samples.
+                ref_point: A list or tensor with ``m`` elements representing the
+                    reference point (in the outcome space), which is treated as a
+                    lower bound on the objectives, after applying ``objective`` to
+                    the samples.
                 objective: The MCMultiOutputObjective under which the samples are
-                    evaluated. Defaults to `IdentityMultiOutputObjective()`.
+                    evaluated. Defaults to ``IdentityMultiOutputObjective()``.
                     This can be used to determine which outputs of the
                     MultiOutputAcquisitionFunction should be used as
                     objectives/constraints in NSGA-II.
                 constraints: A list of callables, each mapping a Tensor of dimension
-                    `sample_shape x batch-shape x q x m` to a Tensor of dimension
-                    `sample_shape x batch-shape x q`, where negative values imply
+                    ``sample_shape x batch-shape x q x m`` to a Tensor of dimension
+                    ``sample_shape x batch-shape x q``, where negative values imply
                     feasibility.
             """
             num_constraints = 0 if constraints is None else len(constraints)
@@ -139,26 +140,27 @@ try:
 
         Args:
             acq_function: The MultiOutputAcquisitionFunction to optimize.
-            bounds: A `2 x d` tensor of lower and upper bounds for each column of `X`.
+            bounds: A ``2 x d`` tensor of lower and upper bounds for each column of
+                ``X``.
             q: The number of candidates. If None, return the full population.
             num_objectives: The number of objectives.
-            ref_point: A list or tensor with `m` elements representing the reference
+            ref_point: A list or tensor with ``m`` elements representing the reference
                 point (in the outcome space), which is treated as a lower bound
-                on the objectives, after applying `objective` to the samples.
+                on the objectives, after applying ``objective`` to the samples.
             objective: The MCMultiOutputObjective under which the samples are
-                evaluated. Defaults to `IdentityMultiOutputObjective()`.
+                evaluated. Defaults to ``IdentityMultiOutputObjective()``.
                 This can be used to determine which outputs of the
                 MultiOutputAcquisitionFunction should be used as
                 objectives/constraints in NSGA-II.
             constraints: A list of callables, each mapping a Tensor of dimension
-                `sample_shape x batch-shape x q x m` to a Tensor of dimension
-                `sample_shape x batch-shape x q`, where negative values imply
+                ``sample_shape x batch-shape x q x m`` to a Tensor of dimension
+                ``sample_shape x batch-shape x q``, where negative values imply
                 feasibility.
             population_size: the population size for NSGA-II.
             max_gen: The number of iterations for NSGA-II. If None, this uses the
                 default termination condition in pymoo for NSGA-II.
             seed: The random seed for NSGA-II.
-            fixed_features: A map `{feature_index: value}` for features that
+            fixed_features: A map ``{feature_index: value}`` for features that
                 should be fixed to a particular value during generation. All indices
                 should be non-negative.
             max_attempts: The total number of times to run the optimization if it

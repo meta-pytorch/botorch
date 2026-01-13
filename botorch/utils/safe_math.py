@@ -133,12 +133,12 @@ def logsumexp(x: Tensor, dim: int | tuple[int, ...], keepdim: bool = False) -> T
     of the function.
 
     Args:
-        x: The Tensor to which to apply `logsumexp`.
+        x: The Tensor to which to apply ``logsumexp``.
         dim: An integer or a tuple of integers, representing the dimensions to reduce.
         keepdim: Whether to keep the reduced dimensions. Defaults to False.
 
     Returns:
-        A Tensor representing the log of the summed exponentials of `x`.
+        A Tensor representing the log of the summed exponentials of ``x``.
     """
     return _inf_max_helper(torch.logsumexp, x=x, dim=dim, keepdim=keepdim)
 
@@ -150,8 +150,8 @@ def _inf_max_helper(
     keepdim: bool,
 ) -> Tensor:
     """Helper function that generalizes the treatment of infinities for approximations
-    to the maximum operator, i.e., `max(X, dim, keepdim)`. At the point of writing of
-    this function, it is used to define `logsumexp` and `fatmax`.
+    to the maximum operator, i.e., ``max(X, dim, keepdim)``. At the point of writing of
+    this function, it is used to define ``logsumexp`` and ``fatmax``.
 
     Args:
         max_fun: The function that is used to smoothly penalize the difference of an
@@ -177,10 +177,10 @@ def _inf_max_helper(
         y_inf.sum(dim=dim, keepdim=True),
         M_no_inf + max_fun(y_no_inf, dim=dim, keepdim=True),
     )
-    # NOTE: Using `sum` instead of `squeeze` because PyTorch < 2.0 does not support
-    # tuple `dim` arguments. `sum` and `squeeze` are equivalent here because the
-    # `dim` dimensions have length one after the reductions in the previous lines.
-    # TODO: Replace `sum` with `squeeze` once PyTorch >= 2.0 is required.
+    # NOTE: Using ``sum`` instead of ``squeeze`` because PyTorch < 2.0 does not support
+    # tuple ``dim`` arguments. ``sum`` and ``squeeze`` are equivalent here because the
+    # ``dim`` dimensions have length one after the reductions in the previous lines.
+    # TODO: Replace ``sum`` with ``squeeze`` once PyTorch >= 2.0 is required.
     return res if keepdim else res.sum(dim=dim)
 
 
@@ -193,7 +193,7 @@ def _any(x: Tensor, dim: int | tuple[int, ...], keepdim: bool = False) -> Tensor
         keepdim: Whether to keep the reduced dimensions. Defaults to False.
 
     Returns:
-        The Tensor corresponding to `any` over the specified dimensions.
+        The Tensor corresponding to ``any`` over the specified dimensions.
     """
     if isinstance(dim, tuple):
         for d in dim:
@@ -204,7 +204,7 @@ def _any(x: Tensor, dim: int | tuple[int, ...], keepdim: bool = False) -> Tensor
 
 
 def logmeanexp(X: Tensor, dim: int | tuple[int, ...], keepdim: bool = False) -> Tensor:
-    """Computes `log(mean(exp(X), dim=dim, keepdim=keepdim))`.
+    """Computes ``log(mean(exp(X), dim=dim, keepdim=keepdim))``.
 
     Args:
         X: Values of which to compute the logmeanexp.
@@ -212,7 +212,7 @@ def logmeanexp(X: Tensor, dim: int | tuple[int, ...], keepdim: bool = False) -> 
         keepdim: If True, keeps the reduced dimensions.
 
     Returns:
-        A Tensor of values corresponding to `log(mean(exp(X), dim=dim))`.
+        A Tensor of values corresponding to ``log(mean(exp(X), dim=dim))``.
     """
     n = X.shape[dim] if isinstance(dim, int) else math.prod(X.shape[i] for i in dim)
     return logsumexp(X, dim=dim, keepdim=keepdim) - math.log(n)
@@ -227,7 +227,7 @@ def log_softplus(x: Tensor, tau: float | Tensor = TAU) -> Tensor:
             approximation to ReLU. Non-negative and defaults to 1.0.
 
     Returns:
-        Tensor corresponding to `log(softplus(x))`.
+        Tensor corresponding to ``log(softplus(x))``.
     """
     check_dtype_float32_or_float64(x)
     tau = torch.as_tensor(tau, dtype=x.dtype, device=x.device)
@@ -248,21 +248,24 @@ def smooth_amax(
     keepdim: bool = False,
     tau: float | Tensor = 1.0,
 ) -> Tensor:
-    """Computes a smooth approximation to `max(X, dim=dim)`, i.e the maximum value of
-    `X` over dimension `dim`, using the logarithm of the `l_(1/tau)` norm of `exp(X)`.
-    Note that when `X = log(U)` is the *logarithm* of an acquisition utility `U`,
+    """Computes a smooth approximation to ``max(X, dim=dim)``, i.e the maximum
+    value of ``X`` over dimension ``dim``, using the logarithm of the
+    ``l_(1/tau)`` norm of ``exp(X)``. Note that when ``X = log(U)`` is the
+    *logarithm* of an acquisition utility ``U``,
 
-    `logsumexp(log(U) / tau) * tau = log(sum(U^(1/tau))^tau) = log(norm(U, ord=(1/tau))`
+    ``logsumexp(log(U) / tau) * tau = log(sum(U^(1/tau))^tau)``
+    ``= log(norm(U, ord=(1/tau))``
 
     Args:
         X: A Tensor from which to compute the smoothed amax.
         dim: The dimensions to reduce over.
         keepdim: If True, keeps the reduced dimensions.
         tau: Temperature parameter controlling the smooth approximation
-            to max operator, becomes tighter as tau goes to 0. Needs to be positive.
+            to max operator, becomes tighter as tau goes to 0. Needs to be
+            positive.
 
     Returns:
-        A Tensor of smooth approximations to `max(X, dim=dim)`.
+        A Tensor of smooth approximations to ``max(X, dim=dim)``.
     """
     # consider normalizing by log_n = math.log(X.shape[dim]) to reduce error
     return logsumexp(X / tau, dim=dim, keepdim=keepdim) * tau  # ~ X.amax(dim=dim)
@@ -274,7 +277,7 @@ def smooth_amin(
     keepdim: bool = False,
     tau: float | Tensor = 1.0,
 ) -> Tensor:
-    """A smooth approximation to `min(X, dim=dim)`, similar to `smooth_amax`."""
+    """A smooth approximation to ``min(X, dim=dim)``, similar to ``smooth_amax``."""
     return -smooth_amax(X=-X, dim=dim, keepdim=keepdim, tau=tau)
 
 
@@ -288,16 +291,16 @@ def check_dtype_float32_or_float64(X: Tensor) -> None:
 def log_fatplus(x: Tensor, tau: float | Tensor = TAU) -> Tensor:
     """Computes the logarithm of the fat-tailed softplus.
 
-    NOTE: Separated out in case the complexity of the `log` implementation increases
+    NOTE: Separated out in case the complexity of the ``log`` implementation increases
     in the future.
     """
     return fatplus(x, tau=tau).log()
 
 
 def fatplus(x: Tensor, tau: float | Tensor = TAU) -> Tensor:
-    """Computes a fat-tailed approximation to `ReLU(x) = max(x, 0)` by linearly
+    """Computes a fat-tailed approximation to ``ReLU(x) = max(x, 0)`` by linearly
     combining a regular softplus function and the density function of a Cauchy
-    distribution. The coefficient `alpha` of the Cauchy density is chosen to guarantee
+    distribution. The coefficient ``alpha`` of the Cauchy density is chosen to guarantee
     monotonicity and convexity.
 
     Args:
@@ -336,7 +339,7 @@ def fatmax(
             recommended to keep this value low or moderate, e.g. < 10.
 
     Returns:
-        A Tensor of smooth approximations to `amax(X, dim=dim)` with a fat tail.
+        A Tensor of smooth approximations to ``amax(X, dim=dim)`` with a fat tail.
     """
 
     def max_fun(x: Tensor, dim: int | tuple[int, ...], keepdim: bool = False) -> Tensor:
@@ -366,7 +369,7 @@ def fatmin(
             recommended to keep this value low or moderate, e.g. < 10.
 
     Returns:
-        A Tensor of smooth approximations to `amin(X, dim=dim)` with a fat tail.
+        A Tensor of smooth approximations to ``amin(X, dim=dim)`` with a fat tail.
     """
     return -fatmax(-x, dim=dim, keepdim=keepdim, tau=tau, alpha=alpha)
 
@@ -421,7 +424,7 @@ def log_fatmoid(X: Tensor, tau: float | Tensor = 1.0) -> Tensor:
 
 def fatmoid(X: Tensor, tau: float | Tensor = 1.0) -> Tensor:
     """Computes a twice continuously differentiable approximation to the Heaviside
-    step function with a fat tail, i.e. `O(1 / x^2)` as `x` goes to -inf.
+    step function with a fat tail, i.e. ``O(1 / x^2)`` as ``x`` goes to -inf.
 
     Args:
         X: A Tensor from which to compute the smoothed step function.
@@ -446,13 +449,13 @@ def cauchy(x: Tensor) -> Tensor:
 
 def _pareto(x: Tensor, alpha: float, check: bool = True) -> Tensor:
     """Computes a rational polynomial that is
-    1) monotonically decreasing for `x > 0`,
-    2) is equal to 1 at `x = 0`,
-    3) has a first and second derivative of 1 at `x = 0`, and
-    4) has an asymptotic decay of `O(1 / x^alpha)`.
+    1) monotonically decreasing for ``x > 0``,
+    2) is equal to 1 at ``x = 0``,
+    3) has a first and second derivative of 1 at ``x = 0``, and
+    4) has an asymptotic decay of ``O(1 / x^alpha)``.
     These properties make it possible to use the function to define a smooth and
     fat-tailed approximation to the maximum, which enables better gradient propagation,
-    see `fatmax` for details.
+    see ``fatmax`` for details.
 
     Args:
         x: The input tensor.

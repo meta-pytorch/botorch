@@ -64,9 +64,9 @@ def mock_optimize_context_manager(
         return gen_one_shot_kg_initial_conditions(*args, **kwargs)
 
     with ExitStack() as es:
-        # Note this `minimize_with_timeout` is defined in optim.utils.timeout;
+        # Note this ``minimize_with_timeout`` is defined in optim.utils.timeout;
         # this mock only has an effect when calling a function used in
-        # `botorch.generation.gen`, such as `gen_candidates_scipy`.
+        # ``botorch.generation.gen``, such as ``gen_candidates_scipy``.
         mock_generation = es.enter_context(
             mock.patch(
                 "botorch.generation.gen.minimize_with_timeout",
@@ -81,8 +81,8 @@ def mock_optimize_context_manager(
             )
         )
 
-        # Similarly, works when using calling a function defined in
-        # `optim.core`, such as `scipy_minimize` and `torch_minimize`.
+        # Similarly, works when calling a function defined in
+        # ``optim.core``, such as ``scipy_minimize`` and ``torch_minimize``.
         mock_fit = es.enter_context(
             mock.patch(
                 "botorch.optim.core.minimize_with_timeout",
@@ -90,8 +90,8 @@ def mock_optimize_context_manager(
             )
         )
 
-        # Works when calling a function in `optim.optimize` such as
-        # `optimize_acqf`
+        # Works when calling a function in ``optim.optimize`` such as
+        # ``optimize_acqf``
         mock_gen_ics = es.enter_context(
             mock.patch(
                 "botorch.optim.optimize.gen_batch_initial_conditions",
@@ -99,8 +99,8 @@ def mock_optimize_context_manager(
             )
         )
 
-        # Works when calling a function in `optim.optimize` such as
-        # `optimize_acqf`
+        # Works when calling a function in ``optim.optimize`` such as
+        # ``optimize_acqf``
         mock_gen_os_ics = es.enter_context(
             mock.patch(
                 "botorch.optim.optimize.gen_one_shot_kg_initial_conditions",
@@ -108,7 +108,7 @@ def mock_optimize_context_manager(
             )
         )
 
-        # Reduce default number of iterations in `optimize_acqf_mixed_alternating`.
+        # Reduce default number of iterations in ``optimize_acqf_mixed_alternating``.
         for name in [
             "MAX_ITER_ALTER",
             "MAX_ITER_DISCRETE",
@@ -135,7 +135,7 @@ def mock_optimize_context_manager(
 
 
 def mock_optimize(f: Callable) -> Callable:
-    """Wraps `f` in `mock_optimize_context_manager` for use as a decorator."""
+    """Wraps ``f`` in ``mock_optimize_context_manager`` for use as a decorator."""
 
     @wraps(f)
     # pyre-fixme[3]: Return type must be annotated.

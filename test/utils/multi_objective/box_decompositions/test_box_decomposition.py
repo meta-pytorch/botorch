@@ -290,7 +290,7 @@ class TestBoxDecomposition(BotorchTestCase):
 class TestBoxDecomposition_no_set_up(BotorchTestCase):
     def helper_hypervolume(self, Box_Decomp_cls: type) -> None:
         """
-        This test should be run for each non-abstract subclass of `BoxDecomposition`.
+        This test should be run for each non-abstract subclass of ``BoxDecomposition``.
         """
         # batching
         n_outcomes, batch_dim, n = 2, 3, 4

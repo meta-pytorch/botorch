@@ -50,7 +50,7 @@ class DiscretizedAcquistionFunction(AcquisitionFunction, ABC):
         Args:
             model: A fitted model that is used to compute the posterior
                 distribution over the outcomes of interest.
-                The model should be a `PFNModel`.
+                The model should be a ``PFNModel``.
             posterior_transform: A ScalarizedPosteriorTransform that can only
                 indicate minimization or maximization of the objective.
             assume_symmetric_posterior: If True, we simply negate train y, if
@@ -86,12 +86,12 @@ class DiscretizedAcquistionFunction(AcquisitionFunction, ABC):
         r"""Evaluate the acquisition function on the candidate set X.
 
         Args:
-            X: A `(b) x q x d`-dim Tensor of `(b)` t-batches with `q` `d`-dim
+            X: A ``(b) x q x d``-dim Tensor of ``(b)`` t-batches with ``q`` ``d``-dim
                 design points each.
 
         Returns:
-            A `(b)`-dim Tensor of the acquisition function at the given
-            design points `X`.
+            A ``(b)``-dim Tensor of the acquisition function at the given
+            design points ``X``.
         """
         discrete_posterior = self.model.posterior(
             X,
@@ -116,7 +116,7 @@ class DiscretizedAcquistionFunction(AcquisitionFunction, ABC):
         That is, our acquisition function is assumed to have the form
         \int ag(x) * p(x) dx,
         and this function calculates \int_{lower_bound}^{upper_bound} ag(x) dx.
-        The `integrate` method of the posterior (`BoundedRiemannPosterior`)
+        The ``integrate`` method of the posterior (``BoundedRiemannPosterior``)
         then computes the final acquisition value.
 
         Args:
@@ -124,8 +124,8 @@ class DiscretizedAcquistionFunction(AcquisitionFunction, ABC):
             upper_bound: upper bound of integral
 
         Returns:
-            A `(b)`-dim Tensor of acquisition function derivatives at the given
-            design points `X`.
+            A ``(b)``-dim Tensor of acquisition function derivatives at the given
+            design points ``X``.
         """
         pass  # pragma: no cover
 
@@ -149,7 +149,7 @@ class DiscretizedExpectedImprovement(DiscretizedAcquistionFunction):
         Args:
             model: A fitted model that is used to compute the posterior
                 distribution over the outcomes of interest.
-                The model should be a `PFNModel`.
+                The model should be a ``PFNModel``.
             best_f: A tensor representing the current best observed value.
         """
         super().__init__(
@@ -172,8 +172,8 @@ class DiscretizedExpectedImprovement(DiscretizedAcquistionFunction):
             upper_bound: upper bound of integral
 
         Returns:
-            A `(b)`-dim Tensor of acquisition function derivatives at the given
-            design points `X`.
+            A ``(b)``-dim Tensor of acquisition function derivatives at the given
+            design points ``X``.
         """
         best_f = self.best_f.to(lower_bound)
 
@@ -222,7 +222,7 @@ class DiscretizedNoisyExpectedImprovement(DiscretizedExpectedImprovement):
         Args:
             model: A fitted model that is used to compute the posterior
                 distribution over the outcomes of interest.
-                The model should be a `PFNModel`.
+                The model should be a ``PFNModel``.
             best_f: A tensor representing the current best observed value.
         """
         super().__init__(
@@ -252,7 +252,7 @@ class DiscretizedProbabilityOfImprovement(DiscretizedAcquistionFunction):
         Args:
             model: A fitted model that is used to compute the posterior
                 distribution over the outcomes of interest.
-                The model should be a `PFNModel`.
+                The model should be a ``PFNModel``.
             best_f: A tensor representing the current best observed value.
         """
 
@@ -280,8 +280,8 @@ class DiscretizedProbabilityOfImprovement(DiscretizedAcquistionFunction):
             upper_bound: upper bound of integral
 
         Returns:
-            A `(b)`-dim Tensor of acquisition function derivatives at the given
-            design points `X`.
+            A ``(b)``-dim Tensor of acquisition function derivatives at the given
+            design points ``X``.
         """
         best_f = self.best_f.to(lower_bound)
         # two separate clamps needed below, as one is a tensor and one a scalar

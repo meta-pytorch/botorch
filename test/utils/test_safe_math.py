@@ -43,13 +43,13 @@ INF = float("inf")
 
 
 def sum_constraint(samples: Tensor) -> Tensor:
-    """Represents the constraint `samples.sum(dim=-1) > 0`.
+    """Represents the constraint ``samples.sum(dim=-1) > 0``.
 
     Args:
-        samples: A `b x q x m`-dim Tensor.
+        samples: A ``b x q x m``-dim Tensor.
 
     Returns:
-        A `b x q`-dim Tensor representing constraint feasibility.
+        A ``b x q``-dim Tensor representing constraint feasibility.
     """
     return -samples.sum(dim=-1)
 
@@ -77,7 +77,7 @@ class UnaryOpTestMixin:
             _y.sum().backward()
             self.assertTrue(x.grad.equal(_x.grad))
 
-            # Test passing in pre-allocated `out`
+            # Test passing in pre-allocated ``out``
             with torch.no_grad():
                 y.zero_()
                 self.safe_op(x, out=y)

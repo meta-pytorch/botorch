@@ -93,7 +93,7 @@ class TestFeatureGenerators(BotorchTestCase):
                 K0.allclose(K1, atol=atol * self.num_features**-0.5, rtol=0)
             )
 
-        # Test passing the wrong dimensional shape to `weight_generator`
+        # Test passing the wrong dimensional shape to ``weight_generator``
         with (
             self.assertRaisesRegex(UnsupportedError, "2-dim"),
             patch.object(

@@ -87,9 +87,9 @@ class LogRegionalExpectedImprovement(AnalyticAcquisitionFunction):
 
         Args:
             model: A fitted single-outcome model.
-            best_f: Either a scalar or a `b`-dim Tensor (batch mode) representing
+            best_f: Either a scalar or a ``b``-dim Tensor (batch mode) representing
                 the best function value observed so far (assumed noiseless).
-            X_dev: A `n x d`-dim Tensor of `n` `d`-dim design points within a TR.
+            X_dev: A ``n x d``-dim Tensor of ``n`` ``d``-dim design points within a TR.
             posterior_transform: A PosteriorTransform. If using a multi-output model,
                 a PosteriorTransform that transforms the multi-output posterior into a
                 single-output posterior is required.
@@ -153,20 +153,20 @@ class qLogRegionalExpectedImprovement(LogImprovementMCAcquisitionFunction):
 
         Args:
             model: A fitted single-outcome model.
-            best_f: Either a scalar or a `b`-dim Tensor (batch mode) representing
+            best_f: Either a scalar or a ``b``-dim Tensor (batch mode) representing
                 the best function value observed so far (assumed noiseless).
-            X_dev: A `n x d`-dim Tensor of `n` `d`-dim design points within a TR.
+            X_dev: A ``n x d``-dim Tensor of ``n`` ``d``-dim design points within a TR.
             sampler: botorch.sampling.base.MCSampler
                 The sampler used to sample fantasized models. Defaults to
                 SobolQMCNormalSampler(num_samples=1)`.
             objective: The MCAcquisitionObjective under which the samples are evaluated.
-                Defaults to `IdentityMCObjective()`.
-                NOTE: `ConstrainedMCObjective` for outcome constraints is deprecated in
-                favor of passing the `constraints` directly to this constructor.
+                Defaults to ``IdentityMCObjective()``.
+                NOTE: ``ConstrainedMCObjective`` for outcome constraints is deprecated
+                in favor of passing the ``constraints`` directly to this constructor.
             posterior_transform: A PosteriorTransform. If using a multi-output model,
                 a PosteriorTransform that transforms the multi-output posterior into a
                 single-output posterior is required.
-            X_pending: A `batch_shape x m x d`-dim Tensor of `m` `d`-dim design
+            X_pending: A ``batch_shape x m x d``-dim Tensor of ``m`` ``d``-dim design
                 points that have been submitted for function evaluation but have
                 not yet been evaluated.
             length: The length of the trust region to consider.
@@ -187,7 +187,7 @@ class qLogRegionalExpectedImprovement(LogImprovementMCAcquisitionFunction):
             X_pending=X_pending,
         )
         # adding + 1 to account for the additional MC sampling dimension
-        # for points inside the trust region surrounding `X`
+        # for points inside the trust region surrounding ``X``
         sample_dim = tuple(range(len(self.sample_shape) + 1))
         self._sample_reduction = partial(logmeanexp, dim=sample_dim)
 
@@ -214,13 +214,13 @@ class qLogRegionalExpectedImprovement(LogImprovementMCAcquisitionFunction):
         Expected Improvement acqusition function value.
 
         Args:
-            X: A `batch_shape x q x d`-dim Tensor of model inputs.
+            X: A ``batch_shape x q x d``-dim Tensor of model inputs.
 
         Returns:
-            A two-tuple `(samples, obj)`, where `samples` is a tensor of posterior
-            samples with shape `sample_shape x n_region x batch_shape x q x m`,
-            and `obj` is a tensor of MC objective values with shape
-            `sample_shape x n_region x batch_shape x q`.
+            A two-tuple ``(samples, obj)``, where ``samples`` is a tensor of posterior
+            samples with shape ``sample_shape x n_region x batch_shape x q x m``,
+            and ``obj`` is a tensor of MC objective values with shape
+            ``sample_shape x n_region x batch_shape x q``.
         """
         # region-averaged EI specific code
         batch_shape = X.shape[:-2]
@@ -241,13 +241,13 @@ class qLogRegionalExpectedImprovement(LogImprovementMCAcquisitionFunction):
         return super()._get_samples_and_objectives(Xs)
 
     def _sample_forward(self, obj: Tensor) -> Tensor:
-        r"""Evaluate qLogExpectedImprovement on the candidate set `X`.
+        r"""Evaluate qLogExpectedImprovement on the candidate set ``X``.
 
         Args:
-            obj: `mc_shape x batch_shape x q`-dim Tensor of MC objective values.
+            obj: ``mc_shape x batch_shape x q``-dim Tensor of MC objective values.
 
         Returns:
-            A `mc_shape x batch_shape x q`-dim Tensor of expected improvement values.
+            A ``mc_shape x batch_shape x q``-dim Tensor of expected improvement values.
         """
         li = _log_improvement(
             Y=obj,
