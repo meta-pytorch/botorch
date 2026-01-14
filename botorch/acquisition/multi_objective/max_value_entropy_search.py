@@ -14,8 +14,6 @@ from __future__ import annotations
 from math import pi
 
 import torch
-from botorch.acquisition.max_value_entropy_search import qMaxValueEntropy
-from botorch.acquisition.multi_objective.base import MultiObjectiveMCAcquisitionFunction
 from botorch.acquisition.multi_objective.joint_entropy_search import (
     LowerBoundMultiObjectiveEntropySearch,
 )
@@ -27,25 +25,6 @@ from botorch.utils.transforms import (
     t_batch_mode_transform,
 )
 from torch import Tensor
-
-
-# Can be removed in version 0.15.0, or potentially sooner because the code has
-# already been raising deprecation warnings for a long time
-class qMultiObjectiveMaxValueEntropy(
-    qMaxValueEntropy, MultiObjectiveMCAcquisitionFunction
-):
-    r"""The acquisition function for MESMO.
-
-    This is no longer available. We recommend
-    ``qLowerBoundMultiObjectiveMaxValueEntropySearch`` as a replacement.
-    """
-
-    def __init__(self, *args, **kwargs) -> None:
-        """Multi-objective max-value entropy search acquisition function."""
-        raise NotImplementedError(
-            "qMultiObjectiveMaxValueEntropy is no longer available. We suggest "
-            "qLowerBoundMultiObjectiveMaxValueEntropySearch as a replacement."
-        )
 
 
 class qLowerBoundMultiObjectiveMaxValueEntropySearch(

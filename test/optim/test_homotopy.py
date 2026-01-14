@@ -126,60 +126,12 @@ class TestHomotopy(BotorchTestCase):
         self.assertEqual(candidate, torch.zeros(1, **tkwargs))
         self.assertEqual(acqf_val, 5 * torch.ones(1, **tkwargs))
 
-        # test fixed feature
-        fixed_features = {0: 1.0}
-        model = GenericDeterministicModel(
-            f=lambda x: 5 - (x - p).sum(dim=-1, keepdims=True) ** 2
-        )
-        acqf = PosteriorMean(model=model)
-        # test raise warning on using ``fixed_features`` argument
-        message = (
-            "The `fixed_features` argument is deprecated, "
-            "use `fixed_features_list` instead."
-        )
-        with self.assertWarnsRegex(DeprecationWarning, message):
-            optimize_acqf_homotopy(
-                q=1,
-                acq_function=acqf,
-                bounds=torch.tensor([[-10, -10], [5, 5]]).to(**tkwargs),
-                homotopy=Homotopy(homotopy_parameters=[hp]),
-                num_restarts=2,
-                raw_samples=16,
-                fixed_features=fixed_features,
-            )
-
-        candidate, acqf_val = optimize_acqf_homotopy(
-            q=1,
-            acq_function=acqf,
-            bounds=torch.tensor([[-10, -10], [5, 5]], **tkwargs),
-            homotopy=Homotopy(homotopy_parameters=[hp]),
-            num_restarts=2,
-            raw_samples=16,
-            fixed_features_list=[fixed_features],
-        )
-        self.assertEqual(candidate[0, 0], torch.tensor(1, **tkwargs))
-
         # test fixed feature list
         fixed_features_list = [{0: 1.0}, {1: 3.0}]
         model = GenericDeterministicModel(
             f=lambda x: 5 - (x - p).sum(dim=-1, keepdims=True) ** 2
         )
         acqf = PosteriorMean(model=model)
-        # test raise error when fixed_features and fixed_features_list are both provided
-        with self.assertRaisesRegex(
-            ValueError,
-            "Either `fixed_feature` or `fixed_features_list` can be provided",
-        ):
-            optimize_acqf_homotopy(
-                q=1,
-                acq_function=acqf,
-                bounds=torch.tensor([[-10, -10, -10], [5, 5, 5]], **tkwargs),
-                homotopy=Homotopy(homotopy_parameters=[hp]),
-                num_restarts=2,
-                raw_samples=16,
-                fixed_features_list=fixed_features_list,
-                fixed_features=fixed_features,
-            )
         candidate, acqf_val = optimize_acqf_homotopy(
             q=1,
             acq_function=acqf,
@@ -200,7 +152,7 @@ class TestHomotopy(BotorchTestCase):
             homotopy=Homotopy(homotopy_parameters=[hp]),
             num_restarts=2,
             raw_samples=16,
-            fixed_features_list=[fixed_features],
+            fixed_features_list=[{0: 1.0}],
         )
         self.assertEqual(candidate.shape, torch.Size([3, 2]))
         self.assertEqual(acqf_val.shape, torch.Size([3]))

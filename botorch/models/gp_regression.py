@@ -29,8 +29,6 @@ use a multi-task model like ``MultiTaskGP``.
 
 from __future__ import annotations
 
-import warnings
-
 import torch
 from botorch.models.gpytorch import BatchedMultiOutputGPyTorchModel
 from botorch.models.model import FantasizeMixin
@@ -41,8 +39,6 @@ from botorch.models.utils.gpytorch_modules import (
     get_covar_module_with_dim_scaled_prior,
     get_gaussian_likelihood_with_lognormal_prior,
 )
-from botorch.utils.containers import BotorchContainer
-from botorch.utils.datasets import SupervisedDataset
 from botorch.utils.types import _DefaultType, DEFAULT
 from gpytorch.distributions.multivariate_normal import MultivariateNormal
 from gpytorch.likelihoods.gaussian_likelihood import FixedNoiseGaussianLikelihood
@@ -209,32 +205,6 @@ class SingleTaskGP(BatchedMultiOutputGPyTorchModel, ExactGP, FantasizeMixin):
         if input_transform is not None:
             self.input_transform = input_transform
         self.to(train_X)
-
-    @classmethod
-    def construct_inputs(
-        cls, training_data: SupervisedDataset, *, task_feature: int | None = None
-    ) -> dict[str, BotorchContainer | Tensor]:
-        r"""Construct ``SingleTaskGP`` keyword arguments from a ``SupervisedDataset``.
-
-        Args:
-            training_data: A ``SupervisedDataset``, with attributes ``train_X``,
-                ``train_Y``, and, optionally, ``train_Yvar``.
-            task_feature: Deprecated and allowed only for backward
-                compatibility; ignored.
-
-        Returns:
-            A dict of keyword arguments that can be used to initialize a
-            ``SingleTaskGP``, with keys ``train_X``, ``train_Y``, and,
-            optionally, ``train_Yvar``.
-        """
-        if task_feature is not None:
-            warnings.warn(
-                "`task_feature` is deprecated and will be ignored. In the "
-                "future, this will be an error.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-        return super().construct_inputs(training_data=training_data)
 
     def forward(self, x: Tensor) -> MultivariateNormal:
         if self.training:

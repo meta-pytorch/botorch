@@ -55,11 +55,7 @@ from botorch.models.fully_bayesian import (
 )
 from botorch.models.transforms import Normalize, Standardize
 from botorch.models.transforms.input import ChainedInputTransform, Warp
-from botorch.posteriors.fully_bayesian import (
-    batched_bisect,
-    FullyBayesianPosterior,
-    GaussianMixturePosterior,
-)
+from botorch.posteriors.fully_bayesian import batched_bisect, GaussianMixturePosterior
 from botorch.sampling.get_sampler import get_sampler
 from botorch.utils.datasets import SupervisedDataset
 from botorch.utils.multi_objective.box_decompositions.non_dominated import (
@@ -1082,17 +1078,6 @@ class TestSaasFullyBayesianSingleTaskGP(BotorchTestCase):
                 self.assertAllClose(
                     dist.cdf(x), q * torch.ones(1, 5, 1, **tkwargs), atol=1e-4
                 )
-
-    def test_deprecated_posterior(self) -> None:
-        mean = torch.randn(1, 5)
-        variance = torch.rand(1, 5)
-        covar = torch.diag_embed(variance)
-        mvn = MultivariateNormal(mean, to_linear_operator(covar))
-        with self.assertWarnsRegex(
-            DeprecationWarning, "`FullyBayesianPosterior` is marked for deprecation"
-        ):
-            posterior = FullyBayesianPosterior(distribution=mvn)
-        self.assertIsInstance(posterior, GaussianMixturePosterior)
 
     def test_predict_in_train_mode(self) -> None:
         torch.manual_seed(16)

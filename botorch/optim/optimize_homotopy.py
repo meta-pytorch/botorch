@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import Callable
 from typing import Any
 
@@ -65,7 +64,6 @@ def optimize_acqf_homotopy(
     inequality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
     equality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
     nonlinear_inequality_constraints: list[tuple[Callable, bool]] | None = None,
-    fixed_features: dict[int, float] | None = None,
     fixed_features_list: list[dict[int, float]] | None = None,
     post_processing_func: Callable[[Tensor], Tensor] | None = None,
     batch_initial_conditions: Tensor | None = None,
@@ -126,8 +124,6 @@ def optimize_acqf_homotopy(
             Using non-linear inequality constraints also requires that ``batch_limit``
             is set to 1, which will be done automatically if not specified in
             ``options``.
-        fixed_features: A map ``{feature_index: value}`` for features that
-            should be fixed to a particular value during generation.
         fixed_features_list: A list of maps ``{feature_index: value}``. The i-th
             item represents the fixed_feature for the i-th optimization. If
             ``fixed_features_list`` is provided, ``optimize_acqf_mixed`` is invoked.
@@ -155,22 +151,6 @@ def optimize_acqf_homotopy(
         ic_gen_kwargs: Additional keyword arguments passed to function specified by
             ``ic_generator``
     """
-    if fixed_features and fixed_features_list:
-        raise ValueError(
-            "Either `fixed_feature` or `fixed_features_list` can be provided, not both."
-        )
-
-    if fixed_features:
-        message = (
-            "The `fixed_features` argument is deprecated, "
-            "use `fixed_features_list` instead."
-        )
-        warnings.warn(
-            message,
-            DeprecationWarning,
-            stacklevel=2,
-        )
-
     shared_optimize_acqf_kwargs = {
         "num_restarts": num_restarts,
         "inequality_constraints": inequality_constraints,
@@ -190,9 +170,7 @@ def optimize_acqf_homotopy(
     else:
         optimization_fn = optimize_acqf
         fixed_features_kwargs = {
-            "fixed_features": fixed_features_list[0]
-            if fixed_features_list
-            else fixed_features
+            "fixed_features": fixed_features_list[0] if fixed_features_list else None
         }
 
     candidate_list, acq_value_list = [], []

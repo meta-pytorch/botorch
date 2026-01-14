@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from warnings import warn
 
 import torch
 from botorch.posteriors.gpytorch import GPyTorchPosterior
@@ -156,16 +155,3 @@ class GaussianMixturePosterior(GPyTorchPosterior):
         candidate produces same value regardless of its position on the t-batch.
         """
         return (0, -2) if self._is_mt else (0, -1)
-
-
-class FullyBayesianPosterior(GaussianMixturePosterior):
-    """For backwards compatibility."""
-
-    def __init__(self, distribution: MultivariateNormal) -> None:
-        """DEPRECATED."""
-        warn(
-            "`FullyBayesianPosterior` is marked for deprecation, consider using "
-            "`GaussianMixturePosterior` instead.",
-            DeprecationWarning,
-        )
-        super().__init__(distribution=distribution)

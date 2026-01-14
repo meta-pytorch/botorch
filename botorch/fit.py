@@ -8,7 +8,6 @@ r"""Model fitting routines."""
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import Callable, Sequence
 from copy import deepcopy
 from functools import partial
@@ -21,12 +20,9 @@ from botorch.exceptions.warnings import OptimizationWarning
 from botorch.logging import logger
 from botorch.models import SingleTaskGP
 from botorch.models.approximate_gp import ApproximateGPyTorchModel
-from botorch.models.fully_bayesian import (
-    AbstractFullyBayesianSingleTaskGP,
-    SaasFullyBayesianSingleTaskGP,
-)
+from botorch.models.fully_bayesian import AbstractFullyBayesianSingleTaskGP
 from botorch.models.fully_bayesian_multitask import SaasFullyBayesianMultiTaskGP
-from botorch.models.map_saas import EnsembleMapSaasSingleTaskGP, get_map_saas_model
+from botorch.models.map_saas import get_map_saas_model
 from botorch.models.model_list_gp_regression import ModelListGP
 from botorch.models.transforms.input import InputTransform
 from botorch.models.transforms.outcome import OutcomeTransform
@@ -44,7 +40,6 @@ from botorch.utils.context_managers import (
     TensorCheckpoint,
 )
 from botorch.utils.dispatcher import Dispatcher, type_bypassing_encoder
-from botorch.utils.types import _DefaultType, DEFAULT
 from gpytorch.likelihoods import Likelihood
 from gpytorch.mlls._approximate_mll import _ApproximateMarginalLogLikelihood
 from gpytorch.mlls.exact_marginal_log_likelihood import ExactMarginalLogLikelihood
@@ -434,56 +429,6 @@ def get_fitted_map_saas_model(
         ),
         outcome_transform=outcome_transform,
         tau=tau,
-    )
-    mll = ExactMarginalLogLikelihood(model=model, likelihood=model.likelihood)
-    fit_gpytorch_mll(mll, optimizer_kwargs=optimizer_kwargs)
-    return model
-
-
-def get_fitted_map_saas_ensemble(
-    train_X: Tensor,
-    train_Y: Tensor,
-    train_Yvar: Tensor | None = None,
-    input_transform: InputTransform | None = None,
-    outcome_transform: OutcomeTransform | _DefaultType | None = DEFAULT,
-    taus: Tensor | list[float] | None = None,
-    num_taus: int = 4,
-    optimizer_kwargs: dict[str, Any] | None = None,
-) -> SaasFullyBayesianSingleTaskGP:
-    """Get a fitted SAAS ensemble using several different tau values.
-
-    DEPRECATED: Please use ``EnsembleMapSaasSingleTaskGP`` directly!
-
-    Args:
-        train_X: Tensor of shape ``n x d`` with training inputs.
-        train_Y: Tensor of shape ``n x 1`` with training targets.
-        train_Yvar: Optional tensor of shape ``n x 1`` with observed noise,
-            inferred if None.
-        input_transform: An optional input transform.
-        outcome_transform: An optional outcome transform.
-        taus: Global shrinkage values to use. If None, we sample ``num_taus`` values
-            from an HC(0.1) distribution.
-        num_taus: Optional argument for how many taus to sample.
-        optimizer_kwargs: A dict of options for the optimizer passed
-            to fit_gpytorch_mll.
-
-    Returns:
-        A fitted EnsembleMapSaasSingleTaskGP with a Matern kernel.
-    """
-    warnings.warn(
-        "get_fitted_map_saas_ensemble is deprecated and will be removed in v0.17. "
-        "Please use EnsembleMapSaasSingleTaskGP instead!",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    model = EnsembleMapSaasSingleTaskGP(
-        train_X=train_X,
-        train_Y=train_Y,
-        train_Yvar=train_Yvar,
-        num_taus=num_taus,
-        taus=taus,
-        input_transform=input_transform,
-        outcome_transform=outcome_transform,
     )
     mll = ExactMarginalLogLikelihood(model=model, likelihood=model.likelihood)
     fit_gpytorch_mll(mll, optimizer_kwargs=optimizer_kwargs)

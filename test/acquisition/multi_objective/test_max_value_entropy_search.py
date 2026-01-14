@@ -9,7 +9,6 @@ from itertools import product
 import torch
 from botorch.acquisition.multi_objective.max_value_entropy_search import (
     qLowerBoundMultiObjectiveMaxValueEntropySearch,
-    qMultiObjectiveMaxValueEntropy,
 )
 from botorch.acquisition.multi_objective.utils import compute_sample_box_decomposition
 from botorch.models.model_list_gp_regression import ModelListGP
@@ -27,13 +26,6 @@ def dummy_sample_pareto_frontiers(model):
         dtype=m.train_inputs[0].dtype,
         device=m.train_inputs[0].device,
     )
-
-
-# TODO: remove all references
-class TestMultiObjectiveMaxValueEntropy(BotorchTestCase):
-    def test_multi_objective_max_value_entropy(self) -> None:
-        with self.assertRaisesRegex(NotImplementedError, "no longer available"):
-            qMultiObjectiveMaxValueEntropy()
 
 
 class TestQLowerBoundMultiObjectiveMaxValueEntropySearch(BotorchTestCase):
