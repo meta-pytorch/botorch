@@ -84,9 +84,16 @@ def bvn(r: Tensor, xl: Tensor, yl: Tensor, xu: Tensor, yu: Tensor) -> Tensor:
         xu = sign * xu  # becomes ``-xl``
         yl = sign * yl  # becomes ``-yu``
         yu = sign * yu  # becomes ``-yl``
-
-    p = bvnu(r, xl, yl) - bvnu(r, xu, yl) - bvnu(r, xl, yu) + bvnu(r, xu, yu)
-    return p.clip(min=0, max=1)
+    # Computing the sum of terms this way instead of simply adding them
+    # stops gradients from being computed for terms that are zero.
+    # This tends to improve gradient stability, because these zeros usually
+    # started as non-finite values that were zeroed out by safe math.
+    terms = bvnu(r, xl, yl), -bvnu(r, xl, yu), -bvnu(r, xu, yl), bvnu(r, xu, yu)
+    res = torch.zeros_like(terms[0])
+    for term in terms:
+        if (term != 0).any():
+            res = res + term
+    return res.clip(min=0, max=1)
 
 
 def bvnu(r: Tensor, h: Tensor, k: Tensor) -> Tensor:
@@ -217,10 +224,9 @@ def _bvnu_taylor(r: Tensor, h: Tensor, k: Tensor, num_points: int = 20) -> Tenso
     _b2 = b2.unsqueeze(-1)
     _c = c.unsqueeze(-1)
     _d = d.unsqueeze(-1)
-    vals = (-0.5 * (_b2 / _q0 + _skh)).exp() * torch.subtract(
-        1 + _c * _q0 * (1 + 5 * _d * _q0),
-        safe_exp(-0.5 * _q0 / (1 + _q1).square() * _skh) / _q1,
-    )
+    _t1 = 1 + _c * _q0 * (1 + 5 * _d * _q0)
+    _t2 = safe_exp(-0.5 * _q0 / (1 + _q1).square() * _skh) / _q1
+    vals = safe_exp(_q2) * torch.subtract(_t1, _t2)
     mask = _q2 > -100
     if not mask.all():
         vals[~mask] = 0
