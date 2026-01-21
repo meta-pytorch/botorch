@@ -224,16 +224,20 @@ class DirectPFNAcquisition(AcquisitionFunction):
         self,
         model,
         posterior_transform: PosteriorTransform | None = None,
+        X_pending: Tensor | None = None,
     ) -> None:
         """Initialize DirectPFNAcquisition.
 
         Args:
             model: A DirectAcquisitionPFNModel that outputs acquisition values.
-            maximize: If True, assume training Ys are for maximization.
-                If False, negate train_ys for minimization (similar to
-                assume_symmetric_posterior in DiscretizedAcquisitionFunction).
+            posterior_transform: A ScalarizedPosteriorTransform that can only
+                indicate minimization or maximization of the objective.
+            X_pending: A `m x d`-dim Tensor of `m` design points that have
+                been submitted for function evaluation but have not yet been
+                evaluated.
         """
         super().__init__(model=model)
+        self.set_X_pending(X_pending)
         self.maximize = True
         if posterior_transform is not None:
             unsupported_error_message = (
@@ -262,6 +266,7 @@ class DirectPFNAcquisition(AcquisitionFunction):
         """
         acq_values = self.model.get_acquisition_values(
             X,
+            pending_X=self.X_pending,
             negate_train_ys=not self.maximize,
         )
         # Remove q dimension (expected_q=1)

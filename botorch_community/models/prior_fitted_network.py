@@ -674,12 +674,16 @@ class DirectAcquisitionPFNModel(PFNModel):
     def get_acquisition_values(
         self,
         X: Tensor,
+        pending_X: Optional[Tensor] = None,
         negate_train_ys: bool = False,
     ) -> Tensor:
         """Get acquisition values for query points X.
 
         Args:
             X: A `b? x q? x d`-dim Tensor of query points.
+            pending_X: A tensor of shape `n' x d`, where `n'` is the number of
+                pending points, which are to be observed but the value is
+                not yet known.
             negate_train_ys: Whether to negate training Ys (for minimization).
 
         Returns:
@@ -697,6 +701,22 @@ class DirectAcquisitionPFNModel(PFNModel):
                 hps=self.style_hyperparameters,
                 batch_size=X.shape[0],
             )
+
+        if pending_X is not None:
+            assert pending_X.dim() == 2, "pending_X must be 2-dimensional."
+            pending_X = pending_X[None].repeat(X.shape[0], 1, 1)  # shape (b, n', d)
+            train_X = torch.cat([train_X, pending_X], dim=1)  # shape (b, n+n', d)
+            train_Y = torch.cat(
+                [
+                    train_Y,
+                    torch.full(
+                        (train_Y.shape[0], pending_X.shape[1], 1),
+                        torch.nan,
+                        device=train_Y.device,
+                    ),
+                ],
+                dim=1,
+            )  # shape (b, n+n', 1)
 
         acq_values = self._pfn_predict_direct(
             X=X,
