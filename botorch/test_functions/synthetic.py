@@ -420,7 +420,7 @@ class Hartmann(SyntheticTestFunction):
         if bounds is None:
             bounds = [(0.0, 1.0) for _ in range(self.dim)]
         # optimizers and optimal values for dim=4 not implemented
-        optvals = {3: -3.86278, 6: -3.32237}
+        optvals = {3: -3.86278, 4: -3.134, 6: -3.32237}
         optimizers = {
             3: [(0.114614, 0.555649, 0.852547)],
             6: [(0.20169, 0.150011, 0.476874, 0.275332, 0.311652, 0.6573)],
