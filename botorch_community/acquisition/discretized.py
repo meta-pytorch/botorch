@@ -209,6 +209,65 @@ class DiscretizedExpectedImprovement(DiscretizedAcquistionFunction):
         return result.clamp_min(0)
 
 
+class DirectPFNAcquisition(AcquisitionFunction):
+    """Acquisition function for PFN models that directly output acquisition values.
+
+    This acquisition function simply forwards the model's output without
+    any additional computation (no integration over distributions).
+
+    This is designed to be used with DirectAcquisitionPFNModel which outputs
+    a single scalar per query point that represents the acquisition value directly,
+    rather than a distribution over buckets.
+    """
+
+    def __init__(
+        self,
+        model,
+        posterior_transform: PosteriorTransform | None = None,
+    ) -> None:
+        """Initialize DirectPFNAcquisition.
+
+        Args:
+            model: A DirectAcquisitionPFNModel that outputs acquisition values.
+            maximize: If True, assume training Ys are for maximization.
+                If False, negate train_ys for minimization (similar to
+                assume_symmetric_posterior in DiscretizedAcquisitionFunction).
+        """
+        super().__init__(model=model)
+        self.maximize = True
+        if posterior_transform is not None:
+            unsupported_error_message = (
+                "Only scalarized posterior transforms with a"
+                "single objective and 0.0 offset are supported."
+            )
+            if (
+                not isinstance(posterior_transform, ScalarizedPosteriorTransform)
+                or (posterior_transform.offset != 0.0)
+                or len(posterior_transform.weights) != 1
+                or posterior_transform.weights[0] not in [-1.0, 1.0]
+            ):
+                raise UnsupportedError(unsupported_error_message)
+
+            self.maximize = posterior_transform.weights[0] == 1.0
+
+    @t_batch_mode_transform(expected_q=1)
+    def forward(self, X: Tensor) -> Tensor:
+        """Evaluate acquisition function at X.
+
+        Args:
+            X: A `(b) x q x d`-dim Tensor.
+
+        Returns:
+            A `(b)`-dim Tensor of acquisition values.
+        """
+        acq_values = self.model.get_acquisition_values(
+            X,
+            negate_train_ys=not self.maximize,
+        )
+        # Remove q dimension (expected_q=1)
+        return acq_values.squeeze(-1)
+
+
 class DiscretizedNoisyExpectedImprovement(DiscretizedExpectedImprovement):
     def __init__(
         self,

@@ -10,6 +10,11 @@ from botorch_community.acquisition.bayesian_active_learning import (
     qHyperparameterInformedPredictiveExploration,
     qStatisticalDistanceActiveLearning,
 )
+from botorch_community.acquisition.discretized import (
+    DirectPFNAcquisition,
+    DiscretizedExpectedImprovement,
+    DiscretizedProbabilityOfImprovement,
+)
 
 # NOTE: This import is needed to register the input constructors.
 from botorch_community.acquisition.input_constructors import (  # noqa F401
@@ -22,6 +27,9 @@ from botorch_community.acquisition.rei import (
 from botorch_community.acquisition.scorebo import qSelfCorrectingBayesianOptimization
 
 __all__ = [
+    "DirectPFNAcquisition",
+    "DiscretizedExpectedImprovement",
+    "DiscretizedProbabilityOfImprovement",
     "LogRegionalExpectedImprovement",
     "qBayesianQueryByComittee",
     "qBayesianVarianceReduction",

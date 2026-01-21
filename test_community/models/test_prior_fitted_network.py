@@ -16,6 +16,7 @@ from botorch.models.transforms.input import Normalize
 from botorch.utils.testing import BotorchTestCase
 from botorch_community.models.prior_fitted_network import (
     BoundedRiemannPosterior,
+    DirectAcquisitionPFNModel,
     MultivariatePFNModel,
     PFNModel,
     PFNModelWithPendingPoints,
@@ -606,3 +607,116 @@ class TestPFNModelWithPendingPoints(BotorchTestCase):
         posterior = pfn.posterior(test_X, pending_X=pending_X, negate_train_ys=True)
         self.assertIsInstance(posterior, BoundedRiemannPosterior)
         self.assertEqual(posterior.probabilities.shape, torch.Size([5, 100]))
+
+
+class DummyDirectAcquisitionPFN(nn.Module):
+    """A dummy PFN model that outputs a single logit (direct acquisition value)."""
+
+    def __init__(self):
+        super().__init__()
+        self.style_encoder = None
+        self.y_style_encoder = None
+
+    def forward(self, train_X: Tensor, train_Y: Tensor, test_X: Tensor) -> Tensor:
+        # Returns a single logit per test point (shape: batch x q)
+        return torch.randn(*test_X.shape[:-1], device=test_X.device)
+
+
+class TestDirectAcquisitionPFNModel(BotorchTestCase):
+    def test_acquisition_values(self):
+        """Test that get_acquisition_values returns correctly shaped tensors."""
+        for dtype in (torch.float, torch.double):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            train_X = torch.rand(10, 3, **tkwargs)
+            train_Y = torch.rand(10, 1, **tkwargs)
+            train_Y = train_Y - train_Y.mean()  # Zero-center for negate_train_ys
+
+            model = DirectAcquisitionPFNModel(
+                train_X, train_Y, DummyDirectAcquisitionPFN()
+            )
+
+            # Test with 2D input (n, d)
+            test_X = torch.rand(5, 3, **tkwargs)
+            acq_values = model.get_acquisition_values(test_X)
+            self.assertEqual(acq_values.shape, torch.Size([5]))
+
+            # Test with 3D input (b, q, d)
+            test_X = torch.rand(2, 5, 3, **tkwargs)
+            acq_values = model.get_acquisition_values(test_X)
+            self.assertEqual(acq_values.shape, torch.Size([2, 5]))
+
+            # Test with 1D input (d,)
+            test_X = torch.rand(3, **tkwargs)
+            acq_values = model.get_acquisition_values(test_X)
+            self.assertEqual(acq_values.shape, torch.Size([]))
+
+            # Test with negate_train_ys=True
+            test_X = torch.rand(5, 3, **tkwargs)
+            acq_values = model.get_acquisition_values(test_X, negate_train_ys=True)
+            self.assertEqual(acq_values.shape, torch.Size([5]))
+
+    def test_raises(self):
+        """Test error handling for invalid inputs."""
+        for dtype in (torch.float, torch.double):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            train_X = torch.rand(10, 3, **tkwargs)
+            train_Y = torch.rand(10, 1, **tkwargs)
+
+            # Test 4D train_Y raises
+            train_Y_4d = torch.rand(10, 2, 2, 1, **tkwargs)
+            with self.assertRaisesRegex(
+                UnsupportedError, "train_Y must be 2-dimensional"
+            ):
+                DirectAcquisitionPFNModel(
+                    train_X, train_Y_4d, DummyDirectAcquisitionPFN()
+                )
+
+            # Test multi-output raises
+            train_Y_2d = torch.rand(10, 2, **tkwargs)
+            with self.assertRaisesRegex(UnsupportedError, "Only 1 target allowed"):
+                DirectAcquisitionPFNModel(
+                    train_X, train_Y_2d, DummyDirectAcquisitionPFN()
+                )
+
+            # Test train_X must be 2D
+            with self.assertRaisesRegex(
+                UnsupportedError, "train_X must be 2-dimensional"
+            ):
+                DirectAcquisitionPFNModel(
+                    torch.rand(10, 3, 3, 2, **tkwargs),
+                    train_Y,
+                    DummyDirectAcquisitionPFN(),
+                )
+
+            # Test mismatched row counts
+            with self.assertRaisesRegex(UnsupportedError, "same number of rows"):
+                DirectAcquisitionPFNModel(
+                    train_X, torch.rand(11, 1, **tkwargs), DummyDirectAcquisitionPFN()
+                )
+
+            # Test X dims should be 1 to 3
+            model = DirectAcquisitionPFNModel(
+                train_X, train_Y, DummyDirectAcquisitionPFN()
+            )
+            test_X = torch.rand(5, 4, 2, 1, 2, **tkwargs)
+            with self.assertRaisesRegex(UnsupportedError, "X must be at most 3-d"):
+                model.get_acquisition_values(test_X)
+
+    def test_input_transform(self):
+        """Test that input transforms work correctly."""
+        train_X = torch.rand(10, 3)
+        train_Y = torch.rand(10, 1)
+
+        model = DirectAcquisitionPFNModel(
+            train_X=train_X,
+            train_Y=train_Y,
+            input_transform=Normalize(d=3),
+            model=DummyDirectAcquisitionPFN(),
+        )
+        self.assertIsInstance(model.input_transform, Normalize)
+        self.assertEqual(model.input_transform.bounds.shape, torch.Size([2, 3]))
+
+        # Test that acquisition values still work with input transform
+        test_X = torch.rand(5, 3)
+        acq_values = model.get_acquisition_values(test_X)
+        self.assertEqual(acq_values.shape, torch.Size([5]))

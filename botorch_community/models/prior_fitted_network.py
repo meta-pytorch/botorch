@@ -650,3 +650,101 @@ class MultivariatePFNModel(PFNModel):
             L = torch.clamp(L, min=1e-6)
             A = Q @ torch.diag_embed(L) @ Q.transpose(-1, -2)
         return A
+
+
+class DirectAcquisitionPFNModel(PFNModel):
+    """PFN model that directly outputs acquisition values (single logit per point).
+
+    Unlike PFNModel which outputs a distribution over buckets, this model
+    outputs a single scalar per query point that can be used directly as
+    an acquisition value.
+
+    This model is designed to be used with PFN architectures that are trained
+    to directly predict acquisition values (e.g., Expected Improvement) rather
+    than predictive distributions.
+    """
+
+    def posterior(
+        self,
+        *args,
+        **kwargs,
+    ):
+        raise ValueError("DirectAcquisitionPFNModel does not support posterior.")
+
+    def get_acquisition_values(
+        self,
+        X: Tensor,
+        negate_train_ys: bool = False,
+    ) -> Tensor:
+        """Get acquisition values for query points X.
+
+        Args:
+            X: A `b? x q? x d`-dim Tensor of query points.
+            negate_train_ys: Whether to negate training Ys (for minimization).
+
+        Returns:
+            A `b? x q?`-dim Tensor of acquisition values.
+        """
+        self.pfn.eval()
+
+        X, train_X, train_Y, orig_X_shape = self._prepare_data(
+            X, negate_train_ys=negate_train_ys
+        )
+
+        style_kwargs = {}
+        if self.style_hyperparameters is not None:
+            style_kwargs = self._get_styles(
+                hps=self.style_hyperparameters,
+                batch_size=X.shape[0],
+            )
+
+        acq_values = self._pfn_predict_direct(
+            X=X,
+            train_X=train_X,
+            train_Y=train_Y,
+            **self.constant_model_kwargs,
+            **style_kwargs,
+        )  # (b, q)
+
+        # Reshape back to original X shape (without d dimension)
+        target_shape = orig_X_shape[:-1]
+        if len(target_shape) == 0:
+            # Handle 1D input case (single point) - squeeze all dimensions
+            acq_values = acq_values.squeeze()
+        else:
+            acq_values = acq_values.view(*target_shape)
+
+        return acq_values
+
+    def _pfn_predict_direct(
+        self,
+        X: Tensor,
+        train_X: Tensor,
+        train_Y: Tensor,
+        **forward_kwargs,
+    ) -> Tensor:
+        """Make a prediction using the PFN model - returns single value per point.
+
+        Assumes batch_first=True format for input tensors.
+
+        Args:
+            X: has shape (b, q, d)
+            train_X: has shape (b, n, d)
+            train_Y: has shape (b, n, 1)
+            **forward_kwargs: whatever kwargs to pass to the PFN model
+
+        Returns: acquisition values (b, q) - single scalar per query point.
+        """
+        logits = self.pfn(
+            train_X.float(),
+            train_Y.float(),
+            X.float(),
+            **forward_kwargs,
+        )
+        logits = logits.to(X.dtype)
+
+        # Squeeze last dimension if it exists (handle both (b, q) and (b, q, 1))
+        if logits.dim() > 2 and logits.shape[-1] == 1:
+            logits = logits.squeeze(-1)  # shape (b, q)
+
+        return logits

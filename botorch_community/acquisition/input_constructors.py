@@ -33,6 +33,7 @@ from botorch_community.acquisition.bayesian_active_learning import (
     qStatisticalDistanceActiveLearning,
 )
 from botorch_community.acquisition.discretized import (
+    DirectPFNAcquisition,
     DiscretizedExpectedImprovement,
     DiscretizedNoisyExpectedImprovement,
     DiscretizedProbabilityOfImprovement,
@@ -100,6 +101,28 @@ def construct_inputs_noisy(
         "model": model,
         "posterior_transform": posterior_transform,
         "X_pending": X_pending,
+    }
+
+
+@acqf_input_constructor(DirectPFNAcquisition)
+def construct_inputs_direct(
+    model: Model,
+    posterior_transform: PosteriorTransform | None = None,
+) -> dict[str, Any]:
+    r"""Construct kwargs for the acquisition functions requiring `best_f`.
+
+    Args:
+        model: The model to be used in the acquisition function.
+        best_f: Threshold above (or below) which improvement is defined.
+        posterior_transform: The posterior transform to be used in the
+            acquisition function.
+
+    Returns:
+        A dict mapping kwarg names of the constructor to values.
+    """
+    return {
+        "model": model,
+        "posterior_transform": posterior_transform,
     }
 
 
