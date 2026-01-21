@@ -8,9 +8,11 @@ r"""Assorted helper methods and objects for working with BoTorch models."""
 
 from __future__ import annotations
 
+import json
 import warnings
 from collections.abc import Iterator
 from contextlib import contextmanager, ExitStack
+from typing import TYPE_CHECKING
 
 import torch
 from botorch import settings
@@ -20,6 +22,9 @@ from gpytorch import settings as gpt_settings
 from gpytorch.likelihoods.gaussian_likelihood import FixedNoiseGaussianLikelihood
 from gpytorch.module import Module
 from torch import Tensor
+
+if TYPE_CHECKING:
+    from botorch.models.gpytorch import GPyTorchModel
 
 
 def _make_X_full(X: Tensor, output_indices: list[int], tf: int) -> Tensor:
@@ -495,3 +500,45 @@ def restore_targets_and_noise_single_output(
         Yvar = Yvar.squeeze(-1)
         model.likelihood.noise_covar.noise = Yvar
     model.set_train_data(targets=Y, strict=strict)
+
+
+def get_data_for_optimization_help(
+    model: GPyTorchModel,
+    path: str = "optimization_help_data.json",
+) -> None:
+    r"""Save model and training data as JSON for filing Optimization Help issues.
+
+    This function packages all the information needed to diagnose optimization
+    issues into a single JSON file that can be uploaded to a GitHub issue.
+
+    See the following tutorial for an example of how to use this file to get
+    help with optimization:
+    https://github.com/meta-pytorch/botorch/blob/main/tutorials/optimization_issue_diagnostics/optimization_issue_diagnostics.ipynb
+
+    Args:
+        model: A BoTorch model with training data.
+        path: File path where the JSON data will be saved.
+            Defaults to "optimization_help_data.json".
+    """
+    train_X = model.train_inputs[0]
+    train_Y = model.train_targets
+
+    if train_Y.ndim == 1:
+        train_Y = train_Y.unsqueeze(-1)
+
+    dtype = str(train_X.dtype).replace("torch.", "")
+
+    state_dict = {
+        key: tensor.detach().cpu().tolist()
+        for key, tensor in model.state_dict().items()
+    }
+
+    data = {
+        "dtype": dtype,
+        "train_X": train_X.detach().cpu().tolist(),
+        "train_Y": train_Y.detach().cpu().tolist(),
+        "state_dict": state_dict,
+    }
+
+    with open(path, "w") as f:
+        json.dump(data, f)

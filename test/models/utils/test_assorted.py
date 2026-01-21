@@ -4,17 +4,22 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+import json
+import os
+import tempfile
 import warnings
 
 import torch
 from botorch import settings
 from botorch.exceptions import InputDataError, InputDataWarning
+from botorch.models import SingleTaskGP
 from botorch.models.utils import (
     add_output_dim,
     check_min_max_scaling,
     check_no_nans,
     check_standardization,
     fantasize,
+    get_data_for_optimization_help,
     gpt_posterior_settings,
     multioutput_to_batch_mode_transform,
     validate_input_scaling,
@@ -339,3 +344,26 @@ class TestConsolidation(BotorchTestCase):
         self.assertTrue(torch.equal(consolidated_X, close_X))
         self.assertTrue(torch.equal(consolidated_Y, Y))
         self.assertTrue(torch.equal(new_indices, torch.tensor([0, 1, 2, 3])))
+
+
+class TestGetDataForOptimizationHelp(BotorchTestCase):
+    def test_get_data_for_optimization_help(self):
+        for dtype in (torch.float, torch.double):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            train_X = torch.rand(5, 2, **tkwargs)
+            train_Y = torch.rand(5, 1, **tkwargs)
+            model = SingleTaskGP(train_X, train_Y)
+
+            with tempfile.TemporaryDirectory() as tmpdir:
+                path = os.path.join(tmpdir, "test.json")
+                get_data_for_optimization_help(model, path)
+
+                with open(path) as f:
+                    data = json.load(f)
+
+            # Check structure and dtype
+            expected_dtype = "float32" if dtype == torch.float else "float64"
+            self.assertEqual(data["dtype"], expected_dtype)
+            self.assertEqual(len(data["train_X"]), 5)
+            self.assertEqual(len(data["train_Y"]), 5)
+            self.assertIn("state_dict", data)
