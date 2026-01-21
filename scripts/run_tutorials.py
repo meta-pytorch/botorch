@@ -17,7 +17,8 @@ from typing import Dict, Optional, Tuple
 from memory_profiler import memory_usage
 
 
-IGNORE_ALWAYS = set()  # ignored in smoke tests and full runs
+# Ignored in smoke tests and full runs
+IGNORE_ALWAYS = {"optimization_issue_diagnostics.ipynb"}
 RUN_IF_SMOKE_TEST_IGNORE_IF_STANDARD = {"robot.ipynb"}  # only used in smoke tests
 
 
