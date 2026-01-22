@@ -466,8 +466,9 @@ class TestBatchedMultiOutputGPyTorchModel(BotorchTestCase):
         with torch.no_grad(), trace_mode():
             X_test = torch.rand(3, 1, **tkwargs)
             wrapped_model(X_test)  # Compute caches
-            traced_model = torch.jit.trace(wrapped_model, X_test)
-            mean, std = traced_model(X_test)
+            # Use torch.compile instead of deprecated torch.jit.trace
+            compiled_model = torch.compile(wrapped_model)
+            mean, std = compiled_model(X_test)
             self.assertEqual(mean.shape, torch.Size([3, 2]))
 
 
