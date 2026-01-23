@@ -9,7 +9,7 @@ authors = [{name = "Meta Platforms, Inc."}]
 license = "MIT"
 license-files = ["LICENSE"]
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 keywords = ["Bayesian optimization", "PyTorch"]
 classifiers = [
     "Development Status :: 4 - Beta",
