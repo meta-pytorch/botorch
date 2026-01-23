@@ -57,7 +57,6 @@ jobs:
         min_torch_version=$(grep '"torch>=' pyproject.toml | sed 's/.*"torch>=\([^"]*\)".*/\1/')
         min_gpytorch_version=$(grep '"gpytorch>=' pyproject.toml | sed 's/.*"gpytorch>=\([^"]*\)".*/\1/')
         min_linear_operator_version=$(grep '"linear_operator>=' pyproject.toml | sed 's/.*"linear_operator>=\([^"]*\)".*/\1/')
-        uv pip install "numpy<2"  # Numpy >2.0 is not compatible with PyTorch <2.2.
         uv pip install "torch==${min_torch_version}" "gpytorch==${min_gpytorch_version}" "linear_operator==${min_linear_operator_version}" torchvision
     - name: Install BoTorch with tutorials dependencies
       run: |
