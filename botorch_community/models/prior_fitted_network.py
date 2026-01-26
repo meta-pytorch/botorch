@@ -691,16 +691,9 @@ class DirectAcquisitionPFNModel(PFNModel):
         """
         self.pfn.eval()
 
-        X, train_X, train_Y, orig_X_shape = self._prepare_data(
+        X, train_X, train_Y, orig_X_shape, style_kwargs = self._prepare_data(
             X, negate_train_ys=negate_train_ys
         )
-
-        style_kwargs = {}
-        if self.style_hyperparameters is not None:
-            style_kwargs = self._get_styles(
-                hps=self.style_hyperparameters,
-                batch_size=X.shape[0],
-            )
 
         if pending_X is not None:
             assert pending_X.dim() == 2, "pending_X must be 2-dimensional."
