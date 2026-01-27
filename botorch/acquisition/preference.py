@@ -56,6 +56,7 @@ class AnalyticExpectedUtilityOfBestOption(AnalyticAcquisitionFunction):
         pref_model: Model,
         outcome_model: DeterministicModel | None = None,
         previous_winner: Tensor | None = None,
+        posterior_transform: PosteriorTransform | None = None,
     ) -> None:
         r"""Analytic implementation of Expected Utility of the Best Option under the
         Laplace model (assumes a PairwiseGP is used as the preference model) as
@@ -70,8 +71,12 @@ class AnalyticExpectedUtilityOfBestOption(AnalyticAcquisitionFunction):
                 the parameter space. When used with ``OneSamplePosteriorDrawModel``,
                 we are obtaining EUBO-zeta as described in [Lin2022preference]_.
             previous_winner: Tensor representing the previous winner in the Y space.
+            posterior_transform: An optional PosteriorTransform.
         """
-        super().__init__(model=pref_model)
+        super().__init__(
+            model=pref_model,
+            posterior_transform=posterior_transform,
+        )
         # ensure the model is in eval mode
         self.add_module("outcome_model", outcome_model)
         self.register_buffer("previous_winner", previous_winner)
@@ -113,7 +118,9 @@ class AnalyticExpectedUtilityOfBestOption(AnalyticAcquisitionFunction):
         if self.previous_winner is not None:
             Y = torch.cat([Y, match_batch_shape(self.previous_winner, Y)], dim=-2)
 
-        pref_posterior = self.model.posterior(Y)
+        pref_posterior = self.model.posterior(
+            Y, posterior_transform=self.posterior_transform
+        )
         pref_mean = pref_posterior.mean.squeeze(-1)
         pref_cov = pref_posterior.covariance_matrix
         delta = pref_mean[..., 0] - pref_mean[..., 1]

@@ -1640,9 +1640,7 @@ def construct_inputs_analytic_eubo(
         sample_multiplier: The scale factor for the single-sample model.
         objective: Ignored. This argument is allowed to be passed then ignored
             because of the way that EUBO is typically used in a BOPE loop.
-        posterior_transform: Ignored. This argument is allowed to be passed then
-            ignored because of the way that EUBO is typically used in a BOPE
-            loop.
+        posterior_transform: An optional PosteriorTransform.
 
     Returns:
         A dict mapping kwarg names of the constructor to values.
@@ -1652,6 +1650,7 @@ def construct_inputs_analytic_eubo(
             "pref_model": model,
             "outcome_model": None,
             "previous_winner": previous_winner,
+            "posterior_transform": posterior_transform,
         }
     else:
         # construct a deterministic fixed single sample model from ``model``
@@ -1666,6 +1665,7 @@ def construct_inputs_analytic_eubo(
             "pref_model": pref_model,
             "outcome_model": one_sample_outcome_model,
             "previous_winner": previous_winner,
+            "posterior_transform": posterior_transform,
         }
 
 
