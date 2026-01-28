@@ -93,8 +93,7 @@ class AnalyticExpectedUtilityOfBestOption(AnalyticAcquisitionFunction):
 
         Args:
             X: A ``batch_shape x q x d``-dim Tensor, where ``q = 2`` if
-                ``previous_winner`` is not ``None``, and ``q = 1``
-                otherwise.
+                ``previous_winner`` is ``None``, and ``q = 1`` otherwise.
 
         Returns:
             The acquisition value for each batch as a tensor of shape ``batch_shape``.
