@@ -104,7 +104,8 @@ class AnalyticExpectedUtilityOfBestOption(AnalyticAcquisitionFunction):
         ):
             raise UnsupportedError(
                 f"{self.__class__.__name__} only support q=2 or q=1"
-                "with a previous winner specified"
+f"{self.__class__.__name__} only supports q=2 (no previous
+"winner specified) or q=1 (previous winner specified)."
             )
 
         Y = X if self.outcome_model is None else self.outcome_model(X)
