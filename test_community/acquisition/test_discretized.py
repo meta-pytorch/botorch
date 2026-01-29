@@ -16,6 +16,7 @@ from botorch.exceptions.errors import UnsupportedError
 from botorch.utils.testing import BotorchTestCase
 from botorch_community.acquisition.discretized import (
     DiscretizedExpectedImprovement,
+    DiscretizedNoisyExpectedImprovement,
     DiscretizedProbabilityOfImprovement,
 )
 from botorch_community.posteriors.riemann import BoundedRiemannPosterior
@@ -43,6 +44,8 @@ class MockDiscretizedModel:
         output_indices: Optional[list[int]] = None,
         observation_noise: Union[bool, Tensor] = False,
         posterior_transform: Optional[PosteriorTransform] = None,
+        pending_X: Optional[Tensor] = None,
+        negate_train_ys: bool = False,
     ) -> BoundedRiemannPosterior:
         return BoundedRiemannPosterior(self.borders, self.probabilities)
 
@@ -138,6 +141,7 @@ class TestDiscretizedExpectedImprovement(BotorchTestCase):
             posterior_transform=ScalarizedPosteriorTransform(
                 weights=torch.tensor([-1.0])
             ),
+            assume_symmetric_posterior=False,
         )
         acqf_values = acqf(X)
 
@@ -152,6 +156,19 @@ class TestDiscretizedExpectedImprovement(BotorchTestCase):
         # Check that the discretized EI is close to the analytical EI
         self.assertLess(torch.abs(acqf_values - analytical_ei) / analytical_ei, 0.01)
 
+        # minimization task
+        acqf = DiscretizedExpectedImprovement(
+            mock_model,
+            best_f=-best_f,
+            posterior_transform=ScalarizedPosteriorTransform(
+                weights=torch.tensor([-1.0])
+            ),
+            assume_symmetric_posterior=True,
+        )
+        acqf_values = acqf(X)
+
+        self.assertLess(0.01, torch.abs(acqf_values - analytical_ei) / analytical_ei)
+
     def test_unsupported_posterior_transform(self):
         """Test that UnsupportedError is raised for non-ScalarizedPosteriorTransform."""
         mock_model = MockDiscretizedModel(
@@ -164,6 +181,35 @@ class TestDiscretizedExpectedImprovement(BotorchTestCase):
             DiscretizedExpectedImprovement(
                 mock_model, best_f=1.0, posterior_transform=expectation_transform
             )
+
+
+class TestDiscretizedNoisyExpectedImprovement(BotorchTestCase):
+    def test_initialization(self):
+        """Test that DiscretizedNoisyExpectedImprovement initializes correctly."""
+        borders = torch.tensor([0.0, 1.0, 3.0, 6.0])
+        probs = torch.tensor([0.2, 0.3, 0.5])
+        mock_model = MockDiscretizedModel(borders, probs)
+
+        # Test basic initialization
+        acqf = DiscretizedNoisyExpectedImprovement(model=mock_model)
+        self.assertEqual(acqf.best_f.item(), 0.0)
+        self.assertIsNone(acqf.X_pending)
+
+        # Test initialization with X_pending
+        X_pending = torch.tensor([[1.0, 2.0]])
+        acqf = DiscretizedNoisyExpectedImprovement(
+            model=mock_model, X_pending=X_pending
+        )
+        self.assertTrue(torch.equal(acqf.X_pending, X_pending))
+
+        # Test initialization with posterior_transform
+        acqf = DiscretizedNoisyExpectedImprovement(
+            model=mock_model,
+            posterior_transform=ScalarizedPosteriorTransform(
+                weights=torch.tensor([1.0])
+            ),
+        )
+        self.assertTrue(acqf.maximize)
 
 
 class TestDiscretizedProbabilityofImprovement(BotorchTestCase):
@@ -248,6 +294,7 @@ class TestDiscretizedProbabilityofImprovement(BotorchTestCase):
             posterior_transform=ScalarizedPosteriorTransform(
                 weights=torch.tensor([-1.0])
             ),
+            assume_symmetric_posterior=False,
         )
         acqf_values = acqf(X)
 
@@ -257,4 +304,19 @@ class TestDiscretizedProbabilityofImprovement(BotorchTestCase):
         # Check that the discretized EI is close to the analytical EI
         self.assertLess(
             torch.abs(acqf_values - prob_improvement) / prob_improvement, 0.01
+        )
+
+        acqf = DiscretizedProbabilityOfImprovement(
+            mock_model,
+            best_f=-best_f,
+            posterior_transform=ScalarizedPosteriorTransform(
+                weights=torch.tensor([-1.0])
+            ),
+            assume_symmetric_posterior=True,
+        )
+        acqf_values = acqf(X)
+
+        self.assertLess(
+            0.01,
+            torch.abs(acqf_values - prob_improvement) / prob_improvement,
         )

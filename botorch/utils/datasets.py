@@ -9,7 +9,6 @@ r"""Representations for different kinds of datasets."""
 from __future__ import annotations
 
 import copy
-
 from typing import Any
 
 import torch
@@ -20,9 +19,9 @@ from torch import long, ones, Tensor
 
 
 class SupervisedDataset:
-    r"""Base class for datasets consisting of labelled pairs `(X, Y)`
-    and an optional `Yvar` that stipulates observations variances so
-    that `Y[i] ~ N(f(X[i]), Yvar[i])`.
+    r"""Base class for datasets consisting of labelled pairs ``(X, Y)``
+    and an optional ``Yvar`` that stipulates observations variances so
+    that ``Y[i] ~ N(f(X[i]), Yvar[i])``.
 
     Example:
 
@@ -58,17 +57,17 @@ class SupervisedDataset:
         validate_init: bool = True,
         group_indices: Tensor | None = None,
     ) -> None:
-        r"""Constructs a `SupervisedDataset`.
+        r"""Constructs a ``SupervisedDataset``.
 
         Args:
-            X: A `Tensor` or `BotorchContainer` representing the input features.
-            Y: A `Tensor` or `BotorchContainer` representing the outcomes.
-            feature_names: A list of names of the features in `X`.
-            outcome_names: A list of names of the outcomes in `Y`.
-            Yvar: An optional `Tensor` or `BotorchContainer` representing
+            X: A ``Tensor`` or ``BotorchContainer`` representing the input features.
+            Y: A ``Tensor`` or ``BotorchContainer`` representing the outcomes.
+            feature_names: A list of names of the features in ``X``.
+            outcome_names: A list of names of the outcomes in ``Y``.
+            Yvar: An optional ``Tensor`` or ``BotorchContainer`` representing
                 the observation noise.
-            validate_init: If `True`, validates the input shapes.
-            group_indices: A `Tensor` representing the which rows of X and Y are
+            validate_init: If ``True``, validates the input shapes.
+            group_indices: A ``Tensor`` representing the which rows of X and Y are
                 grouped together. This is used to support applications in which multiple
                 observations should be considered as a group, e.g., learning-curve-based
                 modeling. If provided, its shape must be compatible with X and Y.
@@ -111,15 +110,15 @@ class SupervisedDataset:
 
         Args:
             validate_feature_names: By default, we validate that the length of
-                `feature_names` matches the # of columns of `self.X`. If a
-                particular dataset, e.g., `RankingDataset`, is known to violate
-                this assumption, this can be set to `False`.
+                ``feature_names`` matches the # of columns of ``self.X``. If a
+                particular dataset, e.g., ``RankingDataset``, is known to violate
+                this assumption, this can be set to ``False``.
             validate_outcome_names: By default, we validate that the length of
-                `outcomes_names` matches the # of columns of `self.Y`. If a
-                particular dataset, e.g., `RankingDataset`, is known to violate
-                this assumption, this can be set to `False`.
+                ``outcomes_names`` matches the # of columns of ``self.Y``. If a
+                particular dataset, e.g., ``RankingDataset``, is known to violate
+                this assumption, this can be set to ``False``.
             validate_group_indices: By default, we validate that the shape of
-                `group_indices` matches the shape of X and Y.
+                ``group_indices`` matches the shape of X and Y.
         """
         shape_X = self.X.shape
         if isinstance(self._X, BotorchContainer):
@@ -181,7 +180,7 @@ class SupervisedDataset:
         Args:
             deepcopy: If True, perform a deep copy. Otherwise, use the same
                 tensors/lists.
-            mask: A `n`-dim boolean mask indicating which rows to keep. This is used
+            mask: A ``n``-dim boolean mask indicating which rows to keep. This is used
                 along the -2 dimension.
 
         Returns:
@@ -221,13 +220,13 @@ class SupervisedDataset:
 
 
 class RankingDataset(SupervisedDataset):
-    r"""A SupervisedDataset whose labelled pairs `(x, y)` consist of m-ary combinations
-    `x ∈ Z^{m}` of elements from a ground set `Z = (z_1, ...)` and ranking vectors
-    `y {0, ..., m - 1}^{m}` with properties:
+    r"""A SupervisedDataset whose labelled pairs ``(x, y)`` consist of m-ary
+    combinations ``x ∈ Z^{m}`` of elements from a ground set ``Z = (z_1, ...)``
+    and ranking vectors ``y {0, ..., m - 1}^{m}`` with properties:
 
         a) Ranks start at zero, i.e. min(y) = 0.
         b) Sorted ranks are contiguous unless one or more ties are present.
-        c) `k` ranks are skipped after a `k`-way tie.
+        c) ``k`` ranks are skipped after a ``k``-way tie.
 
     Example:
 
@@ -260,14 +259,14 @@ class RankingDataset(SupervisedDataset):
         outcome_names: list[str],
         validate_init: bool = True,
     ) -> None:
-        r"""Construct a `RankingDataset`.
+        r"""Construct a ``RankingDataset``.
 
         Args:
-            X: A `SliceContainer` representing the input features being ranked.
-            Y: A `Tensor` or `BotorchContainer` representing the rankings.
+            X: A ``SliceContainer`` representing the input features being ranked.
+            Y: A ``Tensor`` or ``BotorchContainer`` representing the rankings.
             feature_names: A list of names of the features in X.
             outcome_names: A list of names of the outcomes in Y.
-            validate_init: If `True`, validates the input shapes.
+            validate_init: If ``True``, validates the input shapes.
         """
         super().__init__(
             X=X,
@@ -320,11 +319,11 @@ class RankingDataset(SupervisedDataset):
 class MultiTaskDataset(SupervisedDataset):
     """This is a multi-task dataset that is constructed from the datasets of
     individual tasks. It offers functionality to combine parts of individual
-    datasets to construct the inputs necessary for the `MultiTaskGP` models.
+    datasets to construct the inputs necessary for the ``MultiTaskGP`` models.
 
     The datasets of individual tasks are allowed to represent different sets
     of features. When there are heterogeneous feature sets, calling
-    `MultiTaskDataset.X` will result in an error.
+    ``MultiTaskDataset.X`` will result in an error.
     """
 
     def __init__(
@@ -333,7 +332,7 @@ class MultiTaskDataset(SupervisedDataset):
         target_outcome_name: str,
         task_feature_index: int | None = None,
     ):
-        """Construct a `MultiTaskDataset`.
+        """Construct a ``MultiTaskDataset``.
 
         Args:
             datasets: A list of the datasets of individual tasks. Each dataset
@@ -368,28 +367,28 @@ class MultiTaskDataset(SupervisedDataset):
         target_task_value: int,
         outcome_names_per_task: dict[int, str] | None = None,
     ) -> MultiTaskDataset:
-        r"""Construct a `MultiTaskDataset` from a joint dataset that includes the
+        r"""Construct a ``MultiTaskDataset`` from a joint dataset that includes the
         data for all tasks with the task feature index.
 
         This will break down the joint dataset into individual datasets by the value
         of the task feature. Each resulting dataset will have its outcome name set
-        based on `outcome_names_per_task`, with the missing values defaulting to
-        `task_<task_feature>` (except for the target task, which will retain the
+        based on ``outcome_names_per_task``, with the missing values defaulting to
+        ``task_<task_feature>`` (except for the target task, which will retain the
         original outcome name from the dataset).
 
         Args:
             dataset: The joint dataset.
-            task_feature_index: The column index of the task feature in `dataset.X`.
+            task_feature_index: The column index of the task feature in ``dataset.X``.
             target_task_value: The value of the task feature for the target task
                 in the dataset. The data for the target task is filtered according to
-                `dataset.X[task_feature_index] == target_task_value`.
+                ``dataset.X[task_feature_index] == target_task_value``.
             outcome_names_per_task: Optional dictionary mapping task feature values
                 to the outcome names for each task. If not provided, the auxiliary
-                tasks will be named `task_<task_feature>` and the target task will
+                tasks will be named ``task_<task_feature>`` and the target task will
                 retain the outcome name from the dataset.
 
         Returns:
-            A `MultiTaskDataset` instance.
+            A ``MultiTaskDataset`` instance.
         """
         if len(dataset.outcome_names) > 1:
             raise UnsupportedError(
@@ -473,7 +472,7 @@ class MultiTaskDataset(SupervisedDataset):
     @property
     def X(self) -> Tensor:
         """Appends task features, if needed, and concatenates the Xs of datasets to
-        produce the `train_X` expected by `MultiTaskGP` and subclasses.
+        produce the ``train_X`` expected by ``MultiTaskGP`` and subclasses.
 
         If appending the task features, 0 is reserved for the target task and the
         remaining tasks are populated with 1, 2, ..., len(datasets) - 1.
@@ -512,7 +511,7 @@ class MultiTaskDataset(SupervisedDataset):
     def get_dataset_without_task_feature(self, outcome_name: str) -> SupervisedDataset:
         """A helper for extracting the child datasets with their task features removed.
 
-        If the task feature index is `None`, the dataset will be returned as is.
+        If the task feature index is ``None``, the dataset will be returned as is.
 
         Args:
             outcome_name: The outcome name for the dataset to extract.
@@ -551,7 +550,7 @@ class MultiTaskDataset(SupervisedDataset):
         Args:
             deepcopy: If True, perform a deep copy. Otherwise, use the same
                 tensors/lists/datasets.
-            mask: A `n`-dim boolean mask indicating which rows to keep from the target
+            mask: A ``n``-dim boolean mask indicating which rows to keep from the target
                 dataset. This is used along the -2 dimension.
 
         Returns:
@@ -587,7 +586,7 @@ class ContextualDataset(SupervisedDataset):
         parameter_decomposition: dict[str, list[str]],
         metric_decomposition: dict[str, list[str]] | None = None,
     ):
-        """Construct a `ContextualDataset`.
+        """Construct a ``ContextualDataset``.
 
         Args:
             datasets: A list of the datasets of individual tasks. Each dataset
@@ -661,9 +660,9 @@ class ContextualDataset(SupervisedDataset):
         buckets are taken from the parameter decomposition.
         """
         if len(self.outcome_names) > 1:
-            assert len(self.outcome_names) == len(
-                self.metric_decomposition
-            ), "Expected a single dataset, or one for each context bucket."
+            assert len(self.outcome_names) == len(self.metric_decomposition), (
+                "Expected a single dataset, or one for each context bucket."
+            )
             context_buckets = []
             for outcome_name in self.outcome_names:
                 for k, v in self.metric_decomposition.items():
@@ -759,8 +758,8 @@ class ContextualDataset(SupervisedDataset):
         Args:
             deepcopy: If True, perform a deep copy. Otherwise, use the same
                 tensors/lists/datasets.
-            mask: A `n`-dim boolean mask indicating which rows to keep. This is used
-                along the -2 dimension. `n` here corresponds to the number of rows in
+            mask: A ``n``-dim boolean mask indicating which rows to keep. This is used
+                along the -2 dimension. ``n`` here corresponds to the number of rows in
                 an individual dataset.
 
         Returns:

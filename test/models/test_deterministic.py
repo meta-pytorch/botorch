@@ -4,11 +4,9 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-import warnings
 
 import torch
 from botorch.acquisition.objective import ScalarizedPosteriorTransform
-
 from botorch.exceptions.errors import UnsupportedError
 from botorch.models import SingleTaskGP
 from botorch.models.deterministic import (
@@ -34,12 +32,12 @@ class DummyDeterministicModel(DeterministicModel):
         Args:
             outcome_transform: An outcome transform that is applied to the
                 training data during instantiation and to the posterior during
-                inference (that is, the `Posterior` obtained by calling
-                `.posterior` on the model will be on the original scale).
+                inference (that is, the ``Posterior`` obtained by calling
+                ``.posterior`` on the model will be on the original scale).
             input_transform: An input transform that is applied in the model's
                 forward pass. Only input transforms are allowed which do not
                 transform the categorical dimensions. This can be achieved
-                by using the `indices` argument when constructing the transform.
+                by using the ``indices`` argument when constructing the transform.
         """
         super().__init__()
         self.input_transform = input_transform
@@ -149,15 +147,11 @@ class TestDeterministicModels(BotorchTestCase):
         # check that the posterior output agrees with the manually transformed one
         test_X = torch.rand(3, dim)
         expected_Y, _ = octf.untransform(model.forward(intf(test_X)))
-        with warnings.catch_warnings(record=True) as ws:
-            posterior = model.posterior(test_X)
-            msg = "does not have a `train_inputs` attribute"
-            self.assertTrue(any(msg in str(w.message) for w in ws))
+        posterior = model.posterior(test_X)
         self.assertAllClose(expected_Y, posterior.mean)
-        # check that model.train/eval works and raises the warning
+        # check that model.train/eval works
         model.train()
-        with self.assertWarns(RuntimeWarning):
-            model.eval()
+        model.eval()
 
     def test_posterior_transform(self):
         def f(X):

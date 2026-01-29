@@ -50,10 +50,10 @@ def get_chebyshev_scalarization(
     as proposed in [Daulton2020qehvi]_.
 
     Args:
-        weights: A `m`-dim tensor of weights.
+        weights: A ``m``-dim tensor of weights.
             Positive for maximization and negative for minimization.
-        Y: A `n x m`-dim tensor of observed outcomes, which are used for
-            scaling the outcomes to [0,1] or [-1,0]. If `n=0`, then outcomes
+        Y: A ``n x m``-dim tensor of observed outcomes, which are used for
+            scaling the outcomes to [0,1] or [-1,0]. If ``n=0``, then outcomes
             are left unnormalized.
         alpha: Parameter governing the influence of the weighted sum term. The
             default value comes from [Knowles2005]_.

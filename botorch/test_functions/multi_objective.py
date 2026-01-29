@@ -158,8 +158,9 @@ class DH(MultiObjectiveTestProblem, ABC):
 
     In their paper, [Deb2005robust]_ consider these problems under a mean-robustness
     setting, and use uniformly distributed input perturbations from the box with
-    edge lengths `delta_0 = delta`, `delta_i = 2 * delta, i > 0`, with `delta` ranging
-    up to `0.01` for DH1 and DH2, and `delta = 0.03` for DH3 and DH4.
+    edge lengths ``delta_0 = delta``, ``delta_i = 2 * delta, i > 0``, with
+    ``delta`` ranging up to ``0.01`` for DH1 and DH2, and ``delta = 0.03`` for
+    DH3 and DH4.
 
     These are d-dimensional problems with two objectives:
 
@@ -168,7 +169,7 @@ class DH(MultiObjectiveTestProblem, ABC):
         f_1(x) = h(x) * (g(x) + S(x)) for DH3 and DH4
 
     The goal is to minimize both objectives. See [Deb2005robust]_ for more details
-    on DH. The reference points were set using `infer_reference_point`.
+    on DH. The reference points were set using ``infer_reference_point``.
     """
 
     num_objectives = 2
@@ -218,7 +219,7 @@ class DH(MultiObjectiveTestProblem, ABC):
 class DH1(DH):
     r"""DH1 test problem.
 
-    d-dimensional problem evaluated on `[0, 1] x [-1, 1]^{d-1}`:
+    d-dimensional problem evaluated on ``[0, 1] x [-1, 1]^{d-1}``:
 
         f_0(x) = x_0
         f_1(x) = h(x_0) + g(x) * S(x_0)
@@ -228,8 +229,8 @@ class DH1(DH):
 
     where alpha = 1 and beta = 1.
 
-    The Pareto front corresponds to the equation `f_1 = 1 - f_0^2`, and it is found at
-    `x_i = 0` for `i > 0` and any value of `x_0` in `(0, 1]`.
+    The Pareto front corresponds to the equation ``f_1 = 1 - f_0^2``, and it is found at
+    ``x_i = 0`` for ``i > 0`` and any value of ``x_0`` in ``(0, 1]``.
     """
 
     alpha = 1.0
@@ -262,7 +263,7 @@ class DH1(DH):
 class DH2(DH1):
     r"""DH2 test problem.
 
-    This is identical to DH1 except for having `beta = 10.0`.
+    This is identical to DH1 except for having ``beta = 10.0``.
     """
 
     beta = 10.0
@@ -271,7 +272,7 @@ class DH2(DH1):
 class DH3(DH):
     r"""DH3 test problem.
 
-    d-dimensional problem evaluated on `[0, 1]^2 x [-1, 1]^{d-2}`:
+    d-dimensional problem evaluated on ``[0, 1]^2 x [-1, 1]^{d-2}``:
 
         f_0(x) = x_0
         f_1(x) = h(x_1) * (g(x) + S(x_0))
@@ -279,11 +280,12 @@ class DH3(DH):
         g(x) = \sum_{i=2}^{d-1} (50 * x_i^2)
         S(x_0) = 1 - sqrt(x_0)
 
-    The Pareto front is found at `x_i = 0` for `i > 1`. There's a local and a global
-    Pareto front, which are found at `x_1 = 0.35` and `x_1 = 0.85`, respectively.
+    The Pareto front is found at ``x_i = 0`` for ``i > 1``. There's a local and a global
+    Pareto front, which are found at ``x_1 = 0.35`` and ``x_1 = 0.85``, respectively.
     The approximate relationships between the objectives at local and global Pareto
-    fronts are given by `f_1 = 1.2 (1 - sqrt(f_0))` and `f_1 = 1 - f_0`, respectively.
-    The specific values on the Pareto fronts can be found by varying `x_0`.
+    fronts are given by ``f_1 = 1.2 (1 - sqrt(f_0))`` and ``f_1 = 1 - f_0``,
+    respectively. The specific values on the Pareto fronts can be found by varying
+    ``x_0``.
     """
 
     _x_1_lb = 0.0
@@ -316,13 +318,13 @@ class DH4(DH3):
     r"""DH4 test problem.
 
     This is similar to DH3 except that it is evaluated on
-    `[0, 1] x [-0.15, 1] x [-1, 1]^{d-2}` and:
+    ``[0, 1] x [-0.15, 1] x [-1, 1]^{d-2}`` and:
 
         h(x_0, x_1) = 2 - x_0 - 0.8 * exp(-((x_0 + x_1 - 0.35) / 0.25)^2)
         - exp(-((x_0 + x_1 - 0.85) / 0.03)^2)
 
-    The Pareto front is found at `x_i = 0` for `i > 2`, with the local one being
-    near `x_0 + x_1 = 0.35` and the global one near `x_0 + x_1 = 0.85`.
+    The Pareto front is found at ``x_i = 0`` for ``i > 2``, with the local one being
+    near ``x_0 + x_1 = 0.35`` and the global one near ``x_0 + x_1 = 0.85``.
     """
 
     _x_1_lb = -0.15
@@ -369,9 +371,9 @@ class DTLZ(MultiObjectiveTestProblem):
 
 
 class DTLZ1(DTLZ):
-    r"""DLTZ1 test problem.
+    r"""DTLZ1 test problem.
 
-    d-dimensional problem evaluated on `[0, 1]^d`:
+    d-dimensional problem evaluated on ``[0, 1]^d``:
 
         f_0(x) = 0.5 * x_0 * (1 + g(x))
         f_1(x) = 0.5 * (1 - x_0) * (1 + g(x))
@@ -409,7 +411,7 @@ class DTLZ1(DTLZ):
         return torch.stack(fs, dim=-1)
 
     def gen_pareto_front(self, n: int) -> Tensor:
-        r"""Generate `n` pareto optimal points.
+        r"""Generate ``n`` pareto optimal points.
 
         The pareto points randomly sampled from the hyperplane sum_i f(x_i) = 0.5.
         """
@@ -426,9 +428,9 @@ class DTLZ1(DTLZ):
 
 
 class DTLZ2(DTLZ):
-    r"""DLTZ2 test problem.
+    r"""DTLZ2 test problem.
 
-    d-dimensional problem evaluated on `[0, 1]^d`:
+    d-dimensional problem evaluated on ``[0, 1]^d``:
 
         f_0(x) = (1 + g(x)) * cos(x_0 * pi / 2)
         f_1(x) = (1 + g(x)) * sin(x_0 * pi / 2)
@@ -469,7 +471,7 @@ class DTLZ2(DTLZ):
         return torch.stack(fs, dim=-1)
 
     def gen_pareto_front(self, n: int) -> Tensor:
-        r"""Generate `n` pareto optimal points.
+        r"""Generate ``n`` pareto optimal points.
 
         The pareto points are randomly sampled from the hypersphere's
         positive section.
@@ -489,13 +491,13 @@ class DTLZ2(DTLZ):
 class DTLZ3(DTLZ2):
     r"""DTLZ3 test problem.
 
-    d-dimensional problem evaluated on `[0, 1]^d`:
+    d-dimensional problem evaluated on ``[0, 1]^d``:
 
         f_0(x) = (1 + g(x)) * cos(x_0 * pi / 2)
         f_1(x) = (1 + g(x)) * sin(x_0 * pi / 2)
         g(x) = 100 * [k + \sum_{i=m}^{n-1} (x_i - 0.5)^2 - cos(20 * pi * (x_i - 0.5))]
 
-    `g(x)` introduces (`3k−1`) local Pareto fronts that are parallel to
+    ``g(x)`` introduces (``3k−1``) local Pareto fronts that are parallel to
     the one global Pareto-optimal front.
 
     The global Pareto-optimal front corresponds to x_i = 0.5 for x_i in X_m.
@@ -537,7 +539,7 @@ class DTLZ4(DTLZ2):
 class DTLZ5(DTLZ):
     r"""DTLZ5 test problem.
 
-    d-dimensional problem evaluated on `[0, 1]^d`:
+    d-dimensional problem evaluated on ``[0, 1]^d``:
 
         f_0(x) = (1 + g(x)) * cos(theta_0 * pi / 2)
         f_1(x) = (1 + g(x)) * sin(theta_0 * pi / 2)
@@ -570,7 +572,7 @@ class DTLZ5(DTLZ):
 class DTLZ7(DTLZ):
     r"""DTLZ7 test problem.
 
-    d-dimensional problem evaluated on `[0, 1]^d`:
+    d-dimensional problem evaluated on ``[0, 1]^d``:
         f_0(x) = x_0
         f_1(x) = x_1
         ...
@@ -684,7 +686,7 @@ class GMM(MultiObjectiveTestProblem):
     def _evaluate_true(self, X: Tensor) -> Tensor:
         r"""Evaluate the GMMs."""
         # This needs to be reinstantiated because MVN apparently does not
-        # have a `to` method to make it device/dtype agnostic.
+        # have a ``to`` method to make it device/dtype agnostic.
         mvn = MultivariateNormal(loc=self.gmm_pos, covariance_matrix=self.gmm_covar)
         view_shape = (
             X.shape[:-1]
@@ -708,7 +710,7 @@ class Penicillin(MultiObjectiveTestProblem):
 
     The function is defined for minimization of all objectives.
 
-    The reference point was set using the `infer_reference_point` heuristic
+    The reference point was set using the ``infer_reference_point`` heuristic
     on the Pareto frontier obtained via NSGA-II.
     """
 
@@ -760,10 +762,10 @@ class Penicillin(MultiObjectiveTestProblem):
         rate, substrate feed concentration, and H+ concentration.
 
         Args:
-            X_input: A `n x 7`-dim tensor of inputs.
+            X_input: A ``n x 7``-dim tensor of inputs.
 
         Returns:
-            An `n x 3`-dim tensor of (negative) penicillin yield, CO2 and time.
+            An ``n x 3``-dim tensor of (negative) penicillin yield, CO2 and time.
         """
         V, X, T, S, F, s_f, H_ = torch.split(X_input, 1, -1)
         P, CO2 = torch.zeros_like(V), torch.zeros_like(V)
@@ -843,7 +845,7 @@ class ToyRobust(MultiObjectiveTestProblem):
 
     This function comes from [Daulton2022]_.
 
-    The reference point was set using the `infer_reference_point`
+    The reference point was set using the ``infer_reference_point``
     heuristic on the Pareto frontier over a large discrete set of
     random designs.
     """
@@ -987,7 +989,7 @@ class ZDT(MultiObjectiveTestProblem):
 class ZDT1(ZDT):
     r"""ZDT1 test problem.
 
-    d-dimensional problem evaluated on `[0, 1]^d`:
+    d-dimensional problem evaluated on ``[0, 1]^d``:
 
         f_0(x) = x_0
         f_1(x) = g(x) * (1 - sqrt(x_0 / g(x))
@@ -1020,7 +1022,7 @@ class ZDT1(ZDT):
 class ZDT2(ZDT):
     r"""ZDT2 test problem.
 
-    d-dimensional problem evaluated on `[0, 1]^d`:
+    d-dimensional problem evaluated on ``[0, 1]^d``:
 
         f_0(x) = x_0
         f_1(x) = g(x) * (1 - (x_0 / g(x))^2)
@@ -1053,7 +1055,7 @@ class ZDT2(ZDT):
 class ZDT3(ZDT):
     r"""ZDT3 test problem.
 
-    d-dimensional problem evaluated on `[0, 1]^d`:
+    d-dimensional problem evaluated on ``[0, 1]^d``:
 
         f_0(x) = x_0
         f_1(x) = 1 - sqrt(x_0 / g(x)) - x_0 / g * sin(10 * pi * x_0)
@@ -1118,7 +1120,7 @@ class CarSideImpact(MultiObjectiveTestProblem):
 
     See [Tanabe2020]_ for details.
 
-    The reference point is `nadir + 0.1 * (ideal - nadir)`
+    The reference point is ``nadir + 0.1 * (ideal - nadir)``
     where the ideal and nadir points come from the approximate
     Pareto frontier from [Tanabe2020]_. The max_hv was computed
     based on the approximate Pareto frontier from [Tanabe2020]_.
@@ -1329,7 +1331,7 @@ class DiscBrake(MultiObjectiveTestProblem, ConstrainedBaseTestProblem):
 
     See [Tanabe2020]_ for details.
 
-    The reference point was set using the `infer_reference_point`
+    The reference point was set using the ``infer_reference_point``
     heuristic on the Pareto frontier over a large discrete set of
     random designs.
     """
@@ -1500,8 +1502,8 @@ class SRN(MultiObjectiveTestProblem, ConstrainedBaseTestProblem):
 
 class WeldedBeam(MultiObjectiveTestProblem, ConstrainedBaseTestProblem):
     r"""
-    The Welded Beam multi-objective test problem. Similar to `WeldedBeamSO` in
-    `botorch.test_function.synthetic`, but with an additional output, somewhat
+    The Welded Beam multi-objective test problem. Similar to ``WeldedBeamSO`` in
+    ``botorch.test_function.synthetic``, but with an additional output, somewhat
     modified constraints, and a different domain.
 
     Implementation from
@@ -1547,7 +1549,7 @@ class WeldedBeam(MultiObjectiveTestProblem, ConstrainedBaseTestProblem):
 
         R = torch.sqrt(0.25 * (x2.pow(2) + (x1 + x3).pow(2)))
         M = P * (L + x2 / 2)
-        # This `J` is different than the one in [CoelloCoello2002constraint]_
+        # This ``J`` is different than the one in [CoelloCoello2002constraint]_
         # by a factor of 2 (sqrt(2) instead of sqrt(0.5))
         J = 2 * math.sqrt(0.5) * x1 * x2 * (x2.pow(2) / 12 + 0.25 * (x1 + x3).pow(2))
         t1 = P / (math.sqrt(2) * x1 * x2)

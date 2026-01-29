@@ -53,10 +53,10 @@ MAX_ITER_INIT = 100
 CONVERGENCE_TOL = 1e-8  # Optimizer convergence tolerance.
 DUPLICATE_TOL = 1e-6  # Tolerance for deduplicating initial candidates.
 STOP_AFTER_SHARE_CONVERGED = 1.0  # We optimize multiple configurations at once
-# in `optimize_acqf_mixed_alternating`. This option controls, whether to stop
+# in ``optimize_acqf_mixed_alternating``. This option controls, whether to stop
 # optimizing after the given share has converged.
 # Convergence is defined as the improvements of one discrete, followed by a scalar
-# optimization yield less than `CONVERGENCE_TOL` improvements.
+# optimization yield less than ``CONVERGENCE_TOL`` improvements.
 
 SUPPORTED_OPTIONS = {
     "initialization_strategy",
@@ -79,10 +79,10 @@ def _setup_continuous_relaxation(
     max_discrete_values: int,
     post_processing_func: Callable[[Tensor], Tensor] | None,
 ) -> tuple[list[int], Callable[[Tensor], Tensor] | None]:
-    r"""Update `discrete_dims` and `post_processing_func` to use
+    r"""Update ``discrete_dims`` and ``post_processing_func`` to use
     continuous relaxation for discrete dimensions that have more than
-    `max_discrete_values` values. These dimensions are removed from
-    `discrete_dims` and `post_processing_func` is updated to round
+    ``max_discrete_values`` values. These dimensions are removed from
+    ``discrete_dims`` and ``post_processing_func`` is updated to round
     them to the nearest integer.
     """
 
@@ -98,7 +98,7 @@ def _setup_continuous_relaxation(
 
     def new_post_processing_func(X: Tensor) -> Tensor:
         r"""Round the relaxed dimensions to the nearest integer and apply the original
-        `post_processing_func`."""
+        ``post_processing_func``."""
 
         X = round_discrete_dims(X=X, discrete_dims=dims_to_relax)
         if post_processing_func is not None:
@@ -116,27 +116,27 @@ def _filter_infeasible(
     r"""Filters infeasible points from a set of points.
 
     NOTE: This function only supports intra-point constraints. This is validated
-        in `optimize_acqf_mixed_alternating`, so we do not repeat the
+        in ``optimize_acqf_mixed_alternating``, so we do not repeat the
         validation in here.
 
     Args:
-        X: A tensor of points of shape `n x d`.
+        X: A tensor of points of shape ``n x d``.
         inequality_constraints: A list of tuples (indices, coefficients, rhs),
             with each tuple encoding an inequality constraint of the form
-            `\sum_i (X[indices[i]] * coefficients[i]) >= rhs`. `indices` and
-            `coefficients` should be torch tensors. See the docstring of
-            `make_scipy_linear_constraints` for an example.
+            ``\sum_i (X[indices[i]] * coefficients[i]) >= rhs``. ``indices`` and
+            ``coefficients`` should be torch tensors. See the docstring of
+            ``make_scipy_linear_constraints`` for an example.
         equality_constraints: A list of tuples (indices, coefficients, rhs),
             with each tuple encoding an equality constraint of the form
-            `\sum_i (X[indices[i]] * coefficients[i]) == rhs`. `indices` and
-            `coefficients` should be torch tensors. Example:
-            `[(torch.tensor([1, 3]), torch.tensor([1.0, 0.5]), -0.1)]`
+            ``\sum_i (X[indices[i]] * coefficients[i]) == rhs``. ``indices`` and
+            ``coefficients`` should be torch tensors. Example:
+            ``[(torch.tensor([1, 3]), torch.tensor([1.0, 0.5]), -0.1)]``
 
     Returns:
-        The tensor `X` with infeasible points removed.
+        The tensor ``X`` with infeasible points removed.
     """
     # X is reshaped to [n, 1, d] in order to be able to apply
-    # `evaluate_feasibility` which operates on the batch level
+    # ``evaluate_feasibility`` which operates on the batch level
     is_feasible = evaluate_feasibility(
         X=X.unsqueeze(-2),
         inequality_constraints=inequality_constraints,
@@ -154,17 +154,17 @@ def get_nearest_neighbors(
     r"""Generate all 1-Manhattan distance neighbors of a given input. The neighbors
     are generated for the discrete dimensions only.
 
-    NOTE: This assumes that `current_x` is detached and uses in-place operations,
+    NOTE: This assumes that ``current_x`` is detached and uses in-place operations,
     which are known to be incompatible with autograd.
 
     Args:
-        current_x: The design to find the neighbors of. A tensor of shape `d`.
-        bounds: A `2 x d` tensor of lower and upper bounds for each column of `X`.
+        current_x: The design to find the neighbors of. A tensor of shape ``d``.
+        bounds: A ``2 x d`` tensor of lower and upper bounds for each column of ``X``.
         discrete_dims: A dictionary mapping indices of discrete dimensions
             to a list of allowed values for that dimension.
 
     Returns:
-        A tensor of shape `num_neighbors x d`, denoting all unique 1-Manhattan
+        A tensor of shape ``num_neighbors x d``, denoting all unique 1-Manhattan
         distance neighbors.
     """
     # we first transform the discrete values in the current_x to its index in the
@@ -234,28 +234,28 @@ def get_categorical_neighbors(
     are generated for the categorical dimensions only.
 
     We assume that all categorical values are equidistant. If the number of values
-    is greater than `max_num_cat_values`, we sample uniformly from the
+    is greater than ``max_num_cat_values``, we sample uniformly from the
     possible values for that dimension.
 
-    NOTE: This assumes that `current_x` is detached and uses in-place operations,
+    NOTE: This assumes that ``current_x`` is detached and uses in-place operations,
     which are known to be incompatible with autograd.
 
     Args:
-        current_x: The design to find the neighbors of. A tensor of shape `d`.
+        current_x: The design to find the neighbors of. A tensor of shape ``d``.
         cat_dims: A dictionary mapping indices of categorical dimensions
             to a list of allowed values for that dimension.
         max_num_cat_values: Maximum number of values for a categorical parameter,
             beyond which values are uniformly sampled.
 
     Returns:
-        A tensor of shape `num_neighbors x d`, denoting up to `max_num_cat_values`
+        A tensor of shape ``num_neighbors x d``, denoting up to ``max_num_cat_values``
         unique 1-Hamming distance neighbors for each categorical dimension.
     """
 
     # Neighbors are generated by considering all possible values for each
     # categorical dimension, one at a time.
     def _get_cat_values(dim: int) -> Sequence[int]:
-        r"""Get a sequence of up to `max_num_cat_values` values that a categorical
+        r"""Get a sequence of up to ``max_num_cat_values`` values that a categorical
         feature may take."""
         current_value = current_x[dim]
         if len(cat_dims[dim]) <= max_num_cat_values:
@@ -314,7 +314,7 @@ def get_spray_points(
             to a list of allowed values for that dimension.
         cat_dims: A dictionary mapping indices of categorical dimensions
             to a list of allowed values for that dimension.
-        bounds: A `2 x d` tensor of lower and upper bounds for each column of `X`.
+        bounds: A ``2 x d`` tensor of lower and upper bounds for each column of ``X``.
         num_spray_points: Number of spray points to return.
         std_cont_perturbation: standard deviation of Normal perturbations of
             continuous dimensions. Default is STD_CONT_PERTURBATION = 0.2.
@@ -378,7 +378,7 @@ def sample_feasible_points(
     are then rounded to the nearest integer values for the discrete dimensions, and
     the infeasible points are filtered out (in case rounding leads to infeasibility).
 
-    This method will do 10 attempts to generate `num_points` feasible points, and
+    This method will do 10 attempts to generate ``num_points`` feasible points, and
     return the points generated so far. If no points are generated, it will error out.
 
     Args:
@@ -390,7 +390,7 @@ def sample_feasible_points(
         num_points: The number of points to sample.
 
     Returns:
-        A tensor of shape `num_points x d` containing the sampled points.
+        A tensor of shape ``num_points x d`` containing the sampled points.
     """
     bounds = opt_inputs.bounds
     all_points = torch.empty(
@@ -466,12 +466,12 @@ def round_discrete_dims(X: Tensor, discrete_dims: dict[int, list[float]]) -> Ten
     """Round the discrete dimensions of a tensor to the nearest allowed values.
 
     Args:
-        X: A tensor of shape `n x d`, where `d` is the number of dimensions.
+        X: A tensor of shape ``n x d``, where ``d`` is the number of dimensions.
         discrete_dims: A dictionary mapping indices of discrete dimensions
             to a list of allowed values for that dimension.
 
     Returns:
-        A tensor of the same shape as `X`, with discrete dimensions rounded to
+        A tensor of the same shape as ``X``, with discrete dimensions rounded to
         the nearest allowed values.
     """
     X = X.clone()
@@ -492,13 +492,13 @@ def generate_starting_points(
     """Generate initial starting points for the alternating optimization.
 
     This method attempts to generate the initial points using the specified
-    options and completes any missing points using `sample_feasible_points`.
+    options and completes any missing points using ``sample_feasible_points``.
 
     Args:
         opt_inputs: Common set of arguments for acquisition optimization.
-            This function utilizes `acq_function`, `bounds`, `num_restarts`,
-            `raw_samples`, `options`, `fixed_features` and constraints
-            from `opt_inputs`.
+            This function utilizes ``acq_function``, ``bounds``, ``num_restarts``,
+            ``raw_samples``, ``options``, ``fixed_features`` and constraints
+            from ``opt_inputs``.
         discrete_dims: A dictionary mapping indices of discrete dimensions
             to a list of allowed values for that dimension.
         cat_dims: A dictionary mapping indices of categorical dimensions
@@ -508,7 +508,7 @@ def generate_starting_points(
     Returns:
         A tuple of two tensors: a (num_restarts x d)-dim tensor of starting points
         and a (num_restarts)-dim tensor of their respective acquisition values.
-        In rare cases, this method may return fewer than `num_restarts` points.
+        In rare cases, this method may return fewer than ``num_restarts`` points.
     """
     bounds = opt_inputs.bounds
     binary_dims = []
@@ -535,7 +535,7 @@ def generate_starting_points(
             f"Supported strategies are: {SUPPORTED_INITIALIZATION}."
         )
 
-    # Initialize `x_init_candts` here so that it's always defined as a tensor.
+    # Initialize ``x_init_candts`` here so that it's always defined as a tensor.
     x_init_candts = torch.empty(
         0, bounds.shape[-1], device=bounds.device, dtype=bounds.dtype
     )
@@ -565,8 +565,8 @@ def generate_starting_points(
             )
 
     if len(x_init_candts) == 0:
-        # Generate Sobol points as a fallback for `continuous_relaxation` and for
-        # further refinement in `equally_spaced` strategy.
+        # Generate Sobol points as a fallback for ``continuous_relaxation`` and for
+        # further refinement in ``equally_spaced`` strategy.
         x_init_candts = draw_sobol_samples(bounds=bounds, n=raw_samples, q=1)
         x_init_candts = x_init_candts.squeeze(-2)
 
@@ -627,7 +627,8 @@ def generate_starting_points(
         equality_constraints=opt_inputs.equality_constraints,
     )
 
-    # If there are fewer than `num_restarts` feasible points, attempt to generate more.
+    # If there are fewer than ``num_restarts`` feasible points, attempt to
+    # generate more.
     if len(x_init_candts) < num_restarts:
         new_x_init = sample_feasible_points(
             opt_inputs=opt_inputs,
@@ -647,7 +648,7 @@ def generate_starting_points(
             ]
         )
     if len(x_init_candts) > num_restarts:
-        # If there are more than `num_restarts` feasible points, select a diverse
+        # If there are more than ``num_restarts`` feasible points, select a diverse
         # set of initializers using Boltzmann sampling.
         x_init_candts, acq_vals = initialize_q_batch(
             X=x_init_candts, acq_vals=acq_vals, n=num_restarts
@@ -666,13 +667,13 @@ def discrete_step(
 
     Args:
         opt_inputs: Common set of arguments for acquisition optimization.
-            This function utilizes `acq_function`, `bounds`, `options`
-            and constraints from `opt_inputs`.
+            This function utilizes ``acq_function``, ``bounds``, ``options``
+            and constraints from ``opt_inputs``.
         discrete_dims: A dictionary mapping indices of discrete dimensions
             to a list of allowed values for that dimension.
         cat_dims: A dictionary mapping indices of categorical dimensions
             to a list of allowed values for that dimension.
-        current_x: Batch of starting points. A tensor of shape `b x d`.
+        current_x: Batch of starting points. A tensor of shape ``b x d``.
 
     Returns:
         A tuple of two tensors: a (b, d)-dim tensor of optimized point
@@ -744,7 +745,7 @@ def discrete_step(
         )  # shape: (sum(#neihbors of the items in the batch), d)
         with torch.no_grad():
             # This is the most expensive call in this function.
-            # The reason that `discrete_step` uses a batched x
+            # The reason that ``discrete_step`` uses a batched x
             # rather than looping over each batch within x is so that
             # we can batch this call. This leads to an overall speedup
             # even though the above and below for loops cannot
@@ -792,13 +793,13 @@ def continuous_step(
 
     Args:
         opt_inputs: Common set of arguments for acquisition optimization.
-            This function utilizes `acq_function`, `bounds`, `options`,
-            `fixed_features` and constraints from `opt_inputs`.
-            `opt_inputs.return_best_only` should be `False`.
+            This function utilizes ``acq_function``, ``bounds``, ``options``,
+            ``fixed_features`` and constraints from ``opt_inputs``.
+            ``opt_inputs.return_best_only`` should be ``False``.
         discrete_dims: A dictionary mapping indices of discrete dimensions
             to a list of allowed values for that dimension.
         cat_dims: A tensor of indices corresponding to categorical parameters.
-        current_x: Starting point. A tensor of shape `b x d`.
+        current_x: Starting point. A tensor of shape ``b x d``.
 
     Returns:
         A tuple of two tensors: a (b x d)-dim tensor of optimized points
@@ -862,14 +863,14 @@ def optimize_acqf_mixed_alternating(
     is performed for a fixed number of iterations.
 
     The discrete dimensions that have more than
-    `options.get("max_discrete_values", MAX_DISCRETE_VALUES)` values will
+    ``options.get("max_discrete_values", MAX_DISCRETE_VALUES)`` values will
     be optimized using continuous relaxation.
-    The categorical dimensions that have more than `MAX_DISCRETE_VALUES` values
-    be optimized by selecting random subsamples of the possible values.
+    The categorical dimensions that have more than ``MAX_DISCRETE_VALUES`` values
+    will be optimized by selecting random subsamples of the possible values.
 
     Args:
         acq_function: BoTorch Acquisition function.
-        bounds: A `2 x d` tensor of lower and upper bounds for each column of `X`.
+        bounds: A ``2 x d`` tensor of lower and upper bounds for each column of ``X``.
         discrete_dims: A dictionary mapping indices of discrete and binary
             dimensions to a list of allowed values for that dimension.
         cat_dims: A dictionary mapping indices of categorical dimensions
@@ -887,7 +888,7 @@ def optimize_acqf_mixed_alternating(
         - "max_discrete_values": Maximum number of values for a discrete dimension
             to be optimized using discrete step / local search. The discrete dimensions
             with more values will be optimized using continuous relaxation.
-        - "num_spray_points": Number of spray points (around `X_baseline`) to add to
+        - "num_spray_points": Number of spray points (around ``X_baseline``) to add to
             the points generated by the initialization strategy. Defaults to 20 if
             all discrete variables are binary and to 0 otherwise.
         - "std_cont_perturbation": Standard deviation of the normal perturbations of
@@ -897,29 +898,29 @@ def optimize_acqf_mixed_alternating(
             during optimization.
         - "init_batch_limit": The maximum batch size for jointly evaluating candidates
             during initialization. During initialization, candidates are evaluated
-            in a `no_grad` context, which reduces memory usage. As a result,
-            `init_batch_limit` can be set to a larger value than `batch_limit`.
-            Defaults to `batch_limit`, if given.
+            in a ``no_grad`` context, which reduces memory usage. As a result,
+            ``init_batch_limit`` can be set to a larger value than ``batch_limit``.
+            Defaults to ``batch_limit``, if given.
         q: Number of candidates.
         raw_samples: Number of initial candidates used to select starting points from.
             Defaults to 1024.
         num_restarts: Number of random restarts. Defaults to 20.
         post_processing_func: A function that post-processes an optimization result
-            appropriately (i.e., according to `round-trip` transformations).
+            appropriately (i.e., according to ``round-trip`` transformations).
         sequential: Whether to use joint or sequential optimization across q-batch.
             This currently only supports sequential optimization.
-        fixed_features: A map `{feature_index: value}` for features that
+        fixed_features: A map ``{feature_index: value}`` for features that
             should be fixed to a particular value during generation.
         inequality_constraints: A list of tuples (indices, coefficients, rhs),
             with each tuple encoding an inequality constraint of the form
-            `\sum_i (X[indices[i]] * coefficients[i]) >= rhs`. `indices` and
-            `coefficients` should be torch tensors. See the docstring of
-            `make_scipy_linear_constraints` for an example.
+            ``\sum_i (X[indices[i]] * coefficients[i]) >= rhs``. ``indices`` and
+            ``coefficients`` should be torch tensors. See the docstring of
+            ``make_scipy_linear_constraints`` for an example.
         equality_constraints: A list of tuples (indices, coefficients, rhs),
             with each tuple encoding an equality constraint of the form
-            `\sum_i (X[indices[i]] * coefficients[i]) == rhs`. `indices` and
-            `coefficients` should be torch tensors. Example:
-            `[(torch.tensor([1, 3]), torch.tensor([1.0, 0.5]), -0.1)]` Equality
+            ``\sum_i (X[indices[i]] * coefficients[i]) == rhs``. ``indices`` and
+            ``coefficients`` should be torch tensors. Example:
+            ``[(torch.tensor([1, 3]), torch.tensor([1.0, 0.5]), -0.1)]`` Equality
             constraints can only be used with continuous degrees of freedom.
 
     Returns:
@@ -929,8 +930,7 @@ def optimize_acqf_mixed_alternating(
 
     if sequential is False:  # pragma: no cover
         raise NotImplementedError(
-            "`optimize_acqf_mixed_alternating` only supports "
-            "sequential optimization."
+            "`optimize_acqf_mixed_alternating` only supports sequential optimization."
         )
 
     cat_dims = cat_dims or {}

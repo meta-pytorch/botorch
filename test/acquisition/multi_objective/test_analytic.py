@@ -26,7 +26,7 @@ class TestExpectedHypervolumeImprovement(BotorchTestCase):
             partitioning = NondominatedPartitioning(
                 ref_point=torch.tensor(ref_point, **tkwargs)
             )
-            # the event shape is `b x q x m` = 1 x 1 x 1
+            # the event shape is ``b x q x m`` = 1 x 1 x 1
             mean = torch.zeros(1, 1, 2, **tkwargs)
             variance = torch.zeros(1, 1, 2, **tkwargs)
             mm = MockModel(MockPosterior(mean=mean, variance=variance))

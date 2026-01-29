@@ -34,24 +34,26 @@ def get_loss_closure(
     r"""Public API for GetLossClosure dispatcher.
 
     This method, and the dispatcher that powers it, acts as a clearing house
-    for factory functions that define how `mll` is evaluated.
+    for factory functions that define how ``mll`` is evaluated.
 
     Users may specify custom evaluation routines by registering a factory function
     with GetLossClosure. These factories should be registered using the type signature
 
-        `Type[MarginalLogLikeLihood], Type[Likelihood], Type[Model], Type[DataLoader]`.
+        ``Type[MarginalLogLikelihood], Type[Likelihood], Type[Model],
+        Type[DataLoader]``.
 
-    The final argument, Type[DataLoader], is optional. Evaluation routines that obtain
-    training data from, e.g., `mll.model` should register this argument as `type(None)`.
+    The final argument, Type[DataLoader], is optional. Evaluation routines that
+    obtain training data from, e.g., ``mll.model`` should register this argument as
+    ``type(None)``.
 
     Args:
         mll: A MarginalLogLikelihood instance whose negative defines the loss.
         data_loader: An optional DataLoader instance for cases where training
-            data is passed in rather than obtained from `mll.model`.
+            data is passed in rather than obtained from ``mll.model``.
 
     Returns:
         A closure that takes zero positional arguments and returns the negated
-        value of `mll`.
+        value of ``mll``.
     """
     return GetLossClosure(
         mll, type(mll.likelihood), type(mll.model), data_loader, **kwargs
@@ -66,20 +68,20 @@ def get_loss_closure_with_grads(
 ) -> ForwardBackwardClosure:
     """
     Add a backward pass to a loss closure obtained by calling
-    `get_loss_closure`, wrapping it in a ``ForwardBackwardClosure``.
+    ``get_loss_closure``, wrapping it in a ``ForwardBackwardClosure``.
 
-    For further details, see `get_loss_closure`.
+    For further details, see ``get_loss_closure``.
 
     Args:
         mll: A MarginalLogLikelihood instance whose negative defines the loss.
-        parameters: A dictionary of tensors whose `grad` fields are to be returned.
+        parameters: A dictionary of tensors whose ``grad`` fields are to be returned.
         data_loader: An optional DataLoader instance for cases where training
-            data is passed in rather than obtained from `mll.model`.
-        kwargs: Keyword arguments passed to `get_loss_closure`.
+            data is passed in rather than obtained from ``mll.model``.
+        kwargs: Keyword arguments passed to ``get_loss_closure``.
 
     Returns:
         A closure that takes zero positional arguments and returns the reduced and
-        negated value of `mll` along with the gradients of `parameters`.
+        negated value of ``mll`` along with the gradients of ``parameters``.
     """
     loss_closure = get_loss_closure(mll, data_loader=data_loader, **kwargs)
     return ForwardBackwardClosure(forward=loss_closure, parameters=parameters)

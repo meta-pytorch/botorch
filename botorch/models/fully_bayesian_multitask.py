@@ -63,7 +63,7 @@ class MultitaskSaasPyroModel(SaasPyroModel):
             train_Y: Training targets (n x 1)
             train_Yvar: Observed noise variance (n x 1). If None, we infer the noise.
                 Note that the inferred noise is common across all tasks.
-            task_feature: The index of the task feature (`-d <= task_feature <= d`).
+            task_feature: The index of the task feature (``-d <= task_feature <= d``).
             task_rank: The num of learned task embeddings to be used in the task kernel.
                 If omitted, use a full rank (i.e. number of tasks) kernel.
         """
@@ -174,12 +174,13 @@ class MultitaskSaasPyroModel(SaasPyroModel):
             task_covar.cholesky().to_dense().detach()
         )
         task_covar_module = task_covar_module.to(**tkwargs)
-        # NOTE: The IndexKernel has a learnable 'var' parameter in addition to the
-        # task covariances, corresponding do task-specific variances along the diagonal
-        # of the task covariance matrix. As this parameter is not sampled in `sample()`
-        # we implicitly assume it to be zero. This is consistent with the previous
-        # SAASFBMTGP implementation, but means that the non-fully Bayesian and fully
-        # Bayesian models run on slightly different task covar modules.
+        # NOTE: The IndexKernel has a learnable 'var' parameter in addition to
+        # the task covariances, corresponding do task-specific variances along
+        # the diagonal of the task covariance matrix. As this parameter is not
+        # sampled in ``sample()`` we implicitly assume it to be zero. This is
+        # consistent with the previous SAASFBMTGP implementation, but means that
+        # the non-fully Bayesian and fully Bayesian models run on slightly
+        # different task covar modules.
 
         # We set the aforementioned task covar module var parameter to zero here.
         task_covar_module.var = torch.zeros_like(task_covar_module.var)
@@ -194,8 +195,8 @@ class SaasFullyBayesianMultiTaskGP(MultiTaskGP):
     each task. The SAAS model [Eriksson2021saasbo]_ with a Matern-5/2 is used as data
     kernel by default.
 
-    You are expected to use `fit_fully_bayesian_model_nuts` to fit this model as it
-    isn't compatible with `fit_gpytorch_mll`.
+    You are expected to use ``fit_fully_bayesian_model_nuts`` to fit this model as it
+    isn't compatible with ``fit_gpytorch_mll``.
 
     Example:
         >>> X1, X2 = torch.rand(10, 2), torch.rand(20, 2)
@@ -236,7 +237,7 @@ class SaasFullyBayesianMultiTaskGP(MultiTaskGP):
             train_Y: Training targets (n x 1)
             train_Yvar: Observed noise variance (n x 1). If None, we infer the noise.
                 Note that the inferred noise is common across all tasks.
-            task_feature: The index of the task feature (`-d <= task_feature <= d`).
+            task_feature: The index of the task feature (``-d <= task_feature <= d``).
             output_tasks: A list of task indices for which to compute model
                 outputs for. If omitted, return outputs for all task indices.
             rank: The num of learned task embeddings to be used in the task kernel.
@@ -244,14 +245,14 @@ class SaasFullyBayesianMultiTaskGP(MultiTaskGP):
             all_tasks: NOT SUPPORTED!
             outcome_transform: An outcome transform that is applied to the
                 training data during instantiation and to the posterior during
-                inference (that is, the `Posterior` obtained by calling
-                `.posterior` on the model will be on the original scale).
-                Note that `.train()` will be called on the outcome transform during
+                inference (that is, the ``Posterior`` obtained by calling
+                ``.posterior`` on the model will be on the original scale).
+                Note that ``.train()`` will be called on the outcome transform during
                 instantiation of the model.
-            input_transform: An input transform that is applied to the inputs `X`
+            input_transform: An input transform that is applied to the inputs ``X``
                 in the model's forward pass.
-            pyro_model: Optional `PyroModel` that has the same signature as
-                `MultitaskSaasPyroModel`. Defaults to `MultitaskSaasPyroModel`.
+            pyro_model: Optional ``PyroModel`` that has the same signature as
+                ``MultitaskSaasPyroModel``. Defaults to ``MultitaskSaasPyroModel``.
             validate_task_values: If True, validate that the task values supplied in the
                 input are expected tasks values. If false, unexpected task values
                 will be mapped to the first output_task if supplied.
@@ -288,9 +289,9 @@ class SaasFullyBayesianMultiTaskGP(MultiTaskGP):
             output_tasks=output_tasks,
             rank=rank,
             # We already transformed the data above, this avoids applying the
-            # default `Standardize` transform twice. As outcome_transform is
-            # set on `self` below, it will be applied to the posterior in the
-            # `posterior` method of `MultiTaskGP`.
+            # default ``Standardize`` transform twice. As outcome_transform is
+            # set on ``self`` below, it will be applied to the posterior in the
+            # ``posterior`` method of ``MultiTaskGP``.
             outcome_transform=None,
             all_tasks=all_tasks,
             validate_task_values=validate_task_values,
@@ -319,12 +320,12 @@ class SaasFullyBayesianMultiTaskGP(MultiTaskGP):
     def train(
         self, mode: bool = True, reset: bool = True
     ) -> TSaasFullyBayesianMultiTaskGP:
-        r"""Puts the model in `train` mode.
+        r"""Puts the model in ``train`` mode.
 
         Args:
             mode: A boolean indicating whether to put the model in training mode.
             reset: A boolean indicating whether to reset the model to its initial
-                state. If `mode` is False, this argument is ignored.
+                state. If ``mode`` is False, this argument is ignored.
 
         Returns:
             The model itself.
@@ -352,7 +353,7 @@ class SaasFullyBayesianMultiTaskGP(MultiTaskGP):
     @property
     def batch_shape(self) -> torch.Size:
         r"""Batch shape of the model, equal to the number of MCMC samples.
-        Note that `SaasFullyBayesianMultiTaskGP` does not support batching
+        Note that ``SaasFullyBayesianMultiTaskGP`` does not support batching
         over input data at this point.
         """
         self._check_if_fitted()
@@ -372,7 +373,7 @@ class SaasFullyBayesianMultiTaskGP(MultiTaskGP):
     def load_mcmc_samples(self, mcmc_samples: dict[str, Tensor]) -> None:
         r"""Load the MCMC hyperparameter samples into the model.
 
-        This method will be called by `fit_fully_bayesian_model_nuts` when the model
+        This method will be called by ``fit_fully_bayesian_model_nuts`` when the model
         has been fitted in order to create a batched MultiTaskGP model.
         """
         (
@@ -393,7 +394,7 @@ class SaasFullyBayesianMultiTaskGP(MultiTaskGP):
         r"""Computes the posterior over model outputs at the provided points.
 
         Returns:
-            A `GaussianMixturePosterior` object. Includes observation noise
+            A ``GaussianMixturePosterior`` object. Includes observation noise
                 if specified.
         """
         self._check_if_fitted()
@@ -414,16 +415,17 @@ class SaasFullyBayesianMultiTaskGP(MultiTaskGP):
     def load_state_dict(self, state_dict: Mapping[str, Any], strict: bool = True):
         r"""Custom logic for loading the state dict.
 
-        The standard approach of calling `load_state_dict` currently doesn't play well
-        with the `SaasFullyBayesianMultiTaskGP` since the `mean_module`, `covar_module`
-        and `likelihood` aren't initialized until the model has been fitted. The reason
-        for this is that we don't know the number of MCMC samples until NUTS is called.
-        Given the state dict, we can initialize a new model with some dummy samples and
-        then load the state dict into this model. This currently only works for a
-        `MultitaskSaasPyroModel` and supporting more Pyro models likely requires moving
-        the model construction logic into the Pyro model itself.
+        The standard approach of calling ``load_state_dict`` currently doesn't
+        play well with the ``SaasFullyBayesianMultiTaskGP`` since the
+        ``mean_module``, ``covar_module`` and ``likelihood`` aren't initialized
+        until the model has been fitted. The reason for this is that we don't
+        know the number of MCMC samples until NUTS is called. Given the state
+        dict, we can initialize a new model with some dummy samples and then
+        load the state dict into this model. This currently only works for a
+        ``MultitaskSaasPyroModel`` and supporting more Pyro models likely
+        requires moving the model construction logic into the Pyro model itself.
 
-        TODO: If this were to inherif from `SaasFullyBayesianSingleTaskGP`, we could
+        TODO: If this were to inherit from ``SaasFullyBayesianSingleTaskGP``, we could
         simplify this method and eliminate some others.
         """
         if not isinstance(self.pyro_model, MultitaskSaasPyroModel):
@@ -462,17 +464,17 @@ class SaasFullyBayesianMultiTaskGP(MultiTaskGP):
         identical across models or unique per-model).
 
         Args:
-            X: A `batch_shape x num_samples x d`-dim Tensor, where `d` is
-                the dimension of the feature space and `batch_shape` is the number of
+            X: A ``batch_shape x num_samples x d``-dim Tensor, where ``d`` is
+                the dimension of the feature space and ``batch_shape`` is the number of
                 sampled models.
-            Y: A `batch_shape x num_samples x 1`-dim Tensor, where `d` is
-                the dimension of the feature space and `batch_shape` is the number of
+            Y: A ``batch_shape x num_samples x 1``-dim Tensor, where ``d`` is
+                the dimension of the feature space and ``batch_shape`` is the number of
                 sampled models.
 
         Returns:
             BatchedMultiOutputGPyTorchModel: A fully bayesian model conditioned on
-              given observations. The returned model has `batch_shape` copies of the
-              training data in case of identical observations (and `batch_shape`
+              given observations. The returned model has ``batch_shape`` copies of the
+              training data in case of identical observations (and ``batch_shape``
               training datasets otherwise).
         """
         if X.ndim == 2 and Y.ndim == 2:

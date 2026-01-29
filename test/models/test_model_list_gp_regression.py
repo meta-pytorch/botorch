@@ -551,8 +551,8 @@ class TestModelListGP(BotorchTestCase):
 
     def test_fantasize_with_outcome_transform(self) -> None:
         """
-        Check that fantasized posteriors from a `ModelListGP` with transforms
-        relate in a predictable way to posteriors from a `ModelListGP` when the
+        Check that fantasized posteriors from a ``ModelListGP`` with transforms
+        relate in a predictable way to posteriors from a ``ModelListGP`` when the
         outputs have been manually transformed.
 
         We are essentially fitting "Y = 10 * X" with Y standardized.

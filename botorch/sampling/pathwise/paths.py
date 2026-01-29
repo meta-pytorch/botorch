@@ -189,15 +189,15 @@ class GeneralizedLinearPath(SamplePath):
 
         Args:
             feature_map: A map used to featurize the module's inputs.
-            weight: A tensor of weights used to combine input features. When generated
-                with `draw_kernel_feature_paths`, `weight` is a Tensor with the shape
-                `sample_shape x batch_shape x num_outputs`.
+            weight: A tensor of weights used to combine input features. When
+                generated with ``draw_kernel_feature_paths``, ``weight`` is a Tensor
+                with the shape ``sample_shape x batch_shape x num_outputs``.
             bias_module: An optional module used to define additive offsets.
             input_transform: An optional input transform for the module.
             output_transform: An optional output transform for the module.
             is_ensemble: Whether the associated model is an ensemble model or not.
             ensemble_as_batch: Whether the ensemble dimension is added as a batch
-                dimension or not. If `True`, the ensemble dimension is treated as a
+                dimension or not. If ``True``, the ensemble dimension is treated as a
                 batch dimension, which allows for the joint optimization of all members
                 of the ensemble.
         """
@@ -216,15 +216,17 @@ class GeneralizedLinearPath(SamplePath):
         """Evaluates the path.
 
         Args:
-            x: The input tensor of shape `batch_shape x [num_ensemble x] q x d`, where
-                `num_ensemble` is the number of ensemble members and is required to
-                *only* be included if `is_ensemble=True` and `ensemble_as_batch=True`.
+            x: The input tensor of shape ``batch_shape x [num_ensemble x] q x d``,
+                where ``num_ensemble`` is the number of ensemble members and is
+                required to *only* be included if ``is_ensemble=True`` and
+                ``ensemble_as_batch=True``.
             kwargs: Additional keyword arguments passed to the feature map.
 
         Returns:
-            A tensor of shape `batch_shape x [num_ensemble x] q x m`, where `m` is the
-            number of outputs, where `num_ensemble` is only included if `is_ensemble`
-            is `True`, and regardless of whether `ensemble_as_batch` is `True` or not.
+            A tensor of shape ``batch_shape x [num_ensemble x] q x m``, where
+                ``m`` is the number of outputs, where ``num_ensemble`` is only
+                included if ``is_ensemble`` is ``True``, and regardless of whether
+                ``ensemble_as_batch`` is ``True`` or not.
         """
         if self.is_ensemble and not self.ensemble_as_batch:
             # assuming that the ensembling dimension is added after (n, d), but

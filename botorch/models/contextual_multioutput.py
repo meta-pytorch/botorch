@@ -16,7 +16,7 @@ References
 from typing import Any
 
 import torch
-from botorch.models.multitask import MultiTaskGP
+from botorch.models.multitask import _compute_multitask_mean, MultiTaskGP
 from botorch.models.transforms.input import InputTransform
 from botorch.models.transforms.outcome import OutcomeTransform
 from botorch.models.utils.gpytorch_modules import get_covar_module_with_dim_scaled_prior
@@ -64,12 +64,13 @@ class LCEMGP(MultiTaskGP):
             train_Yvar: An optional (n x 1) tensor of observed variances of each
                 training Y. If None, we infer the noise. Note that the inferred noise
                 is common across all tasks.
-            mean_module: The mean function to be used. Defaults to `ConstantMean`.
+            mean_module: The mean function to be used. Defaults to ``ConstantMean``.
             covar_module: The module for computing the covariance matrix between
-                the non-task features. Defaults to `RBFKernel`.
-            likelihood: A likelihood. The default is selected based on `train_Yvar`.
-                If `train_Yvar` is None, a standard `GaussianLikelihood` with inferred
-                noise level is used. Otherwise, a FixedNoiseGaussianLikelihood is used.
+                the non-task features. Defaults to ``RBFKernel``.
+            likelihood: A likelihood. The default is selected based on
+                ``train_Yvar``. If ``train_Yvar`` is None, a standard
+                ``GaussianLikelihood`` with inferred noise level is used.
+                Otherwise, a FixedNoiseGaussianLikelihood is used.
             context_cat_feature: (n_contexts x k) one-hot encoded context
                 features. Rows are ordered by context indices, where k is the
                 number of categorical variables. If None, task indices will
@@ -82,17 +83,17 @@ class LCEMGP(MultiTaskGP):
             output_tasks: A list of task indices for which to compute model
                 outputs for. If omitted, return outputs for all task indices.
             all_tasks: By default, multi-task GPs infer the list of all tasks from
-                the task features in `train_X`. This is an experimental feature that
+                the task features in ``train_X``. This is an experimental feature that
                 enables creation of multi-task GPs with tasks that don't appear in the
                 training data. Note that when a task is not observed, the corresponding
                 task covariance will heavily depend on random initialization and may
                 behave unexpectedly.
             outcome_transform: An outcome transform that is applied to the
                 training data during instantiation and to the posterior during
-                inference (that is, the `Posterior` obtained by calling
-                `.posterior` on the model will be on the original scale). We use a
-                `Standardize` transform if no `outcome_transform` is specified.
-                Pass down `None` to use no outcome transform.
+                inference (that is, the ``Posterior`` obtained by calling
+                ``.posterior`` on the model will be on the original scale). We use a
+                ``Standardize`` transform if no ``outcome_transform`` is specified.
+                Pass down ``None`` to use no outcome transform.
             input_transform: An input transform that is applied in the model's
                 forward pass.
         """
@@ -198,7 +199,7 @@ class LCEMGP(MultiTaskGP):
             Task covariance matrix of shape (b x n x n).
         """
         # NOTE: This can probably be re-written more efficiently using
-        # IndexKernel (or an IndexKernel subclass) and the `evaluate_task_covar`
+        # IndexKernel (or an IndexKernel subclass) and the ``evaluate_task_covar``
         # and then have the forward pass evaluate a ProductKernel of the two.
 
         # This is a tensor of shape (num_tasks x num_tasks).
@@ -224,10 +225,11 @@ class LCEMGP(MultiTaskGP):
     def forward(self, x: Tensor) -> MultivariateNormal:
         if self.training:
             x = self.transform_inputs(x)
-        x_basic_lead, task_idcs, x_basic_trail = self._split_inputs(x)
-        x_basic = torch.cat([x_basic_lead, x_basic_trail], dim=-1)
-        # Compute base mean and covariance
-        mean_x = self.mean_module(x_basic)
+        x_before, task_idcs, x_after = self._split_inputs(x)
+        x_basic = torch.cat([x_before, x_after], dim=-1)
+        # Compute base mean using helper function
+        mean_x = _compute_multitask_mean(self.mean_module, x_before, task_idcs, x_after)
+
         covar_x = self.covar_module(x_basic)
         # Compute task covariances
         covar_i = self.task_covar_module(task_idcs)
@@ -246,10 +248,10 @@ class LCEMGP(MultiTaskGP):
         embs_dim_list: list[int] | None = None,
         **kwargs,
     ) -> dict[str, Any]:
-        r"""Construct `Model` keyword arguments from a dataset and other args.
+        r"""Construct ``Model`` keyword arguments from a dataset and other args.
 
         Args:
-            training_data: A `SupervisedDataset` or a `MultiTaskDataset`.
+            training_data: A ``SupervisedDataset`` or a ``MultiTaskDataset``.
             task_feature: Column index of embedded task indicator features.
             output_tasks: A list of task indices for which to compute model
                 outputs for. If omitted, return outputs for all task indices.

@@ -9,13 +9,11 @@ r"""Representations for different kinds of data."""
 from __future__ import annotations
 
 import dataclasses
-
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, fields
 from typing import Any
 
 import torch
-
 from torch import device as Device, dtype as Dtype, LongTensor, Size, Tensor
 
 
@@ -23,12 +21,12 @@ class BotorchContainer(ABC):
     r"""Abstract base class for BoTorch's data containers.
 
     A BotorchContainer represents a tensor, which should be the sole object
-    returned by its `__call__` method. Said tensor is expected to consist of
+    returned by its ``__call__`` method. Said tensor is expected to consist of
     one or more "events" (e.g. data points or feature vectors), whose shape is
-    given by the required `event_shape` field.
+    given by the required ``event_shape`` field.
 
     Notice: Once version 3.10 becomes standard, this class should
-    be reworked to take advantage of dataclasses' `kw_only` flag.
+    be reworked to take advantage of dataclasses' ``kw_only`` flag.
     """
 
     event_shape: Size

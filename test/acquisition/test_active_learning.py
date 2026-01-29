@@ -85,9 +85,10 @@ class TestQNegIntegratedPosteriorVariance(BotorchTestCase):
             f_posterior = GPyTorchPosterior(MultitaskMultivariateNormal(mean, cov))
             mc_points = torch.rand(10, 1, device=self.device, dtype=dtype)
             mfm = MockModel(f_posterior)
-            with mock.patch.object(
-                MockModel, "fantasize", return_value=mfm
-            ), mock.patch(no, new_callable=mock.PropertyMock) as mock_num_outputs:
+            with (
+                mock.patch.object(MockModel, "fantasize", return_value=mfm),
+                mock.patch(no, new_callable=mock.PropertyMock) as mock_num_outputs,
+            ):
                 mock_num_outputs.return_value = 2
                 mm = MockModel(None)
 
@@ -130,6 +131,29 @@ class TestQNegIntegratedPosteriorVariance(BotorchTestCase):
                     X = torch.empty(3, 1, 1, device=self.device, dtype=dtype)  # dummy
                     val = qNIPV(X)
                     val_exp = -0.5 * variance.mean(dim=0).view(3, -1).mean(dim=-1)
+                    self.assertAllClose(val, val_exp, atol=1e-4)
+
+            # single-output with posterior transform
+            mean = torch.zeros(2, 10, 3, 1, device=self.device, dtype=dtype)
+            variance = torch.ones(2, 10, 3, 1, device=self.device, dtype=dtype)
+            cov = torch.diag_embed(variance.view(2, 10, -1))
+            f_posterior = GPyTorchPosterior(MultitaskMultivariateNormal(mean, cov))
+            mc_points = torch.rand(10, 1, device=self.device, dtype=dtype)
+            mfm = MockModel(f_posterior)
+            with mock.patch.object(MockModel, "fantasize", return_value=mfm):
+                with mock.patch(no, new_callable=mock.PropertyMock) as mock_num_outputs:
+                    mock_num_outputs.return_value = 1
+                    mm = MockModel(None)
+                    qNIPV = qNegIntegratedPosteriorVariance(
+                        model=mm,
+                        mc_points=mc_points,
+                        posterior_transform=ScalarizedPosteriorTransform(
+                            weights=torch.tensor([1.0], device=self.device, dtype=dtype)
+                        ),
+                    )
+                    X = torch.empty(2, 3, 1, 1, device=self.device, dtype=dtype)
+                    val = qNIPV(X)
+                    val_exp = -variance.mean(dim=-2).squeeze(-1).squeeze(0)
                     self.assertAllClose(val, val_exp, atol=1e-4)
 
 

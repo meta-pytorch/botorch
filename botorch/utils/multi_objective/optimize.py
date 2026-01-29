@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 import warnings
-
 from typing import Callable
 
 import numpy as np
@@ -44,31 +43,32 @@ try:
         ) -> None:
             """PyMOO problem for optimizing the model posterior mean using NSGA-II.
 
-            This is instantiated and used within `optimize_with_nsgaii` to define
+            This is instantiated and used within ``optimize_with_nsgaii`` to define
             the optimization problem to interface with pymoo.
 
             This assumes maximization of all objectives.
 
             Args:
-                n_var: The number of tunable parameters (`d`).
+                n_var: The number of tunable parameters (``d``).
                 n_obj: The number of objectives.
-                xl: A `d`-dim np.ndarray of lower bounds for each tunable parameter.
-                xu: A `d`-dim np.ndarray of upper bounds for each tunable parameter.
+                xl: A ``d``-dim np.ndarray of lower bounds for each tunable parameter.
+                xu: A ``d``-dim np.ndarray of upper bounds for each tunable parameter.
                 acqf: A MultiOutputAcquisitionFunction.
                 dtype: The torch dtype.
                 device: The torch device.
                 acqf: The acquisition function to optimize.
-                ref_point: A list or tensor with `m` elements representing the reference
-                    point (in the outcome space), which is treated as a lower bound
-                    on the objectives, after applying `objective` to the samples.
+                ref_point: A list or tensor with ``m`` elements representing the
+                    reference point (in the outcome space), which is treated as a
+                    lower bound on the objectives, after applying ``objective`` to
+                    the samples.
                 objective: The MCMultiOutputObjective under which the samples are
-                    evaluated. Defaults to `IdentityMultiOutputObjective()`.
+                    evaluated. Defaults to ``IdentityMultiOutputObjective()``.
                     This can be used to determine which outputs of the
                     MultiOutputAcquisitionFunction should be used as
                     objectives/constraints in NSGA-II.
                 constraints: A list of callables, each mapping a Tensor of dimension
-                    `sample_shape x batch-shape x q x m` to a Tensor of dimension
-                    `sample_shape x batch-shape x q`, where negative values imply
+                    ``sample_shape x batch-shape x q x m`` to a Tensor of dimension
+                    ``sample_shape x batch-shape x q``, where negative values imply
                     feasibility.
             """
             num_constraints = 0 if constraints is None else len(constraints)
@@ -130,6 +130,7 @@ try:
         max_gen: int | None = None,
         seed: int | None = None,
         fixed_features: dict[int, float] | None = None,
+        max_attempts: int = 2,
     ) -> tuple[Tensor, Tensor]:
         """Optimize the posterior mean via NSGA-II, returning the Pareto set and front.
 
@@ -139,28 +140,31 @@ try:
 
         Args:
             acq_function: The MultiOutputAcquisitionFunction to optimize.
-            bounds: A `2 x d` tensor of lower and upper bounds for each column of `X`.
+            bounds: A ``2 x d`` tensor of lower and upper bounds for each column of
+                ``X``.
             q: The number of candidates. If None, return the full population.
             num_objectives: The number of objectives.
-            ref_point: A list or tensor with `m` elements representing the reference
+            ref_point: A list or tensor with ``m`` elements representing the reference
                 point (in the outcome space), which is treated as a lower bound
-                on the objectives, after applying `objective` to the samples.
+                on the objectives, after applying ``objective`` to the samples.
             objective: The MCMultiOutputObjective under which the samples are
-                evaluated. Defaults to `IdentityMultiOutputObjective()`.
+                evaluated. Defaults to ``IdentityMultiOutputObjective()``.
                 This can be used to determine which outputs of the
                 MultiOutputAcquisitionFunction should be used as
                 objectives/constraints in NSGA-II.
             constraints: A list of callables, each mapping a Tensor of dimension
-                `sample_shape x batch-shape x q x m` to a Tensor of dimension
-                `sample_shape x batch-shape x q`, where negative values imply
+                ``sample_shape x batch-shape x q x m`` to a Tensor of dimension
+                ``sample_shape x batch-shape x q``, where negative values imply
                 feasibility.
             population_size: the population size for NSGA-II.
             max_gen: The number of iterations for NSGA-II. If None, this uses the
                 default termination condition in pymoo for NSGA-II.
             seed: The random seed for NSGA-II.
-            fixed_features: A map `{feature_index: value}` for features that
+            fixed_features: A map ``{feature_index: value}`` for features that
                 should be fixed to a particular value during generation. All indices
                 should be non-negative.
+            max_attempts: The total number of times to run the optimization if it
+                fails (usually due to NSGA-II failing to find a feasible point).
 
         Returns:
             A two-element tuple containing the pareto set X and pareto frontier Y.
@@ -173,34 +177,49 @@ try:
             # set lower and upper bounds to the fixed value
             for i, val in fixed_features.items():
                 bounds[:, i] = val
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", category=DeprecationWarning)
-            pymoo_problem = BotorchPymooProblem(
-                n_var=bounds.shape[-1],
-                n_obj=num_objectives,
-                xl=bounds[0].cpu().numpy(),
-                xu=bounds[1].cpu().numpy(),
-                acqf=acq_function,
-                ref_point=ref_point,
-                objective=objective,
-                constraints=constraints,
-                **tkwargs,
-            )
-            if q is not None:
-                population_size = max(population_size, q)
-            algorithm = NSGA2(pop_size=population_size, eliminate_duplicates=True)
-            res = minimize(
-                problem=pymoo_problem,
-                algorithm=algorithm,
-                termination=(
-                    None
-                    if max_gen is None
-                    else MaximumGenerationTermination(n_max_gen=max_gen)
-                ),
-                seed=seed,
-                verbose=False,
-            )
+
+        def _opt_with_nsgaii():
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=DeprecationWarning)
+                pymoo_problem = BotorchPymooProblem(
+                    n_var=bounds.shape[-1],
+                    n_obj=num_objectives,
+                    xl=bounds[0].cpu().numpy(),
+                    xu=bounds[1].cpu().numpy(),
+                    acqf=acq_function,
+                    ref_point=ref_point,
+                    objective=objective,
+                    constraints=constraints,
+                    **tkwargs,
+                )
+                pop_size = max(population_size, q) if q is not None else population_size
+                algorithm = NSGA2(pop_size=pop_size, eliminate_duplicates=True)
+                res = minimize(
+                    problem=pymoo_problem,
+                    algorithm=algorithm,
+                    termination=(
+                        None
+                        if max_gen is None
+                        else MaximumGenerationTermination(n_max_gen=max_gen)
+                    ),
+                    seed=seed,
+                    verbose=False,
+                )
+            return res
+
+        # run optimization with retries in case NSGA-II fails to find a feasible point
+        for i in range(1, max_attempts + 1):
+            res = _opt_with_nsgaii()
+            if res.X is not None:
+                break
+            if i == max_attempts:
+                raise RuntimeError(
+                    f"NSGA-II failed to find a feasible point after {max_attempts} "
+                    f"attempts. Consider relaxing the constraints or increasing "
+                    "the population size."
+                )
         X = torch.tensor(res.X, **tkwargs)
+
         # multiply by negative one to return the correct sign for maximization
         Y = -torch.tensor(res.F, **tkwargs)
         pareto_mask = is_non_dominated(Y, deduplicate=True)

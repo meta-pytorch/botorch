@@ -44,8 +44,8 @@ class _Flag:
 class propagate_grads(_Flag):
     r"""Flag for propagating gradients to model training inputs / training data.
 
-    When set to `True`, gradients will be propagated to the training inputs.
-    This is useful in particular for propating gradients through fantasy models.
+    When set to ``True``, gradients will be propagated to the training inputs.
+    This is useful in particular for propagating gradients through fantasy models.
     """
 
     _state: bool = False
@@ -54,13 +54,13 @@ class propagate_grads(_Flag):
 class validate_input_scaling(_Flag):
     r"""Flag for validating input normalization/standardization.
 
-    When set to `True`, standard botorch models will validate (up to reasonable
+    When set to ``True``, standard botorch models will validate (up to reasonable
     tolerance) that
     (i) none of the inputs contain NaN values
-    (ii) the training data (`train_X`) is normalized to the unit cube
-    (iii) the training targets (`train_Y`) are standardized (zero mean, unit var)
+    (ii) the training data (``train_X``) is normalized to the unit cube
+    (iii) the training targets (``train_Y``) are standardized (zero mean, unit var)
     No checks (other than the NaN check) are performed for observed variances
-    (`train_Y_var`) at this point.
+    (``train_Y_var``) at this point.
     """
 
     _state: bool = True

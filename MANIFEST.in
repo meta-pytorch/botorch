@@ -3,5 +3,6 @@ recursive-exclude docs *
 recursive-exclude scripts *
 recursive-exclude sphinx *
 recursive-exclude test *
+recursive-exclude test_community *
 recursive-exclude tutorials *
 recursive-exclude website *

@@ -51,7 +51,7 @@ class TestMock(BotorchTestCase):
                     initial_conditions=torch.tensor([[0.0]]),
                     acquisition_function=SinAcqusitionFunction(),
                 )
-            # When not using `mock_optimize`, the value is 1.0. With it, the value is
+            # When not using ``mock_optimize``, the value is 1.0. With it, the value is
             # around 0.9875
             self.assertLess(value.item(), 0.99)
 
@@ -114,12 +114,12 @@ class TestMock(BotorchTestCase):
                 discrete_dims={1: list(range(6))},
                 num_restarts=1,
             )
-        # These should be called at most `MAX_ITER_ALTER` times for each random
+        # These should be called at most ``MAX_ITER_ALTER`` times for each random
         # restart, which is mocked to 1.
         mock_discrete.assert_called_once()
         mock_continuous.assert_called_once()
-        # This should be called at most `MAX_ITER_DISCRETE` in each call of
-        # `mock_discrete`, which should total to 1.
+        # This should be called at most ``MAX_ITER_DISCRETE`` in each call of
+        # ``mock_discrete``, which should total to 1.
         mock_neighbors.assert_called_once()
 
     @mock_optimize

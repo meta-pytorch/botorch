@@ -43,7 +43,7 @@ def validate_complete_sphinx(path_to_botorch: str) -> None:
     - Every top-level module (e.g., acquisition, models, etc.) should have a
         corresponding .rst sphix source file in sphinx/source.
     - Every single non-package (i.e. py file) module should be included in an
-        .rst file `automodule::` directive. Sphinx will then automatically
+        .rst file ``automodule::`` directive. Sphinx will then automatically
         include all members from the module in the documentation.
 
     Note: this function does not validate any documentation, only its presence.

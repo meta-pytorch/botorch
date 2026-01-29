@@ -193,8 +193,8 @@ class TestQMultiObjectivePredictiveEntropySearch(BotorchTestCase):
             maximize = True
             jitter = 0.0
 
-            # The inversion of a factor of `cov_f` will fail spit out a
-            # `torch._C._LinAlgError` error.
+            # The inversion of a factor of ``cov_f`` will fail spit out a
+            # ``torch._C._LinAlgError`` error.
             omega_f_nat_mean_new, omega_f_nat_cov_new = _safe_update_omega(
                 mean_f=mean_f,
                 cov_f=cov_f,

@@ -17,12 +17,12 @@ class DownsamplingKernel(Kernel):
     r"""GPyTorch Downsampling Kernel.
 
     Computes a covariance matrix based on the down sampling kernel between
-    inputs `x_1` and `x_2` (we expect `d = 1`):
+    inputs ``x_1`` and ``x_2`` (we expect ``d = 1``):
 
         K(\mathbf{x_1}, \mathbf{x_2}) = c + (1 - x_1)^(1 + delta) *
             (1 - x_2)^(1 + delta).
 
-    where `c` is an offset parameter, and `delta` is a power parameter.
+    where ``c`` is an offset parameter, and ``delta`` is a power parameter.
     """
 
     def __init__(
@@ -36,12 +36,12 @@ class DownsamplingKernel(Kernel):
         r"""
         Args:
             power_constraint: Constraint to place on power parameter. Default is
-                `Positive`.
+                ``Positive``.
             power_prior: Prior over the power parameter.
             offset_constraint: Constraint to place on offset parameter. Default is
-                `Positive`.
-            active_dims: List of data dimensions to operate on. `len(active_dims)`
-                should equal `num_dimensions`.
+                ``Positive``.
+            active_dims: List of data dimensions to operate on. ``len(active_dims)``
+                should equal ``num_dimensions``.
         """
         super().__init__(**kwargs)
 

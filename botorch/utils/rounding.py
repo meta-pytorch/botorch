@@ -25,7 +25,7 @@ from torch.nn.functional import one_hot
 
 
 def approximate_round(X: Tensor, tau: float = 1e-3) -> Tensor:
-    r"""Diffentiable approximate rounding function.
+    r"""Differentiable approximate rounding function.
 
     This method is a piecewise approximation of a rounding function where
     each piece is a hyperbolic tangent function.

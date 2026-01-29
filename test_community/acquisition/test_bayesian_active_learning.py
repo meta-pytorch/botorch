@@ -7,11 +7,15 @@
 from itertools import product
 
 import torch
+from botorch.utils.sampling import draw_sobol_samples
 from botorch.utils.test_helpers import get_fully_bayesian_model
 from botorch.utils.testing import BotorchTestCase
 from botorch_community.acquisition.bayesian_active_learning import (
     qBayesianQueryByComittee,
     qBayesianVarianceReduction,
+    qConditionalHyperparameterInformationGain,
+    qExpectedPredictiveInformationGain,
+    qHyperparameterInformedPredictiveExploration,
     qStatisticalDistanceActiveLearning,
 )
 
@@ -72,12 +76,135 @@ class TestQStatisticalDistanceActiveLearning(BotorchTestCase):
                     # assess shape
                     self.assertTrue(acq_X.shape == test_Xs[j].shape[:-2])
 
+
+class TestQConditionalHyperparameterInformationGain(BotorchTestCase):
+    def test_q_conditional_hyperparameter_information_gain(self):
+        torch.manual_seed(1)
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        input_dim = 2
+        num_models = 3
+
+        model = get_fully_bayesian_model(
+            train_X=torch.rand(4, input_dim, **tkwargs),
+            train_Y=torch.rand(4, 1, **tkwargs),
+            num_models=num_models,
+            **tkwargs,
+        )
+        bounds = torch.tensor([[0.0] * input_dim, [1.0] * input_dim], **tkwargs)
+        mc_points = draw_sobol_samples(bounds=bounds, n=11, q=1).squeeze(-2)
+
+        acq = qConditionalHyperparameterInformationGain(
+            model=model, mc_points=mc_points
+        )
+        test_X = torch.rand(7, 1, input_dim, **tkwargs)
+        acq_X = acq(test_X)
+        self.assertEqual(acq_X.shape, test_X.shape[:-2])
+        self.assertTrue((acq_X >= 0).all())
+
+        test_X = torch.rand(7, 3, input_dim, **tkwargs)
+        acq_X = acq(test_X)
+        self.assertEqual(acq_X.shape, test_X.shape[:-2])
+        self.assertTrue((acq_X >= 0).all())
+
+
+class TestQExpectedPredictiveInformationGain(BotorchTestCase):
+    def test_q_expected_predictive_information_gain(self):
+        torch.manual_seed(1)
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        input_dim = 2
+
+        model = get_fully_bayesian_model(
+            train_X=torch.rand(0, input_dim, **tkwargs),
+            train_Y=torch.rand(0, 1, **tkwargs),
+            num_models=3,
+            **tkwargs,
+        )
+        bounds = torch.tensor([[0.0] * input_dim, [1.0] * input_dim], **tkwargs)
+        mc_points = draw_sobol_samples(bounds=bounds, n=16, q=1).squeeze(-2)
+
+        acq = qExpectedPredictiveInformationGain(model=model, mc_points=mc_points)
+        test_X = torch.rand(4, 2, input_dim, **tkwargs)
+        acq_X = acq(test_X)
+        self.assertEqual(acq_X.shape, test_X.shape[:-2])
+        self.assertTrue((acq_X >= 0).all())
+
+        # test that mc_points must be 2-dimensional
         with self.assertRaises(ValueError):
-            acq = qStatisticalDistanceActiveLearning(
+            qExpectedPredictiveInformationGain(
                 model=model,
-                distance_metric="NOT_A_DISTANCE",
-                X_pending=X_pending,
+                mc_points=mc_points.unsqueeze(0),  # 3D tensor
             )
+
+
+class TestQHyperparameterInformedPredictiveExploration(BotorchTestCase):
+    def test_q_hyperparameter_informed_predictive_exploration(self):
+        torch.manual_seed(1)
+        tkwargs = {"device": self.device}
+        num_objectives = 1
+        num_models = 3
+        for (
+            dtype,
+            infer_noise,
+        ) in product(
+            (torch.float, torch.double),
+            (True,),
+        ):
+            tkwargs["dtype"] = dtype
+            input_dim = 2
+            train_X = torch.rand(0, input_dim, **tkwargs)
+            train_Y = torch.rand(0, num_objectives, **tkwargs)
+
+            model = get_fully_bayesian_model(
+                train_X=train_X,
+                train_Y=train_Y,
+                num_models=num_models,
+                standardize_model=False,
+                infer_noise=infer_noise,
+                **tkwargs,
+            )
+
+            bounds = torch.tensor([[0.0] * input_dim, [1.0] * input_dim], **tkwargs)
+            mc_points = draw_sobol_samples(bounds=bounds, n=16, q=1).squeeze(-2)
+
+            # test with fixed beta
+            acq = qHyperparameterInformedPredictiveExploration(
+                model=model,
+                mc_points=mc_points,
+                bounds=bounds,
+            )
+
+            test_Xs = [
+                torch.rand(4, 1, input_dim, **tkwargs),
+                torch.rand(4, 3, input_dim, **tkwargs),
+            ]
+
+            for test_X in test_Xs:
+                acq_X = acq(test_X)
+                # assess shape
+                self.assertTrue(acq_X.shape == test_X.shape[:-2])
+                self.assertTrue((acq_X > 0).all())
+
+            # test beta tuning (beta=None) and re-tuning when q changes
+            acq = qHyperparameterInformedPredictiveExploration(
+                model=model,
+                mc_points=mc_points,
+                bounds=bounds,
+            )
+            # first forward pass computes tuning factor for q=1
+            acq(torch.rand(4, 1, input_dim, **tkwargs))
+            tuning_factor_q1 = acq._tuning_factor
+            # second forward pass with different q recomputes tuning factor
+            acq(torch.rand(4, 3, input_dim, **tkwargs))
+            tuning_factor_q3 = acq._tuning_factor
+            self.assertNotEqual(tuning_factor_q1, tuning_factor_q3)
+
+            # test that mc_points must be 2-dimensional
+            with self.assertRaises(ValueError):
+                qHyperparameterInformedPredictiveExploration(
+                    model=model,
+                    mc_points=mc_points.unsqueeze(0),  # 3D tensor
+                    bounds=bounds,
+                )
 
 
 class TestQBayesianQueryByComittee(BotorchTestCase):

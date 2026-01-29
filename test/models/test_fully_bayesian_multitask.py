@@ -24,7 +24,6 @@ from botorch.acquisition.monte_carlo import (
     qSimpleRegret,
     qUpperConfidenceBound,
 )
-
 from botorch.acquisition.multi_objective.logei import (
     qLogExpectedHypervolumeImprovement,
     qLogNoisyExpectedHypervolumeImprovement,
@@ -559,7 +558,7 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
 
         # Fit without transforms
         with torch.random.fork_rng():
-            torch.manual_seed(0)
+            torch.manual_seed(42)
             gp1 = SaasFullyBayesianMultiTaskGP(
                 train_X=train_X_new,
                 train_Y=(train_Y - mu) / sigma,
@@ -575,7 +574,7 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
 
         # Fit with transforms
         with torch.random.fork_rng():
-            torch.manual_seed(0)
+            torch.manual_seed(42)
             gp2 = SaasFullyBayesianMultiTaskGP(
                 train_X=train_X,
                 train_Y=train_Y,

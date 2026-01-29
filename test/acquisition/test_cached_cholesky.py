@@ -32,7 +32,7 @@ class DummyCachedCholeskyAcqf(MCAcquisitionFunction, CachedCholeskyMCSamplerMixi
         model: Model,
         objective: MCAcquisitionObjective | None = None,
         sampler: MCSampler | None = None,
-        cache_root: bool = False,
+        cache_root: bool | None = None,
     ):
         """A dummy cached cholesky acquisition function."""
         MCAcquisitionFunction.__init__(self, model=model, objective=objective)
@@ -52,8 +52,10 @@ class TestCachedCholeskyMCSamplerMixin(BotorchTestCase):
         # basic test w/ invalid model.
         sampler = IIDNormalSampler(sample_shape=torch.Size([1]))
 
+        # Test None default with unsupported model - should disable caching
         acqf = DummyCachedCholeskyAcqf(model=mm, sampler=sampler)
-        self.assertFalse(acqf._cache_root)  # no cache by default
+        self.assertFalse(acqf._cache_root)
+        # Test explicit True with unsupported model - should warn and disable
         with self.assertWarnsRegex(RuntimeWarning, "cache_root"):
             acqf = DummyCachedCholeskyAcqf(model=mm, sampler=sampler, cache_root=True)
         self.assertFalse(acqf._cache_root)  # gets turned to False
@@ -72,6 +74,11 @@ class TestCachedCholeskyMCSamplerMixin(BotorchTestCase):
 
         # basic test w/ supported model.
         stgp = SingleTaskGP(torch.zeros(1, 1), torch.zeros(1, 1))
+        # Test None default with supported model - should auto-enable caching
+        acqf = DummyCachedCholeskyAcqf(model=stgp, sampler=sampler)
+        self.assertTrue(acqf._cache_root)
+        self.assertEqual(acqf.sampler, sampler)
+        # Test explicit True with supported model
         acqf = DummyCachedCholeskyAcqf(model=stgp, sampler=sampler, cache_root=True)
         self.assertTrue(acqf._cache_root)
         self.assertEqual(acqf.sampler, sampler)
@@ -140,6 +147,9 @@ class TestCachedCholeskyMCSamplerMixin(BotorchTestCase):
                 self.assertTrue(torch.equal(baseline_L_acqf, baseline_L))
 
     def test_get_f_X_samples(self):
+        sample_cached_cholesky_path = (
+            "botorch.acquisition.cached_cholesky.sample_cached_cholesky"
+        )
         tkwargs = {"device": self.device}
         for dtype in (torch.float, torch.double):
             with self.subTest(dtype=dtype):
@@ -169,8 +179,7 @@ class TestCachedCholeskyMCSamplerMixin(BotorchTestCase):
                 # basic test
                 rv = torch.rand(1, 5, 1, **tkwargs)
                 with mock.patch(
-                    "botorch.acquisition.cached_cholesky.sample_cached_cholesky",
-                    return_value=rv,
+                    sample_cached_cholesky_path, return_value=rv
                 ) as mock_sample_cached_cholesky:
                     samples = acqf._get_f_X_samples(posterior=posterior, q_in=q)
                     mock_sample_cached_cholesky.assert_called_once_with(
@@ -187,12 +196,13 @@ class TestCachedCholeskyMCSamplerMixin(BotorchTestCase):
                     base_samples = torch.rand(1, 5, 1, **tkwargs)
                     acqf.sampler.base_samples = base_samples
                     acqf._baseline_L = baseline_L
-                    with mock.patch(
-                        "botorch.acquisition.cached_cholesky.sample_cached_cholesky",
-                        side_effect=error_cls,
-                    ) as mock_sample_cached_cholesky, warnings.catch_warnings(
-                        record=True
-                    ) as ws:
+                    with (
+                        mock.patch(
+                            sample_cached_cholesky_path,
+                            side_effect=error_cls,
+                        ) as mock_sample_cached_cholesky,
+                        warnings.catch_warnings(record=True) as ws,
+                    ):
                         samples = acqf._get_f_X_samples(posterior=posterior, q_in=q)
                     mock_sample_cached_cholesky.assert_called_once_with(
                         posterior=posterior,

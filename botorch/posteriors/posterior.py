@@ -30,15 +30,15 @@ class Posterior(ABC):
         samples, and enables acquisition optimization via Sample Average Approximation.
 
         Args:
-            sample_shape: A `torch.Size` object specifying the sample shape. To
-                draw `n` samples, set to `torch.Size([n])`. To draw `b` batches
-                of `n` samples each, set to `torch.Size([b, n])`.
+            sample_shape: A ``torch.Size`` object specifying the sample shape. To
+                draw ``n`` samples, set to ``torch.Size([n])``. To draw ``b`` batches
+                of ``n`` samples each, set to ``torch.Size([b, n])``.
             base_samples: The base samples, obtained from the appropriate sampler.
-                This is a tensor of shape `sample_shape x base_sample_shape`.
+                This is a tensor of shape ``sample_shape x base_sample_shape``.
 
         Returns:
             Samples from the posterior, a tensor of shape
-            `self._extended_shape(sample_shape=sample_shape)`.
+            ``self._extended_shape(sample_shape=sample_shape)``.
         """
         raise NotImplementedError(
             f"{self.__class__.__name__} does not implement `rsample_from_base_samples`."
@@ -52,13 +52,13 @@ class Posterior(ABC):
         r"""Sample from the posterior (with gradients).
 
         Args:
-            sample_shape: A `torch.Size` object specifying the sample shape. To
-                draw `n` samples, set to `torch.Size([n])`. To draw `b` batches
-                of `n` samples each, set to `torch.Size([b, n])`.
+            sample_shape: A ``torch.Size`` object specifying the sample shape. To
+                draw ``n`` samples, set to ``torch.Size([n])``. To draw ``b`` batches
+                of ``n`` samples each, set to ``torch.Size([b, n])``.
 
         Returns:
             Samples from the posterior, a tensor of shape
-            `self._extended_shape(sample_shape=sample_shape)`.
+            ``self._extended_shape(sample_shape=sample_shape)``.
         """
         pass  # pragma: no cover
 
@@ -66,13 +66,13 @@ class Posterior(ABC):
         r"""Sample from the posterior without gradients.
 
         Args:
-            sample_shape: A `torch.Size` object specifying the sample shape. To
-                draw `n` samples, set to `torch.Size([n])`. To draw `b` batches
-                of `n` samples each, set to `torch.Size([b, n])`.
+            sample_shape: A ``torch.Size`` object specifying the sample shape. To
+                draw ``n`` samples, set to ``torch.Size([n])``. To draw ``b`` batches
+                of ``n`` samples each, set to ``torch.Size([b, n])``.
 
         Returns:
             Samples from the posterior, a tensor of shape
-            `self._extended_shape(sample_shape=sample_shape)`.
+            ``self._extended_shape(sample_shape=sample_shape)``.
         """
         with torch.no_grad():
             return self.rsample(sample_shape=sample_shape)
@@ -114,7 +114,7 @@ class Posterior(ABC):
         sample_shape: torch.Size = torch.Size(),  # noqa: B008
     ) -> torch.Size:
         r"""Returns the shape of the samples produced by the posterior with
-        the given `sample_shape`.
+        the given ``sample_shape``.
         """
         raise NotImplementedError(
             f"{self.__class__.__name__} does not implement `_extended_shape`."
@@ -122,10 +122,10 @@ class Posterior(ABC):
 
     @property
     def base_sample_shape(self) -> torch.Size:
-        r"""The base shape of the base samples expected in `rsample`.
+        r"""The base shape of the base samples expected in ``rsample``.
 
         Informs the sampler to produce base samples of shape
-        `sample_shape x base_sample_shape`.
+        ``sample_shape x base_sample_shape``.
         """
         raise NotImplementedError(
             f"{self.__class__.__name__} does not implement `base_sample_shape`."
@@ -136,7 +136,7 @@ class Posterior(ABC):
         r"""The t-batch range.
 
         This is used in samplers to identify the t-batch component of the
-        `base_sample_shape`. The base samples are expanded over the t-batches to
+        ``base_sample_shape``. The base samples are expanded over the t-batches to
         provide consistency in the acquisition values, i.e., to ensure that a
         candidate produces same value regardless of its position on the t-batch.
         """

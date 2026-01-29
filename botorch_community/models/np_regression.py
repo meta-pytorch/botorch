@@ -227,9 +227,9 @@ class NeuralProcessModel(Model, GP):
         self,
         train_X: torch.Tensor,
         train_Y: torch.Tensor,
-        r_hidden_dims: List[int] = [16, 16],
-        z_hidden_dims: List[int] = [32, 32],
-        decoder_hidden_dims: List[int] = [16, 16],
+        r_hidden_dims: List[int] | None = None,
+        z_hidden_dims: List[int] | None = None,
+        decoder_hidden_dims: List[int] | None = None,
         x_dim: int = 2,
         y_dim: int = 1,
         r_dim: int = 64,
@@ -243,8 +243,8 @@ class NeuralProcessModel(Model, GP):
         r"""Diffusion Convolutional Recurrent Neural Network Model Implementation.
 
         Args:
-            train_X: A `batch_shape x n x d` tensor of training features.
-            train_Y: A `batch_shape x n x m` tensor of training observations.
+            train_X: A ``batch_shape x n x d`` tensor of training features.
+            train_Y: A ``batch_shape x n x m`` tensor of training observations.
             r_hidden_dims: Hidden Dimensions/Layer list for REncoder, defaults to
                 [16, 16]
             z_hidden_dims: Hidden Dimensions/Layer list for ZEncoder, defaults to
@@ -266,6 +266,13 @@ class NeuralProcessModel(Model, GP):
         """
         super().__init__()
         self.device = train_X.device
+
+        if r_hidden_dims is None:
+            r_hidden_dims = [16, 16]
+        if z_hidden_dims is None:
+            z_hidden_dims = [32, 32]
+        if decoder_hidden_dims is None:
+            decoder_hidden_dims = [16, 16]
 
         self.r_encoder = REncoder(
             x_dim + y_dim,
@@ -410,7 +417,7 @@ class NeuralProcessModel(Model, GP):
         mvn = MultivariateNormal(mean, covariance)
         posterior = GPyTorchPosterior(mvn)
         if posterior_transform is not None:
-            posterior = posterior_transform(posterior)
+            posterior = posterior_transform(posterior=posterior, X=X)
         return posterior
 
     def transform_inputs(
@@ -445,8 +452,8 @@ class NeuralProcessModel(Model, GP):
         r"""Forward pass for the model.
 
         Args:
-            train_X: A `batch_shape x n x d` tensor of training features.
-            train_Y: A `batch_shape x n x m` tensor of training observations.
+            train_X: A ``batch_shape x n x d`` tensor of training features.
+            train_Y: A ``batch_shape x n x m`` tensor of training observations.
             axis: Dimension axis as int, defaulted as 0.
 
         Returns:
@@ -473,8 +480,8 @@ class NeuralProcessModel(Model, GP):
         r"""Helper function to split randomly into context and target.
 
         Args:
-            x: A `batch_shape x n x d` tensor of training features.
-            y: A `batch_shape x n x m` tensor of training observations.
+            x: A ``batch_shape x n x d`` tensor of training features.
+            y: A ``batch_shape x n x m`` tensor of training observations.
             n_context (int): Number of context points.
             axis: Dimension axis as int, defaults to 0.
 

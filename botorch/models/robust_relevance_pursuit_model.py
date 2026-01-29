@@ -7,31 +7,32 @@ r"""
 This file contains a readily usable implementation of the robust Gaussian process
 model of [Ament2024pursuit]_, leveraging the Relevance Pursuit algorithm.
 
-In particular, this file contains a `RobustRelevancePursuitMixin` class, and a concrete
-implementation of a `SingleTaskGP` model, `RobustRelevancePursuitSingleTaskGP`, which
-has the same API as a standard `SingleTaskGP` model, but automatically instantiates the
-robust likelihood `SparseOutlierGaussianLikelihood` and dispatches the relevance pursuit
-algorithm during model fitting via `fit_gpytorch_mll`.
+In particular, this file contains a ``RobustRelevancePursuitMixin`` class,
+and a concrete implementation of a ``SingleTaskGP`` model,
+``RobustRelevancePursuitSingleTaskGP``, which has the same API as a standard
+``SingleTaskGP`` model, but automatically instantiates the robust likelihood
+``SparseOutlierGaussianLikelihood`` and dispatches the relevance pursuit
+algorithm during model fitting via ``fit_gpytorch_mll``.
 
-Even though a standard `SingleTaskGP` model is expressive enough to implement the robust
-model by changing the likelihood, its optimization is more complex. So the main reason
-for the `RobustRelevancePursuitMixin` class is to hide this complexity by using multiple
-dispatch of `fit_gpytorch_mll`, which needs to do two distinct operations in the context
-of the robust model:
+Even though a standard ``SingleTaskGP`` model is expressive enough to implement
+the robust model by changing the likelihood, its optimization is more complex.
+So the main reason for the ``RobustRelevancePursuitMixin`` class is to hide
+this complexity by using multiple dispatch of ``fit_gpytorch_mll``, which needs
+to do two distinct operations in the context of the robust model:
 
 (1) It needs to toggle the relevance pursuit discrete optimization algorithm that
     changes the support, and as a sub-task,
-(2) it needs to still carry out the numerical optimization of the hyper-parameters given
-    a fixed support, but still with a `SparseOutlierGaussianLikelihood`. Since the types
-    of the marginal likelihood (`MarginalLogLikelihood`) and the likelihood
-    (`SparseOutlierGaussianLikelihood`) are the same in both calls, the only way we can
-    leverage the multiple dispatch mechanism is the model type.
+(2) it needs to still carry out the numerical optimization of the
+    hyper-parameters given a fixed support, but still with a
+    ``SparseOutlierGaussianLikelihood``. Since the types of the marginal
+    likelihood (``MarginalLogLikelihood``) and the likelihood
+    (``SparseOutlierGaussianLikelihood``) are the same in both calls, the
+    only way we can leverage the multiple dispatch mechanism is the model type.
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-
 from typing import Any, Callable, Mapping, Optional, Sequence
 
 import torch
@@ -78,10 +79,10 @@ FRACTIONS_OF_OUTLIERS = [
 
 class RobustRelevancePursuitMixin(ABC):
     """A Mixin class for robust relevance pursuit models, which wraps a base likelihood
-    with a `SparseOutlierGaussianLikelihood` to detect outliers, and calls the
-    relevance pursuit algorithm during model fitting via `fit_gpytorch_mll`.
+    with a ``SparseOutlierGaussianLikelihood`` to detect outliers, and calls the
+    relevance pursuit algorithm during model fitting via ``fit_gpytorch_mll``.
 
-    This is distinct from the `RelevancePursuitMixin` class, which is a Mixin class to
+    This is distinct from the ``RelevancePursuitMixin`` class, which is a Mixin class to
     equip a specific module (the likelihood, in the case of the robust model) with the
     relevance pursuit algorithms.
     """
@@ -95,20 +96,20 @@ class RobustRelevancePursuitMixin(ABC):
         cache_model_trace: bool = False,
     ) -> None:
         """Initializes a robust relevance pursuit model, which wraps a base likelihood
-        with a `SparseOutlierGaussianLikelihood` to detect outliers, and calls the
-        relevance pursuit algorithm during model fitting via `fit_gpytorch_mll`.
+        with a ``SparseOutlierGaussianLikelihood`` to detect outliers, and calls the
+        relevance pursuit algorithm during model fitting via ``fit_gpytorch_mll``.
 
         For details, see [Ament2024pursuit]_ or https://arxiv.org/abs/2410.24222.
 
         Args:
             base_likelihood: The base likelihood that will be wrapped by a
-                `SparseOutlierGaussianLikelihood` to detect outliers.
+                ``SparseOutlierGaussianLikelihood`` to detect outliers.
             dim: The number of training data points, i.e. the maximum dimensionality
                 of the support set of the likelihood.
             prior_mean_of_support: The mean value for the default exponential prior
                 distribution over the support size.
             convex_parameterization: If True, use a convex parameterization of the
-                sparse noise model. See `SparseOutlierGaussianLikelihood` for details.
+                sparse noise model. See ``SparseOutlierGaussianLikelihood`` for details.
             cache_model_trace: If True, cache the model trace during relevance pursuit.
         """
         self.likelihood = SparseOutlierGaussianLikelihood(
@@ -126,26 +127,27 @@ class RobustRelevancePursuitMixin(ABC):
 
     @abstractmethod
     def to_standard_model(self) -> Model:
-        """Converts this `RobustRelevancePursuitMixin` to an equivalent standard model
-        with the same robust likelihood and hyper-parameters. This leaves the model
-        structure and predictions unchanged, but leads `fit_gpytorch_mll`'s dispatch to
-        *numerically* optimize the hyper-parameters of the model with a fixed support
-        set, as opposed to dispatching to the discrete optimization via the relevance
-        pursuit algorithm.
+        """Converts this ``RobustRelevancePursuitMixin`` to an equivalent
+        standard model with the same robust likelihood and hyper-parameters. This
+        leaves the model structure and predictions unchanged, but leads
+        ``fit_gpytorch_mll``'s dispatch to *numerically* optimize the
+        hyper-parameters of the model with a fixed support set, as opposed to
+        dispatching to the discrete optimization via the relevance pursuit
+        algorithm.
 
         Returns:
             A standard model.
         """
 
     def load_standard_model(self, standard_model: Model) -> RobustRelevancePursuitMixin:
-        """Loads the state dict of a model into the `RobustRelevancePursuitMixin`.
+        """Loads the state dict of a model into the ``RobustRelevancePursuitMixin``.
 
         Args:
             standard_model: A standard model with the same parameter structure and
-                likelihood as the `RobustRelevancePursuitMixin` model.
+                likelihood as the ``RobustRelevancePursuitMixin`` model.
 
         Returns:
-            The `RobustRelevancePursuitMixin` with the standard model's state dict.
+            The ``RobustRelevancePursuitMixin`` with the standard model's state dict.
         """
         # need special case for the likelihood because raw_rho's shape changes
         # throughout the optimization
@@ -171,34 +173,34 @@ class RobustRelevancePursuitSingleTaskGP(SingleTaskGP, RobustRelevancePursuitMix
         cache_model_trace: bool = False,
     ) -> None:
         r"""A robust single-task GP model that toggles the relevance pursuit algorithm
-            during model fitting via `fit_gpytorch_mll`.
+            during model fitting via ``fit_gpytorch_mll``.
 
         For details, see [Ament2024pursuit]_ or https://arxiv.org/abs/2410.24222.
 
         Args:
-            train_X: A `batch_shape x n x d` tensor of training features.
-            train_Y: A `batch_shape x n x m` tensor of training observations.
-            train_Yvar: An optional `batch_shape x n x m` tensor of observed
+            train_X: A ``batch_shape x n x d`` tensor of training features.
+            train_Y: A ``batch_shape x n x m`` tensor of training observations.
+            train_Yvar: An optional ``batch_shape x n x m`` tensor of observed
                 measurement noise.
             likelihood: A base likelihood that will be wrapped by a
-                `SparseOutlierGaussianLikelihood` to detect outliers. If omitted,
-                use a standard `GaussianLikelihood` with inferred noise level if
-                `train_Yvar` is None, and a `FixedNoiseGaussianLikelihood` with the
-                given noise observations if `train_Yvar` is not None.
+                ``SparseOutlierGaussianLikelihood`` to detect outliers. If omitted,
+                use a standard ``GaussianLikelihood`` with inferred noise level if
+                ``train_Yvar`` is None, and a ``FixedNoiseGaussianLikelihood`` with the
+                given noise observations if ``train_Yvar`` is not None.
             covar_module: The module computing the covariance (Kernel) matrix.
-                If omitted, uses an `RBFKernel`.
+                If omitted, uses an ``RBFKernel``.
             mean_module: The mean function to be used. If omitted, use a
-                `ConstantMean`.
+                ``ConstantMean``.
             outcome_transform: An outcome transform that is applied to the
                 training data during instantiation and to the posterior during
-                inference (that is, the `Posterior` obtained by calling
-                `.posterior` on the model will be on the original scale). We use a
-                `Standardize` transform if no `outcome_transform` is specified.
-                Pass down `None` to use no outcome transform.
+                inference (that is, the ``Posterior`` obtained by calling
+                ``.posterior`` on the model will be on the original scale). We use a
+                ``Standardize`` transform if no ``outcome_transform`` is specified.
+                Pass down ``None`` to use no outcome transform.
             input_transform: An input transform that is applied in the model's
                 forward pass.
             convex_parameterization: If True, use a convex parameterization of the
-                sparse noise model. See `SparseOutlierGaussianLikelihood` for details.
+                sparse noise model. See ``SparseOutlierGaussianLikelihood`` for details.
             prior_mean_of_support: The mean value for the default exponential prior
                 distribution over the support size.
             cache_model_trace: If True, cache the model trace during relevance pursuit.
@@ -286,21 +288,21 @@ def _fit_rrp(
             of fractions of outliers, see below.
         fractions_of_outliers: An optional list of fractions of outliers to consider if
             numbers_of_outliers is None. By default, the algorithm uses
-            `[0, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0]`.
+            ``[0, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0]``.
         relevance_pursuit_optimizer: The relevance pursuit optimizer to use. By default,
-            uses `backward_relevance_pursuit`, which is generally the most powerful
+            uses ``backward_relevance_pursuit``, which is generally the most powerful
             algorithm for challenging problems with a wide range of outliers. The
-            `forward_relevance_pursuit` algorithm can be efficient when the number of
+            ``forward_relevance_pursuit`` algorithm can be efficient when the number of
             outliers is relatively small.
         reset_parameters: If True, we will reset the sparse parameters of the model
             after each iteration of the relevance pursuit algorithm.
         reset_dense_parameters: If True, we will reset the dense parameters of the model
             after each iteration of the relevance pursuit algorithm.
         closure: A closure to use to compute the loss and the gradients, see docstring
-            of `fit_gpytorch_mll` for details.
-        optimizer: The numerical optimizer, see docstring of `fit_gpytorch_mll`.
-        closure_kwargs: Additional arguments to pass to the `closure` function.
-        optimizer_kwargs: Additional arguments to pass to `fit_gpytorch_mll`.
+            of ``fit_gpytorch_mll`` for details.
+        optimizer: The numerical optimizer, see docstring of ``fit_gpytorch_mll``.
+        closure_kwargs: Additional arguments to pass to the ``closure`` function.
+        optimizer_kwargs: Additional arguments to pass to ``fit_gpytorch_mll``.
 
     Returns:
         The fitted marginal likelihood.

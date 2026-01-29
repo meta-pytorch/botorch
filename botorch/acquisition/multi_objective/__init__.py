@@ -17,9 +17,6 @@ from botorch.acquisition.multi_objective.logei import (
     qLogExpectedHypervolumeImprovement,
     qLogNoisyExpectedHypervolumeImprovement,
 )
-from botorch.acquisition.multi_objective.max_value_entropy_search import (
-    qMultiObjectiveMaxValueEntropy,
-)
 from botorch.acquisition.multi_objective.monte_carlo import (
     qExpectedHypervolumeImprovement,
     qNoisyExpectedHypervolumeImprovement,
@@ -50,7 +47,6 @@ __all__ = [
     "qLogExpectedHypervolumeImprovement",
     "qLogNoisyExpectedHypervolumeImprovement",
     "qMultiFidelityHypervolumeKnowledgeGradient",
-    "qMultiObjectiveMaxValueEntropy",
     "qNoisyExpectedHypervolumeImprovement",
     "WeightedMCMultiOutputObjective",
 ]

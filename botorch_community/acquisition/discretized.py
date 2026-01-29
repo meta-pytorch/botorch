@@ -16,7 +16,6 @@ from botorch.acquisition.objective import (
     PosteriorTransform,
     ScalarizedPosteriorTransform,
 )
-
 from botorch.exceptions.errors import UnsupportedError
 from botorch.models.model import Model
 from botorch.utils.transforms import (
@@ -39,18 +38,32 @@ class DiscretizedAcquistionFunction(AcquisitionFunction, ABC):
     be implemented by subclasses to define the specific acquisition functions.
     """
 
-    def __init__(self, model: Model, posterior_transform: PosteriorTransform) -> None:
+    def __init__(
+        self,
+        model: Model,
+        posterior_transform: PosteriorTransform,
+        assume_symmetric_posterior: bool = True,
+    ) -> None:
         r"""
         Initialize the DiscretizedAcquistionFunction
 
         Args:
             model: A fitted model that is used to compute the posterior
                 distribution over the outcomes of interest.
-                The model should be a `PFNModel`.
+                The model should be a ``PFNModel``.
             posterior_transform: A ScalarizedPosteriorTransform that can only
                 indicate minimization or maximization of the objective.
+            assume_symmetric_posterior: If True, we simply negate train y, if
+                the task is to minimize the objective. Else, we use a proper
+                posterior transform. We cannot do this generally, as some
+                models only support maximization. This does not mean that
+                the posterior distribution for a particular set is symmetric
+                but that one can negate the y's of the context and get out
+                negated ys.
         """
         super().__init__(model=model)
+        self.set_X_pending(None)
+        self.assume_symmetric_posterior = assume_symmetric_posterior
         self.maximize = True
         if posterior_transform is not None:
             unsupported_error_message = (
@@ -73,15 +86,19 @@ class DiscretizedAcquistionFunction(AcquisitionFunction, ABC):
         r"""Evaluate the acquisition function on the candidate set X.
 
         Args:
-            X: A `(b) x q x d`-dim Tensor of `(b)` t-batches with `q` `d`-dim
+            X: A ``(b) x q x d``-dim Tensor of ``(b)`` t-batches with ``q`` ``d``-dim
                 design points each.
 
         Returns:
-            A `(b)`-dim Tensor of the acquisition function at the given
-            design points `X`.
+            A ``(b)``-dim Tensor of the acquisition function at the given
+            design points ``X``.
         """
-        discrete_posterior = self.model.posterior(X)
-        if not self.maximize:
+        discrete_posterior = self.model.posterior(
+            X,
+            pending_X=self.X_pending,
+            negate_train_ys=(not self.maximize) and self.assume_symmetric_posterior,
+        )
+        if not self.maximize and not self.assume_symmetric_posterior:
             discrete_posterior.borders = -torch.flip(discrete_posterior.borders, [0])
             discrete_posterior.probabilities = torch.flip(
                 discrete_posterior.probabilities, [-1]
@@ -99,7 +116,7 @@ class DiscretizedAcquistionFunction(AcquisitionFunction, ABC):
         That is, our acquisition function is assumed to have the form
         \int ag(x) * p(x) dx,
         and this function calculates \int_{lower_bound}^{upper_bound} ag(x) dx.
-        The `integrate` method of the posterior (`BoundedRiemannPosterior`)
+        The ``integrate`` method of the posterior (``BoundedRiemannPosterior``)
         then computes the final acquisition value.
 
         Args:
@@ -107,8 +124,8 @@ class DiscretizedAcquistionFunction(AcquisitionFunction, ABC):
             upper_bound: upper bound of integral
 
         Returns:
-            A `(b)`-dim Tensor of acquisition function derivatives at the given
-            design points `X`.
+            A ``(b)``-dim Tensor of acquisition function derivatives at the given
+            design points ``X``.
         """
         pass  # pragma: no cover
 
@@ -124,6 +141,7 @@ class DiscretizedExpectedImprovement(DiscretizedAcquistionFunction):
         model: Model,
         best_f: Tensor,
         posterior_transform: PosteriorTransform | None = None,
+        assume_symmetric_posterior: bool = True,
     ) -> None:
         r"""
         Initialize the DiscretizedExpectedImprovement
@@ -131,10 +149,14 @@ class DiscretizedExpectedImprovement(DiscretizedAcquistionFunction):
         Args:
             model: A fitted model that is used to compute the posterior
                 distribution over the outcomes of interest.
-                The model should be a `PFNModel`.
+                The model should be a ``PFNModel``.
             best_f: A tensor representing the current best observed value.
         """
-        super().__init__(model=model, posterior_transform=posterior_transform)
+        super().__init__(
+            model=model,
+            posterior_transform=posterior_transform,
+            assume_symmetric_posterior=assume_symmetric_posterior,
+        )
         self.register_buffer("best_f", torch.as_tensor(best_f))
 
     def ag_integrate(self, lower_bound: Tensor, upper_bound: Tensor) -> Tensor:
@@ -150,8 +172,8 @@ class DiscretizedExpectedImprovement(DiscretizedAcquistionFunction):
             upper_bound: upper bound of integral
 
         Returns:
-            A `(b)`-dim Tensor of acquisition function derivatives at the given
-            design points `X`.
+            A ``(b)``-dim Tensor of acquisition function derivatives at the given
+            design points ``X``.
         """
         best_f = self.best_f.to(lower_bound)
 
@@ -187,6 +209,30 @@ class DiscretizedExpectedImprovement(DiscretizedAcquistionFunction):
         return result.clamp_min(0)
 
 
+class DiscretizedNoisyExpectedImprovement(DiscretizedExpectedImprovement):
+    def __init__(
+        self,
+        model: Model,
+        posterior_transform: PosteriorTransform | None = None,
+        X_pending: Tensor | None = None,
+    ) -> None:
+        r"""
+        Only works with models trained specifically for this.
+
+        Args:
+            model: A fitted model that is used to compute the posterior
+                distribution over the outcomes of interest.
+                The model should be a ``PFNModel``.
+            best_f: A tensor representing the current best observed value.
+        """
+        super().__init__(
+            model=model,
+            posterior_transform=posterior_transform,
+            best_f=0.0,
+        )
+        self.set_X_pending(X_pending)
+
+
 class DiscretizedProbabilityOfImprovement(DiscretizedAcquistionFunction):
     r"""DiscretizedProbabilityOfImprovement is an acquisition function that
     computes the probability of improvement over the current best observed value
@@ -198,6 +244,7 @@ class DiscretizedProbabilityOfImprovement(DiscretizedAcquistionFunction):
         model: Model,
         best_f: Tensor,
         posterior_transform: PosteriorTransform | None = None,
+        assume_symmetric_posterior: bool = True,
     ) -> None:
         r"""
         Initialize the DiscretizedProbabilityOfImprovement
@@ -205,11 +252,15 @@ class DiscretizedProbabilityOfImprovement(DiscretizedAcquistionFunction):
         Args:
             model: A fitted model that is used to compute the posterior
                 distribution over the outcomes of interest.
-                The model should be a `PFNModel`.
+                The model should be a ``PFNModel``.
             best_f: A tensor representing the current best observed value.
         """
 
-        super().__init__(model, posterior_transform)
+        super().__init__(
+            model,
+            posterior_transform,
+            assume_symmetric_posterior=assume_symmetric_posterior,
+        )
         self.register_buffer("best_f", torch.as_tensor(best_f))
 
     def ag_integrate(self, lower_bound: Tensor, upper_bound: Tensor) -> Tensor:
@@ -229,8 +280,8 @@ class DiscretizedProbabilityOfImprovement(DiscretizedAcquistionFunction):
             upper_bound: upper bound of integral
 
         Returns:
-            A `(b)`-dim Tensor of acquisition function derivatives at the given
-            design points `X`.
+            A ``(b)``-dim Tensor of acquisition function derivatives at the given
+            design points ``X``.
         """
         best_f = self.best_f.to(lower_bound)
         # two separate clamps needed below, as one is a tensor and one a scalar

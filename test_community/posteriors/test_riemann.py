@@ -5,6 +5,8 @@
 # LICENSE file in the root directory of this source tree.
 
 import torch
+from botorch.sampling.get_sampler import get_sampler
+from botorch.sampling.normal import NormalMCSampler
 from botorch.utils.testing import BotorchTestCase
 from botorch_community.posteriors.riemann import (
     BoundedRiemannPosterior,
@@ -23,6 +25,7 @@ class TestRiemannPosterior(BotorchTestCase):
             self.assertTrue(torch.equal(posterior.probabilities, probabilities))
             self.assertEqual(posterior.dtype, dtype)
             self.assertEqual(posterior.device, self.device)
+            self.assertEqual(posterior.base_sample_shape, probabilities.shape[:-1])
 
     def test_integrate(self):
         for dtype in (torch.float, torch.double):
@@ -252,3 +255,20 @@ class TestMultivariateRiemannPosterior(BotorchTestCase):
         self.assertTrue(
             torch.abs(torch.corrcoef(samples[:, 1, :].squeeze().T)[0, 1]).item() > 0.8
         )
+
+
+class TestGetSamplerRiemann(BotorchTestCase):
+    def test_get_sampler_riemann(self):
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        borders = torch.linspace(0, 1, 101, **tkwargs)
+        probabilities = torch.ones(10, **tkwargs) / 10
+        posterior = BoundedRiemannPosterior(borders, probabilities)
+
+        for seed, sample_shape in ((None, torch.Size([32])), (42, torch.Size([4, 64]))):
+            sampler = get_sampler(
+                posterior=posterior, seed=seed, sample_shape=sample_shape
+            )
+            self.assertIsInstance(sampler, NormalMCSampler)
+            self.assertEqual(sampler.sample_shape, sample_shape)
+            if seed is not None:
+                self.assertEqual(sampler.seed, seed)

@@ -28,7 +28,7 @@ from torch.quasirandom import SobolEngine
 class NormalMCSampler(MCSampler, ABC):
     r"""Base class for samplers producing (possibly QMC) N(0,1) samples.
 
-    Subclasses must implement the `_construct_base_samples` method.
+    Subclasses must implement the ``_construct_base_samples`` method.
     """
 
     def forward(self, posterior: Posterior) -> Tensor:
@@ -54,11 +54,11 @@ class NormalMCSampler(MCSampler, ABC):
         r"""Generate base samples (if necessary).
 
         This function will generate a new set of base samples and register the
-        `base_samples` buffer if one of the following is true:
+        ``base_samples`` buffer if one of the following is true:
 
-        - the MCSampler has no `base_samples` attribute.
-        - the output of `_get_collapsed_shape` does not agree with the shape of
-            `self.base_samples`.
+        - the MCSampler has no ``base_samples`` attribute.
+        - the output of ``_get_collapsed_shape`` does not agree with the shape of
+            ``self.base_samples``.
 
         Args:
             posterior: The Posterior for which to generate base samples.
@@ -80,7 +80,7 @@ class NormalMCSampler(MCSampler, ABC):
         self._construct_base_samples(posterior=posterior)
         if base_sampler.base_samples is not None:
             current_base_samples = base_sampler.base_samples.detach().clone()
-            # This is the # of non-`sample_shape` dimensions.
+            # This is the # of non-``sample_shape`` dimensions.
             base_ndims = current_base_samples.dim() - 1
             # Unsqueeze as many dimensions as needed to match target_shape.
             target_shape = self._get_collapsed_shape(posterior=posterior)
@@ -145,14 +145,14 @@ class IIDNormalSampler(NormalMCSampler):
     """
 
     def _construct_base_samples(self, posterior: Posterior) -> None:
-        r"""Generate iid `N(0,1)` base samples (if necessary).
+        r"""Generate iid ``N(0,1)`` base samples (if necessary).
 
         This function will generate a new set of base samples and set the
-        `base_samples` buffer if one of the following is true:
+        ``base_samples`` buffer if one of the following is true:
 
-        - the MCSampler has no `base_samples` attribute.
-        - the output of `_get_collapsed_shape` does not agree with the shape of
-            `self.base_samples`.
+        - the MCSampler has no ``base_samples`` attribute.
+        - the output of ``_get_collapsed_shape`` does not agree with the shape of
+            ``self.base_samples``.
 
         Args:
             posterior: The Posterior for which to generate base samples.
@@ -183,11 +183,11 @@ class SobolQMCNormalSampler(NormalMCSampler):
         r"""Generate quasi-random Normal base samples (if necessary).
 
         This function will generate a new set of base samples and set the
-        `base_samples` buffer if one of the following is true:
+        ``base_samples`` buffer if one of the following is true:
 
-        - the MCSampler has no `base_samples` attribute.
-        - the output of `_get_collapsed_shape` does not agree with the shape of
-            `self.base_samples`.
+        - the MCSampler has no ``base_samples`` attribute.
+        - the output of ``_get_collapsed_shape`` does not agree with the shape of
+            ``self.base_samples``.
 
         Args:
             posterior: The Posterior for which to generate base samples.

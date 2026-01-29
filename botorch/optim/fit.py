@@ -9,7 +9,6 @@ r"""Tools for model fitting."""
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-
 from functools import partial
 from typing import Any, Optional
 from warnings import warn
@@ -55,31 +54,32 @@ def fit_gpytorch_mll_scipy(
     callback: Callable[[dict[str, Tensor], OptimizationResult], None] | None = None,
     timeout_sec: float | None = None,
 ) -> OptimizationResult:
-    r"""Generic scipy.optimized-based fitting routine for GPyTorch MLLs.
+    r"""Generic scipy.optimize-based fitting routine for GPyTorch MLLs.
 
     The model and likelihood in mll must already be in train mode.
 
     Args:
         mll: MarginalLogLikelihood to be maximized.
         parameters: Optional dictionary of parameters to be optimized. Defaults
-            to all parameters of `mll` that require gradients.
-        bounds: A dictionary of user-specified bounds for `parameters`. Used to update
-            default parameter bounds obtained from `mll`.
-        closure: Callable that returns a tensor and an iterable of gradient tensors.
-            Responsible for setting the `grad` attributes of `parameters`. If no closure
-            is provided, one will be obtained by calling `get_loss_closure_with_grads`.
-        closure_kwargs: Keyword arguments passed to `closure`.
+            to all parameters of ``mll`` that require gradients.
+        bounds: A dictionary of user-specified bounds for ``parameters``. Used to update
+            default parameter bounds obtained from ``mll``.
+        closure: Callable that returns a tensor and an iterable of gradient
+            tensors. Responsible for setting the ``grad`` attributes of
+            ``parameters``. If no closure is provided, one will be obtained
+            by calling ``get_loss_closure_with_grads``.
+        closure_kwargs: Keyword arguments passed to ``closure``.
         method: Solver type, passed along to scipy.optimize.minimize.
         options: Dictionary of solver options, passed along to scipy.optimize.minimize.
-        callback: Optional callback taking `parameters` and an OptimizationResult as its
-            sole arguments.
+        callback: Optional callback taking ``parameters`` and an
+            ``OptimizationResult`` as its sole arguments.
         timeout_sec: Timeout in seconds after which to terminate the fitting loop
             (note that timing out can result in bad fits!).
 
     Returns:
         The final OptimizationResult.
     """
-    # Resolve `parameters` and update default bounds
+    # Resolve ``parameters`` and update default bounds
     _parameters, _bounds = get_parameters_and_bounds(mll)
     bounds = _bounds if bounds is None else {**_bounds, **bounds}
     if parameters is None:
@@ -129,21 +129,22 @@ def fit_gpytorch_mll_torch(
     Args:
         mll: MarginalLogLikelihood to be maximized.
         parameters: Optional dictionary of parameters to be optimized. Defaults
-            to all parameters of `mll` that require gradients.
-        bounds: A dictionary of user-specified bounds for `parameters`. Used to update
-            default parameter bounds obtained from `mll`.
-        closure: Callable that returns a tensor and an iterable of gradient tensors.
-            Responsible for setting the `grad` attributes of `parameters`. If no closure
-            is provided, one will be obtained by calling `get_loss_closure_with_grads`.
-        closure_kwargs: Keyword arguments passed to `closure`.
+            to all parameters of ``mll`` that require gradients.
+        bounds: A dictionary of user-specified bounds for ``parameters``. Used to update
+            default parameter bounds obtained from ``mll``.
+        closure: Callable that returns a tensor and an iterable of gradient
+            tensors. Responsible for setting the ``grad`` attributes of
+            ``parameters``. If no closure is provided, one will be obtained
+            by calling ``get_loss_closure_with_grads``.
+        closure_kwargs: Keyword arguments passed to ``closure``.
         step_limit: Optional upper bound on the number of optimization steps.
         stopping_criterion: A StoppingCriterion for the optimization loop.
-        optimizer: A `torch.optim.Optimizer` instance or a factory that takes
-            a list of parameters and returns an `Optimizer` instance.
-        scheduler: A `torch.optim.lr_scheduler._LRScheduler` instance or a factory
-            that takes an `Optimizer` instance and returns an `_LRSchedule`.
-        callback: Optional callback taking `parameters` and an OptimizationResult as its
-            sole arguments.
+        optimizer: A ``torch.optim.Optimizer`` instance or a factory that takes
+            a list of parameters and returns an ``Optimizer`` instance.
+        scheduler: A ``torch.optim.lr_scheduler._LRScheduler`` instance or a factory
+            that takes an ``Optimizer`` instance and returns an ``_LRSchedule``.
+        callback: Optional callback taking ``parameters`` and an
+            OptimizationResult as its sole arguments.
         timeout_sec: Timeout in seconds after which to terminate the fitting loop
             (note that timing out can result in bad fits!).
 
@@ -153,7 +154,7 @@ def fit_gpytorch_mll_torch(
     if stopping_criterion == DEFAULT:
         stopping_criterion = ExpMAStoppingCriterion()
 
-    # Resolve `parameters` and update default bounds
+    # Resolve ``parameters`` and update default bounds
     param_dict, bounds_dict = get_parameters_and_bounds(mll)
     if parameters is None:
         parameters = {n: p for n, p in param_dict.items() if p.requires_grad}

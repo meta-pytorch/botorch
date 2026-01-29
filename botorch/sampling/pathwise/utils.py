@@ -125,7 +125,7 @@ class OutputscaleTransform(TensorTransform):
         r"""Initializes an OutputscaleTransform instance.
 
         Args:
-            kernel: A ScaleKernel whose `outputscale` is to be used.
+            kernel: A ScaleKernel whose ``outputscale`` is to be used.
         """
         super().__init__()
         self.kernel = kernel
@@ -161,7 +161,7 @@ class FeatureSelector(TensorTransform):
 
 
 class OutcomeUntransformer(TensorTransform):
-    r"""Module acting as a bridge for `OutcomeTransform.untransform`."""
+    r"""Module acting as a bridge for ``OutcomeTransform.untransform``."""
 
     def __init__(
         self,
@@ -278,7 +278,7 @@ def get_train_targets(model: Model, transformed: bool = False):
 def _get_train_targets_Model(model: Model, transformed: bool = False) -> Tensor:
     Y = model.train_targets
 
-    # Note: Avoid using `get_output_transform` here since it creates a Module
+    # Note: Avoid using ``get_output_transform`` here since it creates a Module
     transform = getattr(model, "outcome_transform", None)
     if transformed or transform is None:
         return Y
@@ -300,7 +300,7 @@ def _get_train_targets_SingleTaskVariationalGP(
     if model.num_outputs == 1:
         return transform.untransform(Y.unsqueeze(-1))[0].squeeze(-1)
 
-    # SingleTaskVariationalGP.__init__ doesn't bring the multitoutpout dimension inside
+    # SingleTaskVariationalGP.__init__ doesn't bring the multioutput dimension inside
     return transform.untransform(Y)[0]
 
 

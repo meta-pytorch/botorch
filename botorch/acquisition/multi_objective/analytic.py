@@ -47,7 +47,7 @@ class ExpectedHypervolumeImprovement(MultiObjectiveAnalyticAcquisitionFunction):
     ) -> None:
         r"""Expected Hypervolume Improvement supporting m>=2 outcomes.
 
-        This implements the computes EHVI using the algorithm from [Yang2019]_, but
+        This computes EHVI using the algorithm from [Yang2019]_, but
         additionally computes gradients via auto-differentiation as proposed by
         [Daulton2020qehvi]_.
 
@@ -55,7 +55,7 @@ class ExpectedHypervolumeImprovement(MultiObjectiveAnalyticAcquisitionFunction):
         algorithm that we use for the box decomposition:
 
             - We have more boxes in our decomposition
-            - If we used a box decomposition that used `inf` as the upper bound for
+            - If we used a box decomposition that used ``inf`` as the upper bound for
                 the last dimension *in all hypercells*, then we could reduce the number
                 of terms we need to compute from 2^m to 2^(m-1). [Yang2019]_ do this
                 by using DKLV17 and LKF17 for the box decomposition.
@@ -73,14 +73,14 @@ class ExpectedHypervolumeImprovement(MultiObjectiveAnalyticAcquisitionFunction):
 
         Args:
             model: A fitted model.
-            ref_point: A list with `m` elements representing the reference point
+            ref_point: A list with ``m`` elements representing the reference point
                 (in the outcome space) w.r.t. to which compute the hypervolume.
                 This is a reference point for the outcome values (i.e., after
-                applying `posterior_transform` if provided).
-            partitioning: A `NondominatedPartitioning` module that provides the non-
+                applying ``posterior_transform`` if provided).
+            partitioning: A ``NondominatedPartitioning`` module that provides the non-
                 dominated front and a partitioning of the non-dominated space in hyper-
                 rectangles.
-            posterior_transform: A `PosteriorTransform`.
+            posterior_transform: A ``PosteriorTransform``.
         """
         # TODO: we could refactor this __init__ logic into a
         # HypervolumeAcquisitionFunction Mixin
@@ -106,7 +106,7 @@ class ExpectedHypervolumeImprovement(MultiObjectiveAnalyticAcquisitionFunction):
         cell_bounds = self.partitioning.get_hypercell_bounds()
         self.register_buffer("cell_lower_bounds", cell_bounds[0])
         self.register_buffer("cell_upper_bounds", cell_bounds[1])
-        # create indexing tensor of shape `2^m x m`
+        # create indexing tensor of shape ``2^m x m``
         self._cross_product_indices = torch.tensor(
             list(product(*[[0, 1] for _ in range(ref_point.shape[0])])),
             dtype=torch.long,
@@ -128,13 +128,14 @@ class ExpectedHypervolumeImprovement(MultiObjectiveAnalyticAcquisitionFunction):
         See Equation 19 in [Yang2019]_ for more details.
 
         Args:
-            lower: A `num_cells x m`-dim tensor of lower cell bounds
-            upper: A `num_cells x m`-dim tensor of upper cell bounds
-            mu: A `batch_shape x 1 x m`-dim tensor of means
-            sigma: A `batch_shape x 1 x m`-dim tensor of standard deviations (clamped).
+            lower: A ``num_cells x m``-dim tensor of lower cell bounds
+            upper: A ``num_cells x m``-dim tensor of upper cell bounds
+            mu: A ``batch_shape x 1 x m``-dim tensor of means
+            sigma: A ``batch_shape x 1 x m``-dim tensor of standard
+                deviations (clamped).
 
         Returns:
-            A `batch_shape x num_cells x m`-dim tensor of values.
+            A ``batch_shape x num_cells x m``-dim tensor of values.
         """
         u = (upper - mu) / sigma
         return sigma * self.normal.log_prob(u).exp() + (mu - lower) * (
@@ -153,13 +154,14 @@ class ExpectedHypervolumeImprovement(MultiObjectiveAnalyticAcquisitionFunction):
         See Equation 25 in [Yang2019]_ for more details.
 
         Args:
-            lower: A `num_cells x m`-dim tensor of lower cell bounds
-            upper: A `num_cells x m`-dim tensor of upper cell bounds
-            mu: A `batch_shape x 1 x m`-dim tensor of means
-            sigma: A `batch_shape x 1 x m`-dim tensor of standard deviations (clamped).
+            lower: A ``num_cells x m``-dim tensor of lower cell bounds
+            upper: A ``num_cells x m``-dim tensor of upper cell bounds
+            mu: A ``batch_shape x 1 x m``-dim tensor of means
+            sigma: A ``batch_shape x 1 x m``-dim tensor of standard
+                deviations (clamped).
 
         Returns:
-            A `batch_shape x num_cells x m`-dim tensor of values.
+            A ``batch_shape x num_cells x m``-dim tensor of values.
         """
         return (upper - lower) * (1 - self.normal.cdf((upper - mu) / sigma))
 
@@ -171,7 +173,7 @@ class ExpectedHypervolumeImprovement(MultiObjectiveAnalyticAcquisitionFunction):
         )
         mu = posterior.mean
         sigma = posterior.variance.clamp_min(1e-9).sqrt()
-        # clamp here, since upper_bounds will contain `inf`s, which
+        # clamp here, since upper_bounds will contain ``inf``s, which
         # are not differentiable
         cell_upper_bounds = self.cell_upper_bounds.clamp_max(
             1e10 if X.dtype == torch.double else 1e8
@@ -204,7 +206,7 @@ class ExpectedHypervolumeImprovement(MultiObjectiveAnalyticAcquisitionFunction):
         # [nu_0, psi_diff_1]
         # [psi_diff_0, nu_1]
         # [nu_0, nu_1]
-        # this tensor has shape: `batch_shape x num_cells x 2^m x m`
+        # this tensor has shape: ``batch_shape x num_cells x 2^m x m``
         all_factors_up_to_last = stacked_factors.gather(
             dim=-2,
             index=self._cross_product_indices.expand(

@@ -87,7 +87,7 @@ class PairwiseIIDNormalSampler(PairwiseMCSampler, IIDNormalSampler):
     ) -> None:
         r"""
         Args:
-            sample_shape: The `sample_shape` of the samples to generate.
+            sample_shape: The ``sample_shape`` of the samples to generate.
             seed: The seed for the RNG. If omitted, use a random seed.
             max_num_comparisons:  Max number of comparisons drawn within samples.
                 If None, use all possible pairwise comparisons.
@@ -109,7 +109,7 @@ class PairwiseSobolQMCNormalSampler(PairwiseMCSampler, SobolQMCNormalSampler):
     ) -> None:
         r"""
         Args:
-            sample_shape: The `sample_shape` of the samples to generate.
+            sample_shape: The ``sample_shape`` of the samples to generate.
             seed: The seed for the RNG. If omitted, use a random seed.
             max_num_comparisons:  Max number of comparisons drawn within samples.
                 If None, use all possible pairwise comparisons.

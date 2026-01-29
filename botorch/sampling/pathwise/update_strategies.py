@@ -7,13 +7,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-
 from types import NoneType
-
 from typing import Any
 
 import torch
-
 from botorch.models.approximate_gp import ApproximateGPyTorchModel
 from botorch.models.transforms.input import InputTransform
 from botorch.sampling.pathwise.features import KernelEvaluationMap
@@ -57,15 +54,15 @@ def gaussian_update(
                                                 V
                                     "Gaussian pathwise update"
 
-    where `=` denotes equality in distribution, :math:`f \sim GP(0, k)`,
-    :math:`y \sim N(f(X), \Sigma)`, and :math:`\epsilon \sim N(0, \Sigma)`.
+    where ``=`` denotes equality in distribution, :math:``f \sim GP(0, k)``,
+    :math:``y \sim N(f(X), \Sigma)``, and :math:``\epsilon \sim N(0, \Sigma)``.
     For more information, see [wilson2020sampling]_ and [wilson2021pathwise]_.
 
     Args:
         model: A Gaussian process prior together with a likelihood.
-        sample_values: Assumed values for :math:`f(X)`.
+        sample_values: Assumed values for :math:``f(X)``.
         likelihood: An optional likelihood used to help define the desired
-            update. Defaults to `model.likelihood` if it exists else None.
+            update. Defaults to ``model.likelihood`` if it exists else None.
     """
     if likelihood is DEFAULT:
         likelihood = getattr(model, "likelihood", None)
@@ -83,7 +80,7 @@ def _gaussian_update_exact(
     input_transform: TInputTransform | None = None,
     is_ensemble: bool = False,
 ) -> GeneralizedLinearPath:
-    # Prepare Cholesky factor of `Cov(y, y)` and noise sample values as needed
+    # Prepare Cholesky factor of ``Cov(y, y)`` and noise sample values as needed
     if isinstance(noise_covariance, (NoneType, ZeroLinearOperator)):
         scale_tril = kernel(points).cholesky() if scale_tril is None else scale_tril
     else:
@@ -96,7 +93,7 @@ def _gaussian_update_exact(
             else scale_tril
         )
 
-    # Solve for `Cov(y, y)^{-1}(Y - f(X) - ε)`
+    # Solve for ``Cov(y, y)^{-1}(Y - f(X) - ε)``
     errors = target_values - sample_values
     weight = torch.cholesky_solve(errors.unsqueeze(-1), scale_tril.to_dense())
 
@@ -172,13 +169,13 @@ def _gaussian_update_ApproximateGP_VariationalStrategy(
     input_transform: InputTransform | None = None,
     **ignore: Any,
 ) -> GeneralizedLinearPath:
-    # TODO: Account for jitter added by `psd_safe_cholesky`
+    # TODO: Account for jitter added by ``psd_safe_cholesky``
     if not isinstance(noise_covariance, (NoneType, ZeroLinearOperator)):
         raise NotImplementedError(
             f"`noise_covariance` argument not yet supported for {type(model)}."
         )
 
-    # Inducing points `Z` are assumed to live in transformed space
+    # Inducing points ``Z`` are assumed to live in transformed space
     batch_shape = model.covar_module.batch_shape
     v = model.variational_strategy
     Z = v.inducing_points
@@ -186,7 +183,7 @@ def _gaussian_update_ApproximateGP_VariationalStrategy(
         dtype=sample_values.dtype
     )
 
-    # Generate whitened inducing variables `u`, then location-scale transform
+    # Generate whitened inducing variables ``u``, then location-scale transform
     if target_values is None:
         u = v.variational_distribution.rsample(
             sample_values.shape[: sample_values.ndim - len(batch_shape) - 1],

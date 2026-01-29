@@ -69,41 +69,42 @@ class LinearEllipticalSliceSampler(PolytopeSampler):
         r"""Initialize LinearEllipticalSliceSampler.
 
         Args:
-            inequality_constraints: Tensors `(A, b)` describing inequality constraints
-                 `A @ x <= b`, where `A` is an `n_ineq_con x d`-dim Tensor and `b` is
-                 an `n_ineq_con x 1`-dim Tensor, with `n_ineq_con` the number of
-                 inequalities and `d` the dimension of the sample space. If omitted,
-                 must provide `bounds` instead.
-            bounds: A `2 x d`-dim tensor of box bounds. If omitted, must provide
-                `inequality_constraints` instead.
-            interior_point: A `d x 1`-dim Tensor presenting a point in the (relative)
+            inequality_constraints: Tensors ``(A, b)`` describing inequality
+                 constraints ``A @ x <= b``, where ``A`` is an
+                 ``n_ineq_con x d``-dim Tensor and ``b`` is an
+                 ``n_ineq_con x 1``-dim Tensor, with ``n_ineq_con`` the number of
+                 inequalities and ``d`` the dimension of the sample space. If omitted,
+                 must provide ``bounds`` instead.
+            bounds: A ``2 x d``-dim tensor of box bounds. If omitted, must provide
+                ``inequality_constraints`` instead.
+            interior_point: A ``d x 1``-dim Tensor presenting a point in the (relative)
                 interior of the polytope. If omitted, an interior point is determined
                 automatically by solving a Linear Program. Note: It is crucial that
                 the point lie in the interior of the feasible set (rather than on the
                 boundary), otherwise the sampler will produce invalid samples.
-            fixed_indices: Integer list or `d`-dim Tensor representing the indices of
-                dimensions that are constrained to be fixed to the values specified in
-                the `interior_point`, which is required to be passed in conjunction with
-                `fixed_indices`.
-            mean: The `d x 1`-dim mean of the MVN distribution (if omitted, use zero).
-            covariance_matrix: The `d x d`-dim covariance matrix of the MVN
+            fixed_indices: Integer list or ``d``-dim Tensor representing the indices
+                of dimensions that are constrained to be fixed to the values specified
+                in the ``interior_point``, which is required to be passed in
+                conjunction with ``fixed_indices``.
+            mean: The ``d x 1``-dim mean of the MVN distribution (if omitted, use zero).
+            covariance_matrix: The ``d x d``-dim covariance matrix of the MVN
                 distribution (if omitted, use the identity).
-            covariance_root: A `d x d`-dim root of the covariance matrix such that
+            covariance_root: A ``d x d``-dim root of the covariance matrix such that
                 covariance_root @ covariance_root.T = covariance_matrix. NOTE: This
                 matrix is assumed to be lower triangular. covariance_root can only be
                 passed in conjunction with fixed_indices if covariance_root is a
                 DiagLinearOperator. Otherwise the factorization would need to be re-
-                computed, as we need to solve in `standardize`.
+                computed, as we need to solve in ``standardize``.
             check_feasibility: If True, raise an error if the sampling results in an
                 infeasible sample. This creates some overhead and so is switched off
                 by default.
             burnin: Number of samples to generate upon initialization to warm up the
                 sampler.
-            thinning: Number of samples to skip before returning a sample in `draw`.
+            thinning: Number of samples to skip before returning a sample in ``draw``.
             num_chains: Number of Markov chains to run in parallel.
 
-        This sampler samples from a multivariante Normal `N(mean, covariance_matrix)`
-        subject to linear domain constraints `A x <= b` (intersected with box bounds,
+        This sampler samples from a multivariante Normal ``N(mean, covariance_matrix)``
+        subject to linear domain constraints ``A x <= b`` (intersected with box bounds,
         if provided).
         """
         if interior_point is not None and interior_point.ndim == 1:
@@ -189,14 +190,15 @@ class LinearEllipticalSliceSampler(PolytopeSampler):
         covariance_root: Tensor | None,
     ) -> tuple[Tensor | None, Tensor | None]:
         """Modifies the constraint system (A, b) due to fixed indices and assigns
-        the modified constraints system to `self._Az`, `self._bz`. NOTE: Needs to be
-        called prior to `self._standardization_initialization` in the constructor.
+        the modified constraints system to ``self._Az``, ``self._bz``. NOTE: Needs to be
+        called prior to ``self._standardization_initialization`` in the constructor.
         covariance_root and fixed_indices can both not be None only if covariance_root
         is a DiagLinearOperator. Otherwise, the covariance matrix would need to be
         refactorized.
 
         Returns:
-            Tuple of `mean` and `covariance_matrix` tensors of the non-fixed dimensions.
+            Tuple of ``mean`` and ``covariance_matrix`` tensors of the non-fixed
+            dimensions.
         """
         if interior_point is None:
             raise ValueError(
@@ -261,7 +263,7 @@ class LinearEllipticalSliceSampler(PolytopeSampler):
             n: The number of samples.
 
         Returns:
-            A `(n * num_chains) x d`-dim tensor of `n * num_chains` samples.
+            A ``(n * num_chains) x d``-dim tensor of ``n * num_chains`` samples.
         """
         samples = []
         for _ in range(n):
@@ -274,7 +276,7 @@ class LinearEllipticalSliceSampler(PolytopeSampler):
         r"""Take a step, return the new sample, update the internal state.
 
         Returns:
-            A `d x num_chains`-dim tensor, where each column is a sample from a Markov
+            A ``d x num_chains``-dim tensor, where each column is a sample from a Markov
             chain.
         """
         nu = torch.randn_like(self._z)
@@ -299,10 +301,11 @@ class LinearEllipticalSliceSampler(PolytopeSampler):
         r"""Draw the rotation angle.
 
         Args:
-            nu: A `d x num_chains`-dim tensor (the "new" direction, drawn from N(0, I)).
+            nu: A ``d x num_chains``-dim tensor (the "new" direction, drawn from
+                N(0, I)).
 
         Returns:
-            A `num_chains`-dim Tensor containing the rotation angle (radians).
+            A ``num_chains``-dim Tensor containing the rotation angle (radians).
         """
         left, right = self._find_active_intersection_angles(nu)
         left, right = self._trim_intervals(left, right)
@@ -329,11 +332,12 @@ class LinearEllipticalSliceSampler(PolytopeSampler):
         r"""Determine location on the ellipse in Cartesian coordinates.
 
         Args:
-            nu: A `d x num_chains`-dim tensor (the "new" direction, drawn from N(0, I)).
-            theta: A `num_chains`-dim tensor of angles.
+            nu: A ``d x num_chains``-dim tensor (the "new" direction, drawn from
+                N(0, I)).
+            theta: A ``num_chains``-dim tensor of angles.
 
         Returns:
-            A `d x num_chains`-dim tensor of samples from the domain in Cartesian
+            A ``d x num_chains``-dim tensor of samples from the domain in Cartesian
             coordinates.
         """
         return self._z * torch.cos(theta) + nu * torch.sin(theta)
@@ -351,10 +355,11 @@ class LinearEllipticalSliceSampler(PolytopeSampler):
         """Construct the active intersection angles.
 
         Args:
-            nu: A `d x num_chains`-dim tensor (the "new" direction, drawn from N(0, I)).
+            nu: A ``d x num_chains``-dim tensor (the "new" direction, drawn from
+                N(0, I)).
 
         Returns:
-            A tuple (left, right) of two tensors of size `num_chains x m` representing
+            A tuple (left, right) of two tensors of size ``num_chains x m`` representing
             the active intersection angles. For the i-th Markov chain and the j-th
             constraint, a pair of angles left[i, j] and right[i, j] is active if and
             only if left[i, j] <= right[i, j]. If left[i, j] > right[i, j], they are
@@ -362,8 +367,8 @@ class LinearEllipticalSliceSampler(PolytopeSampler):
         """
         alpha, beta = self._find_intersection_angles(nu)
 
-        # It's easier to put `num_chains` as the first dimension,
-        # because `torch.searchsorted` only supports searching in the last dimension
+        # It's easier to put ``num_chains`` as the first dimension,
+        # because ``torch.searchsorted`` only supports searching in the last dimension
         alpha, beta = alpha.T, beta.T
 
         srted, indices = torch.sort(alpha, descending=False)
@@ -376,17 +381,18 @@ class LinearEllipticalSliceSampler(PolytopeSampler):
 
     def _find_intersection_angles(self, nu: Tensor) -> tuple[Tensor, Tensor]:
         """Compute all 2 * m intersections of the ellipse and the domain, where
-        `m = n_ineq_con` is the number of inequality constraints defining the domain.
+        ``m = n_ineq_con`` is the number of inequality constraints defining the domain.
         If the i-th linear inequality constraint has no intersection with the ellipse,
         we will create two dummy intersection angles alpha_i = beta_i = 0.
 
         Args:
-            nu: A `d x num_chains`-dim tensor (the "new" direction, drawn from N(0, I)).
+            nu: A ``d x num_chains``-dim tensor (the "new" direction, drawn from
+                N(0, I)).
 
         Returns:
-            A tuple of two tensors with the same size `m x num_chains`. The first tensor
-            represents the smaller intersection angles. The second tensor represents the
-            larger intersection angles.
+            A tuple of two tensors with the same size ``m x num_chains``. The first
+            tensor represents the smaller intersection angles. The second tensor
+            represents the larger intersection angles.
         """
         p = self._Az @ self._z
         q = self._Az @ nu
@@ -414,18 +420,18 @@ class LinearEllipticalSliceSampler(PolytopeSampler):
         return alpha, beta
 
     def _is_feasible(self, points: Tensor, transformed: bool = False) -> Tensor:
-        r"""Returns a Boolean tensor indicating whether the `points` are feasible,
-        i.e. they satisfy `A @ points <= b`, where `(A, b)` are the tensors passed
-        as the `inequality_constraints` to the constructor of the sampler.
+        r"""Returns a Boolean tensor indicating whether the ``points`` are feasible,
+        i.e. they satisfy ``A @ points <= b``, where ``(A, b)`` are the tensors passed
+        as the ``inequality_constraints`` to the constructor of the sampler.
 
         Args:
-            points: A `d x M`-dim tensor of points.
+            points: A ``d x M``-dim tensor of points.
             transformed: Wether points are assumed to be transformed by a change of
                 basis, which means feasibility should be computed based on the
                 transformed constraint system (_Az, _bz), instead of (A, b).
 
         Returns:
-            An `M`-dim binary tensor where `True` indicates that the associated
+            An ``M``-dim binary tensor where ``True`` indicates that the associated
             point is feasible.
         """
         A, b = (self._Az, self._bz) if transformed else (self.A, self.b)
@@ -436,10 +442,10 @@ class LinearEllipticalSliceSampler(PolytopeSampler):
         constrained with the modified system constraints (self._Az, self._bz).
 
         Args:
-            x: The input tensor to be transformed, usually `d x 1`-dimensional.
+            x: The input tensor to be transformed, usually ``d x 1``-dimensional.
 
         Returns:
-            A `d x 1`-dimensional tensor of transformed values subject to the modified
+            A ``d x 1``-dimensional tensor of transformed values subject to the modified
             system of constraints.
         """
         if self._not_fixed is not None:
@@ -447,14 +453,16 @@ class LinearEllipticalSliceSampler(PolytopeSampler):
         return self._standardize(x)
 
     def _untransform(self, z: Tensor) -> Tensor:
-        """The inverse transform of the `_transform`, i.e. maps `z` back to the original
-        space where it is subject to the original constraint system (self.A, self.b).
+        """The inverse transform of the ``_transform``, i.e. maps ``z`` back to the
+        original space where it is subject to the original constraint system
+        (self.A, self.b).
 
         Args:
-            z: The transformed tensor to be un-transformed, usually `d x 1`-dimensional.
+            z: The transformed tensor to be un-transformed, usually
+                ``d x 1``-dimensional.
 
         Returns:
-            A `d x 1`-dimensional tensor of un-transformed values subject to the
+            A ``d x 1``-dimensional tensor of un-transformed values subject to the
             original system of constraints.
         """
         if self._is_fixed is None:
@@ -465,8 +473,8 @@ class LinearEllipticalSliceSampler(PolytopeSampler):
             return x
 
     def _standardize(self, x: Tensor) -> Tensor:
-        """_transform helper standardizing the input `x`, which is assumed to be a
-        `d x 1`-dim Tensor, or a `len(self._not_fixed) x 1`-dim if there are fixed
+        """_transform helper standardizing the input ``x``, which is assumed to be a
+        ``d x 1``-dim Tensor, or a ``len(self._not_fixed) x 1``-dim if there are fixed
         indices.
         """
         z = x
@@ -479,9 +487,9 @@ class LinearEllipticalSliceSampler(PolytopeSampler):
         return z
 
     def _unstandardize(self, z: Tensor) -> Tensor:
-        """_untransform helper un-standardizing the input `z`, which is assumed to be a
-        `d x 1`-dim Tensor, or a `len(self._not_fixed) x 1`-dim if there are fixed
-        indices.
+        """_untransform helper un-standardizing the input ``z``, which is assumed to
+        be a ``d x 1``-dim Tensor, or a ``len(self._not_fixed) x 1``-dim if there are
+        fixed indices.
         """
         x = z
         if self._covariance_root is not None:
@@ -494,11 +502,11 @@ class LinearEllipticalSliceSampler(PolytopeSampler):
 def get_index_tensors(
     fixed_indices: list[int] | Tensor, d: int
 ) -> tuple[Tensor, Tensor]:
-    """Converts `fixed_indices` to a `d`-dim integral Tensor that is True at indices
-    that are contained in `fixed_indices` and False otherwise.
+    """Converts ``fixed_indices`` to a ``d``-dim integral Tensor that is True at indices
+    that are contained in ``fixed_indices`` and False otherwise.
 
     Args:
-        fixed_indices: A list or Tensoro of integer indices to fix.
+        fixed_indices: A list or Tensor of integer indices to fix.
         d: The dimensionality of the Tensors to be indexed.
 
     Returns:

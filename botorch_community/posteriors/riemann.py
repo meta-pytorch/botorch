@@ -35,9 +35,9 @@ class BoundedRiemannPosterior(Posterior):
         borders, with each bucket having an associated probability.
 
         Args:
-            borders: A tensor of shape `(num_buckets + 1,)` defining the boundaries of
+            borders: A tensor of shape ``(num_buckets + 1,)`` defining the boundaries of
                 the buckets. Must be monotonically increasing.
-            probabilities: A tensor of shape `(b?, q?, num_buckets)` defining the
+            probabilities: A tensor of shape ``(b?, q?, num_buckets)`` defining the
                 probability mass in each bucket. Must sum to 1 in the last dim.
         """
 
@@ -74,13 +74,13 @@ class BoundedRiemannPosterior(Posterior):
         r"""Sample from the posterior (with gradients).
 
         Args:
-            sample_shape: A `torch.Size` object specifying the sample shape. To
-                draw `n` samples, set to `torch.Size([n])`. To draw `b` batches
-                of `n` samples each, set to `torch.Size([b, n])`.
+            sample_shape: A ``torch.Size`` object specifying the sample shape. To
+                draw ``n`` samples, set to ``torch.Size([n])``. To draw ``b`` batches
+                of ``n`` samples each, set to ``torch.Size([b, n])``.
 
         Returns:
             Samples from the posterior, a tensor of shape
-            `self._extended_shape(sample_shape=sample_shape)`.
+            ``self._extended_shape(sample_shape=sample_shape)``.
         """
         sample_shape = sample_shape if sample_shape is not None else torch.Size([1])
         base_samples = torch.randn(
@@ -219,9 +219,9 @@ class MultivariateRiemannPosterior(BoundedRiemannPosterior):
         correlation structure via the Gaussian copula.
 
         Args:
-            borders: A tensor of shape `(num_buckets + 1,)` defining the boundaries of
+            borders: A tensor of shape ``(num_buckets + 1,)`` defining the boundaries of
                 the buckets. Must be monotonically increasing.
-            probabilities: A tensor of shape `(b?, q, num_buckets)` defining the
+            probabilities: A tensor of shape ``(b?, q, num_buckets)`` defining the
                 probability mass in each bucket. Must sum to 1 in the last dim.
             correlation_matrix: The Guassian correlation matrix, (b?, q, q).
         """

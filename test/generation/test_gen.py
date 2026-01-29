@@ -274,18 +274,20 @@ class TestGenCandidates(TestBaseCandidateGeneration):
     def test_gen_candidates_scipy_maxiter_behavior(self):
         # Check that no warnings are raised & log produced on hitting maxiter.
         for method in ("SLSQP", "L-BFGS-B"):
-            with warnings.catch_warnings(record=True) as ws, self.assertLogs(
-                "botorch", level="INFO"
-            ) as logs:
+            with (
+                warnings.catch_warnings(record=True) as ws,
+                self.assertLogs("botorch", level="INFO") as logs,
+            ):
                 self.test_gen_candidates(options={"maxiter": 1, "method": method})
             self.assertFalse(
                 any(issubclass(w.category, OptimizationWarning) for w in ws)
             )
             self.assertTrue("iteration limit" in logs.output[-1])
         # Check that we handle maxfun as well.
-        with warnings.catch_warnings(record=True) as ws, self.assertLogs(
-            "botorch", level="INFO"
-        ) as logs:
+        with (
+            warnings.catch_warnings(record=True) as ws,
+            self.assertLogs("botorch", level="INFO") as logs,
+        ):
             self.test_gen_candidates(
                 options={"maxiter": 100, "maxfun": 1, "method": "L-BFGS-B"}
             )
@@ -295,9 +297,10 @@ class TestGenCandidates(TestBaseCandidateGeneration):
     def test_gen_candidates_scipy_timeout_behavior(self):
         # Check that no warnings are raised & log produced on hitting timeout.
         for method in ("SLSQP", "L-BFGS-B"):
-            with warnings.catch_warnings(record=True) as ws, self.assertLogs(
-                "botorch", level="INFO"
-            ) as logs:
+            with (
+                warnings.catch_warnings(record=True) as ws,
+                self.assertLogs("botorch", level="INFO") as logs,
+            ):
                 self.test_gen_candidates(options={"method": method}, timeout_sec=0.001)
             self.assertFalse(
                 any(issubclass(w.category, OptimizationWarning) for w in ws)
@@ -315,14 +318,64 @@ class TestGenCandidates(TestBaseCandidateGeneration):
 
     def test_gen_candidates_torch_timeout_behavior(self):
         # Check that no warnings are raised & log produced on hitting timeout.
-        with warnings.catch_warnings(record=True) as ws, self.assertLogs(
-            "botorch", level="INFO"
-        ) as logs:
+        with (
+            warnings.catch_warnings(record=True) as ws,
+            self.assertLogs("botorch", level="INFO") as logs,
+        ):
             self.test_gen_candidates(
                 gen_candidates=gen_candidates_torch, timeout_sec=0.001
             )
         self.assertFalse(any(issubclass(w.category, OptimizationWarning) for w in ws))
         self.assertTrue("Optimization timed out" in logs.output[-1])
+
+    def test_gen_candidates_torch_optimizer_with_optimizer_args(self):
+        """Test that optimizer is created with correct args."""
+        self._setUp(double=False)
+        qEI = qExpectedImprovement(self.model, best_f=self.f_best)
+
+        # Test new structured API
+        with self.subTest(api="structured"):
+            # Create a mock optimizer class
+            mock_optimizer_class = mock.MagicMock()
+            mock_optimizer_instance = mock.MagicMock()
+            mock_optimizer_class.return_value = mock_optimizer_instance
+
+            gen_candidates_torch(
+                initial_conditions=self.initial_conditions,
+                acquisition_function=qEI,
+                lower_bounds=0,
+                upper_bounds=1,
+                optimizer=mock_optimizer_class,
+                options={
+                    "optimizer_options": {"lr": 0.02, "weight_decay": 1e-5},
+                    "stopping_criterion_options": {"maxiter": 1},
+                },
+            )
+
+            # Verify that the optimizer was called with the correct arguments
+            mock_optimizer_class.assert_called_once()
+            call_args = mock_optimizer_class.call_args
+            self.assertIn("params", call_args.kwargs)
+            self.assertEqual(call_args.kwargs["lr"], 0.02)
+            self.assertEqual(call_args.kwargs["weight_decay"], 1e-5)
+
+        # Test backward compatibility with old maxiter parameter
+        with self.subTest(api="backward_compat"):
+            with warnings.catch_warnings(record=True) as ws:
+                warnings.simplefilter("always", category=DeprecationWarning)
+                gen_candidates_torch(
+                    initial_conditions=self.initial_conditions,
+                    acquisition_function=qEI,
+                    lower_bounds=0,
+                    upper_bounds=1,
+                    options={"maxiter": 1},
+                )
+            # Verify deprecation warning was raised
+            deprecation_warnings = [
+                w for w in ws if issubclass(w.category, DeprecationWarning)
+            ]
+            self.assertTrue(len(deprecation_warnings) > 0)
+            self.assertIn("maxiter", str(deprecation_warnings[0].message))
 
     def test_gen_candidates_scipy_warns_opt_no_res(self):
         ckwargs = {"dtype": torch.float, "device": self.device}
@@ -332,9 +385,10 @@ class TestGenCandidates(TestBaseCandidateGeneration):
             "Optimization failed within `scipy.optimize.minimize` with no "
             "status returned to `res.`"
         )
-        with mock.patch(
-            "botorch.generation.gen.minimize_with_timeout"
-        ) as mock_minimize, warnings.catch_warnings(record=True) as ws:
+        with (
+            mock.patch("botorch.generation.gen.minimize_with_timeout") as mock_minimize,
+            warnings.catch_warnings(record=True) as ws,
+        ):
             mock_minimize.return_value = OptimizeResult(x=test_ics.cpu().numpy())
 
             gen_candidates_scipy(
@@ -367,7 +421,7 @@ class TestGenCandidates(TestBaseCandidateGeneration):
                         acquisition_function=mock.Mock(return_value=test_ics),
                     )
 
-            # test NaN in `x`
+            # test NaN in ``x``
             test_ics = torch.tensor([[0.0, 0.0, float("nan")]], **ckwargs)
             with self.assertRaisesRegex(RuntimeError, "array `x` are NaN."):
                 gen_candidates_scipy(
@@ -376,7 +430,7 @@ class TestGenCandidates(TestBaseCandidateGeneration):
                 )
 
     def test_gen_candidates_without_grad(self) -> None:
-        """Test with `with_grad=False` (not supported for gen_candidates_torch)."""
+        """Test with ``with_grad=False`` (not supported for gen_candidates_torch)."""
 
         self.test_gen_candidates(
             gen_candidates=gen_candidates_scipy,

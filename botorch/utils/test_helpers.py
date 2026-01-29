@@ -25,6 +25,7 @@ from botorch.models.model_list_gp_regression import ModelListGP
 from botorch.models.transforms.outcome import Standardize
 from botorch.models.utils import add_output_dim
 from botorch.models.utils.assorted import fantasize
+from botorch.posteriors.posterior import Posterior
 from botorch.posteriors.torch import TorchPosterior
 from botorch.utils.datasets import MultiTaskDataset, SupervisedDataset
 from gpytorch.distributions.multivariate_normal import MultivariateNormal
@@ -146,7 +147,7 @@ def get_sample_moments(samples: Tensor, sample_shape: Size) -> tuple[Tensor, Ten
     """Computes the mean and covariance of a set of samples.
 
     Args:
-        samples: A tensor of shape `sample_shape x batch_shape x q`.
+        samples: A tensor of shape ``sample_shape x batch_shape x q``.
         sample_shape: The sample_shape input used while generating the samples using
             the pathwise sampling API.
     """
@@ -181,11 +182,12 @@ def gen_multi_task_dataset(
     """Constructs a multi-task dataset with two tasks, each with 10 data points.
 
     Args:
-        yvar: The noise level to use for `train_Yvar`. If None, uses `train_Yvar=None`.
+        yvar: The noise level to use for ``train_Yvar``. If None, uses
+            ``train_Yvar=None``.
         task_values: The values of the task features. If None, uses [0, 1].
         skip_task_features_in_datasets: If True, the task features are not included in
             Xs of the datasets used to construct the datasets. This is useful for
-            testing `MultiTaskDataset`.
+            testing ``MultiTaskDataset``.
     """
     if task_values is not None and skip_task_features_in_datasets:
         raise UnsupportedError(  # pragma: no cover
@@ -252,9 +254,9 @@ def get_pvar_expected(
 
     Args:
         posterior: The posterior to compute the variance of. Must be a
-            `TorchPosterior` object.
-        model: The model that generated the posterior. If `m > 1`, this must be
-            a `BatchedMultiOutputGPyTorchModel`.
+            ``TorchPosterior`` object.
+        model: The model that generated the posterior. If ``m > 1``, this must be
+            a ``BatchedMultiOutputGPyTorchModel``.
         X: The test inputs.
         m: The number of outputs.
 
@@ -301,11 +303,11 @@ def get_pvar_expected(
 class DummyNonScalarizingPosteriorTransform(PosteriorTransform):
     scalarize = False
 
-    def evaluate(self, Y):
-        pass  # pragma: no cover
+    def evaluate(self, Y: Tensor, X: Tensor | None = None) -> Tensor:
+        return Y  # pragma: no cover
 
-    def forward(self, posterior):
-        pass  # pragma: no cover
+    def forward(self, posterior: Posterior, X: Tensor | None = None) -> Posterior:
+        return posterior  # pragma: no cover
 
 
 class SimpleGPyTorchModel(GPyTorchModel, ExactGP, FantasizeMixin):

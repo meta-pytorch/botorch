@@ -5,7 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 r"""
-A `SamplerList` for sampling from a `PosteriorList`.
+A ``SamplerList`` for sampling from a ``PosteriorList``.
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from torch.nn import ModuleList
 
 class ListSampler(MCSampler):
     def __init__(self, *samplers: MCSampler) -> None:
-        r"""A list of samplers for sampling from a `PosteriorList`.
+        r"""A list of samplers for sampling from a ``PosteriorList``.
 
         Args:
             samplers: A variable number of samplers. This should include
@@ -48,7 +48,7 @@ class ListSampler(MCSampler):
         r"""Samples from the posteriors and concatenates the samples.
 
         Args:
-            posterior: A `PosteriorList` to sample from.
+            posterior: A ``PosteriorList`` to sample from.
 
         Returns:
             The samples drawn from the posterior.

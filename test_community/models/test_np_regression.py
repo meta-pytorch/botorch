@@ -1,16 +1,17 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+#
+# This source code is licensed under the MIT license found in the
+# LICENSE file in the root directory of this source tree.
+
 import unittest
 
 import torch
 from botorch.models.transforms.input import Normalize
 from botorch.posteriors import GPyTorchPosterior
+from botorch.utils.test_helpers import DummyNonScalarizingPosteriorTransform
 from botorch_community.models.np_regression import NeuralProcessModel
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-
-class Identity:
-    def __call__(self, posterior):
-        return posterior
 
 
 class TestNeuralProcessModel(unittest.TestCase):
@@ -109,7 +110,9 @@ class TestNeuralProcessModel(unittest.TestCase):
         self.initialize()
         self.model(self.model.train_X, self.model.train_Y)
         identity_posterior = self.model.posterior(
-            self.model.train_X, observation_noise=True, posterior_transform=Identity()
+            self.model.train_X,
+            observation_noise=True,
+            posterior_transform=DummyNonScalarizingPosteriorTransform(),
         )
         posterior = self.model.posterior(self.model.train_X, observation_noise=True)
         self.assertIsInstance(identity_posterior, GPyTorchPosterior)

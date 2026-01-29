@@ -9,7 +9,7 @@ authors = [{name = "Meta Platforms, Inc."}]
 license = "MIT"
 license-files = ["LICENSE"]
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 keywords = ["Bayesian optimization", "PyTorch"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -23,9 +23,9 @@ dynamic = ["version"]
 dependencies = [
     "typing_extensions",
     "pyre_extensions",
-    "gpytorch>=1.14",
+    "gpytorch>=1.14.2",
     "linear_operator>=0.6",
-    "torch>=2.0.1",
+    "torch>=2.2",
     "pyro-ppl>=1.8.4",
     "scipy",
     "multipledispatch",
@@ -74,8 +74,8 @@ Homepage = "https://botorch.org"
 Documentation = "https://botorch.org"
 Repository = "https://github.com/meta-pytorch/botorch"
 
-[tool.setuptools.packages]
-find = {exclude = ["test", "test.*"]}
+[tool.setuptools]
+packages.find.exclude = ["test", "test.*", "test_community.*"]
 
 [tool.setuptools_scm]
 local_scheme = "node-and-date"

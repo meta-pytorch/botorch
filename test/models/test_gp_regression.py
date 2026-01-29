@@ -445,24 +445,6 @@ class TestGPRegressionBase(BotorchTestCase):
 class TestSingleTaskGP(TestGPRegressionBase):
     model_class = SingleTaskGP
 
-    def test_construct_inputs_task_feature_deprecated(self) -> None:
-        model, model_kwargs = self._get_model_and_data(
-            batch_shape=torch.Size([]),
-            m=1,
-            device=self.device,
-            dtype=torch.double,
-        )
-        X = model_kwargs["train_X"]
-        Y = model_kwargs["train_Y"]
-        training_data = SupervisedDataset(
-            X,
-            Y,
-            feature_names=[f"x{i}" for i in range(X.shape[-1])],
-            outcome_names=["y"],
-        )
-        with self.assertWarnsRegex(DeprecationWarning, "`task_feature` is deprecated"):
-            model.construct_inputs(training_data, task_feature=0)
-
 
 class TestSingleTaskGPFixedNoise(TestSingleTaskGP):
     def _get_model_and_data(

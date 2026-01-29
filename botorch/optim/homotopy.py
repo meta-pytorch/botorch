@@ -94,11 +94,11 @@ class HomotopyParameter:
 class Homotopy:
     """Generic homotopy class.
 
-    This class is designed to be used in `optimize_acqf_homotopy`. Given a set of
+    This class is designed to be used in ``optimize_acqf_homotopy``. Given a set of
     homotopy parameters and corresponding schedules we step through the homotopies
     until we have solved the final problem. We additionally support passing in a list
-    of callbacks that will be executed each time `step`, `reset`, and `restart` are
-    called.
+    of callbacks that will be executed each time ``step``, ``reset``, and ``restart``
+    are called.
     """
 
     def __init__(
@@ -111,8 +111,9 @@ class Homotopy:
         Args:
             homotopy_parameters: List of homotopy parameters
             callbacks: Optional list of callbacks that are executed each time
-                `restart`, `reset`, or `step` are called. These may be used to, e.g.,
-                reinitialize the acquisition function which is needed when using qNEHVI.
+                ``restart``, ``reset``, or ``step`` are called. These may be used to,
+                e.g., reinitialize the acquisition function which is needed when using
+                qNEHVI.
         """
         self._homotopy_parameters = homotopy_parameters
         self._callbacks = callbacks or []

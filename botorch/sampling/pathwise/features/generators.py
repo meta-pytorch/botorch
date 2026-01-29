@@ -17,7 +17,6 @@ r"""
 from __future__ import annotations
 
 from collections.abc import Callable
-
 from typing import Any
 
 import torch
@@ -47,13 +46,13 @@ def gen_kernel_features(
     num_outputs: int,
     **kwargs: Any,
 ) -> KernelFeatureMap:
-    r"""Generates a feature map :math:`\phi: \mathcal{X} \to \mathbb{R}^{n}` such that
-    :math:`k(x, x') ≈ \phi(x)^{T} \phi(x')`. For stationary kernels :math:`k`, defaults
-    to the method of random Fourier features. For more details, see [rahimi2007random]_
-    and [sutherland2015error]_.
+    r"""Generates a feature map :math:``\phi: \mathcal{X} \to \mathbb{R}^{n}``
+    such that :math:``k(x, x') ≈ \phi(x)^{T} \phi(x')``. For stationary kernels
+    :math:``k``, defaults to the method of random Fourier features. For more
+    details, see [rahimi2007random]_ and [sutherland2015error]_.
 
     Args:
-        kernel: The kernel :math:`k` to be represented via a finite-dim basis.
+        kernel: The kernel :math:``k`` to be represented via a finite-dim basis.
         num_inputs: The number of input features.
         num_outputs: The number of kernel features.
     """
@@ -71,16 +70,16 @@ def _gen_fourier_features(
     num_inputs: int,
     num_outputs: int,
 ) -> KernelFeatureMap:
-    r"""Generate a feature map :math:`\phi: \mathcal{X} \to \mathbb{R}^{2l}` that
-    approximates a stationary kernel so that :math:`k(x, x') ≈ \phi(x)^\top \phi(x')`.
+    r"""Generate a feature map :math:``\phi: \mathcal{X} \to \mathbb{R}^{2l}`` that
+    approximates a stationary kernel so that :math:``k(x, x') ≈ \phi(x)^\top \phi(x')``.
 
     Following [sutherland2015error]_, we represent complex exponentials by pairs of
-    basis functions :math:`\phi_{i}(x) = \sin(x^\top w_{i})` and
+    basis functions :math:``\phi_{i}(x) = \sin(x^\top w_{i})`` and
     :math:`\phi_{i + l} = \cos(x^\top w_{i}).
 
     Args:
-        kernel: A stationary kernel :math:`k(x, x') = k(x - x')`.
-        weight_generator: A callable used to generate weight vectors :math:`w`.
+        kernel: A stationary kernel :math:``k(x, x') = k(x - x')``.
+        weight_generator: A callable used to generate weight vectors :math:``w``.
         num_inputs: The number of input features.
         num_outputs: The number of Fourier features.
     """

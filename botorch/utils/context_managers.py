@@ -11,7 +11,6 @@ Utilities for optimization.
 from __future__ import annotations
 
 from collections.abc import Callable, Generator, Iterable
-
 from contextlib import contextmanager
 from typing import Any, NamedTuple
 
@@ -59,9 +58,9 @@ def parameter_rollback_ctx(
         name_filter: Optional Boolean function used to filter items by name.
         checkpoint: Optional cache of values and tensor metadata specifying the rollback
             state for the module (or some subset thereof).
-        **tkwargs: Keyword arguments passed to `torch.Tensor.to` when copying data from
-            each tensor in `module.state_dict()` to the internally created checkpoint.
-            Only adhered to when the `checkpoint` argument is None.
+        **tkwargs: Keyword arguments passed to ``torch.Tensor.to`` when copying data
+            from each tensor in ``module.state_dict()`` to the internally created
+            checkpoint. Only adhered to when the ``checkpoint`` argument is None.
 
     Yields:
         A dictionary of TensorCheckpoints for the module's state_dict. Any in-places
@@ -103,9 +102,9 @@ def module_rollback_ctx(
         name_filter: Optional Boolean function used to filter items by name.
         checkpoint: Optional cache of values and tensor metadata specifying the rollback
             state for the module (or some subset thereof).
-        **tkwargs: Keyword arguments passed to `torch.Tensor.to` when copying data from
-            each tensor in `module.state_dict()` to the internally created checkpoint.
-            Only adhered to when the `checkpoint` argument is None.
+        **tkwargs: Keyword arguments passed to ``torch.Tensor.to`` when copying data
+            from each tensor in ``module.state_dict()`` to the internally created
+            checkpoint. Only adhered to when the ``checkpoint`` argument is None.
 
     Yields:
         A dictionary of TensorCheckpoints for the module's state_dict. Any in-places

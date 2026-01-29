@@ -23,7 +23,6 @@ from botorch.utils.test_helpers import (
     get_sample_moments,
     standardize_moments,
 )
-
 from botorch.utils.testing import BotorchTestCase
 from botorch.utils.transforms import is_ensemble
 from gpytorch.kernels import MaternKernel, ScaleKernel
@@ -187,7 +186,7 @@ class TestPosteriorSamplers(BotorchTestCase):
             # torch.Size([4, 5, 2])
             # torch.Size([3, 4, 5, 2])
             # torch.Size([3, 4, 5, 2])
-            # irrespective of whether `is_ensemble` is true or false.
+            # irrespective of whether ``is_ensemble`` is true or false.
             self.assertEqual(
                 model.posterior(X).mean.shape, path_model.posterior(X).mean.shape
             )

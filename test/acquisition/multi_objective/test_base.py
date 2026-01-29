@@ -13,13 +13,12 @@ from botorch.acquisition.multi_objective.objective import (
     IdentityMCMultiOutputObjective,
     MCMultiOutputObjective,
 )
-from botorch.acquisition.objective import IdentityMCObjective, PosteriorTransform
+from botorch.acquisition.objective import IdentityMCObjective
 from botorch.exceptions.errors import UnsupportedError
 from botorch.models.transforms.input import InputPerturbation
-from botorch.posteriors import GPyTorchPosterior
 from botorch.sampling.normal import SobolQMCNormalSampler
+from botorch.utils.test_helpers import DummyNonScalarizingPosteriorTransform
 from botorch.utils.testing import BotorchTestCase, MockModel, MockPosterior
-from torch import Tensor
 
 
 class DummyMultiObjectiveAnalyticAcquisitionFunction(
@@ -31,14 +30,6 @@ class DummyMultiObjectiveAnalyticAcquisitionFunction(
 
 class DummyMultiObjectiveMCAcquisitionFunction(MultiObjectiveMCAcquisitionFunction):
     def forward(self, X):
-        pass
-
-
-class DummyPosteriorTransform(PosteriorTransform):
-    def evaluate(self, Y: Tensor) -> Tensor:
-        pass
-
-    def forward(self, posterior: GPyTorchPosterior) -> GPyTorchPosterior:
         pass
 
 
@@ -63,7 +54,7 @@ class TestBaseMultiObjectiveAcquisitionFunctions(BotorchTestCase):
         acqf = DummyMultiObjectiveAnalyticAcquisitionFunction(model=mm)
         self.assertTrue(acqf.posterior_transform is None)  # is None by default
         # test custom init
-        posterior_transform = DummyPosteriorTransform()
+        posterior_transform = DummyNonScalarizingPosteriorTransform()
         acqf = DummyMultiObjectiveAnalyticAcquisitionFunction(
             model=mm, posterior_transform=posterior_transform
         )
