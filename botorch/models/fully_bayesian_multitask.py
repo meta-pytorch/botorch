@@ -242,7 +242,10 @@ class SaasFullyBayesianMultiTaskGP(MultiTaskGP):
                 outputs for. If omitted, return outputs for all task indices.
             rank: The num of learned task embeddings to be used in the task kernel.
                 If omitted, use a full rank (i.e. number of tasks) kernel.
-            all_tasks: NOT SUPPORTED!
+            all_tasks: NOT SUPPORTED. SaasFullyBayesianMultiTaskGP does not support
+                specifying unobserved tasks via the `all_tasks` argument. If provided,
+                must exactly match the observed tasks in the training data, otherwise
+                a ValueError will be raised.
             outcome_transform: An outcome transform that is applied to the
                 training data during instantiation and to the posterior during
                 inference (that is, the ``Posterior`` obtained by calling
@@ -269,6 +272,19 @@ class SaasFullyBayesianMultiTaskGP(MultiTaskGP):
             raise ValueError(
                 "Expected train_Yvar to be None or have the same shape as train_Y"
             )
+        # Validate all_tasks - SaasFullyBayesianMultiTaskGP does not support unobserved
+        # tasks, so all_tasks must match the observed tasks exactly.
+        if all_tasks is not None:
+            # Get observed tasks from the task feature column
+            task_feature_idx = task_feature % train_X.shape[-1]
+            observed_tasks = train_X[:, task_feature_idx].unique().long().tolist()
+            if set(all_tasks) != set(observed_tasks):
+                raise ValueError(
+                    "SaasFullyBayesianMultiTaskGP does not support the `all_tasks` "
+                    "argument for specifying unobserved tasks. The provided "
+                    f"`all_tasks` ({all_tasks}) does not match the observed tasks "
+                    f"({observed_tasks})."
+                )
         with torch.no_grad():
             transformed_X = self.transform_inputs(
                 X=train_X, input_transform=input_transform

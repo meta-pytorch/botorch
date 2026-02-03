@@ -84,8 +84,6 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
         infer_noise: bool = False,
         use_outcome_transform: bool = True,
         observed_task_values: list[int] | None = None,
-        all_tasks: list[int] | None = None,
-        validate_task_values: bool = True,
         **tkwargs,
     ):
         with torch.random.fork_rng():
@@ -106,7 +104,6 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
             train_Y=train_Y,
             train_Yvar=None if infer_noise else train_Yvar,
             task_feature=4,
-            all_tasks=all_tasks,
             output_tasks=output_tasks,
             rank=task_rank,
             outcome_transform=(
@@ -114,7 +111,6 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
                 if use_outcome_transform
                 else None
             ),
-            validate_task_values=validate_task_values,
         )
         return train_X, train_Y, train_Yvar, model
 
@@ -205,6 +201,26 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
                 train_Yvar=torch.rand(10, **tkwargs),
                 task_feature=4,
             )
+        # Test that all_tasks validation raises when specifying unobserved tasks
+        with self.assertRaisesRegex(
+            ValueError,
+            "does not support the `all_tasks` argument",
+        ):
+            # Create training data with only tasks 0 and 1 observed
+            train_X = torch.rand(10, 4, **tkwargs)
+            task_indices = torch.cat(
+                [torch.zeros(5, 1, **tkwargs), torch.ones(5, 1, **tkwargs)], dim=0
+            )
+            train_X = torch.cat([train_X, task_indices], dim=1)
+            train_Y = torch.randn(10, 1, **tkwargs)
+            # Specify all_tasks with unobserved task 2
+            SaasFullyBayesianMultiTaskGP(
+                train_X=train_X,
+                train_Y=train_Y,
+                train_Yvar=torch.rand(10, 1, **tkwargs),
+                task_feature=4,
+                all_tasks=[0, 1, 2],
+            )
         _, _, _, model = self._get_data_and_model(**tkwargs)
         sampler = IIDNormalSampler(sample_shape=torch.Size([2]))
         with self.assertRaisesRegex(
@@ -238,9 +254,7 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
         task_rank: int = 1,
         use_outcome_transform: bool = False,
         observed_task_values: list[int] | None = None,
-        all_tasks: list[int] | None = None,
         output_tasks: list[int] | None = None,
-        validate_task_values: bool = True,
     ):
         tkwargs = {"device": self.device, "dtype": dtype}
         train_X, train_Y, train_Yvar, model = self._get_data_and_model(
@@ -248,9 +262,7 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
             task_rank=task_rank,
             use_outcome_transform=use_outcome_transform,
             observed_task_values=observed_task_values,
-            all_tasks=all_tasks,
             output_tasks=output_tasks,
-            validate_task_values=validate_task_values,
             **tkwargs,
         )
         n = train_X.shape[0]
@@ -436,7 +448,6 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
             task_rank=task_rank,
             use_outcome_transform=use_outcome_transform,
             observed_task_values=observed_task_values,
-            all_tasks=all_tasks,
             output_tasks=output_tasks,
             **tkwargs,
         )
@@ -510,32 +521,6 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
 
     def test_fit_model_with_outcome_transform(self):
         self.test_fit_model(use_outcome_transform=True)
-
-    def test_fit_model_with_task_mapper(self) -> None:
-        dtype = torch.double
-        tkwargs = {"device": self.device, "dtype": dtype}
-        all_tasks = [0, 1, 2]
-        observed_task_values = [0, 2]
-        output_tasks = [2]
-        _, _, _, model = self._get_data_and_model(
-            infer_noise=True,
-            use_outcome_transform=True,
-            output_tasks=output_tasks,
-            observed_task_values=observed_task_values,
-            all_tasks=all_tasks,
-            validate_task_values=False,
-            **tkwargs,
-        )
-        self.assertTrue(
-            torch.equal(model._task_mapper, torch.tensor([0, 1, 1], **tkwargs))
-        )
-        self.test_fit_model(
-            use_outcome_transform=True,
-            all_tasks=all_tasks,
-            observed_task_values=observed_task_values,
-            output_tasks=output_tasks,
-            validate_task_values=False,
-        )
 
     def test_transforms(self, infer_noise: bool = False):
         tkwargs = {"device": self.device, "dtype": torch.double}
