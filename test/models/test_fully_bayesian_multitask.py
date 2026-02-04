@@ -514,6 +514,8 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
     def test_fit_model_with_task_mapper(self) -> None:
         dtype = torch.double
         tkwargs = {"device": self.device, "dtype": dtype}
+        # Test with contiguous all_tasks that includes an unobserved task
+        # all_tasks=[0, 1, 2] is contiguous from 0, so no mapper is needed
         all_tasks = [0, 1, 2]
         observed_task_values = [0, 2]
         output_tasks = [2]
@@ -526,18 +528,36 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
             validate_task_values=False,
             **tkwargs,
         )
-        self.assertTrue(
-            torch.equal(model._task_mapper, torch.tensor([0, 1, 1], **tkwargs))
-        )
+        # With contiguous all_tasks=[0, 1, 2], no task mapper is needed
+        # because task values are already contiguous integers starting from 0
+        self.assertIsNone(model._task_mapper)
         # Verify the pyro_model has the correct number of tasks (3, not 2)
         self.assertEqual(model.pyro_model.num_tasks, 3)
-        self.test_fit_model(
+
+        # Also test non-contiguous all_tasks to ensure mapper is created
+        all_tasks_noncontig = [0, 2, 5]
+        observed_task_values_noncontig = [0, 5]
+        output_tasks_noncontig = [5]
+        _, _, _, model_noncontig = self._get_data_and_model(
+            infer_noise=True,
             use_outcome_transform=True,
-            all_tasks=all_tasks,
-            observed_task_values=observed_task_values,
-            output_tasks=output_tasks,
+            output_tasks=output_tasks_noncontig,
+            observed_task_values=observed_task_values_noncontig,
+            all_tasks=all_tasks_noncontig,
             validate_task_values=False,
+            **tkwargs,
         )
+        # With non-contiguous all_tasks=[0, 2, 5], a mapper is required
+        # Mapper maps: 0→0, 2→1, 5→2; other indices map to NaN
+        self.assertIsNotNone(model_noncontig._task_mapper)
+        self.assertEqual(model_noncontig._task_mapper[0].item(), 0.0)
+        self.assertEqual(model_noncontig._task_mapper[2].item(), 1.0)
+        self.assertEqual(model_noncontig._task_mapper[5].item(), 2.0)
+        self.assertTrue(torch.isnan(model_noncontig._task_mapper[1]))
+        self.assertTrue(torch.isnan(model_noncontig._task_mapper[3]))
+        self.assertTrue(torch.isnan(model_noncontig._task_mapper[4]))
+        # Verify pyro_model has correct number of tasks
+        self.assertEqual(model_noncontig.pyro_model.num_tasks, 3)
 
     def test_transforms(self, infer_noise: bool = False):
         tkwargs = {"device": self.device, "dtype": torch.double}

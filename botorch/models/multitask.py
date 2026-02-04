@@ -328,14 +328,10 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
 
         self.covar_module = data_covar_module * task_covar_module
         task_mapper = get_task_value_remapping(
-            observed_task_values=torch.tensor(
-                all_tasks_inferred, dtype=torch.long, device=train_X.device
-            ),
             all_task_values=torch.tensor(
                 sorted(all_tasks), dtype=torch.long, device=train_X.device
             ),
             dtype=train_X.dtype,
-            default_task_value=None if output_tasks is None else output_tasks[0],
         )
         self.register_buffer("_task_mapper", task_mapper)
         self._expected_task_values = set(all_tasks)

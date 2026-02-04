@@ -302,26 +302,16 @@ class TestMultiTaskGP(BotorchTestCase):
                 test_x_task = torch.zeros_like(test_x)
                 test_x_task[1, 0] = 2.0
                 test_x = torch.cat([test_x_task, test_x], dim=-1)
+                # With task_values=[0, 2], mapper maps: 0→0, 1→nan, 2→1
                 expected_task_mapper = torch.tensor(
-                    [0.0, 0.0, 1.0], dtype=dtype, device=self.device
+                    [0.0, float("nan"), 1.0], dtype=dtype, device=self.device
                 )
-                self.assertTrue(torch.equal(model._task_mapper, expected_task_mapper))
-                # Test making predictions for task without observations.
-                # These should be equivalent to predictions for the output task.
-                test_X_unobserved = torch.rand(1, 2, **tkwargs)
-                test_X_unobserved[0, 1] = 1.0
-                with torch.no_grad():
-                    posterior_unobserved = model.posterior(X=test_X_unobserved)
-                test_X_observed = torch.rand(1, 2, **tkwargs)
-                test_X_observed[0, 1] = 0.0
-                with torch.no_grad():
-                    posterior_observed = model.posterior(X=test_X_unobserved)
-                self.assertTrue(
-                    torch.allclose(posterior_unobserved.mean, posterior_observed.mean)
-                )
+                # Use allclose with equal_nan=True to handle NaN comparison
                 self.assertTrue(
                     torch.allclose(
-                        posterior_unobserved.variance, posterior_observed.variance
+                        model._task_mapper,
+                        expected_task_mapper,
+                        equal_nan=True,
                     )
                 )
 
@@ -517,6 +507,28 @@ class TestMultiTaskGP(BotorchTestCase):
     def test_validatation_of_task_values(self) -> None:
         tkwargs = {"device": self.device, "dtype": torch.double}
         _, (train_X, train_Y, _) = gen_multi_task_dataset(**tkwargs)
+
+        # Test 1: When all tasks are observed and contiguous from 0,
+        # task_mapper should be None
+        model_contiguous = MultiTaskGP(
+            train_X,
+            train_Y,
+            task_feature=0,
+            output_tasks=[1],
+            all_tasks=[0, 1],
+            validate_task_values=False,
+        )
+        self.assertIsNone(model_contiguous._task_mapper)
+        # _map_tasks should return the input unchanged when task_mapper is None
+        self.assertTrue(
+            torch.equal(
+                torch.tensor([0], **tkwargs),
+                model_contiguous._map_tasks(task_values=torch.tensor([0], **tkwargs)),
+            )
+        )
+
+        # Test 2: When all_tasks includes additional tasks but is still contiguous
+        # from 0, task_mapper should be None
         model = MultiTaskGP(
             train_X,
             train_Y,
@@ -525,16 +537,82 @@ class TestMultiTaskGP(BotorchTestCase):
             all_tasks=[0, 1, 2],
             validate_task_values=False,
         )
+        # all_tasks=[0, 1, 2] is contiguous from 0, so task_mapper is None
+        self.assertIsNone(model._task_mapper)
+
+        # _map_tasks for all tasks in all_tasks should work correctly
         self.assertTrue(
-            torch.equal(model._task_mapper, torch.tensor([0, 1, 1], **tkwargs))
+            torch.equal(
+                torch.tensor([0], **tkwargs),
+                model._map_tasks(task_values=torch.tensor([0], **tkwargs)),
+            )
         )
         self.assertTrue(
             torch.equal(
                 torch.tensor([1], **tkwargs),
+                model._map_tasks(task_values=torch.tensor([1], **tkwargs)),
+            )
+        )
+        self.assertTrue(
+            torch.equal(
+                torch.tensor([2], **tkwargs),
                 model._map_tasks(task_values=torch.tensor([2], **tkwargs)),
             )
         )
-        model = MultiTaskGP(
+
+        # Test 2b: When all_tasks includes non-contiguous tasks, task_mapper
+        # should exist
+        model_non_contiguous = MultiTaskGP(
+            train_X,
+            train_Y,
+            task_feature=0,
+            output_tasks=[1],
+            all_tasks=[0, 1, 3],  # non-contiguous (skips 2)
+            validate_task_values=False,
+        )
+        # all_tasks=[0, 1, 3] is not contiguous, so task_mapper should exist
+        expected_mapper = torch.full((4,), float("nan"), **tkwargs)
+        expected_mapper[0] = 0.0
+        expected_mapper[1] = 1.0
+        expected_mapper[3] = 2.0
+        self.assertTrue(
+            torch.allclose(
+                model_non_contiguous._task_mapper,
+                expected_mapper,
+                equal_nan=True,
+            )
+        )
+
+        # Test 3: With validation enabled and contiguous tasks
+        model_contiguous_validated = MultiTaskGP(
+            train_X,
+            train_Y,
+            task_feature=0,
+            output_tasks=[1],
+            all_tasks=[0, 1],
+            validate_task_values=True,
+        )
+        self.assertIsNone(model_contiguous_validated._task_mapper)
+        # Valid task values should work
+        self.assertTrue(
+            torch.equal(
+                torch.tensor([1], **tkwargs),
+                model_contiguous_validated._map_tasks(
+                    task_values=torch.tensor([1], **tkwargs)
+                ),
+            )
+        )
+        # Invalid task value should raise error
+        with self.assertRaisesRegex(
+            ValueError,
+            "Expected all task features in `X` to be between 0 and",
+        ):
+            model_contiguous_validated._map_tasks(
+                task_values=torch.tensor([3], **tkwargs)
+            )
+
+        # Test 4: With validation enabled and contiguous all_tasks
+        model_validated = MultiTaskGP(
             train_X,
             train_Y,
             task_feature=0,
@@ -542,23 +620,38 @@ class TestMultiTaskGP(BotorchTestCase):
             all_tasks=[0, 1, 2],
             validate_task_values=True,
         )
+        # all_tasks=[0, 1, 2] is contiguous so task_mapper is None
+        self.assertIsNone(model_validated._task_mapper)
 
-        # Task 2 is in all_tasks, so it should be valid even with validation enabled
-        self.assertTrue(
-            torch.equal(
-                torch.tensor([1], **tkwargs),
-                model._map_tasks(task_values=torch.tensor([2], **tkwargs)),
-            )
+        # Task 3 is out of range [0, num_tasks), so it should raise an error
+        with self.assertRaisesRegex(
+            ValueError,
+            "Expected all task features in `X` to be between 0 and",
+        ):
+            model_validated._map_tasks(task_values=torch.tensor([3], **tkwargs))
+
+        # Test 4b: With validation enabled and non-contiguous all_tasks
+        model_validated_noncontig = MultiTaskGP(
+            train_X,
+            train_Y,
+            task_feature=0,
+            output_tasks=[1],
+            all_tasks=[0, 1, 3],  # non-contiguous
+            validate_task_values=True,
         )
+        # all_tasks=[0, 1, 3] is not contiguous so task_mapper exists
+        self.assertIsNotNone(model_validated_noncontig._task_mapper)
 
-        # Task 3 is NOT in all_tasks, so it should raise an error
+        # Task 4 is NOT in all_tasks, so it should raise an error
         with self.assertRaisesRegex(
             ValueError,
             "Received invalid raw task values. Expected raw value to be in"
-            r" \{0, 1, 2\}, but got unexpected task"
-            r" values: \{3\}.",
+            r" \{0, 1, 3\}, but got unexpected task"
+            r" values: \{4\}.",
         ):
-            model._map_tasks(task_values=torch.tensor([3], **tkwargs))
+            model_validated_noncontig._map_tasks(
+                task_values=torch.tensor([4], **tkwargs)
+            )
 
     def test_multitask_gp_unobserved_tasks(self) -> None:
         """Test MultiTaskGP with unobserved tasks.
@@ -847,43 +940,40 @@ class TestKroneckerMultiTaskGP(BotorchTestCase):
 class TestMultiTaskUtils(BotorchTestCase):
     def test_get_task_value_remapping(self) -> None:
         for dtype in (torch.float, torch.double):
-            observed_task_values = torch.tensor(
-                [1, 3], dtype=torch.long, device=self.device
+            # Test with non-contiguous task values
+            all_task_values = torch.tensor(
+                [1, 3, 5], dtype=torch.long, device=self.device
             )
-            expected_mapping = torch.tensor(
-                [0.0, 0.0, 0.0, 1.0, 0.0], dtype=dtype, device=self.device
-            )
-            all_task_values = torch.arange(5, dtype=torch.long, device=self.device)
             mapping = get_task_value_remapping(
-                observed_task_values=observed_task_values,
                 all_task_values=all_task_values,
                 dtype=dtype,
-                default_task_value=1.0,
             )
-            self.assertTrue(torch.equal(mapping, expected_mapping))
-            # test default_task_value that has not been observed
-            # and default_task_value=None
-            for default_task_value in (0.0, None):
-                mapping = get_task_value_remapping(
-                    observed_task_values=observed_task_values,
-                    all_task_values=all_task_values,
-                    dtype=dtype,
-                    default_task_value=default_task_value,
-                )
-                self.assertTrue(torch.equal(mapping[[1, 3]], expected_mapping[[1, 3]]))
-                self.assertTrue(torch.isnan(mapping[[0, 2, 4]]).all())
+            # All tasks in all_task_values map to contiguous indices (0, 1, 2)
+            expected_mapping = torch.tensor(
+                [0.0, 1.0, 2.0], dtype=dtype, device=self.device
+            )
+            self.assertTrue(torch.equal(mapping[[1, 3, 5]], expected_mapping))
+            # Task values not in all_task_values (0, 2, 4) map to NaN
+            self.assertTrue(torch.isnan(mapping[[0, 2, 4]]).all())
+
+    def test_get_task_value_remapping_contiguous(self) -> None:
+        # When task values are contiguous from 0, returns None
+        for dtype in (torch.float, torch.double):
+            all_task_values = torch.arange(3, dtype=torch.long, device=self.device)
+            mapping = get_task_value_remapping(
+                all_task_values=all_task_values,
+                dtype=dtype,
+            )
+            self.assertIsNone(mapping)
 
     def test_get_task_value_remapping_invalid_dtype(self) -> None:
-        observed_task_values = torch.tensor([1, 3])
-        all_task_values = observed_task_values
+        all_task_values = torch.tensor([1, 3])
         for dtype in (torch.int32, torch.long, torch.bool):
             with self.assertRaisesRegex(
                 ValueError,
                 f"dtype must be torch.float or torch.double, but got {dtype}.",
             ):
                 get_task_value_remapping(
-                    observed_task_values=observed_task_values,
                     all_task_values=all_task_values,
                     dtype=dtype,
-                    default_task_value=None,
                 )
