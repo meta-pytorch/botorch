@@ -445,9 +445,12 @@ class TestMultiTaskGP(BotorchTestCase):
         model = MultiTaskGP(
             train_X=train_X, train_Y=train_Y, task_feature=0, all_tasks=[0, 1, 2, 3]
         )
-        self.assertEqual(model.num_tasks, 2)
+        self.assertEqual(model.num_tasks, 4)
         # Check that PositiveIndexKernel knows of all tasks.
-        self.assertEqual(model.covar_module.kernels[1].raw_covar_factor.shape[0], 2)
+        self.assertEqual(model.covar_module.kernels[1].raw_covar_factor.shape[0], 4)
+        # Check that observed and unobserved task indices are computed correctly.
+        self.assertEqual(model._observed_task_indices.tolist(), [0, 1])
+        self.assertEqual(model._unobserved_task_indices.tolist(), [2, 3])
 
     def test_MultiTaskGP_construct_inputs(self) -> None:
         for dtype, fixed_noise, skip_task_features_in_datasets in zip(
@@ -540,13 +543,98 @@ class TestMultiTaskGP(BotorchTestCase):
             validate_task_values=True,
         )
 
+        # Task 2 is in all_tasks, so it should be valid even with validation enabled
+        self.assertTrue(
+            torch.equal(
+                torch.tensor([1], **tkwargs),
+                model._map_tasks(task_values=torch.tensor([2], **tkwargs)),
+            )
+        )
+
+        # Task 3 is NOT in all_tasks, so it should raise an error
         with self.assertRaisesRegex(
             ValueError,
             "Received invalid raw task values. Expected raw value to be in"
-            r" \{0, 1\}, but got unexpected task"
-            r" values: \{2\}.",
+            r" \{0, 1, 2\}, but got unexpected task"
+            r" values: \{3\}.",
         ):
-            model._map_tasks(task_values=torch.tensor([2], **tkwargs))
+            model._map_tasks(task_values=torch.tensor([3], **tkwargs))
+
+    def test_multitask_gp_unobserved_tasks(self) -> None:
+        """Test MultiTaskGP with unobserved tasks.
+
+        This test verifies that:
+        1. Creating a model with all_tasks including unobserved tasks works
+        2. In train mode, unobserved task covar_factor is at random initialization
+        3. In eval mode, unobserved task covar_factor is set to mean of observed
+        4. Predictions work for the unobserved task
+        """
+        tkwargs = {"device": self.device, "dtype": torch.double}
+
+        # Create data for tasks 0 and 2 only (task 1 is unobserved)
+        _, (train_X, train_Y, _) = gen_multi_task_dataset(task_values=[0, 2], **tkwargs)
+
+        # Create model with all_tasks=[0, 1, 2] including unobserved task 1
+        model = MultiTaskGP(
+            train_X=train_X,
+            train_Y=train_Y,
+            task_feature=0,
+            all_tasks=[0, 1, 2],
+        )
+        model.to(**tkwargs)
+
+        # Verify model.num_tasks == 3
+        self.assertEqual(model.num_tasks, 3)
+
+        # Verify observed and unobserved task indices are correctly set
+        self.assertEqual(model._observed_task_indices.tolist(), [0, 2])
+        self.assertEqual(model._unobserved_task_indices.tolist(), [1])
+
+        # Get the task covariance module
+        task_covar_module = model.covar_module.kernels[1]
+
+        # In train mode, get the covar_factor for unobserved task (index 1)
+        model.train()
+        train_covar_factor = task_covar_module.covar_factor.clone()
+        unobserved_train_covar = train_covar_factor[1]
+        observed_train_covar = train_covar_factor[[0, 2]]
+        mean_observed_train = observed_train_covar.mean(dim=0)
+
+        # Unobserved task covar_factor should be at random init in train mode
+        # (very unlikely to be exactly equal to mean of observed)
+        self.assertFalse(
+            torch.allclose(unobserved_train_covar, mean_observed_train, atol=1e-6)
+        )
+
+        # Switch to eval mode
+        model.eval()
+
+        # In eval mode, get the covar_factor for unobserved task
+        eval_covar_factor = task_covar_module.covar_factor.clone()
+        unobserved_eval_covar = eval_covar_factor[1]
+        observed_eval_covar = eval_covar_factor[[0, 2]]
+        mean_observed_eval = observed_eval_covar.mean(dim=0)
+
+        # Unobserved task covar_factor should equal mean of observed in eval mode
+        self.assertTrue(
+            torch.allclose(unobserved_eval_covar, mean_observed_eval, atol=1e-6)
+        )
+
+        # Verify predictions work for the unobserved task
+        # Create test input for unobserved task (task 1)
+        test_X = torch.rand(3, 2, **tkwargs)
+        test_X[:, 0] = 1.0  # Set task feature to 1 (unobserved task)
+
+        with torch.no_grad():
+            posterior = model.posterior(X=test_X)
+
+        # Verify posterior has expected shape
+        self.assertEqual(posterior.mean.shape, torch.Size([3, 1]))
+        self.assertEqual(posterior.variance.shape, torch.Size([3, 1]))
+
+        # Verify we can sample from the posterior
+        samples = posterior.rsample(sample_shape=torch.Size([2]))
+        self.assertEqual(samples.shape, torch.Size([2, 3, 1]))
 
 
 class TestKroneckerMultiTaskGP(BotorchTestCase):
