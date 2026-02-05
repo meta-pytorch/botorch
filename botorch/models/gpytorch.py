@@ -936,6 +936,7 @@ class MultiTaskGPyTorchModel(GPyTorchModel, ABC):
         self,
         X: Tensor,
         mvn: MultivariateNormal,
+        num_outputs: int,
         observation_noise: bool | Tensor,
     ) -> MultivariateNormal:
         """Adds the observation noise to the posterior.
@@ -1068,6 +1069,7 @@ class MultiTaskGPyTorchModel(GPyTorchModel, ABC):
             mvn = self._apply_noise(
                 X=X_full,
                 mvn=mvn,
+                num_outputs=num_outputs,
                 observation_noise=observation_noise,
             )
         # If single-output, return the posterior of a single-output model

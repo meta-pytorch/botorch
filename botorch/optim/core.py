@@ -79,8 +79,8 @@ def scipy_minimize(
         callback: A callable taking ``parameters`` and an OptimizationResult as
             arguments.
         x0: An optional initialization vector passed to scipy.optimize.minimize.
-        method: Solver type, passed along to scipy.optimize.minimize.
-        options: Dictionary of solver options, passed along to scipy.optimize.minimize.
+        method: Solver type, passed along to scipy.minimize.
+        options: Dictionary of solver options, passed along to scipy.minimize.
         timeout_sec: Timeout in seconds to wait before aborting the optimization loop
             if not converged (will return the best found solution thus far).
 

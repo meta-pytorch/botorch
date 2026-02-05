@@ -148,3 +148,129 @@ class TestGetters(BotorchTestCase):
             self.assertEqual(len(target_list), len(self.models))
             for model, Y in zip(self.models, target_list):
                 self.assertTrue(Y.equal(get_train_targets(model)))
+
+
+class TestHelpersAndMixins(BotorchTestCase):
+    def test_sparse_block_diag_with_linear_operator(self):
+        """Test sparse_block_diag with LinearOperator input."""
+        from botorch.sampling.pathwise.utils.helpers import sparse_block_diag
+        from linear_operator.operators import DiagLinearOperator
+
+        # Create a LinearOperator block
+        diag_values = torch.tensor([1.0, 2.0, 3.0])
+        linear_op_block = DiagLinearOperator(diag_values)
+
+        # Create a regular tensor block
+        tensor_block = torch.tensor([[4.0, 5.0], [6.0, 7.0]])
+
+        # Test with LinearOperator in blocks
+        blocks = [linear_op_block, tensor_block]
+        result = sparse_block_diag(blocks)
+
+        # Verify the result
+        self.assertTrue(result.is_sparse)
+        dense_result = result.to_dense()
+        expected_shape = (5, 5)  # 3x3 + 2x2
+        self.assertEqual(dense_result.shape, expected_shape)
+
+    def test_append_transform_with_existing_transform(self):
+        """Test append_transform when another transform already exists."""
+        from botorch.sampling.pathwise.utils.helpers import append_transform
+        from botorch.sampling.pathwise.utils.transforms import ChainedTransform
+
+        class MockModule:
+            def __init__(self):
+                self.existing_transform = Normalize(d=2)
+
+        module = MockModule()
+        new_transform = Normalize(d=3)
+
+        append_transform(module, "existing_transform", new_transform)
+
+        self.assertIsInstance(module.existing_transform, ChainedTransform)
+        self.assertEqual(len(module.existing_transform.transforms), 2)
+
+    def test_untransform_shape_with_none_transform(self):
+        """Test untransform_shape with None transform."""
+        from botorch.sampling.pathwise.utils.helpers import untransform_shape
+
+        shape = torch.Size([10, 2])
+        result_shape = untransform_shape(None, shape)
+        self.assertEqual(result_shape, shape)
+
+    def test_untransform_shape_with_untrained_outcome_transform(self):
+        """Test untransform_shape with untrained OutcomeTransform."""
+        from botorch.models.transforms.outcome import OutcomeTransform
+        from botorch.sampling.pathwise.utils.helpers import untransform_shape
+
+        class MockUntrainedOutcomeTransform(OutcomeTransform):
+            def __init__(self):
+                super().__init__()
+                self._is_trained = False
+
+            def forward(self, Y, Yvar=None):
+                return Y, Yvar
+
+            def untransform(self, Y, Yvar=None):
+                return Y, Yvar
+
+        transform = MockUntrainedOutcomeTransform()
+        shape = torch.Size([10, 2])
+        result_shape = untransform_shape(transform, shape)
+        self.assertEqual(result_shape, shape)
+
+    def test_untransform_shape_with_trained_outcome_transform(self):
+        """Test untransform_shape with trained OutcomeTransform."""
+        from botorch.sampling.pathwise.utils.helpers import untransform_shape
+
+        # Use Standardize which is a real OutcomeTransform
+        transform = Standardize(m=2)
+        # Train it by calling forward
+        train_Y = torch.randn(10, 2)
+        transform(train_Y)  # This trains the transform
+
+        shape = torch.Size([10, 2])
+        result_shape = untransform_shape(transform, shape)
+        self.assertEqual(result_shape, shape)
+
+    def test_untransform_shape_with_input_transform(self):
+        """Test untransform_shape with InputTransform."""
+        from botorch.sampling.pathwise.utils.helpers import untransform_shape
+
+        transform = Normalize(d=2)
+        shape = torch.Size([10, 2])
+        result_shape = untransform_shape(transform, shape)
+        self.assertEqual(result_shape, shape)
+
+    def test_get_kernel_num_inputs_with_default(self):
+        """Test get_kernel_num_inputs with default value."""
+        from botorch.sampling.pathwise.utils.helpers import get_kernel_num_inputs
+        from gpytorch.kernels import RBFKernel
+
+        kernel = RBFKernel()
+
+        # Test with default value (should return default)
+        result = get_kernel_num_inputs(kernel, num_ambient_inputs=None, default=5)
+        self.assertEqual(result, 5)
+
+        # Test error case when no default
+        with self.assertRaisesRegex(ValueError, "`num_ambient_inputs` must be passed"):
+            get_kernel_num_inputs(kernel, num_ambient_inputs=None)
+
+    def test_module_dict_mixin_update(self):
+        """Test ModuleDictMixin.update method."""
+        from botorch.sampling.pathwise.utils.mixins import ModuleDictMixin
+        from torch.nn import Linear, Module
+
+        class TestModuleDictClass(Module, ModuleDictMixin):
+            def __init__(self):
+                Module.__init__(self)
+                ModuleDictMixin.__init__(self, attr_name="modules")
+
+        test_obj = TestModuleDictClass()
+        new_modules = {"linear1": Linear(2, 3), "linear2": Linear(3, 1)}
+        test_obj.update(new_modules)
+
+        self.assertIn("linear1", test_obj)
+        self.assertIn("linear2", test_obj)
+        self.assertEqual(len(test_obj), 2)

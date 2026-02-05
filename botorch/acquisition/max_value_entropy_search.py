@@ -992,7 +992,7 @@ def _sample_max_value_Gumbel(
         N = norm(mu[:, i].numpy(force=True), sigma[:, i].numpy(force=True))
         quantiles[i, :] = torch.tensor(
             [
-                brentq(lambda y: np.exp(np.sum(N.logcdf(y))) - p, lo_, hi_)
+                brentq(lambda y, N=N, p=p: np.exp(np.sum(N.logcdf(y))) - p, lo_, hi_)
                 for p in [0.25, 0.50, 0.75]
             ]
         )

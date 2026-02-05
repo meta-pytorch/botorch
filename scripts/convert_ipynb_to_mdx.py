@@ -97,7 +97,7 @@ def load_notebook(path: Path) -> NotebookNode:
     Returns:
         NotebookNode: ``nbformat`` object, which contains all the notebook cells in it.
     """
-    with path.open("r") as f:
+    with path.open("r", encoding="utf-8") as f:
         nb_str = f.read()
         nb = nbformat.reads(nb_str, nbformat.NO_CONVERT)
     return nb
@@ -1014,7 +1014,7 @@ def transform_notebook(path: Path, nb_metadata: object, is_community: bool) -> s
 
     # Write the MDX file to disk.
     save_path = save_folder / "index.mdx"
-    with save_path.open("w") as f:
+    with save_path.open("w", encoding="utf-8") as f:
         f.write(mdx)
 
     # Return the string for debugging purposes.

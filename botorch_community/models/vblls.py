@@ -410,7 +410,7 @@ class VBLLModel(AbstractBLLModel):
 
         self.model.train()
 
-        for epoch in range(1, optimization_settings["num_epochs"] + 1):
+        for epoch in range(1, optimization_settings["num_epochs"] + 1):  # noqa: B007
             # early stopping
             if early_stop:
                 break

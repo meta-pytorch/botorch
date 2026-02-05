@@ -282,7 +282,7 @@ class MCAcquisitionObjective(Module, ABC):
     def __call__(
         self, samples: Tensor, X: Tensor | None = None, *args, **kwargs
     ) -> Tensor:
-        output = super().__call__(samples=samples, X=X, *args, **kwargs)
+        output = super().__call__(samples, X, *args, **kwargs)
         # q-batch dimension is at -1 for single-output objectives and at
         # -2 for multi-output objectives.
         q_batch_idx = -2 if self._is_mo else -1

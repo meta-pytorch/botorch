@@ -660,9 +660,9 @@ class ContextualDataset(SupervisedDataset):
         buckets are taken from the parameter decomposition.
         """
         if len(self.outcome_names) > 1:
-            assert len(self.outcome_names) == len(self.metric_decomposition), (
-                "Expected a single dataset, or one for each context bucket."
-            )
+            assert len(self.outcome_names) == len(
+                self.metric_decomposition
+            ), "Expected a single dataset, or one for each context bucket."
             context_buckets = []
             for outcome_name in self.outcome_names:
                 for k, v in self.metric_decomposition.items():

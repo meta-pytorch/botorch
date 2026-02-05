@@ -448,9 +448,11 @@ class TestQMultiFidelityKnowledgeGradient(BotorchTestCase):
                     qMFKG = qMultiFidelityKnowledgeGradient(
                         model=mm,
                         num_fantasies=n_f,
-                        project=lambda X: project_to_sample_points(X, sample_points),
+                        project=lambda X, sp=sample_points: project_to_sample_points(
+                            X, sp
+                        ),
                         valfunc_cls=ScalarizedPosteriorMean,
-                        valfunc_argfac=lambda model: {"weights": weights},
+                        valfunc_argfac=lambda model, w=weights: {"weights": w},
                     )
                     val = qMFKG(X)
                     patch_f.assert_called_once()
@@ -465,7 +467,9 @@ class TestQMultiFidelityKnowledgeGradient(BotorchTestCase):
                     qMFKG = qMultiFidelityKnowledgeGradient(
                         model=mm,
                         num_fantasies=n_f,
-                        project=lambda X: project_to_sample_points(X, sample_points),
+                        project=lambda X, sp=sample_points: project_to_sample_points(
+                            X, sp
+                        ),
                         valfunc_cls=qExpectedImprovement,
                         valfunc_argfac=lambda model: {"best_f": 0.0},
                     )

@@ -627,7 +627,7 @@ def gen_candidates_torch(
         if callback:
             callback(i, loss, grad)
 
-        def assign_grad():
+        def assign_grad(grad=grad, loss=loss):
             _optimizer.zero_grad()
             clamped_candidates.grad = grad
             return loss
@@ -696,13 +696,13 @@ def _process_scipy_result(res: OptimizeResult, options: dict[str, Any]) -> None:
             or "Iteration limit reached" in res.message
         ):
             logger.info(
-                "`scipy.optimize.minimize` exited by reaching the iteration limit of "
+                "`scipy.minimize` exited by reaching the iteration limit of "
                 f"`maxiter: {options.get('maxiter')}`."
             )
         elif "EVALUATIONS EXCEEDS LIMIT" in res.message:
             logger.info(
-                "`scipy.optimize.minimize` exited by reaching the function evaluation "
-                f"limit of `maxfun: {options.get('maxfun')}`."
+                "`scipy.minimize` exited by reaching the function evaluation limit of "
+                f"`maxfun: {options.get('maxfun')}`."
             )
         elif "Optimization timed out after" in res.message:
             logger.info(res.message)

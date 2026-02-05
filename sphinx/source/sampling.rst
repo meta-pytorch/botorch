@@ -85,3 +85,18 @@ Utilities
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 .. automodule:: botorch.sampling.pathwise.utils
     :members:
+
+Utility Helpers
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.. automodule:: botorch.sampling.pathwise.utils.helpers
+    :members:
+
+Utility Mixins
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.. automodule:: botorch.sampling.pathwise.utils.mixins
+    :members:
+
+Utility Transforms
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.. automodule:: botorch.sampling.pathwise.utils.transforms
+    :members:

@@ -106,7 +106,7 @@ class OneShotAcquisitionFunction(AcquisitionFunction, ABC):
         pass  # pragma: no cover
 
 
-class MCSamplerMixin(ABC):
+class MCSamplerMixin(ABC):  # noqa: B024
     r"""A mix-in for adding sampler functionality into an acquisition function class.
 
     Attributes:

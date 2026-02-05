@@ -208,3 +208,8 @@ Other Utilties
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 .. automodule:: botorch.models.utils.assorted
     :members:
+
+Model Helpers
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.. automodule:: botorch.models.utils.helpers
+    :members:

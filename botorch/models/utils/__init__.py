@@ -30,6 +30,8 @@ __all__ = [
     "check_min_max_scaling",
     "check_standardization",
     "fantasize",
+    "get_train_inputs",
+    "get_train_targets",
     "get_data_for_optimization_help",
     "gpt_posterior_settings",
     "multioutput_to_batch_mode_transform",
@@ -40,3 +42,16 @@ __all__ = [
     "extract_targets_and_noise_single_output",
     "restore_targets_and_noise_single_output",
 ]
+
+
+# Lazy import to avoid circular dependencies
+def __getattr__(name):
+    if name == "get_train_inputs":
+        from botorch.models.utils.helpers import get_train_inputs
+
+        return get_train_inputs
+    elif name == "get_train_targets":
+        from botorch.models.utils.helpers import get_train_targets
+
+        return get_train_targets
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

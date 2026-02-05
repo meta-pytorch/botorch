@@ -338,9 +338,9 @@ def fmin_l_bfgs_b_batched(
     if ftol is None:
         ftol = factr * np.finfo(float).eps
     else:
-        assert factr is None, (
-            "ftol and factr cannot be used together, set factr explicitly to None."
-        )
+        assert (
+            factr is None
+        ), "ftol and factr cannot be used together, set factr explicitly to None."
 
     # build options
     callback = _wrap_callback(callback)
@@ -671,7 +671,7 @@ def translate_bounds_for_lbfgsb(
             bounds[i] = list(bounds[i])
         if len(bounds[i]) == num_features:
             bounds[i] = sum([bounds[i] for _ in range(q)], [])
-        assert len(bounds[i]) == num_features * q, (
-            f"Instead got {len(bounds[i])} != {num_features} * {q}."
-        )
+        assert (
+            len(bounds[i]) == num_features * q
+        ), f"Instead got {len(bounds[i])} != {num_features} * {q}."
     return list(zip(*bounds))

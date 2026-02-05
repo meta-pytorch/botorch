@@ -25,7 +25,7 @@ class IdentityPath(SamplePath):
 
 class TestGenericPaths(BotorchTestCase):
     def test_path_dict(self):
-        with self.assertRaisesRegex(UnsupportedError, "must be preceded by a join"):
+        with self.assertRaisesRegex(UnsupportedError, "preceded by a `reducer`"):
             PathDict(output_transform="foo")
 
         A = IdentityPath()
@@ -47,7 +47,7 @@ class TestGenericPaths(BotorchTestCase):
         self.assertTrue(x.equal(output.pop("1")))
         self.assertTrue(not output)
 
-        path_dict.join = torch.stack
+        path_dict.reducer = torch.stack
         output = path_dict(x)
         self.assertIsInstance(output, torch.Tensor)
         self.assertEqual(output.shape, (2,) + x.shape)
@@ -78,7 +78,7 @@ class TestGenericPaths(BotorchTestCase):
         self.assertEqual(("0",), tuple(path_dict))
 
     def test_path_list(self):
-        with self.assertRaisesRegex(UnsupportedError, "must be preceded by a join"):
+        with self.assertRaisesRegex(UnsupportedError, "preceded by a `reducer`"):
             PathList(output_transform="foo")
 
         # Test __init__
@@ -99,7 +99,7 @@ class TestGenericPaths(BotorchTestCase):
         self.assertTrue(x.equal(output.pop()))
         self.assertTrue(not output)
 
-        path_list.join = torch.stack
+        path_list.reducer = torch.stack
         output = path_list(x)
         self.assertIsInstance(output, torch.Tensor)
         self.assertEqual(output.shape, (2,) + x.shape)
@@ -115,3 +115,48 @@ class TestGenericPaths(BotorchTestCase):
 
         del path_list[1]  # test __delitem__
         self.assertEqual((A,), tuple(path_list))
+
+    def test_generalized_linear_path_multi_dim(self):
+        """Test GeneralizedLinearPath with multi-dimensional feature maps."""
+        import torch
+        from botorch.sampling.pathwise.features import FeatureMap
+        from botorch.sampling.pathwise.paths import GeneralizedLinearPath
+
+        # Create a mock feature map with 2D output
+        class Mock2DFeatureMap(FeatureMap):
+            def __init__(self):
+                super().__init__()
+                self.raw_output_shape = torch.Size([4, 3])  # 2D output
+                self.batch_shape = torch.Size([])
+                self.input_transform = None
+                self.output_transform = None
+
+            def forward(self, x):
+                # Return a 2D feature tensor
+                batch_shape = x.shape[:-1]
+                return torch.randn(*batch_shape, *self.raw_output_shape)
+
+        # Create path with 2D features
+        feature_map = Mock2DFeatureMap()
+
+        weight = torch.randn(3)  # Weight should match last dimension of features
+        path = GeneralizedLinearPath(feature_map=feature_map, weight=weight)
+
+        # Test forward pass - this should trigger einsum
+        x = torch.rand(5, 2)  # batch_size x input_dim
+        output = path(x)
+
+        # Output should be reduced to 1D (batch_size,)
+        self.assertEqual(output.shape, (5,))
+
+        # Test with bias module
+        class MockBias(torch.nn.Module):
+            def forward(self, x):
+                return torch.ones(x.shape[0])
+
+        bias_module = MockBias()
+        path_with_bias = GeneralizedLinearPath(
+            feature_map=feature_map, weight=weight, bias_module=bias_module
+        )
+        output_with_bias = path_with_bias(x)
+        self.assertEqual(output_with_bias.shape, (5,))

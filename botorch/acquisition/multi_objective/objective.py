@@ -188,7 +188,7 @@ class FeasibilityWeightedMCMultiOutputObjective(MCMultiOutputObjective):
             def apply_feasibility_weights(Y: Tensor, X: Tensor | None = None) -> Tensor:
                 return apply_constraints(
                     obj=Y[..., objective_idcs],
-                    constraints=[lambda Y: -Y[..., i] for i in constraint_idcs],
+                    constraints=[lambda Y, i=i: -Y[..., i] for i in constraint_idcs],
                     samples=Y,
                     # This ensures that the dtype/device is set properly.
                     infeasible_cost=inf_cost.to(Y),
