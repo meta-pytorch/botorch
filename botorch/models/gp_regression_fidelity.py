@@ -25,7 +25,7 @@ without having to do too many expensive high-fidelity evaluations.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import torch
@@ -41,7 +41,7 @@ from botorch.models.transforms.outcome import OutcomeTransform
 from botorch.models.utils.gpytorch_modules import get_covar_module_with_dim_scaled_prior
 from botorch.utils.datasets import SupervisedDataset
 from botorch.utils.types import _DefaultType, DEFAULT
-from gpytorch.kernels.kernel import ProductKernel
+from gpytorch.kernels.kernel import Kernel, ProductKernel
 from gpytorch.kernels.scale_kernel import ScaleKernel
 from gpytorch.likelihoods.likelihood import Likelihood
 from gpytorch.priors.torch_priors import GammaPrior
@@ -72,6 +72,8 @@ class SingleTaskMultiFidelityGP(SingleTaskGP):
         data_fidelities: Sequence[int] | None = None,
         linear_truncated: bool = True,
         nu: float = 2.5,
+        cont_kernel_factory: None
+        | (Callable[[torch.Size, int, list[int]], Kernel]) = None,
         likelihood: Likelihood | None = None,
         outcome_transform: OutcomeTransform | _DefaultType | None = DEFAULT,
         input_transform: InputTransform | None = None,
@@ -93,6 +95,11 @@ class SingleTaskMultiFidelityGP(SingleTaskGP):
                 of the default kernel.
             nu: The smoothness parameter for the Matern kernel: either 1/2, 3/2, or
                 5/2. Only used when ``linear_truncated=True``.
+            cont_kernel_factory: A method that accepts  ``batch_shape``,
+                ``ard_num_dims``, and ``active_dims`` arguments and returns an
+                instantiated GPyTorch ``Kernel`` object to be used as the base
+                kernel for the non-fidelity dimensions. If omitted, this model uses
+                an ``RBFKernel`` as the kernel for non-fidelities.
             likelihood: A likelihood. If omitted, use a standard GaussianLikelihood
                 with inferred noise level.
             outcome_transform: An outcome transform that is applied to the
@@ -130,6 +137,7 @@ class SingleTaskMultiFidelityGP(SingleTaskGP):
             data_fidelities=data_fidelities,
             linear_truncated=linear_truncated,
             nu=nu,
+            cont_kernel_factory=cont_kernel_factory,
         )
         super().__init__(
             train_X=train_X,
@@ -174,6 +182,7 @@ def _setup_multifidelity_covar_module(
     data_fidelities: Sequence[int] | None,
     linear_truncated: bool,
     nu: float,
+    cont_kernel_factory: None | (Callable[[torch.Size, int, list[int]], Kernel]) = None,
 ) -> tuple[ScaleKernel, dict]:
     """Helper function to get the covariance module and associated subset_batch_dict
     for the multifidelity setting.
@@ -190,6 +199,11 @@ def _setup_multifidelity_covar_module(
             of the default kernel.
         nu: The smoothness parameter for the Matern kernel: either 1/2, 3/2, or
             5/2. Only used when ``linear_truncated=True``.
+        cont_kernel_factory: A method that accepts  ``batch_shape``,
+            ``ard_num_dims``, and ``active_dims`` arguments and returns an
+            instantiated GPyTorch ``Kernel`` object to be used as the base
+            kernel for the non-fidelity dimensions. If omitted, this model uses
+            an ``RBFKernel`` as the kernel for non-fidelities.
 
     Returns:
         The covariance module and subset_batch_dict.
@@ -204,6 +218,15 @@ def _setup_multifidelity_covar_module(
                 data_fidelities[i] = dim + data_fidelities[i]
 
     kernels = []
+
+    if linear_truncated and cont_kernel_factory is not None:
+        raise ValueError(
+            "Non-fidelity kernel cannot be specified when using a linear "
+            "truncated kernel."
+        )
+
+    if cont_kernel_factory is None:
+        cont_kernel_factory = get_covar_module_with_dim_scaled_prior
 
     if linear_truncated:
         leading_dims = [iteration_fidelity] if iteration_fidelity is not None else []
@@ -226,7 +249,7 @@ def _setup_multifidelity_covar_module(
             non_active_dims.add(iteration_fidelity)
         active_dimsX = sorted(set(range(dim)) - non_active_dims)
         kernels.append(
-            get_covar_module_with_dim_scaled_prior(
+            cont_kernel_factory(
                 ard_num_dims=len(active_dimsX),
                 batch_shape=aug_batch_shape,
                 active_dims=active_dimsX,
@@ -255,11 +278,15 @@ def _setup_multifidelity_covar_module(
 
     kernel = ProductKernel(*kernels)
 
-    covar_module = ScaleKernel(
-        kernel, batch_shape=aug_batch_shape, outputscale_prior=GammaPrior(2.0, 0.15)
-    )
+    if linear_truncated:
+        covar_module = ScaleKernel(
+            kernel, batch_shape=aug_batch_shape, outputscale_prior=GammaPrior(2.0, 0.15)
+        )
+        key_prefix = "covar_module.base_kernel.kernels"
+    else:
+        covar_module = kernel
+        key_prefix = "covar_module.kernels"
 
-    key_prefix = "covar_module.base_kernel.kernels"
     if linear_truncated:
         subset_batch_dict = {}
         for i in range(len(kernels)):
@@ -271,9 +298,15 @@ def _setup_multifidelity_covar_module(
                 }
             )
     else:
-        subset_batch_dict = {
-            f"{key_prefix}.0.raw_lengthscale": -3,
-        }
+        subset_batch_dict = {}
+
+        # Only set the subset_batch_dict if using the default kernel. See SingleTaskGP.
+        if cont_kernel_factory is get_covar_module_with_dim_scaled_prior:
+            subset_batch_dict.update(
+                {
+                    f"{key_prefix}.0.raw_lengthscale": -3,
+                }
+            )
 
         if iteration_fidelity is not None:
             subset_batch_dict.update(
