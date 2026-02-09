@@ -58,6 +58,14 @@ STOP_AFTER_SHARE_CONVERGED = 1.0  # We optimize multiple configurations at once
 # Convergence is defined as the improvements of one discrete, followed by a scalar
 # optimization yield less than ``CONVERGENCE_TOL`` improvements.
 
+# Threshold for choosing between optimize_acqf_mixed and
+# optimize_acqf_mixed_alternating in mixed (not fully discrete) search spaces.
+ALTERNATING_OPTIMIZER_THRESHOLD = 10
+
+# For fully discrete search spaces.
+MAX_CHOICES_ENUMERATE = 10_000
+MAX_CARDINALITY_FOR_LOCAL_SEARCH = 100
+
 SUPPORTED_OPTIONS = {
     "initialization_strategy",
     "tol",
@@ -72,6 +80,41 @@ SUPPORTED_OPTIONS = {
     "init_batch_limit",
 }
 SUPPORTED_INITIALIZATION = {"continuous_relaxation", "equally_spaced", "random"}
+
+
+def should_use_mixed_alternating_optimizer(
+    discrete_dims: Mapping[int, Sequence[float]] | None = None,
+    cat_dims: Mapping[int, Sequence[float]] | None = None,
+) -> bool:
+    r"""Determine whether to use ``optimize_acqf_mixed_alternating`` for a mixed
+    (not fully discrete) search space based on the number of discrete combinations.
+
+    For mixed search spaces, if there are more than ``ALTERNATING_OPTIMIZER_THRESHOLD``
+    combinations of discrete choices, we use ``optimize_acqf_mixed_alternating``,
+    which alternates between continuous and discrete optimization steps. Otherwise,
+    we use ``optimize_acqf_mixed``, which enumerates all discrete combinations and
+    optimizes the continuous features with discrete features being fixed.
+
+    Args:
+        discrete_dims: A dictionary mapping indices of discrete (ordinal)
+            dimensions to their respective sets of values provided as a sequence.
+        cat_dims: A dictionary mapping indices of categorical dimensions
+            to their respective sets of values provided as a sequence.
+
+    Returns:
+        ``True`` if ``optimize_acqf_mixed_alternating`` should be used, ``False``
+        if ``optimize_acqf_mixed`` should be used instead.
+    """
+    if discrete_dims is None and cat_dims is None:
+        return False
+
+    n_combos = 1
+    for values in (discrete_dims or {}).values():
+        n_combos *= len(values)
+    for values in (cat_dims or {}).values():
+        n_combos *= len(values)
+
+    return n_combos > ALTERNATING_OPTIMIZER_THRESHOLD
 
 
 def _setup_continuous_relaxation(
