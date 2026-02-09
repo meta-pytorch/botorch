@@ -8,16 +8,20 @@ r"""
 Active learning acquisition functions.
 
 .. [Seo2014activedata]
-    S. Seo, M. Wallat, T. Graepel, and K. Obermayer. Gaussian process regression:
-    Active data selection and test point rejection. IJCNN 2000.
+    S. Seo, M. Wallat, T. Graepel, and K. Obermayer. `Gaussian process regression:
+    Active data selection and test point rejection.
+    <https://ieeexplore.ieee.org/document/861310>`_
+    IJCNN 2000.
 
 .. [Chen2014seqexpdesign]
-    X. Chen and Q. Zhou. Sequential experimental designs for stochastic kriging.
+    X. Chen and Q. Zhou. `Sequential experimental designs for stochastic kriging.
+    <https://ieeexplore.ieee.org/document/7020209>`_
     Winter Simulation Conference 2014.
 
 .. [Binois2017repexp]
-    M. Binois, J. Huang, R. B. Gramacy, and M. Ludkovski. Replication or
+    M. Binois, J. Huang, R. B. Gramacy, and M. Ludkovski. `Replication or
     exploration? Sequential design for stochastic simulation experiments.
+    <https://arxiv.org/abs/1710.03206>`_
     ArXiv 2017.
 """
 
