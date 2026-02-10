@@ -225,6 +225,62 @@ class PyroModel:
     ) -> tuple[Mean, Kernel, Likelihood]:
         pass  # pragma: no cover
 
+    @abstractmethod
+    def get_dummy_mcmc_samples(
+        self,
+        num_mcmc_samples: int,
+        dim: int,
+        dtype: torch.dtype,
+        device: torch.device,
+    ) -> dict[str, Tensor]:
+        r"""Return dummy MCMC samples for initializing the model in
+        ``load_state_dict``.
+
+        Each subclass provides its kernel-specific keys (e.g. lengthscale,
+        weight_variance).  The base implementation is responsible for common
+        keys shared across all models (noise, input-warping concentrations,
+        and multitask embeddings).
+
+        Args:
+            num_mcmc_samples: Number of MCMC samples.
+            dim: Number of input dimensions (excluding the task feature for
+                multitask models).
+            dtype: Tensor dtype.
+            device: Tensor device.
+
+        Returns:
+            A dictionary mapping sample names to tensors.
+        """
+        pass  # pragma: no cover
+
+    def _get_base_dummy_mcmc_samples(
+        self,
+        num_mcmc_samples: int,
+        dim: int,
+        dtype: torch.dtype,
+        device: torch.device,
+    ) -> dict[str, Tensor]:
+        r"""Return dummy samples for keys common to all PyroModel subclasses.
+
+        Handles noise, input-warping concentrations, and multitask embeddings.
+        Subclasses should call this and merge with their kernel-specific keys.
+        """
+        tkwargs: dict[str, Any] = {"dtype": dtype, "device": device}
+        mcmc_samples: dict[str, Tensor] = {}
+        if self.train_Yvar is None:
+            mcmc_samples["noise"] = torch.ones(num_mcmc_samples, **tkwargs)
+        if self.use_input_warping:
+            mcmc_samples["c0"] = torch.ones(num_mcmc_samples, dim, **tkwargs)
+            mcmc_samples["c1"] = torch.ones(num_mcmc_samples, dim, **tkwargs)
+        if self.is_multitask:
+            mcmc_samples["task_lengthscale"] = torch.ones(
+                num_mcmc_samples, self.task_rank, **tkwargs
+            )
+            mcmc_samples["latent_features"] = torch.ones(
+                num_mcmc_samples, self.num_tasks, self.task_rank, **tkwargs
+            )
+        return mcmc_samples
+
     def sample_noise(self, **tkwargs: Any) -> Tensor:
         r"""Sample the noise variance."""
         if self.train_Yvar is None:
@@ -540,6 +596,27 @@ class MaternPyroModel(PyroModel):
         """
         return mcmc_samples
 
+    def get_dummy_mcmc_samples(
+        self,
+        num_mcmc_samples: int,
+        dim: int,
+        dtype: torch.dtype,
+        device: torch.device,
+    ) -> dict[str, Tensor]:
+        r"""Return dummy MCMC samples for a Matern model."""
+        tkwargs: dict[str, Any] = {"dtype": dtype, "device": device}
+        mean_shape = (
+            (num_mcmc_samples, self.num_tasks)
+            if self.is_multitask
+            else (num_mcmc_samples,)
+        )
+        mcmc_samples = {
+            "mean": torch.ones(*mean_shape, **tkwargs),
+            "lengthscale": torch.ones(num_mcmc_samples, dim, **tkwargs),
+            **self._get_base_dummy_mcmc_samples(num_mcmc_samples, dim, dtype, device),
+        }
+        return mcmc_samples
+
     def _get_covar_module(
         self,
         use_scale_kernel: bool,
@@ -708,6 +785,22 @@ class SaasPyroModel(MaternPyroModel):
         del mcmc_samples["kernel_tausq"], mcmc_samples["_kernel_inv_length_sq"]
         return mcmc_samples
 
+    def get_dummy_mcmc_samples(
+        self,
+        num_mcmc_samples: int,
+        dim: int,
+        dtype: torch.dtype,
+        device: torch.device,
+    ) -> dict[str, Tensor]:
+        r"""Return dummy MCMC samples for a SAAS model (adds outputscale)."""
+        mcmc_samples = super().get_dummy_mcmc_samples(
+            num_mcmc_samples, dim, dtype, device
+        )
+        mcmc_samples["outputscale"] = torch.ones(
+            num_mcmc_samples, dtype=dtype, device=device
+        )
+        return mcmc_samples
+
 
 class LinearPyroModel(PyroModel):
     r"""Implementation of a Bayesian Linear pyro model.
@@ -772,6 +865,22 @@ class LinearPyroModel(PyroModel):
             mcmc_samples["tau_sq"].unsqueeze(-1) * mcmc_samples["_weight_variance_sq"]
         ).sqrt()
         del mcmc_samples["tau_sq"], mcmc_samples["_weight_variance_sq"]
+        return mcmc_samples
+
+    def get_dummy_mcmc_samples(
+        self,
+        num_mcmc_samples: int,
+        dim: int,
+        dtype: torch.dtype,
+        device: torch.device,
+    ) -> dict[str, Tensor]:
+        r"""Return dummy MCMC samples for a Linear model."""
+        tkwargs: dict[str, Any] = {"dtype": dtype, "device": device}
+        mcmc_samples = {
+            "mean": torch.ones(num_mcmc_samples, **tkwargs),
+            "weight_variance": torch.ones(num_mcmc_samples, dim, **tkwargs),
+            **self._get_base_dummy_mcmc_samples(num_mcmc_samples, dim, dtype, device),
+        }
         return mcmc_samples
 
     def load_mcmc_samples(
@@ -1160,44 +1269,22 @@ class FullyBayesianSingleTaskGP(AbstractFullyBayesianSingleTaskGP):
         lengthscale = base_kernel.lengthscale.clone()
         return lengthscale.median(0).values.squeeze(0)
 
-    def _get_dummy_mcmc_samples(
-        self,
-        num_mcmc_samples: int,
-        dim: int,
-        dtype: torch.dtype,
-        device: torch.device,
-    ) -> dict[str, Tensor]:
-        # Load some dummy samples
-        tkwargs = {"dtype": dtype, "device": device}
-        mcmc_samples = {
-            "mean": torch.ones(num_mcmc_samples, **tkwargs),
-            "lengthscale": torch.ones(num_mcmc_samples, dim, **tkwargs),
-        }
-        if self.pyro_model.train_Yvar is None:
-            mcmc_samples["noise"] = torch.ones(num_mcmc_samples, **tkwargs)
-
-        if self.pyro_model.use_input_warping:
-            mcmc_samples["c0"] = torch.ones(num_mcmc_samples, dim, **tkwargs)
-            mcmc_samples["c1"] = torch.ones(num_mcmc_samples, dim, **tkwargs)
-        return mcmc_samples
-
     def load_state_dict(
         self, state_dict: Mapping[str, Any], strict: bool = True
     ) -> None:
         r"""Custom logic for loading the state dict.
 
         The standard approach of calling ``load_state_dict`` currently doesn't
-        play well with the ``SaasFullyBayesianSingleTaskGP`` since the
+        play well with the ``FullyBayesianSingleTaskGP`` since the
         ``mean_module``, ``covar_module`` and ``likelihood`` aren't initialized
         until the model has been fitted. The reason for this is that we don't
         know the number of MCMC samples until NUTS is called. Given the state
         dict, we can initialize a new model with some dummy samples and then
-        load the state dict into this model. This currently only works for a
-        ``SaasPyroModel`` and supporting more Pyro models likely requires moving
-        the model construction logic into the Pyro model itself.
+        load the state dict into this model. This delegates to the PyroModel's
+        ``get_dummy_mcmc_samples`` method.
         """
         raw_mean = state_dict["mean_module.raw_constant"]
-        mcmc_samples = self._get_dummy_mcmc_samples(
+        mcmc_samples = self.pyro_model.get_dummy_mcmc_samples(
             num_mcmc_samples=len(raw_mean),
             dim=self.pyro_model.train_X.shape[-1],
             dtype=raw_mean.dtype,
@@ -1227,22 +1314,6 @@ class SaasFullyBayesianSingleTaskGP(FullyBayesianSingleTaskGP):
     """
 
     _pyro_model_class: type[PyroModel] = SaasPyroModel
-
-    def _get_dummy_mcmc_samples(
-        self,
-        num_mcmc_samples: int,
-        dim: int,
-        dtype: torch.dtype,
-        device: torch.device,
-    ) -> dict[str, Tensor]:
-        mcmc_samples = super()._get_dummy_mcmc_samples(
-            num_mcmc_samples=num_mcmc_samples, dim=dim, dtype=dtype, device=device
-        )
-        # add outputscale
-        mcmc_samples["outputscale"] = torch.ones(
-            num_mcmc_samples, dtype=dtype, device=device
-        )
-        return mcmc_samples
 
 
 class FullyBayesianLinearSingleTaskGP(AbstractFullyBayesianSingleTaskGP):
@@ -1276,30 +1347,18 @@ class FullyBayesianLinearSingleTaskGP(AbstractFullyBayesianSingleTaskGP):
     ) -> None:
         r"""Custom logic for loading the state dict.
 
-        The standard approach of calling ``load_state_dict`` currently doesn't play well
-        with the ``FullyBayesianLinearSingleTaskGP`` since the ``mean_module``,
-        ``covar_module`` and ``likelihood`` aren't initialized until the model has been
-        fitted. The reason for this is that we don't know the number of MCMC samples
-        until NUTS is called. Given the state dict, we can initialize a new model with
-        some dummy samples andthen load the state dict into this model. This currently
-        only works for a ``LinearPyroModel`` and supporting more Pyro models likely
-        requires moving the model construction logic into the Pyro model itself.
+        Delegates to the PyroModel's ``get_dummy_mcmc_samples`` to construct
+        the dummy samples needed for initialization.
         """
         weight_variance = state_dict["covar_module.raw_variance"]
         num_mcmc_samples = len(weight_variance)
         dim = self.pyro_model.train_X.shape[-1]
-        tkwargs = {"device": weight_variance.device, "dtype": weight_variance.dtype}
-        # Load some dummy samples
-        # deal with c0 c1
-        mcmc_samples = {
-            "mean": torch.ones(num_mcmc_samples, **tkwargs),
-            "weight_variance": torch.ones(num_mcmc_samples, dim, **tkwargs),
-        }
-        if self.pyro_model.use_input_warping:
-            mcmc_samples["c0"] = torch.ones(num_mcmc_samples, dim, **tkwargs)
-            mcmc_samples["c1"] = torch.ones(num_mcmc_samples, dim, **tkwargs)
-        if self.pyro_model.train_Yvar is None:
-            mcmc_samples["noise"] = torch.ones(num_mcmc_samples, **tkwargs)
+        mcmc_samples = self.pyro_model.get_dummy_mcmc_samples(
+            num_mcmc_samples=num_mcmc_samples,
+            dim=dim,
+            dtype=weight_variance.dtype,
+            device=weight_variance.device,
+        )
         self.load_mcmc_samples(mcmc_samples=mcmc_samples)
         # Load the actual samples from the state dict
         super().load_state_dict(state_dict=state_dict, strict=strict)

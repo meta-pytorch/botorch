@@ -32,13 +32,13 @@ from botorch.models import ModelList, ModelListGP
 from botorch.models.deterministic import GenericDeterministicModel
 from botorch.models.fully_bayesian import (
     matern52_kernel,
+    MaternPyroModel,
     MCMC_DIM,
     MIN_INFERRED_NOISE_LEVEL,
+    PyroModel,
+    SaasPyroModel,
 )
-from botorch.models.fully_bayesian_multitask import (
-    MultitaskSaasPyroModel,
-    SaasFullyBayesianMultiTaskGP,
-)
+from botorch.models.fully_bayesian_multitask import SaasFullyBayesianMultiTaskGP
 from botorch.models.transforms.input import Normalize
 from botorch.models.transforms.outcome import Standardize
 from botorch.posteriors import GaussianMixturePosterior
@@ -232,6 +232,21 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
         with self.assertRaisesRegex(RuntimeError, not_fitted_error_msg):
             model.posterior(torch.rand(1, 4, **tkwargs))
 
+        # Passing a PyroModel with is_multitask=False should raise
+        with self.subTest("is_multitask_validation"):
+            train_X, train_Y, train_Yvar, _ = self._get_data_and_model(**tkwargs)
+            with self.assertRaisesRegex(
+                ValueError,
+                "The pyro_model must have is_multitask=True",
+            ):
+                SaasFullyBayesianMultiTaskGP(
+                    train_X=train_X,
+                    train_Y=train_Y,
+                    train_Yvar=train_Yvar,
+                    task_feature=4,
+                    pyro_model=SaasPyroModel(is_multitask=False),
+                )
+
     def test_fit_model(
         self,
         dtype: torch.dtype = torch.double,
@@ -270,7 +285,7 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
         self.assertIsNone(model.mean_module)
         self.assertIsNone(model.covar_module)
         self.assertIsNone(model.likelihood)
-        self.assertIsInstance(model.pyro_model, MultitaskSaasPyroModel)
+        self.assertIsInstance(model.pyro_model, SaasPyroModel)
         self.assertAllClose(train_X[:, :-1], model.pyro_model.train_X[:, :-1])
         self.assertAllClose(
             model.pyro_model.train_X[:, -1], expected_mapped_task_values
@@ -905,3 +920,62 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
             )
             self.assertEqual(model._task_feature, d)
             self.assertEqual(model.pyro_model.task_feature, d)
+
+    def test_with_matern_pyro_model(self):
+        """Test SaasFullyBayesianMultiTaskGP with MaternPyroModel(is_multitask=True).
+
+        This verifies that a non-default PyroModel can be used: it fits, produces
+        posteriors, and round-trips load_state_dict correctly.
+        """
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X, train_Y, train_Yvar, _ = self._get_data_and_model(
+            use_outcome_transform=False, **tkwargs
+        )
+
+        matern_model = MaternPyroModel(is_multitask=True)
+        model = SaasFullyBayesianMultiTaskGP(
+            train_X=train_X,
+            train_Y=train_Y,
+            train_Yvar=train_Yvar,
+            task_feature=4,
+            pyro_model=matern_model,
+        )
+        self.assertIsInstance(model.pyro_model, MaternPyroModel)
+        self.assertTrue(model.pyro_model.is_multitask)
+
+        # Fit the model
+        fit_fully_bayesian_model_nuts(
+            model, warmup_steps=8, num_samples=5, thinning=2, disable_progbar=True
+        )
+        self.assertEqual(model.batch_shape, torch.Size([3]))
+
+        # MaternPyroModel without explicit outputscale prior produces no ScaleKernel
+        data_covar_module = model.covar_module.kernels[0]
+        self.assertIsInstance(data_covar_module, MaternKernel)
+
+        # Posterior should work
+        test_X = torch.rand(5, 4, **tkwargs)
+        posterior = model.posterior(test_X)
+        self.assertIsInstance(posterior, GaussianMixturePosterior)
+
+        # Round-trip load_state_dict
+        state_dict = model.state_dict()
+        model2 = SaasFullyBayesianMultiTaskGP(
+            train_X=train_X,
+            train_Y=train_Y,
+            train_Yvar=train_Yvar,
+            task_feature=4,
+            pyro_model=MaternPyroModel(is_multitask=True),
+        )
+        model2.load_state_dict(state_dict)
+        posterior2 = model2.posterior(test_X)
+        self.assertTrue(torch.equal(posterior.mean, posterior2.mean))
+        self.assertTrue(torch.equal(posterior.variance, posterior2.variance))
+
+    def test_default_pyro_model_unchanged(self):
+        """Default pyro_model=None should produce a SaasPyroModel(is_multitask=True),
+        which behaves identically to the old MultitaskSaasPyroModel default."""
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X, train_Y, train_Yvar, model = self._get_data_and_model(**tkwargs)
+        self.assertIsInstance(model.pyro_model, SaasPyroModel)
+        self.assertTrue(model.pyro_model.is_multitask)
