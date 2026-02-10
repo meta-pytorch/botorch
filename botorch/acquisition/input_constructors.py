@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Callable, Hashable, Iterable, Sequence
-from typing import Any, TypeVar, Union
+from typing import Any, TypeVar
 
 import torch
 from botorch.acquisition.acquisition import AcquisitionFunction
@@ -118,19 +118,19 @@ from torch import Tensor
 ACQF_INPUT_CONSTRUCTOR_REGISTRY = {}
 
 T = TypeVar("T")
-MaybeDict = Union[T, dict[Hashable, T]]
-TOptimizeObjectiveKwargs = Union[
-    None,
-    MCAcquisitionObjective,
-    PosteriorTransform,
-    tuple[Tensor, Tensor],
-    dict[int, float],
-    bool,
-    int,
-    dict[str, Any],
-    Callable[[Tensor], Tensor],
-    Tensor,
-]
+MaybeDict = T | dict[Hashable, T]
+TOptimizeObjectiveKwargs = (
+    None
+    | MCAcquisitionObjective
+    | PosteriorTransform
+    | tuple[Tensor, Tensor]
+    | dict[int, float]
+    | bool
+    | int
+    | dict[str, Any]
+    | Callable[[Tensor], Tensor]
+    | Tensor
+)
 
 
 def _field_is_shared(

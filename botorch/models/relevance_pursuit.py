@@ -22,7 +22,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
 from copy import copy, deepcopy
 from functools import partial
-from typing import Any, cast, Optional
+from typing import Any, cast
 from warnings import warn
 
 import torch
@@ -468,7 +468,7 @@ def forward_relevance_pursuit(
     optimizer: Callable | None = None,
     closure_kwargs: dict[str, Any] | None = None,
     optimizer_kwargs: dict[str, Any] | None = None,
-) -> tuple[RelevancePursuitMixin, Optional[list[Model]]]:
+) -> tuple[RelevancePursuitMixin, list[Model] | None]:
     """Forward Relevance Pursuit.
 
     NOTE: For the robust ``SparseOutlierNoise`` model of
@@ -584,7 +584,7 @@ def backward_relevance_pursuit(
     optimizer: Callable | None = None,
     closure_kwargs: dict[str, Any] | None = None,
     optimizer_kwargs: dict[str, Any] | None = None,
-) -> tuple[RelevancePursuitMixin, Optional[list[Model]]]:
+) -> tuple[RelevancePursuitMixin, list[Model] | None]:
     """Backward Relevance Pursuit.
 
     NOTE: For the robust ``SparseOutlierNoise`` model of

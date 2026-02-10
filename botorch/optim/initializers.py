@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Callable
-from typing import Optional, Union
 
 import torch
 from botorch.acquisition import analytic, monte_carlo, multi_objective
@@ -55,18 +54,17 @@ from torch.quasirandom import SobolEngine
 
 TGenInitialConditions = Callable[
     [
-        # reasoning behind this annotation: contravariance
         qKnowledgeGradient,
         Tensor,
         int,
         int,
         int,
-        Optional[dict[int, float]],
-        Optional[dict[str, Union[bool, float, int]]],
-        Optional[list[tuple[Tensor, Tensor, float]]],
-        Optional[list[tuple[Tensor, Tensor, float]]],
+        dict[int, float] | None,
+        dict[str, bool | float | int] | None,
+        list[tuple[Tensor, Tensor, float]] | None,
+        list[tuple[Tensor, Tensor, float]] | None,
     ],
-    Optional[Tensor],
+    Tensor | None,
 ]
 
 
