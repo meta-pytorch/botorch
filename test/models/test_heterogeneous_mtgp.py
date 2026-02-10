@@ -13,6 +13,8 @@ from botorch.utils.datasets import MultiTaskDataset, SupervisedDataset
 from botorch.utils.testing import BotorchTestCase
 from gpytorch.distributions.multivariate_normal import MultivariateNormal
 from gpytorch.kernels import IndexKernel, ProductKernel
+from gpytorch.likelihoods.gaussian_likelihood import FixedNoiseGaussianLikelihood
+from gpytorch.likelihoods.hadamard_gaussian_likelihood import HadamardGaussianLikelihood
 
 
 class TestHeterogeneousMTGP(BotorchTestCase):
@@ -96,7 +98,7 @@ class TestHeterogeneousMTGP(BotorchTestCase):
         self.assertIsNone(model_inputs["rank"])
 
     def test_standard_heterogeneous_mtgp(self) -> None:
-        # Construct the model.
+        # Construct the model (inferred noise: train_Yvars is None).
         model_inputs = HeterogeneousMTGP.construct_inputs(training_data=self.mtds)
         model = HeterogeneousMTGP(**model_inputs)
         self.assertEqual(model.train_inputs[0].shape, torch.Size([10, 6]))
@@ -112,6 +114,13 @@ class TestHeterogeneousMTGP(BotorchTestCase):
         self.assertEqual(
             data_covar_module.binary_map, [[1, 1, 0], [1, 0, 0], [1, 0, 1]]
         )
+
+        with self.subTest("inferred_noise_uses_hadamard_likelihood"):
+            self.assertIsInstance(model.likelihood, HadamardGaussianLikelihood)
+            # HadamardGaussianLikelihood should have per-task noise parameters.
+            self.assertEqual(
+                model.likelihood.noise_covar.noise.shape[-1], model.num_tasks
+            )
 
         # Evaluate the posterior.
         with self.assertRaisesRegex(UnsupportedError, "output_indices"):
@@ -146,6 +155,45 @@ class TestHeterogeneousMTGP(BotorchTestCase):
         self.assertIsInstance(posterior, GPyTorchPosterior)
         self.assertIsInstance(posterior.distribution, MultivariateNormal)
         self.assertEqual(posterior.mean.shape, torch.Size([5, 1]))
+
+    def test_fixed_noise_likelihood(self) -> None:
+        # Construct datasets with known observation variances.
+        ds1_with_var = SupervisedDataset(
+            X=self.ds1.X,
+            Y=self.ds1.Y,
+            Yvar=torch.full_like(self.ds1.Y, 0.1),
+            feature_names=self.ds1.feature_names,
+            outcome_names=self.ds1.outcome_names,
+        )
+        ds2_with_var = SupervisedDataset(
+            X=self.ds2.X,
+            Y=self.ds2.Y,
+            Yvar=torch.full_like(self.ds2.Y, 0.2),
+            feature_names=self.ds2.feature_names,
+            outcome_names=self.ds2.outcome_names,
+        )
+        ds3_with_var = SupervisedDataset(
+            X=self.ds3.X,
+            Y=self.ds3.Y,
+            Yvar=torch.full_like(self.ds3.Y, 0.3),
+            feature_names=self.ds3.feature_names,
+            outcome_names=self.ds3.outcome_names,
+        )
+        mtds_fixed = MultiTaskDataset(
+            datasets=[ds1_with_var, ds2_with_var, ds3_with_var],
+            target_outcome_name="task0",
+            task_feature_index=-1,
+        )
+        model_inputs = HeterogeneousMTGP.construct_inputs(training_data=mtds_fixed)
+        model = HeterogeneousMTGP(**model_inputs)
+
+        with self.subTest("fixed_noise_uses_fixed_noise_likelihood"):
+            self.assertIsInstance(model.likelihood, FixedNoiseGaussianLikelihood)
+
+        with self.subTest("fixed_noise_posterior"):
+            posterior = model.posterior(self.ds1.X)
+            self.assertIsInstance(posterior, GPyTorchPosterior)
+            self.assertEqual(posterior.mean.shape, torch.Size([5, 1]))
 
     def test_identical_search_space(self) -> None:
         # Check that the model works fine with identical search spaces.
