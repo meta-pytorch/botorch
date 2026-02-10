@@ -19,7 +19,10 @@ from botorch.models.fully_bayesian import (
     reshape_and_detach,
     SaasPyroModel,
 )
-from botorch.models.gpytorch import BatchedMultiOutputGPyTorchModel
+from botorch.models.gpytorch import (
+    BatchedMultiOutputGPyTorchModel,
+    MultiTaskGPyTorchModel,
+)
 from botorch.models.multitask import MultiTaskGP
 from botorch.models.transforms.input import InputTransform
 from botorch.models.transforms.outcome import OutcomeTransform
@@ -32,6 +35,7 @@ from gpytorch.likelihoods.likelihood import Likelihood
 from gpytorch.means.mean import Mean
 from torch import Tensor
 from torch.nn.parameter import Parameter
+from typing_extensions import Self
 
 # Can replace with Self type once 3.11 is the minimum version
 TSaasFullyBayesianMultiTaskGP = TypeVar(
@@ -55,6 +59,7 @@ class MultitaskSaasPyroModel(SaasPyroModel):
         train_Yvar: Tensor | None,
         task_feature: int,
         task_rank: int | None = None,
+        all_tasks: list[int] | None = None,
     ) -> None:
         """Set the training data.
 
@@ -66,6 +71,10 @@ class MultitaskSaasPyroModel(SaasPyroModel):
             task_feature: The index of the task feature (``-d <= task_feature <= d``).
             task_rank: The num of learned task embeddings to be used in the task kernel.
                 If omitted, use a full rank (i.e. number of tasks) kernel.
+            all_tasks: A list of all task indices. If omitted, all tasks will be
+                inferred from the task feature column of the training data. Used to
+                inform the model about the total number of tasks, including any
+                unobserved tasks.
         """
         # NOTE PyTorch does not support negative indexing for tensors in index_select,
         # (https://github.com/pytorch/pytorch/issues/76347), so we have to make sure
@@ -73,7 +82,11 @@ class MultitaskSaasPyroModel(SaasPyroModel):
         task_feature = task_feature % train_X.shape[-1]
         super().set_inputs(train_X, train_Y, train_Yvar)
         # obtain a list of task indicies
-        all_tasks = train_X[:, task_feature].unique().to(dtype=torch.long).tolist()
+        all_tasks = (
+            train_X[:, task_feature].unique().to(dtype=torch.long).tolist()
+            if all_tasks is None
+            else all_tasks
+        )
         self.task_feature = task_feature
         self.num_tasks = len(all_tasks)
         self.task_rank = task_rank or self.num_tasks
@@ -242,7 +255,10 @@ class SaasFullyBayesianMultiTaskGP(MultiTaskGP):
                 outputs for. If omitted, return outputs for all task indices.
             rank: The num of learned task embeddings to be used in the task kernel.
                 If omitted, use a full rank (i.e. number of tasks) kernel.
-            all_tasks: NOT SUPPORTED!
+            all_tasks: A list of all task indices. If omitted, all tasks will be
+                inferred from the task feature column of the training data. Used to
+                inform the model about the total number of tasks, including any
+                unobserved tasks.
             outcome_transform: An outcome transform that is applied to the
                 training data during instantiation and to the posterior during
                 inference (that is, the ``Posterior`` obtained by calling
@@ -310,6 +326,7 @@ class SaasFullyBayesianMultiTaskGP(MultiTaskGP):
             train_Yvar=train_Yvar,
             task_feature=task_feature,
             task_rank=self._rank,
+            all_tasks=all_tasks,
         )
         self.pyro_model: MultitaskSaasPyroModel = pyro_model
         if outcome_transform is not None:
@@ -382,6 +399,20 @@ class SaasFullyBayesianMultiTaskGP(MultiTaskGP):
             self.likelihood,
             _,
         ) = self.pyro_model.load_mcmc_samples(mcmc_samples=mcmc_samples)
+
+    def eval(self) -> Self:
+        r"""Puts the model in eval mode.
+
+        Circumvents the need to call MultiTaskGP.eval(), which computes the
+        task_covar_matrix for non-observed tasks. This is not needed for fully
+        Bayesian models, since the non-observed tasks' covar factors are instead
+        sampled.
+
+        Returns:
+            The model itself.
+        """
+        self._check_if_fitted()
+        return MultiTaskGPyTorchModel.eval(self)
 
     def posterior(
         self,
