@@ -602,7 +602,7 @@ def construct_inputs_qLogEI(
     tau_max: float = TAU_MAX,
     tau_relu: float = TAU_RELU,
 ) -> dict[str, Any]:
-    r"""Construct kwargs for the ``qExpectedImprovement`` constructor.
+    r"""Construct kwargs for the ``qLogExpectedImprovement`` constructor.
 
     Args:
         model: The model to be used in the acquisition function.
@@ -662,7 +662,7 @@ def construct_inputs_LogPF(
     fat: bool = True,
     tau_max: float = TAU_MAX,
 ) -> dict[str, Any]:
-    r"""Construct kwargs for the ``qExpectedImprovement`` constructor.
+    r"""Construct kwargs for the ``qLogProbabilityOfFeasibility`` constructor.
 
     Args:
         model: The model to be used in the acquisition function.
@@ -1258,7 +1258,7 @@ def construct_inputs_qLogNParEGO(
     tau_max: float = TAU_MAX,
     tau_relu: float = TAU_RELU,
 ):
-    r"""Construct kwargs for the ``qLogNoisyExpectedImprovement`` constructor.
+    r"""Construct kwargs for the ``qLogNParEGO`` constructor.
 
     Args:
         model: The model to be used in the acquisition function.
