@@ -58,7 +58,7 @@ def sub(a: Tensor, b: Tensor) -> Tensor:
 
 def div(a: Tensor, b: Tensor) -> Tensor:
     _0, _1 = get_constants_like(values=(0, 1), ref=a)
-    case = ((a == _0) & (b == _0)) | (a.isinf() & a.isinf())
+    case = ((a == _0) & (b == _0)) | (a.isinf() & b.isinf())
     return torch.where(case, torch.where(a != b, -_1, _1), a / torch.where(case, _1, b))
 
 
@@ -385,6 +385,10 @@ def fatmaximum(
         tau: Temperature parameter controlling the smoothness of the approximation. A
             smaller tau corresponds to a tighter approximation that leads to a sharper
             objective landscape that might be more difficult to optimize.
+        alpha: The exponent of the asymptotic power decay of the approximation. The
+            default value is 2. Higher alpha parameters make the function behave more
+            similarly to the standard logsumexp approximation to the max, so it is
+            recommended to keep this value low or moderate, e.g. < 10.
 
     Returns:
         A smooth approximation of torch.maximum(a, b).
@@ -394,6 +398,7 @@ def fatmaximum(
         dim=-1,
         keepdim=False,
         tau=tau,
+        alpha=alpha,
     )
 
 
@@ -408,6 +413,10 @@ def fatminimum(
         tau: Temperature parameter controlling the smoothness of the approximation. A
             smaller tau corresponds to a tighter approximation that leads to a sharper
             objective landscape that might be more difficult to optimize.
+        alpha: The exponent of the asymptotic power decay of the approximation. The
+            default value is 2. Higher alpha parameters make the function behave more
+            similarly to the standard logsumexp approximation to the max, so it is
+            recommended to keep this value low or moderate, e.g. < 10.
 
     Returns:
         A smooth approximation of torch.minimum(a, b).
