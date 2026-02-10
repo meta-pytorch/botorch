@@ -29,6 +29,8 @@ from gpytorch.kernels import MaternKernel
 from gpytorch.kernels.index_kernel import IndexKernel
 from gpytorch.kernels.kernel import Kernel
 from gpytorch.likelihoods.likelihood import Likelihood
+from gpytorch.means import MultitaskMean
+from gpytorch.means.constant_mean import ConstantMean
 from gpytorch.means.mean import Mean
 from torch import Tensor
 from torch.nn.parameter import Parameter
@@ -80,6 +82,19 @@ class MultitaskSaasPyroModel(SaasPyroModel):
         # assume there is one column for task feature
         self.ard_num_dims = self.train_X.shape[-1] - 1
 
+    def sample_mean(self, **tkwargs: Any) -> Tensor:
+        r"""Sample per-task mean constants.
+
+        Returns a vector of shape ``(num_tasks,)`` with one mean per task.
+        """
+        return pyro.sample(
+            "mean",
+            pyro.distributions.Normal(
+                torch.tensor(0.0, **tkwargs),
+                torch.tensor(1.0, **tkwargs),
+            ).expand(torch.Size([self.num_tasks])),
+        )
+
     def sample(self) -> None:
         r"""Sample from the SAAS model.
 
@@ -111,7 +126,7 @@ class MultitaskSaasPyroModel(SaasPyroModel):
         pyro.sample(
             "Y",
             pyro.distributions.MultivariateNormal(
-                loc=mean.view(-1).expand(self.train_X.shape[0]),
+                loc=mean[task_indices],
                 covariance_matrix=K,
             ),
             obs=self.train_Y.squeeze(-1),
@@ -145,9 +160,28 @@ class MultitaskSaasPyroModel(SaasPyroModel):
         num_mcmc_samples = len(mcmc_samples["mean"])
         batch_shape = torch.Size([num_mcmc_samples])
 
-        mean_module, data_covar_module, likelihood, _ = super().load_mcmc_samples(
-            mcmc_samples=mcmc_samples
+        # Pass a dummy scalar mean to the parent so it can construct covar/likelihood.
+        # We replace the mean_module with a MultitaskMean below.
+        parent_mcmc_samples = {
+            **mcmc_samples,
+            "mean": mcmc_samples["mean"][:, 0],
+        }
+        _, data_covar_module, likelihood, _ = super().load_mcmc_samples(
+            mcmc_samples=parent_mcmc_samples
         )
+
+        # Construct a MultitaskMean with per-task constants from MCMC samples.
+        mean_module = MultitaskMean(
+            base_means=ConstantMean(batch_shape=batch_shape),
+            num_tasks=self.num_tasks,
+        ).to(**tkwargs)
+        # mcmc_samples["mean"] has shape (num_mcmc_samples, num_tasks)
+        for i in range(self.num_tasks):
+            mean_module.base_means[i].constant.data = reshape_and_detach(
+                target=mean_module.base_means[i].constant.data,
+                new_value=mcmc_samples["mean"][:, i],
+            )
+
         data_indices = torch.arange(self.train_X.shape[-1] - 1)
         data_indices[self.task_feature :] += 1  # exclude task feature
 
@@ -432,13 +466,13 @@ class SaasFullyBayesianMultiTaskGP(MultiTaskGP):
             raise NotImplementedError(  # pragma: no cover
                 "load_state_dict only works for MultitaskSaasPyroModel"
             )
-        raw_mean = state_dict["mean_module.raw_constant"]
+        raw_mean = state_dict["mean_module.base_means.0.raw_constant"]
         num_mcmc_samples = len(raw_mean)
         dim = self.pyro_model.train_X.shape[-1] - 1  # Removing 1 for the task feature.
         tkwargs = {"device": raw_mean.device, "dtype": raw_mean.dtype}
         # Load some dummy samples
         mcmc_samples = {
-            "mean": torch.ones(num_mcmc_samples, **tkwargs),
+            "mean": torch.ones(num_mcmc_samples, self.num_tasks, **tkwargs),
             "lengthscale": torch.ones(num_mcmc_samples, dim, **tkwargs),
             "outputscale": torch.ones(num_mcmc_samples, **tkwargs),
             "task_lengthscale": torch.ones(num_mcmc_samples, self._rank, **tkwargs),

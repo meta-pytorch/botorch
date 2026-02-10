@@ -109,9 +109,11 @@ def _compute_multitask_mean(
         # according to task_idcs.
         x_mean = torch.cat([x_before, x_after], dim=-1)
         mean_x = mean_module(x_mean)
-        # Extract the appropriate task mean for each point
+        # Extract the appropriate task mean for each point.
+        # Expand task_idcs to match mean_x batch dimensions (e.g. MCMC samples).
+        gather_idcs = task_idcs.long().expand(mean_x.shape[:-1] + task_idcs.shape[-1:])
         # mean_x has shape ``batch_shape x n`` after the gather
-        mean_x = mean_x.gather(-1, task_idcs.long()).squeeze(-1)
+        mean_x = mean_x.gather(-1, gather_idcs).squeeze(-1)
     else:
         # For non-MultitaskMean, include task indices in the input
         x_mean = torch.cat([x_before, task_idcs, x_after], dim=-1)

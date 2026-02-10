@@ -52,10 +52,11 @@ from botorch.utils.testing import BotorchTestCase
 from gpytorch.kernels import IndexKernel, MaternKernel, ScaleKernel
 from gpytorch.likelihoods import FixedNoiseGaussianLikelihood
 from gpytorch.likelihoods.gaussian_likelihood import GaussianLikelihood
-from gpytorch.means import ConstantMean
+from gpytorch.means import MultitaskMean
 
 EXPECTED_KEYS = [
-    "mean_module.raw_constant",
+    "mean_module.base_means.0.raw_constant",
+    "mean_module.base_means.1.raw_constant",
     "covar_module.kernels.1.raw_var",
     "covar_module.kernels.1.active_dims",
     "covar_module.kernels.0.base_kernel.raw_lengthscale",
@@ -154,7 +155,7 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
         mcmc_samples = {
             "lengthscale": torch.rand(num_samples, 1, dim, **tkwargs),
             "outputscale": torch.rand(num_samples, **tkwargs),
-            "mean": torch.randn(num_samples, **tkwargs),
+            "mean": torch.randn(num_samples, self.num_tasks, **tkwargs),
             "noise": torch.rand(num_samples, 1, **tkwargs),
             "task_lengthscale": torch.rand(num_samples, 1, task_rank, **tkwargs),
             "latent_features": torch.rand(
@@ -289,8 +290,13 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
         )
         data_covar_module, task_covar_module = model.covar_module.kernels
         self.assertEqual(model.batch_shape, torch.Size([3]))
-        self.assertIsInstance(model.mean_module, ConstantMean)
-        self.assertEqual(model.mean_module.raw_constant.shape, model.batch_shape)
+        self.assertIsInstance(model.mean_module, MultitaskMean)
+        self.assertEqual(model.mean_module.num_tasks, self.num_tasks)
+        for i in range(self.num_tasks):
+            self.assertEqual(
+                model.mean_module.base_means[i].raw_constant.shape,
+                model.batch_shape,
+            )
         self.assertIsInstance(data_covar_module, ScaleKernel)
         self.assertEqual(data_covar_module.outputscale.shape, model.batch_shape)
         self.assertIsInstance(data_covar_module.base_kernel, MaternKernel)
@@ -817,12 +823,14 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
                     mcmc_samples["outputscale"],
                 )
             )
-            self.assertTrue(
-                torch.allclose(
-                    model.mean_module.raw_constant.data,
-                    mcmc_samples["mean"],
+            self.assertIsInstance(model.mean_module, MultitaskMean)
+            for i in range(self.num_tasks):
+                self.assertTrue(
+                    torch.allclose(
+                        model.mean_module.base_means[i].constant.data,
+                        mcmc_samples["mean"][:, i],
+                    )
                 )
-            )
 
             self.assertTrue(
                 torch.allclose(
