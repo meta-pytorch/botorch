@@ -9,14 +9,11 @@ r"""Multi-task Gaussian Process Regression models with fully Bayesian inference.
 from collections.abc import Mapping
 from typing import Any, NoReturn, TypeVar
 
-import pyro
 import torch
 from botorch.acquisition.objective import PosteriorTransform
 from botorch.models.fully_bayesian import (
-    matern52_kernel,
     MCMC_DIM,
     MIN_INFERRED_NOISE_LEVEL,
-    reshape_and_detach,
     SaasPyroModel,
 )
 from botorch.models.gpytorch import BatchedMultiOutputGPyTorchModel
@@ -25,15 +22,10 @@ from botorch.models.transforms.input import InputTransform
 from botorch.models.transforms.outcome import OutcomeTransform
 from botorch.posteriors.fully_bayesian import GaussianMixturePosterior
 from gpytorch.distributions import MultivariateNormal
-from gpytorch.kernels import MaternKernel
-from gpytorch.kernels.index_kernel import IndexKernel
 from gpytorch.kernels.kernel import Kernel
 from gpytorch.likelihoods.likelihood import Likelihood
-from gpytorch.means import MultitaskMean
-from gpytorch.means.constant_mean import ConstantMean
 from gpytorch.means.mean import Mean
 from torch import Tensor
-from torch.nn.parameter import Parameter
 
 # Can replace with Self type once 3.11 is the minimum version
 TSaasFullyBayesianMultiTaskGP = TypeVar(
@@ -43,183 +35,14 @@ TSaasFullyBayesianMultiTaskGP = TypeVar(
 
 class MultitaskSaasPyroModel(SaasPyroModel):
     r"""
-    Implementation of the multi-task sparse axis-aligned subspace priors (SAAS) model.
-
-    The multi-task model uses an ICM kernel. The data kernel is same as the single task
-    SAAS model in order to handle high-dimensional parameter spaces. The task kernel
-    is a Matern-5/2 kernel using learned task embeddings as the input.
+    Multi-task SAAS model. Thin backward-compatible subclass that sets
+    ``is_multitask=True`` by default so existing callers continue to work
+    without changes.
     """
 
-    def set_inputs(
-        self,
-        train_X: Tensor,
-        train_Y: Tensor,
-        train_Yvar: Tensor | None,
-        task_feature: int,
-        task_rank: int | None = None,
-    ) -> None:
-        """Set the training data.
-
-        Args:
-            train_X: Training inputs (n x (d + 1))
-            train_Y: Training targets (n x 1)
-            train_Yvar: Observed noise variance (n x 1). If None, we infer the noise.
-                Note that the inferred noise is common across all tasks.
-            task_feature: The index of the task feature (``-d <= task_feature <= d``).
-            task_rank: The num of learned task embeddings to be used in the task kernel.
-                If omitted, use a full rank (i.e. number of tasks) kernel.
-        """
-        # NOTE PyTorch does not support negative indexing for tensors in index_select,
-        # (https://github.com/pytorch/pytorch/issues/76347), so we have to make sure
-        # that the task feature is positive.
-        task_feature = task_feature % train_X.shape[-1]
-        super().set_inputs(train_X, train_Y, train_Yvar)
-        # obtain a list of task indicies
-        all_tasks = train_X[:, task_feature].unique().to(dtype=torch.long).tolist()
-        self.task_feature = task_feature
-        self.num_tasks = len(all_tasks)
-        self.task_rank = task_rank or self.num_tasks
-        # assume there is one column for task feature
-        self.ard_num_dims = self.train_X.shape[-1] - 1
-
-    def sample_mean(self, **tkwargs: Any) -> Tensor:
-        r"""Sample per-task mean constants.
-
-        Returns a vector of shape ``(num_tasks,)`` with one mean per task.
-        """
-        return pyro.sample(
-            "mean",
-            pyro.distributions.Normal(
-                torch.tensor(0.0, **tkwargs),
-                torch.tensor(1.0, **tkwargs),
-            ).expand(torch.Size([self.num_tasks])),
-        )
-
-    def sample(self) -> None:
-        r"""Sample from the SAAS model.
-
-        This samples the mean, noise variance, outputscale, and lengthscales according
-        to the SAAS prior.
-        """
-        tkwargs = {"dtype": self.train_X.dtype, "device": self.train_X.device}
-        base_idxr = torch.arange(self.ard_num_dims, **{"device": tkwargs["device"]})
-        base_idxr[self.task_feature :] += 1  # exclude task feature
-        task_indices = self.train_X[..., self.task_feature].to(
-            device=tkwargs["device"], dtype=torch.long
-        )
-
-        outputscale = self.sample_outputscale(concentration=2.0, rate=0.15, **tkwargs)
-        mean = self.sample_mean(**tkwargs)
-        noise = self.sample_noise(**tkwargs)
-
-        lengthscale = self.sample_lengthscale(dim=self.ard_num_dims, **tkwargs)
-        K = matern52_kernel(X=self.train_X[..., base_idxr], lengthscale=lengthscale)
-
-        # compute task covar matrix
-        task_latent_features = self.sample_latent_features(**tkwargs)[task_indices]
-        task_lengthscale = self.sample_task_lengthscale(**tkwargs)
-        task_covar = matern52_kernel(
-            X=task_latent_features, lengthscale=task_lengthscale
-        )
-        K = K.mul(task_covar)
-        K = outputscale * K + noise * torch.eye(self.train_X.shape[0], **tkwargs)
-        pyro.sample(
-            "Y",
-            pyro.distributions.MultivariateNormal(
-                loc=mean[task_indices],
-                covariance_matrix=K,
-            ),
-            obs=self.train_Y.squeeze(-1),
-        )
-
-    def sample_latent_features(self, **tkwargs: Any):
-        return pyro.sample(
-            "latent_features",
-            pyro.distributions.Normal(
-                torch.tensor(0.0, **tkwargs),
-                torch.tensor(1.0, **tkwargs),
-            ).expand(torch.Size([self.num_tasks, self.task_rank])),
-        )
-
-    def sample_task_lengthscale(
-        self, concentration: float = 6.0, rate: float = 3.0, **tkwargs: Any
-    ):
-        return pyro.sample(
-            "task_lengthscale",
-            pyro.distributions.Gamma(
-                torch.tensor(concentration, **tkwargs),
-                torch.tensor(rate, **tkwargs),
-            ).expand(torch.Size([self.task_rank])),
-        )
-
-    def load_mcmc_samples(
-        self, mcmc_samples: dict[str, Tensor]
-    ) -> tuple[Mean, Kernel, Likelihood, Kernel]:
-        r"""Load the MCMC samples into the mean_module, covar_module, and likelihood."""
-        tkwargs = {"device": self.train_X.device, "dtype": self.train_X.dtype}
-        num_mcmc_samples = len(mcmc_samples["mean"])
-        batch_shape = torch.Size([num_mcmc_samples])
-
-        # Pass a dummy scalar mean to the parent so it can construct covar/likelihood.
-        # We replace the mean_module with a MultitaskMean below.
-        parent_mcmc_samples = {
-            **mcmc_samples,
-            "mean": mcmc_samples["mean"][:, 0],
-        }
-        _, data_covar_module, likelihood, _ = super().load_mcmc_samples(
-            mcmc_samples=parent_mcmc_samples
-        )
-
-        # Construct a MultitaskMean with per-task constants from MCMC samples.
-        mean_module = MultitaskMean(
-            base_means=ConstantMean(batch_shape=batch_shape),
-            num_tasks=self.num_tasks,
-        ).to(**tkwargs)
-        # mcmc_samples["mean"] has shape (num_mcmc_samples, num_tasks)
-        for i in range(self.num_tasks):
-            mean_module.base_means[i].constant.data = reshape_and_detach(
-                target=mean_module.base_means[i].constant.data,
-                new_value=mcmc_samples["mean"][:, i],
-            )
-
-        data_indices = torch.arange(self.train_X.shape[-1] - 1)
-        data_indices[self.task_feature :] += 1  # exclude task feature
-
-        data_covar_module.active_dims = data_indices.to(device=tkwargs["device"])
-        latent_covar_module = MaternKernel(
-            nu=2.5,
-            ard_num_dims=self.task_rank,
-            batch_shape=batch_shape,
-        ).to(**tkwargs)
-
-        latent_covar_module.lengthscale = reshape_and_detach(
-            target=latent_covar_module.lengthscale,
-            new_value=mcmc_samples["task_lengthscale"],
-        )
-        latent_features = mcmc_samples["latent_features"]
-        task_covar = latent_covar_module(latent_features)
-        task_covar_module = IndexKernel(
-            num_tasks=self.num_tasks,
-            rank=self.task_rank,
-            batch_shape=latent_features.shape[:-2],
-            active_dims=torch.tensor([self.task_feature], device=tkwargs["device"]),
-        )
-        task_covar_module.covar_factor = Parameter(
-            task_covar.cholesky().to_dense().detach()
-        )
-        task_covar_module = task_covar_module.to(**tkwargs)
-        # NOTE: The IndexKernel has a learnable 'var' parameter in addition to
-        # the task covariances, corresponding do task-specific variances along
-        # the diagonal of the task covariance matrix. As this parameter is not
-        # sampled in ``sample()`` we implicitly assume it to be zero. This is
-        # consistent with the previous SAASFBMTGP implementation, but means that
-        # the non-fully Bayesian and fully Bayesian models run on slightly
-        # different task covar modules.
-
-        # We set the aforementioned task covar module var parameter to zero here.
-        task_covar_module.var = torch.zeros_like(task_covar_module.var)
-        covar_module = data_covar_module * task_covar_module
-        return mean_module, covar_module, likelihood, None
+    def __init__(self, **kwargs: Any) -> None:
+        kwargs.setdefault("is_multitask", True)
+        super().__init__(**kwargs)
 
 
 class SaasFullyBayesianMultiTaskGP(MultiTaskGP):

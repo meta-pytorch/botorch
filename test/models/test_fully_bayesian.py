@@ -1253,3 +1253,238 @@ class TestFullyBayesianLinearSingleTaskGP(TestSaasFullyBayesianSingleTaskGP):
 
 class TestFullyBayesianLinearWarpingSingleTaskGP(TestFullyBayesianLinearSingleTaskGP):
     model_kwargs = {"use_input_warping": True}
+
+
+class TestPyroModelMultitaskBase(BotorchTestCase):
+    """Tests for the is_multitask support on the PyroModel base class."""
+
+    def _make_multitask_data(self, n: int = 10, d: int = 3, num_tasks: int = 2):
+        tkwargs = {"dtype": torch.double, "device": self.device}
+        with torch.random.fork_rng():
+            torch.manual_seed(0)
+            X = torch.rand(n, d, **tkwargs)
+        task_indices = torch.cat(
+            [torch.full((n // num_tasks, 1), i, **tkwargs) for i in range(num_tasks)],
+            dim=0,
+        )
+        train_X = torch.cat([X, task_indices], dim=-1)
+        train_Y = torch.sin(train_X[:, :1])
+        return train_X, train_Y, tkwargs
+
+    def test_set_inputs_multitask(self) -> None:
+        """Test that set_inputs correctly handles multitask configuration."""
+        train_X, train_Y, tkwargs = self._make_multitask_data()
+        for pyro_cls in (MaternPyroModel, SaasPyroModel, LinearPyroModel):
+            with self.subTest(pyro_cls=pyro_cls.__name__):
+                model = pyro_cls(is_multitask=True)
+                model.set_inputs(
+                    train_X=train_X,
+                    train_Y=train_Y,
+                    task_feature=-1,
+                    task_rank=1,
+                )
+                self.assertEqual(model.task_feature, train_X.shape[-1] - 1)
+                self.assertEqual(model.num_tasks, 2)
+                self.assertEqual(model.task_rank, 1)
+                # ard_num_dims should exclude the task column
+                self.assertEqual(model.ard_num_dims, train_X.shape[-1] - 1)
+
+    def test_sample_mean_multitask(self) -> None:
+        """Test that sample_mean returns (num_tasks,) vector in multitask mode."""
+        train_X, train_Y, tkwargs = self._make_multitask_data()
+        model = MaternPyroModel(is_multitask=True)
+        model.set_inputs(train_X=train_X, train_Y=train_Y, task_feature=-1)
+        mean = model.sample_mean(**tkwargs)
+        self.assertEqual(mean.shape, torch.Size([2]))
+
+    def test_sample_mean_singletask(self) -> None:
+        """Test that sample_mean returns scalar in single-task mode."""
+        tkwargs = {"dtype": torch.double, "device": self.device}
+        model = MaternPyroModel()
+        model.set_inputs(
+            train_X=torch.rand(5, 3, **tkwargs),
+            train_Y=torch.rand(5, 1, **tkwargs),
+        )
+        mean = model.sample_mean(**tkwargs)
+        self.assertEqual(mean.shape, torch.Size([]))
+
+    def test_multitask_helpers(self) -> None:
+        """Test _get_task_indices_and_base_idxr and _build_task_covar."""
+        train_X, train_Y, tkwargs = self._make_multitask_data(n=10, d=3, num_tasks=2)
+        model = MaternPyroModel(is_multitask=True)
+        model.set_inputs(train_X=train_X, train_Y=train_Y, task_feature=-1)
+
+        task_indices, base_idxr = model._get_task_indices_and_base_idxr(**tkwargs)
+        self.assertEqual(task_indices.shape, torch.Size([10]))
+        # base_idxr should select all columns except the task column
+        self.assertEqual(base_idxr.shape, torch.Size([3]))
+        # The task feature is at index 3, so base_idxr = [0, 1, 2]
+        # (indices before task_feature are unchanged)
+        self.assertTrue(
+            torch.equal(base_idxr, torch.tensor([0, 1, 2], device=self.device))
+        )
+
+        # Test _build_task_covar returns correct shapes
+        task_covar, task_idx = model._build_task_covar(**tkwargs)
+        self.assertEqual(task_covar.shape, torch.Size([10, 10]))
+        self.assertEqual(task_idx.shape, torch.Size([10]))
+
+    def test_maybe_multitask_transform_passthrough(self) -> None:
+        """Test _maybe_multitask_transform passes through in single-task."""
+        tkwargs = {"dtype": torch.double, "device": self.device}
+        model = MaternPyroModel()
+        model.set_inputs(
+            train_X=torch.rand(5, 3, **tkwargs),
+            train_Y=torch.rand(5, 1, **tkwargs),
+        )
+        K = torch.eye(5, **tkwargs)
+        mean = torch.tensor(0.5, **tkwargs)
+        K_out, mean_out = model._maybe_multitask_transform(K, mean, **tkwargs)
+        self.assertTrue(torch.equal(K_out, K))
+        self.assertTrue(torch.equal(mean_out, mean))
+
+    def test_maybe_multitask_transform_multitask(self) -> None:
+        """Test _maybe_multitask_transform modifies K and mean in multitask."""
+        train_X, train_Y, tkwargs = self._make_multitask_data(n=10, d=3, num_tasks=2)
+        model = MaternPyroModel(is_multitask=True)
+        model.set_inputs(train_X=train_X, train_Y=train_Y, task_feature=-1)
+        K = torch.eye(10, **tkwargs)
+        mean = torch.tensor([0.1, 0.2], **tkwargs)
+        K_out, mean_out = model._maybe_multitask_transform(K, mean, **tkwargs)
+        # K should be modified (element-wise product with task covariance)
+        self.assertEqual(K_out.shape, torch.Size([10, 10]))
+        # mean should be expanded by task indices
+        self.assertEqual(mean_out.shape, torch.Size([10]))
+
+    def test_matern_multitask_sample(self) -> None:
+        """Test that MaternPyroModel(is_multitask=True).sample() runs end-to-end."""
+        train_X, train_Y, tkwargs = self._make_multitask_data()
+        model = MaternPyroModel(is_multitask=True)
+        model.set_inputs(train_X=train_X, train_Y=train_Y, task_feature=-1, task_rank=1)
+        # Should run without errors
+        model.sample()
+
+    def test_saas_multitask_sample(self) -> None:
+        """Test that SaasPyroModel(is_multitask=True).sample() runs end-to-end."""
+        train_X, train_Y, tkwargs = self._make_multitask_data()
+        model = SaasPyroModel(is_multitask=True)
+        model.set_inputs(train_X=train_X, train_Y=train_Y, task_feature=-1, task_rank=1)
+        model.sample()
+
+    def test_linear_multitask_sample(self) -> None:
+        """Test that LinearPyroModel(is_multitask=True).sample() runs end-to-end."""
+        train_X, train_Y, tkwargs = self._make_multitask_data()
+        model = LinearPyroModel(is_multitask=True)
+        model.set_inputs(train_X=train_X, train_Y=train_Y, task_feature=-1, task_rank=1)
+        model.sample()
+
+    def _get_multitask_mcmc_samples(
+        self,
+        num_mcmc: int,
+        num_tasks: int,
+        d: int,
+        task_rank: int,
+        include_outputscale: bool = False,
+    ) -> dict[str, torch.Tensor]:
+        tkwargs = {"dtype": torch.double, "device": self.device}
+        mcmc_samples = {
+            "mean": torch.randn(num_mcmc, num_tasks, **tkwargs),
+            "lengthscale": torch.rand(num_mcmc, 1, d, **tkwargs),
+            "noise": torch.rand(num_mcmc, 1, **tkwargs),
+            "task_lengthscale": torch.rand(num_mcmc, 1, task_rank, **tkwargs),
+            "latent_features": torch.rand(num_mcmc, num_tasks, task_rank, **tkwargs),
+        }
+        if include_outputscale:
+            mcmc_samples["outputscale"] = torch.rand(num_mcmc, **tkwargs)
+        return mcmc_samples
+
+    def test_matern_multitask_load_mcmc_samples(self) -> None:
+        """Test loading MCMC samples produces correct module types for Matern."""
+        train_X, train_Y, tkwargs = self._make_multitask_data(n=10, d=3, num_tasks=2)
+        num_mcmc = 4
+        task_rank = 2
+
+        model = MaternPyroModel(is_multitask=True)
+        model.set_inputs(
+            train_X=train_X, train_Y=train_Y, task_feature=-1, task_rank=task_rank
+        )
+        mcmc_samples = self._get_multitask_mcmc_samples(
+            num_mcmc=num_mcmc,
+            num_tasks=2,
+            d=3,
+            task_rank=task_rank,
+        )
+        mean_module, covar_module, likelihood, warp = model.load_mcmc_samples(
+            mcmc_samples
+        )
+        # Mean should be MultitaskMean
+        from gpytorch.means import MultitaskMean
+
+        self.assertIsInstance(mean_module, MultitaskMean)
+        self.assertEqual(mean_module.num_tasks, 2)
+        # Covar should be product kernel (data * task)
+        self.assertEqual(len(covar_module.kernels), 2)
+        from gpytorch.kernels import IndexKernel
+
+        self.assertIsInstance(covar_module.kernels[1], IndexKernel)
+        self.assertIsNone(warp)
+
+    def test_saas_multitask_load_mcmc_samples(self) -> None:
+        """Test loading MCMC samples for SaasPyroModel(is_multitask=True)."""
+        train_X, train_Y, tkwargs = self._make_multitask_data(n=10, d=3, num_tasks=2)
+        num_mcmc = 4
+        task_rank = 2
+
+        model = SaasPyroModel(is_multitask=True)
+        model.set_inputs(
+            train_X=train_X, train_Y=train_Y, task_feature=-1, task_rank=task_rank
+        )
+        mcmc_samples = self._get_multitask_mcmc_samples(
+            num_mcmc=num_mcmc,
+            num_tasks=2,
+            d=3,
+            task_rank=task_rank,
+            include_outputscale=True,
+        )
+        mean_module, covar_module, likelihood, warp = model.load_mcmc_samples(
+            mcmc_samples
+        )
+        from gpytorch.kernels import IndexKernel
+        from gpytorch.means import MultitaskMean
+
+        self.assertIsInstance(mean_module, MultitaskMean)
+        # data_covar should be ScaleKernel; product kernel has 2 sub-kernels
+        data_covar, task_covar = covar_module.kernels
+        self.assertIsInstance(data_covar, ScaleKernel)
+        self.assertIsInstance(task_covar, IndexKernel)
+
+    def test_load_multitask_components_task_covar_values(self) -> None:
+        """Test that _load_multitask_components produces correct task covariance."""
+        from botorch.models.fully_bayesian import matern52_kernel
+
+        train_X, train_Y, tkwargs = self._make_multitask_data(n=10, d=3, num_tasks=2)
+        num_mcmc = 3
+        task_rank = 2
+
+        model = SaasPyroModel(is_multitask=True)
+        model.set_inputs(
+            train_X=train_X, train_Y=train_Y, task_feature=-1, task_rank=task_rank
+        )
+        mcmc_samples = self._get_multitask_mcmc_samples(
+            num_mcmc=num_mcmc,
+            num_tasks=2,
+            d=3,
+            task_rank=task_rank,
+            include_outputscale=True,
+        )
+        mean_module, covar_module, _, _ = model.load_mcmc_samples(mcmc_samples)
+        _, task_covar_module = covar_module.kernels
+        # Verify the task covariance matches what matern52_kernel would produce
+        expected_task_covar = matern52_kernel(
+            mcmc_samples["latent_features"],
+            mcmc_samples["task_lengthscale"],
+        )
+        self.assertAllClose(
+            task_covar_module.covar_matrix.to_dense(),
+            expected_task_covar,
+        )

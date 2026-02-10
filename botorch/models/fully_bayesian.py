@@ -56,6 +56,7 @@ from botorch.utils.datasets import SupervisedDataset
 from gpytorch.constraints import GreaterThan
 from gpytorch.distributions.multivariate_normal import MultivariateNormal
 from gpytorch.kernels import LinearKernel, MaternKernel, ScaleKernel
+from gpytorch.kernels.index_kernel import IndexKernel
 from gpytorch.kernels.kernel import dist, Kernel
 from gpytorch.likelihoods.gaussian_likelihood import (
     FixedNoiseGaussianLikelihood,
@@ -64,9 +65,11 @@ from gpytorch.likelihoods.gaussian_likelihood import (
 from gpytorch.likelihoods.likelihood import Likelihood
 from gpytorch.means.constant_mean import ConstantMean
 from gpytorch.means.mean import Mean
+from gpytorch.means.multitask_mean import MultitaskMean
 from gpytorch.models.exact_gp import ExactGP
 from pyro.ops.integrator import register_exception_handler
 from torch import Tensor
+from torch.nn.parameter import Parameter
 
 # Can replace with Self type once 3.11 is the minimum version
 TFullyBayesianSingleTaskGP = TypeVar(
@@ -137,6 +140,7 @@ class PyroModel:
         use_input_warping: bool = False,
         indices_to_warp: list[int] | None = None,
         eps: float = 1e-7,
+        is_multitask: bool = False,
     ) -> None:
         r"""Initialize the PyroModel.
 
@@ -146,10 +150,12 @@ class PyroModel:
                 is to warp all inputs.
             eps: A small value that is used to ensure inputs are not 0 or 1,
                 when using input warping.
+            is_multitask: A boolean indicating whether to use multi-task mode.
         """
         self.use_input_warping = use_input_warping
         self.indices = indices_to_warp
         self._eps = eps
+        self.is_multitask = is_multitask
 
     @subset_transform
     def warp(self, X: Tensor, c0: Tensor, c1: Tensor) -> Tensor:
@@ -165,7 +171,12 @@ class PyroModel:
             return self.train_X
 
     def set_inputs(
-        self, train_X: Tensor, train_Y: Tensor, train_Yvar: Tensor | None = None
+        self,
+        train_X: Tensor,
+        train_Y: Tensor,
+        train_Yvar: Tensor | None = None,
+        task_feature: int | None = None,
+        task_rank: int | None = None,
     ) -> None:
         """Set the training data.
 
@@ -173,11 +184,27 @@ class PyroModel:
             train_X: Training inputs (n x d)
             train_Y: Training targets (n x 1)
             train_Yvar: Observed noise variance (n x 1). Inferred if None.
+            task_feature: The index of the task feature column. Required when
+                ``is_multitask=True``.
+            task_rank: The number of learned task embeddings. Defaults to
+                the number of tasks when ``is_multitask=True``.
         """
         self.train_X = train_X
         self.train_Y = train_Y
         self.train_Yvar = train_Yvar
         self.ard_num_dims = self.train_X.shape[-1]
+        if self.is_multitask:
+            if task_feature is None:
+                raise ValueError(
+                    "task_feature is required when is_multitask=True."
+                )
+            task_feature = task_feature % train_X.shape[-1]
+            self.task_feature = task_feature
+            all_tasks = train_X[:, task_feature].unique().to(dtype=torch.long).tolist()
+            self.num_tasks = len(all_tasks)
+            self.task_rank = task_rank or self.num_tasks
+            # exclude the task column from the ARD dimensions
+            self.ard_num_dims = self.train_X.shape[-1] - 1
 
     @abstractmethod
     def sample(self) -> None:
@@ -212,13 +239,18 @@ class PyroModel:
             return self.train_Yvar
 
     def sample_mean(self, **tkwargs: Any) -> Tensor:
-        r"""Sample the mean constant."""
+        r"""Sample the mean constant.
+
+        Returns a scalar when single-task, or a ``(num_tasks,)`` vector when
+        ``is_multitask=True``.
+        """
+        shape = torch.Size([self.num_tasks]) if self.is_multitask else torch.Size([])
         return pyro.sample(
             "mean",
             pyro.distributions.Normal(
                 torch.tensor(0.0, **tkwargs),
                 torch.tensor(1.0, **tkwargs),
-            ),
+            ).expand(shape),
         )
 
     def sample_concentrations(self, **tkwargs: Any) -> tuple[Tensor, Tensor]:
@@ -244,6 +276,133 @@ class PyroModel:
         )
 
         return c0, c1
+
+    def sample_latent_features(self, **tkwargs: Any) -> Tensor:
+        r"""Sample latent task feature embeddings for multi-task models."""
+        return pyro.sample(
+            "latent_features",
+            pyro.distributions.Normal(
+                torch.tensor(0.0, **tkwargs),
+                torch.tensor(1.0, **tkwargs),
+            ).expand(torch.Size([self.num_tasks, self.task_rank])),
+        )
+
+    def sample_task_lengthscale(
+        self, concentration: float = 6.0, rate: float = 3.0, **tkwargs: Any
+    ) -> Tensor:
+        r"""Sample the task kernel lengthscale for multi-task models."""
+        return pyro.sample(
+            "task_lengthscale",
+            pyro.distributions.Gamma(
+                torch.tensor(concentration, **tkwargs),
+                torch.tensor(rate, **tkwargs),
+            ).expand(torch.Size([self.task_rank])),
+        )
+
+    def _get_task_indices_and_base_idxr(self, **tkwargs: Any) -> tuple[Tensor, Tensor]:
+        r"""Compute the task indices and the base feature index selector.
+
+        Returns:
+            A tuple of ``(task_indices, base_idxr)`` where ``task_indices`` are
+            long-typed task assignments and ``base_idxr`` selects the non-task
+            columns.
+        """
+        base_idxr = torch.arange(self.ard_num_dims, device=tkwargs["device"])
+        base_idxr[self.task_feature :] += 1
+        task_indices = self.train_X[..., self.task_feature].to(
+            device=tkwargs["device"], dtype=torch.long
+        )
+        return task_indices, base_idxr
+
+    def _build_task_covar(self, **tkwargs: Any) -> tuple[Tensor, Tensor]:
+        r"""Sample latent features and task lengthscale and build n x n task covar.
+
+        Returns:
+            A tuple of ``(task_covar, task_indices)`` where ``task_covar`` is an
+            ``n x n`` task covariance matrix and ``task_indices`` are the task
+            assignments.
+        """
+        task_indices, _ = self._get_task_indices_and_base_idxr(**tkwargs)
+        task_latent_features = self.sample_latent_features(**tkwargs)[task_indices]
+        task_lengthscale = self.sample_task_lengthscale(**tkwargs)
+        task_covar = matern52_kernel(
+            X=task_latent_features, lengthscale=task_lengthscale
+        )
+        return task_covar, task_indices
+
+    def _maybe_multitask_transform(
+        self, K_noiseless: Tensor, mean: Tensor, **tkwargs: Any
+    ) -> tuple[Tensor, Tensor]:
+        r"""If multi-task, multiply K by task covar and index mean by task.
+
+        Otherwise passes through unchanged. Analogous to ``_maybe_input_warp``.
+
+        Returns:
+            A tuple of ``(K_noiseless, mean_expanded)`` ready for
+            ``sample_observations``.
+        """
+        if not self.is_multitask:
+            return K_noiseless, mean
+        task_covar, task_indices = self._build_task_covar(**tkwargs)
+        K_noiseless = K_noiseless.mul(task_covar)
+        return K_noiseless, mean[task_indices]
+
+    def _load_multitask_components(
+        self,
+        mcmc_samples: dict[str, Tensor],
+        data_covar_module: Kernel,
+        batch_shape: torch.Size,
+        **tkwargs: Any,
+    ) -> tuple[MultitaskMean, Kernel]:
+        r"""Build MultitaskMean and task IndexKernel from MCMC samples.
+
+        Sets ``active_dims`` on the data covariance module to exclude the task
+        feature column, constructs a ``MultitaskMean`` with per-task constants,
+        and builds an ``IndexKernel`` from the sampled latent features and task
+        lengthscales.
+
+        Returns:
+            A tuple of ``(mean_module, covar_module)`` where ``covar_module``
+            is ``data_covar_module * task_covar_module``.
+        """
+        mean_module = MultitaskMean(
+            base_means=ConstantMean(batch_shape=batch_shape),
+            num_tasks=self.num_tasks,
+        ).to(**tkwargs)
+        for i in range(self.num_tasks):
+            mean_module.base_means[i].constant.data = reshape_and_detach(
+                target=mean_module.base_means[i].constant.data,
+                new_value=mcmc_samples["mean"][:, i],
+            )
+
+        data_indices = torch.arange(self.train_X.shape[-1] - 1)
+        data_indices[self.task_feature :] += 1
+        data_covar_module.active_dims = data_indices.to(device=tkwargs["device"])
+
+        latent_covar_module = MaternKernel(
+            nu=2.5,
+            ard_num_dims=self.task_rank,
+            batch_shape=batch_shape,
+        ).to(**tkwargs)
+        latent_covar_module.lengthscale = reshape_and_detach(
+            target=latent_covar_module.lengthscale,
+            new_value=mcmc_samples["task_lengthscale"],
+        )
+        latent_features = mcmc_samples["latent_features"]
+        task_covar = latent_covar_module(latent_features)
+        task_covar_module = IndexKernel(
+            num_tasks=self.num_tasks,
+            rank=self.task_rank,
+            batch_shape=latent_features.shape[:-2],
+            active_dims=torch.tensor([self.task_feature], device=tkwargs["device"]),
+        )
+        task_covar_module.covar_factor = Parameter(
+            task_covar.cholesky().to_dense().detach()
+        )
+        task_covar_module = task_covar_module.to(**tkwargs)
+        task_covar_module.var = torch.zeros_like(task_covar_module.var)
+        covar_module = data_covar_module * task_covar_module
+        return mean_module, covar_module
 
     def sample_observations(
         self,
@@ -322,7 +481,13 @@ class MaternPyroModel(PyroModel):
         noise = self.sample_noise(**tkwargs)
         lengthscale = self.sample_lengthscale(dim=self.ard_num_dims, **tkwargs)
         X_tf = self._maybe_input_warp(self.train_X, **tkwargs)
+        if self.is_multitask:
+            _, base_idxr = self._get_task_indices_and_base_idxr(**tkwargs)
+            X_tf = X_tf[..., base_idxr]
         K_noiseless = outputscale * matern52_kernel(X=X_tf, lengthscale=lengthscale)
+        K_noiseless, mean = self._maybe_multitask_transform(
+            K_noiseless, mean, **tkwargs
+        )
         self.sample_observations(
             mean=mean, K_noiseless=K_noiseless, noise=noise, **tkwargs
         )
@@ -410,8 +575,14 @@ class MaternPyroModel(PyroModel):
         num_mcmc_samples = len(mcmc_samples["mean"])
         batch_shape = torch.Size([num_mcmc_samples])
 
+        # For multitask, pass a scalar mean slice to build covar/likelihood,
+        # then replace mean_module with MultitaskMean below.
+        mean_mcmc = mcmc_samples
+        if self.is_multitask:
+            mean_mcmc = {**mcmc_samples, "mean": mcmc_samples["mean"][:, 0]}
+
         mean_module = ConstantMean(batch_shape=batch_shape).to(**tkwargs)
-        outputscale = mcmc_samples.get("outputscale")
+        outputscale = mean_mcmc.get("outputscale")
         covar_module = self._get_covar_module(
             use_scale_kernel=outputscale is not None, batch_shape=batch_shape, **tkwargs
         )
@@ -446,7 +617,7 @@ class MaternPyroModel(PyroModel):
         )
         mean_module.constant.data = reshape_and_detach(
             target=mean_module.constant.data,
-            new_value=mcmc_samples["mean"],
+            new_value=mean_mcmc["mean"],
         )
         if self.use_input_warping:
             indices = (
@@ -470,6 +641,14 @@ class MaternPyroModel(PyroModel):
             )
         else:
             warping_function = None
+
+        if self.is_multitask:
+            mean_module, covar_module = self._load_multitask_components(
+                mcmc_samples=mcmc_samples,
+                data_covar_module=covar_module,
+                batch_shape=batch_shape,
+                **tkwargs,
+            )
         return mean_module, covar_module, likelihood, warping_function
 
 
@@ -546,9 +725,15 @@ class LinearPyroModel(PyroModel):
         mean = self.sample_mean(**tkwargs)
         weight_variance = self.sample_weight_variance(**tkwargs)
         X_tf = self._maybe_input_warp(X=self.train_X, **tkwargs)
+        if self.is_multitask:
+            _, base_idxr = self._get_task_indices_and_base_idxr(**tkwargs)
+            X_tf = X_tf[..., base_idxr]
         X_tf = X_tf - 0.5  # center transformed data at 0 (for linear model)
         K_noiseless = linear_kernel(X=X_tf, weight_variance=weight_variance)
         noise = self.sample_noise(**tkwargs)
+        K_noiseless, mean = self._maybe_multitask_transform(
+            K_noiseless, mean, **tkwargs
+        )
         self.sample_observations(
             mean=mean, K_noiseless=K_noiseless, noise=noise, **tkwargs
         )
