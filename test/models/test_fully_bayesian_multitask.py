@@ -38,7 +38,10 @@ from botorch.models.fully_bayesian import (
     PyroModel,
     SaasPyroModel,
 )
-from botorch.models.fully_bayesian_multitask import SaasFullyBayesianMultiTaskGP
+from botorch.models.fully_bayesian_multitask import (
+    _FullyBayesianMultiTaskGPBase,
+    SaasFullyBayesianMultiTaskGP,
+)
 from botorch.models.transforms.input import Normalize
 from botorch.models.transforms.outcome import Standardize
 from botorch.posteriors import GaussianMixturePosterior
@@ -979,3 +982,54 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
         train_X, train_Y, train_Yvar, model = self._get_data_and_model(**tkwargs)
         self.assertIsInstance(model.pyro_model, SaasPyroModel)
         self.assertTrue(model.pyro_model.is_multitask)
+
+    def test_base_class_requires_pyro_model(self):
+        """_FullyBayesianMultiTaskGPBase raises ValueError when pyro_model is None."""
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X, train_Y, train_Yvar, _ = self._get_data_and_model(**tkwargs)
+        with self.assertRaisesRegex(
+            ValueError,
+            "pyro_model must be provided",
+        ):
+            _FullyBayesianMultiTaskGPBase(
+                train_X=train_X,
+                train_Y=train_Y,
+                train_Yvar=train_Yvar,
+                task_feature=4,
+                pyro_model=None,
+            )
+
+    def test_base_class_with_explicit_pyro_model(self):
+        """_FullyBayesianMultiTaskGPBase works when given an explicit PyroModel."""
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X, train_Y, train_Yvar, _ = self._get_data_and_model(
+            use_outcome_transform=False, **tkwargs
+        )
+        pyro_model = SaasPyroModel(is_multitask=True)
+        model = _FullyBayesianMultiTaskGPBase(
+            train_X=train_X,
+            train_Y=train_Y,
+            train_Yvar=train_Yvar,
+            task_feature=4,
+            pyro_model=pyro_model,
+        )
+        self.assertIsInstance(model, _FullyBayesianMultiTaskGPBase)
+        self.assertIs(model.pyro_model, pyro_model)
+
+        # Fit and verify posterior works
+        fit_fully_bayesian_model_nuts(
+            model, warmup_steps=8, num_samples=5, thinning=2, disable_progbar=True
+        )
+        test_X = torch.rand(5, 4, **tkwargs)
+        posterior = model.posterior(test_X)
+        self.assertIsInstance(posterior, GaussianMixturePosterior)
+
+    def test_inheritance_chain(self):
+        """SaasFullyBayesianMultiTaskGP inherits from _FullyBayesianMultiTaskGPBase."""
+        self.assertTrue(
+            issubclass(SaasFullyBayesianMultiTaskGP, _FullyBayesianMultiTaskGPBase)
+        )
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        _, _, _, model = self._get_data_and_model(**tkwargs)
+        self.assertIsInstance(model, _FullyBayesianMultiTaskGPBase)
+        self.assertIsInstance(model, SaasFullyBayesianMultiTaskGP)

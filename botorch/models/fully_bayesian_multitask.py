@@ -29,8 +29,8 @@ from gpytorch.means.mean import Mean
 from torch import Tensor
 
 # Can replace with Self type once 3.11 is the minimum version
-TSaasFullyBayesianMultiTaskGP = TypeVar(
-    "TSaasFullyBayesianMultiTaskGP", bound="SaasFullyBayesianMultiTaskGP"
+_TFullyBayesianMultiTaskGP = TypeVar(
+    "_TFullyBayesianMultiTaskGP", bound="_FullyBayesianMultiTaskGPBase"
 )
 
 
@@ -46,29 +46,17 @@ class MultitaskSaasPyroModel(SaasPyroModel):
         super().__init__(**kwargs)
 
 
-class SaasFullyBayesianMultiTaskGP(MultiTaskGP):
-    r"""A fully Bayesian multi-task GP model with the SAAS prior.
+class _FullyBayesianMultiTaskGPBase(MultiTaskGP):
+    r"""Base class for fully Bayesian multi-task GP models.
+
     This model assumes that the inputs have been normalized to [0, 1]^d and that the
     output has been stratified standardized to have zero mean and unit variance for
-    each task. The SAAS model [Eriksson2021saasbo]_ with a Matern-5/2 is used as data
-    kernel by default.
+    each task.
 
     You are expected to use ``fit_fully_bayesian_model_nuts`` to fit this model as it
     isn't compatible with ``fit_gpytorch_mll``.
 
-    Example:
-        >>> X1, X2 = torch.rand(10, 2), torch.rand(20, 2)
-        >>> i1, i2 = torch.zeros(10, 1), torch.ones(20, 1)
-        >>> train_X = torch.cat([
-        >>>     torch.cat([X1, i1], -1), torch.cat([X2, i2], -1),
-        >>> ])
-        >>> train_Y = torch.cat(f1(X1), f2(X2)).unsqueeze(-1)
-        >>> train_Yvar = 0.01 * torch.ones_like(train_Y)
-        >>> mtsaas_gp = SaasFullyBayesianMultiTaskGP(
-        >>>     train_X, train_Y, train_Yvar, task_feature=-1,
-        >>> )
-        >>> fit_fully_bayesian_model_nuts(mtsaas_gp)
-        >>> posterior = mtsaas_gp.posterior(test_X)
+    Subclasses should set the default ``pyro_model`` in their ``__init__``.
     """
 
     _is_fully_bayesian = True
@@ -109,8 +97,7 @@ class SaasFullyBayesianMultiTaskGP(MultiTaskGP):
                 instantiation of the model.
             input_transform: An input transform that is applied to the inputs ``X``
                 in the model's forward pass.
-            pyro_model: Optional ``PyroModel`` with ``is_multitask=True``.
-                Defaults to ``SaasPyroModel(is_multitask=True)``.
+            pyro_model: A ``PyroModel`` with ``is_multitask=True``.
             validate_task_values: If True, validate that the task values supplied in the
                 input are expected tasks values. If false, unexpected task values
                 will be mapped to the first output_task if supplied.
@@ -159,11 +146,13 @@ class SaasFullyBayesianMultiTaskGP(MultiTaskGP):
         self.covar_module = None
         self.likelihood = None
         if pyro_model is None:
-            pyro_model = SaasPyroModel(is_multitask=True)
+            raise ValueError(
+                "pyro_model must be provided. Subclasses should set a default."
+            )
         if not pyro_model.is_multitask:
             raise ValueError(
                 "The pyro_model must have is_multitask=True for use with "
-                "SaasFullyBayesianMultiTaskGP."
+                "a fully Bayesian multi-task GP."
             )
         # apply task_mapper
         x_before, task_idcs, x_after = self._split_inputs(transformed_X)
@@ -181,8 +170,8 @@ class SaasFullyBayesianMultiTaskGP(MultiTaskGP):
             self.input_transform = input_transform
 
     def train(
-        self, mode: bool = True, reset: bool = True
-    ) -> TSaasFullyBayesianMultiTaskGP:
+        self: _TFullyBayesianMultiTaskGP, mode: bool = True, reset: bool = True
+    ) -> _TFullyBayesianMultiTaskGP:
         r"""Puts the model in ``train`` mode.
 
         Args:
@@ -201,13 +190,6 @@ class SaasFullyBayesianMultiTaskGP(MultiTaskGP):
         return self
 
     @property
-    def median_lengthscale(self) -> Tensor:
-        r"""Median lengthscales across the MCMC samples."""
-        self._check_if_fitted()
-        lengthscale = self.covar_module.kernels[0].base_kernel.lengthscale.clone()
-        return lengthscale.median(0).values.squeeze(0)
-
-    @property
     def num_mcmc_samples(self) -> int:
         r"""Number of MCMC samples in the model."""
         self._check_if_fitted()
@@ -216,7 +198,7 @@ class SaasFullyBayesianMultiTaskGP(MultiTaskGP):
     @property
     def batch_shape(self) -> torch.Size:
         r"""Batch shape of the model, equal to the number of MCMC samples.
-        Note that ``SaasFullyBayesianMultiTaskGP`` does not support batching
+        Note that ``_FullyBayesianMultiTaskGPBase`` does not support batching
         over input data at this point.
         """
         self._check_if_fitted()
@@ -279,7 +261,7 @@ class SaasFullyBayesianMultiTaskGP(MultiTaskGP):
         r"""Custom logic for loading the state dict.
 
         The standard approach of calling ``load_state_dict`` currently doesn't
-        play well with the ``SaasFullyBayesianMultiTaskGP`` since the
+        play well with fully Bayesian multi-task GPs since the
         ``mean_module``, ``covar_module`` and ``likelihood`` aren't initialized
         until the model has been fitted. Given the state dict, we delegate to
         the PyroModel's ``get_dummy_mcmc_samples`` to construct the correct
@@ -336,3 +318,72 @@ class SaasFullyBayesianMultiTaskGP(MultiTaskGP):
             X = X.repeat(*(Y.shape[:-2] + (1, 1)))
 
         return super().condition_on_observations(X, Y, **kwargs)
+
+
+class SaasFullyBayesianMultiTaskGP(_FullyBayesianMultiTaskGPBase):
+    r"""A fully Bayesian multi-task GP model with the SAAS prior.
+
+    This model assumes that the inputs have been normalized to [0, 1]^d and that the
+    output has been stratified standardized to have zero mean and unit variance for
+    each task. The SAAS model [Eriksson2021saasbo]_ with a Matern-5/2 is used as data
+    kernel by default.
+
+    You are expected to use ``fit_fully_bayesian_model_nuts`` to fit this model as it
+    isn't compatible with ``fit_gpytorch_mll``.
+
+    Example:
+        >>> X1, X2 = torch.rand(10, 2), torch.rand(20, 2)
+        >>> i1, i2 = torch.zeros(10, 1), torch.ones(20, 1)
+        >>> train_X = torch.cat([
+        >>>     torch.cat([X1, i1], -1), torch.cat([X2, i2], -1),
+        >>> ])
+        >>> train_Y = torch.cat(f1(X1), f2(X2)).unsqueeze(-1)
+        >>> train_Yvar = 0.01 * torch.ones_like(train_Y)
+        >>> mtsaas_gp = SaasFullyBayesianMultiTaskGP(
+        >>>     train_X, train_Y, train_Yvar, task_feature=-1,
+        >>> )
+        >>> fit_fully_bayesian_model_nuts(mtsaas_gp)
+        >>> posterior = mtsaas_gp.posterior(test_X)
+    """
+
+    @property
+    def median_lengthscale(self) -> Tensor:
+        r"""Median lengthscales across the MCMC samples."""
+        self._check_if_fitted()
+        lengthscale = self.covar_module.kernels[0].base_kernel.lengthscale.clone()
+        return lengthscale.median(0).values.squeeze(0)
+
+    def __init__(
+        self,
+        train_X: Tensor,
+        train_Y: Tensor,
+        task_feature: int,
+        train_Yvar: Tensor | None = None,
+        output_tasks: list[int] | None = None,
+        rank: int | None = None,
+        all_tasks: list[int] | None = None,
+        outcome_transform: OutcomeTransform | None = None,
+        input_transform: InputTransform | None = None,
+        pyro_model: PyroModel | None = None,
+        validate_task_values: bool = True,
+    ) -> None:
+        r"""Initialize the fully Bayesian multi-task GP model with SAAS prior.
+
+        See ``_FullyBayesianMultiTaskGPBase`` for full parameter documentation.
+        Defaults ``pyro_model`` to ``SaasPyroModel(is_multitask=True)``.
+        """
+        if pyro_model is None:
+            pyro_model = SaasPyroModel(is_multitask=True)
+        super().__init__(
+            train_X=train_X,
+            train_Y=train_Y,
+            task_feature=task_feature,
+            train_Yvar=train_Yvar,
+            output_tasks=output_tasks,
+            rank=rank,
+            all_tasks=all_tasks,
+            outcome_transform=outcome_transform,
+            input_transform=input_transform,
+            pyro_model=pyro_model,
+            validate_task_values=validate_task_values,
+        )
