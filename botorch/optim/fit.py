@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from functools import partial
-from typing import Any, Optional
+from typing import Any
 from warnings import warn
 
 from botorch.exceptions.warnings import OptimizationWarning
@@ -32,13 +32,13 @@ from torch.optim.adam import Adam
 from torch.optim.lr_scheduler import _LRScheduler
 from torch.optim.optimizer import Optimizer
 
-TBoundsDict = dict[str, tuple[Optional[float], Optional[float]]]
+TBoundsDict = dict[str, tuple[float | None, float | None]]
 TScipyObjective = Callable[
     [ndarray, MarginalLogLikelihood, dict[str, TorchAttr]], tuple[float, ndarray]
 ]
 TModToArray = Callable[
-    [Module, Optional[TBoundsDict], Optional[set[str]]],
-    tuple[ndarray, dict[str, TorchAttr], Optional[ndarray]],
+    [Module, TBoundsDict | None, set[str] | None],
+    tuple[ndarray, dict[str, TorchAttr], ndarray | None],
 ]
 TArrayToMod = Callable[[Module, ndarray, dict[str, TorchAttr]], Module]
 

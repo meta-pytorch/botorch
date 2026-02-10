@@ -635,8 +635,8 @@ def _minimize_lbfgsb(
 
 # extra helper function
 def translate_bounds_for_lbfgsb(
-    lower_bounds: tp.Union[tp.Sequence[tp.Optional[float]], float, None],
-    upper_bounds: tp.Union[tp.Sequence[tp.Optional[float]], float, None],
+    lower_bounds: tp.Sequence[float | None] | float | None,
+    upper_bounds: tp.Sequence[float | None] | float | None,
     num_features: int,
     q: int,
 ):
