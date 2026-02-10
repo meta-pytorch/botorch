@@ -3,6 +3,14 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+"""
+References
+
+.. [Daulton2026bonsai]
+    S. Daulton, D. Eriksson, M. Balandat, and E. Bakshy. BONSAI: Bayesian
+    Optimization with Natural Simplicity and Interpretability. ArXiv, 2026.
+"""
+
 from typing import Any, Mapping
 
 import torch
@@ -450,7 +458,8 @@ class EnsembleMapSaasSingleTaskGP(SingleTaskGP):
         outcome_transform: OutcomeTransform | _DefaultType | None = DEFAULT,
         input_transform: InputTransform | None = None,
     ) -> None:
-        """Instantiates an ``EnsembleMapSaasSingleTaskGP``, which is a batched
+        """Instantiates an ``EnsembleMapSaasSingleTaskGP`` [Daulton2026bonsai]_,
+        which is a batched
         ensemble of ``SingleTaskGP``s with the Matern-5/2 kernel and a SAAS prior.
         The model is intended to be trained with ``ExactMarginalLogLikelihood`` and
         ``fit_gpytorch_mll``. Under the hood, the model is equivalent to a
