@@ -144,7 +144,7 @@ class LogProbabilityOfImprovement(AnalyticAcquisitionFunction):
         posterior_transform: PosteriorTransform | None = None,
         maximize: bool = True,
     ):
-        r"""Single-outcome Probability of Improvement.
+        r"""Single-outcome Log Probability of Improvement.
 
         Args:
             model: A fitted single-outcome model.
@@ -1121,7 +1121,7 @@ class PosteriorStandardDeviation(AnalyticAcquisitionFunction):
         posterior_transform: PosteriorTransform | None = None,
         maximize: bool = True,
     ) -> None:
-        r"""Single-outcome Posterior Mean.
+        r"""Single-outcome Posterior Standard Deviation.
 
         Args:
             model: A fitted single-outcome GP model (must be in batch mode if
@@ -1148,7 +1148,7 @@ class PosteriorStandardDeviation(AnalyticAcquisitionFunction):
                 design points.
 
         Returns:
-            A ``(b1 x ... bk)``-dim tensor of Posterior Mean values at
+            A ``(b1 x ... bk)``-dim tensor of Posterior Standard Deviation values at
                 the given design points ``X``.
         """
         _, std = self._mean_and_sigma(X)
