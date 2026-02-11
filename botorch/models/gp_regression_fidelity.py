@@ -197,7 +197,7 @@ def _setup_multifidelity_covar_module(
             of the default kernel.
         nu: The smoothness parameter for the Matern kernel: either 1/2, 3/2, or
             5/2. Only used when ``linear_truncated=True``.
-        covar_module: The module for computing the covariance matrix between
+        data_covar_module: The module for computing the covariance matrix between
                 the non-fidelity features. Defaults to ``RBFKernel``.
     Returns:
         The covariance module and subset_batch_dict.
