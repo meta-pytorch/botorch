@@ -529,6 +529,8 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
         self.assertTrue(
             torch.equal(model._task_mapper, torch.tensor([0, 1, 1], **tkwargs))
         )
+        # Verify the pyro_model has the correct number of tasks (3, not 2)
+        self.assertEqual(model.pyro_model.num_tasks, 3)
         self.test_fit_model(
             use_outcome_transform=True,
             all_tasks=all_tasks,

@@ -81,6 +81,7 @@ from linear_operator.operators import (
     to_linear_operator,
 )
 from torch import Tensor
+from typing_extensions import Self
 
 
 def _compute_multitask_mean(
@@ -238,7 +239,29 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
                 "This is not allowed as it will lead to errors during model training."
             )
         all_tasks = all_tasks or all_tasks_inferred
-        self.num_tasks = len(all_tasks_inferred)
+        # Compute observed and unobserved task indices when all_tasks includes
+        # unobserved tasks
+        sorted_all_tasks = sorted(all_tasks)
+        if set(all_tasks) != set(all_tasks_inferred):
+            observed_set = set(all_tasks_inferred)
+            observed_indices = []
+            unobserved_indices = []
+            for i, t in enumerate(sorted_all_tasks):
+                if t in observed_set:
+                    observed_indices.append(i)
+                else:
+                    unobserved_indices.append(i)
+            self._observed_task_indices = torch.tensor(
+                observed_indices, dtype=torch.long
+            )
+            self._unobserved_task_indices = torch.tensor(
+                unobserved_indices, dtype=torch.long
+            )
+        else:
+            # All tasks are observed - set observed indices to all tasks
+            self._observed_task_indices = torch.arange(len(all_tasks), dtype=torch.long)
+            self._unobserved_task_indices = torch.tensor([], dtype=torch.long)
+        self.num_tasks = len(all_tasks)
         if outcome_transform == DEFAULT:
             outcome_transform = Standardize(m=1, batch_shape=train_X.shape[:-2])
         if outcome_transform is not None:
@@ -321,7 +344,7 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
             default_task_value=None if output_tasks is None else output_tasks[0],
         )
         self.register_buffer("_task_mapper", task_mapper)
-        self._expected_task_values = set(all_tasks_inferred)
+        self._expected_task_values = set(all_tasks)
         if input_transform is not None:
             self.input_transform = input_transform
         if outcome_transform is not None:
@@ -406,6 +429,28 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
         x_covar = torch.cat([x_before, task_idcs, x_after], dim=-1)
         covar_x = self.covar_module(x_covar)
         return MultivariateNormal(mean_x, covar_x)
+
+    def eval(self) -> Self:
+        r"""Puts the model in ``eval`` mode.
+
+        When unobserved tasks are present (i.e., ``all_tasks`` includes tasks not in
+        the training data), this method sets the covariance factor for unobserved tasks
+        to the mean of the observed tasks' covariance factors. This provides a
+        reasonable initialization for prediction on unobserved tasks.
+        """
+        if len(self._unobserved_task_indices) > 0:
+            task_covar_module = self.covar_module.kernels[1]
+            # Get the current covar_factor (transformed from raw_covar_factor)
+            covar_factor = task_covar_module.covar_factor
+            # Compute mean of observed tasks' covar_factor rows
+            observed_covar_factor = covar_factor[self._observed_task_indices]
+            mean_covar_factor = observed_covar_factor.mean(dim=0)
+            # Create new covar_factor with unobserved tasks set to mean
+            new_covar_factor = covar_factor.clone()
+            new_covar_factor[self._unobserved_task_indices] = mean_covar_factor
+            # Set the new covar_factor (this applies inverse_transform internally)
+            task_covar_module._set_covar_factor(new_covar_factor)
+        return super().eval()
 
     @classmethod
     def get_all_tasks(
