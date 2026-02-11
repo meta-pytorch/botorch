@@ -432,7 +432,7 @@ class TestSingleTaskMultiFidelityGP(BotorchTestCase):
                 self.assertTrue(kwargs["train_X"].equal(data_dict["train_X"]))
                 self.assertTrue(kwargs["train_Y"].equal(data_dict["train_Y"]))
 
-    def test_cont_kernel_factory(self):
+    def test_custom_data_covar_module(self):
         iteration_fidelity, data_fidelities = self.FIDELITY_TEST_PAIRS[0]
         d = 1
         m = 2
@@ -449,16 +449,12 @@ class TestSingleTaskMultiFidelityGP(BotorchTestCase):
             **tkwargs,
         )
 
-        def custom_kernel_factory(
-            ard_num_dims: int,
-            batch_shape: torch.Size | None = None,
-            active_dims: list[int] | None = None,
-        ):
-            return LinearKernel(
-                ard_num_dims=ard_num_dims,
-                batch_shape=batch_shape,
-                active_dims=active_dims,
-            )
+        active_dimsX = [0]
+        linear_kernel = LinearKernel(
+            ard_num_dims=len(active_dimsX),
+            batch_shape=aug_batch_shape,
+            active_dims=active_dimsX,
+        )
 
         expected_kernels = (RBFKernel, LinearKernel)
         expected_subset_batch_dict = {
@@ -469,12 +465,10 @@ class TestSingleTaskMultiFidelityGP(BotorchTestCase):
         if model_kwargs.get("train_Yvar", None) is None:
             expected_subset_batch_dict["likelihood.noise_covar.raw_noise"] = -2
 
-        for cont_kernel_factory, expected_kernel in zip(
-            (None, custom_kernel_factory), expected_kernels
+        for covar_module, expected_kernel in zip(
+            (None, linear_kernel), expected_kernels
         ):
-            model = SingleTaskMultiFidelityGP(
-                **model_kwargs, cont_kernel_factory=cont_kernel_factory
-            )
+            model = SingleTaskMultiFidelityGP(**model_kwargs, covar_module=covar_module)
             non_fid_kernel = model.covar_module.kernels[0]
             self.assertIsInstance(non_fid_kernel, expected_kernel)
             self.assertEqual(non_fid_kernel.ard_num_dims, d)
@@ -488,7 +482,7 @@ class TestSingleTaskMultiFidelityGP(BotorchTestCase):
                 {
                     "covar_module.kernels.0.raw_lengthscale": -3,
                 }
-                if cont_kernel_factory is None
+                if covar_module is None
                 else {}
             )
             self.assertEqual(
@@ -498,9 +492,7 @@ class TestSingleTaskMultiFidelityGP(BotorchTestCase):
 
         model_kwargs.update({"linear_truncated": True})
         with self.assertRaises(ValueError):
-            model = SingleTaskMultiFidelityGP(
-                **model_kwargs, cont_kernel_factory=custom_kernel_factory
-            )
+            model = SingleTaskMultiFidelityGP(**model_kwargs, covar_module=covar_module)
 
 
 class TestFixedNoiseSingleTaskMultiFidelityGP(TestSingleTaskMultiFidelityGP):
