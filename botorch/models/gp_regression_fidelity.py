@@ -215,7 +215,7 @@ def _setup_multifidelity_covar_module(
 
     if linear_truncated and data_covar_module is not None:
         raise ValueError(
-            "Non-fidelity kernel factory cannot be specified when using a linear "
+            "Non-fidelity covariance module cannot be specified when using a linear "
             "truncated kernel."
         )
 
