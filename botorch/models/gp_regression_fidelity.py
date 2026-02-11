@@ -153,7 +153,12 @@ class SingleTaskMultiFidelityGP(SingleTaskGP):
             "mean_module.raw_constant": -1,
             "covar_module.raw_outputscale": -1,
             **subset_batch_dict,
+self._subset_batch_dict = {
+            "mean_module.raw_constant": -1,
+            **subset_batch_dict,
         }
+if linear_truncated:
+    self._subset_batch_dict["covar_module.raw_outputscale"] = -1
         if train_Yvar is None:
             self._subset_batch_dict["likelihood.noise_covar.raw_noise"] = -2
         self.to(train_X)
