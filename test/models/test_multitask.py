@@ -336,6 +336,24 @@ class TestMultiTaskGP(BotorchTestCase):
             else:
                 self.assertIsNone(model._task_mapper)
 
+        # Test that _compute_multitask_mean handles non-MultitaskMean correctly
+        with self.subTest("non_multitask_mean"):
+            tkwargs: dict[str, Any] = {"device": self.device, "dtype": torch.double}
+            _, (train_X, train_Y, _) = gen_multi_task_dataset(**tkwargs)
+            model = MultiTaskGP(
+                train_X,
+                train_Y,
+                task_feature=0,
+                mean_module=ConstantMean(),
+            ).to(**tkwargs)
+            self.assertIsInstance(model.mean_module, ConstantMean)
+            self.assertNotIsInstance(model.mean_module, MultitaskMean)
+            model.eval()
+            test_x = torch.rand(2, 1, **tkwargs)
+            with torch.no_grad():
+                posterior = model.posterior(test_x)
+            self.assertEqual(posterior.mean.shape, torch.Size([2, 2]))
+
     def test_MultiTaskGP_single_output(self) -> None:
         for dtype in (torch.float, torch.double):
             tkwargs: dict[str, Any] = {"device": self.device, "dtype": dtype}
