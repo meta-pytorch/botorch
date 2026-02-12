@@ -517,6 +517,43 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
     def test_fit_model_with_outcome_transform(self):
         self.test_fit_model(use_outcome_transform=True)
 
+    def test_fit_model_with_unobserved_tasks(self) -> None:
+        """Test fitting and predicting when some tasks have no training data."""
+        dtype = torch.double
+        tkwargs = {"device": self.device, "dtype": dtype}
+        # Tasks 0 and 2 observed; task 1 has no training data
+        _, _, _, model = self._get_data_and_model(
+            infer_noise=True,
+            use_outcome_transform=True,
+            output_tasks=[2],
+            observed_task_values=[0, 2],
+            all_tasks=[0, 1, 2],
+            validate_task_values=False,
+            **tkwargs,
+        )
+        # Contiguous all_tasks → no mapper needed
+        self.assertIsNone(model._task_mapper)
+        self.assertEqual(model.pyro_model.num_tasks, 3)
+
+        fit_fully_bayesian_model_nuts(
+            model, warmup_steps=8, num_samples=5, thinning=2, disable_progbar=True
+        )
+        self.assertIsNotNone(model.mean_module)
+
+        # Predict for observed tasks
+        test_X = torch.rand(3, 4, **tkwargs)
+        posterior = model.posterior(test_X)
+        self.assertIsInstance(posterior, GaussianMixturePosterior)
+        # output_tasks=[2] → single output
+        self.assertEqual(posterior.mean.shape[-1], 1)
+
+        # Predict for the UNOBSERVED task (task 1)
+        test_X_unobs = torch.cat(
+            [torch.rand(3, 4, **tkwargs), torch.ones(3, 1, **tkwargs)], dim=-1
+        )
+        posterior_unobs = model.posterior(test_X_unobs)
+        self.assertIsInstance(posterior_unobs, GaussianMixturePosterior)
+
     def test_transforms(self, infer_noise: bool = False):
         tkwargs = {"device": self.device, "dtype": torch.double}
         train_X, train_Y, train_Yvar, test_X = self._get_unnormalized_data(**tkwargs)

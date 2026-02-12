@@ -22,6 +22,7 @@ References
 
 from __future__ import annotations
 
+import warnings
 from abc import ABC, abstractmethod
 from collections import OrderedDict
 
@@ -511,12 +512,10 @@ class StratifiedStandardize(Standardize):
     def __init__(
         self,
         stratification_idx: int,
-        observed_task_values: Tensor,
         all_task_values: Tensor,
         batch_shape: torch.Size = torch.Size(),  # noqa: B008
         min_stdv: float = 1e-8,
         dtype: torch.dtype = torch.double,
-        default_task_value: int | None = None,
     ) -> None:
         r"""Standardize outcomes (zero mean, unit variance) along stratification dim.
 
@@ -526,28 +525,22 @@ class StratifiedStandardize(Standardize):
         Args:
             stratification_idx: The index of the stratification dimension in the
                 input tensor X.
-            observed_task_values: ``t``-dim tensor of task values that were actually
-                observed in the training data.
             all_task_values: ``t``-dim tensor of all possible task values that could
                 appear in the dataset.
             batch_shape: The batch_shape of the training targets.
             min_stdv: The minimum standard deviation for which to perform
                 standardization (if lower, only de-mean the data).
             dtype: The data type for internal computations.
-            default_task_value: The default task value that unexpected tasks are
-                mapped to. This is used in ``get_task_value_remapping``.
         """
         OutcomeTransform.__init__(self)
         self._stratification_idx = stratification_idx
-        observed_task_values = observed_task_values.unique(sorted=True)
+        all_task_values = all_task_values.unique(sorted=True)
         self.strata_mapping = get_task_value_remapping(
-            observed_task_values=observed_task_values,
-            all_task_values=all_task_values.unique(sorted=True),
+            all_task_values=all_task_values,
             dtype=dtype,
-            default_task_value=default_task_value,
         )
         if self.strata_mapping is None:
-            self.strata_mapping = observed_task_values
+            self.strata_mapping = all_task_values
         n_strata = self.strata_mapping.shape[0]
         self._min_stdv = min_stdv
         self.register_buffer("means", torch.zeros(*batch_shape, n_strata, 1))
@@ -629,7 +622,20 @@ class StratifiedStandardize(Standardize):
             - The per-input stdvs squared.
         """
         strata = X[..., self._stratification_idx].long()
-        mapped_strata = self.strata_mapping[strata].unsqueeze(-1).long()
+        mapped_strata_float = self.strata_mapping[strata]
+        # Check for unobserved tasks (mapped to NaN) and warn
+        unobserved_mask = torch.isnan(mapped_strata_float)
+        if unobserved_mask.any():
+            warnings.warn(
+                "Predictions are being made for tasks that were not observed "
+                "during training. These tasks will use an identity transform "
+                "(mean=0, stdv=1).",
+                stacklevel=3,
+            )
+            # Map unobserved tasks to index 0 temporarily for gather operation
+            mapped_strata_float = mapped_strata_float.clone()
+            mapped_strata_float[unobserved_mask] = 0.0
+        mapped_strata = mapped_strata_float.unsqueeze(-1).long()
         # get means and stdvs for each strata
         n_extra_batch_dims = mapped_strata.ndim - 2 - len(self._batch_shape)
         expand_shape = mapped_strata.shape[:n_extra_batch_dims] + self.means.shape
@@ -643,12 +649,22 @@ class StratifiedStandardize(Standardize):
             dim=-2,
             index=mapped_strata,
         )
+        # Apply identity transform (mean=0, stdv=1) for unobserved tasks
+        if unobserved_mask.any():
+            unobserved_mask_expanded = unobserved_mask.unsqueeze(-1)
+            means = means.clone()
+            stdvs = stdvs.clone()
+            means[unobserved_mask_expanded] = 0.0
+            stdvs[unobserved_mask_expanded] = 1.0
         if include_stdvs_sq:
             stdvs_sq = torch.gather(
                 input=self._stdvs_sq.expand(expand_shape),
                 dim=-2,
                 index=mapped_strata,
             )
+            if unobserved_mask.any():
+                stdvs_sq = stdvs_sq.clone()
+                stdvs_sq[unobserved_mask_expanded] = 1.0
         else:
             stdvs_sq = None
         return means, stdvs, stdvs_sq
