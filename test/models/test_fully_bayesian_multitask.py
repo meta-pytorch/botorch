@@ -52,10 +52,11 @@ from botorch.utils.testing import BotorchTestCase
 from gpytorch.kernels import IndexKernel, MaternKernel, ScaleKernel
 from gpytorch.likelihoods import FixedNoiseGaussianLikelihood
 from gpytorch.likelihoods.gaussian_likelihood import GaussianLikelihood
-from gpytorch.means import ConstantMean
+from gpytorch.means import MultitaskMean
 
 EXPECTED_KEYS = [
-    "mean_module.raw_constant",
+    "mean_module.base_means.0.raw_constant",
+    "mean_module.base_means.1.raw_constant",
     "covar_module.kernels.1.raw_var",
     "covar_module.kernels.1.active_dims",
     "covar_module.kernels.0.base_kernel.raw_lengthscale",
@@ -154,7 +155,7 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
         mcmc_samples = {
             "lengthscale": torch.rand(num_samples, 1, dim, **tkwargs),
             "outputscale": torch.rand(num_samples, **tkwargs),
-            "mean": torch.randn(num_samples, **tkwargs),
+            "mean": torch.randn(num_samples, self.num_tasks, **tkwargs),
             "noise": torch.rand(num_samples, 1, **tkwargs),
             "task_lengthscale": torch.rand(num_samples, 1, task_rank, **tkwargs),
             "latent_features": torch.rand(
@@ -289,8 +290,13 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
         )
         data_covar_module, task_covar_module = model.covar_module.kernels
         self.assertEqual(model.batch_shape, torch.Size([3]))
-        self.assertIsInstance(model.mean_module, ConstantMean)
-        self.assertEqual(model.mean_module.raw_constant.shape, model.batch_shape)
+        self.assertIsInstance(model.mean_module, MultitaskMean)
+        self.assertEqual(model.mean_module.num_tasks, self.num_tasks)
+        for i in range(self.num_tasks):
+            self.assertEqual(
+                model.mean_module.base_means[i].raw_constant.shape,
+                model.batch_shape,
+            )
         self.assertIsInstance(data_covar_module, ScaleKernel)
         self.assertEqual(data_covar_module.outputscale.shape, model.batch_shape)
         self.assertIsInstance(data_covar_module.base_kernel, MaternKernel)
@@ -510,34 +516,6 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
 
     def test_fit_model_with_outcome_transform(self):
         self.test_fit_model(use_outcome_transform=True)
-
-    def test_fit_model_with_task_mapper(self) -> None:
-        dtype = torch.double
-        tkwargs = {"device": self.device, "dtype": dtype}
-        all_tasks = [0, 1, 2]
-        observed_task_values = [0, 2]
-        output_tasks = [2]
-        _, _, _, model = self._get_data_and_model(
-            infer_noise=True,
-            use_outcome_transform=True,
-            output_tasks=output_tasks,
-            observed_task_values=observed_task_values,
-            all_tasks=all_tasks,
-            validate_task_values=False,
-            **tkwargs,
-        )
-        self.assertTrue(
-            torch.equal(model._task_mapper, torch.tensor([0, 1, 1], **tkwargs))
-        )
-        # Verify the pyro_model has the correct number of tasks (3, not 2)
-        self.assertEqual(model.pyro_model.num_tasks, 3)
-        self.test_fit_model(
-            use_outcome_transform=True,
-            all_tasks=all_tasks,
-            observed_task_values=observed_task_values,
-            output_tasks=output_tasks,
-            validate_task_values=False,
-        )
 
     def test_transforms(self, infer_noise: bool = False):
         tkwargs = {"device": self.device, "dtype": torch.double}
@@ -819,12 +797,14 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
                     mcmc_samples["outputscale"],
                 )
             )
-            self.assertTrue(
-                torch.allclose(
-                    model.mean_module.raw_constant.data,
-                    mcmc_samples["mean"],
+            self.assertIsInstance(model.mean_module, MultitaskMean)
+            for i in range(self.num_tasks):
+                self.assertTrue(
+                    torch.allclose(
+                        model.mean_module.base_means[i].constant.data,
+                        mcmc_samples["mean"][:, i],
+                    )
                 )
-            )
 
             self.assertTrue(
                 torch.allclose(
