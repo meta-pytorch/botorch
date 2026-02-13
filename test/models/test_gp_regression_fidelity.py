@@ -17,6 +17,9 @@ from botorch.posteriors import GPyTorchPosterior
 from botorch.sampling import SobolQMCNormalSampler
 from botorch.utils.datasets import SupervisedDataset
 from botorch.utils.testing import BotorchTestCase, get_random_data
+from gpytorch.kernels.kernel import ProductKernel
+from gpytorch.kernels.linear_kernel import LinearKernel
+from gpytorch.kernels.rbf_kernel import RBFKernel
 from gpytorch.kernels.scale_kernel import ScaleKernel
 from gpytorch.likelihoods import FixedNoiseGaussianLikelihood
 from gpytorch.means import ConstantMean
@@ -147,7 +150,9 @@ class TestSingleTaskMultiFidelityGP(BotorchTestCase):
 
                 # test init
                 self.assertIsInstance(model.mean_module, ConstantMean)
-                self.assertIsInstance(model.covar_module, ScaleKernel)
+                self.assertIsInstance(
+                    model.covar_module, ScaleKernel if lin_trunc else ProductKernel
+                )
                 if use_octf:
                     self.assertIsInstance(model.outcome_transform, Standardize)
                 if use_intf:
@@ -426,6 +431,68 @@ class TestSingleTaskMultiFidelityGP(BotorchTestCase):
                 self.assertEqual(data_dict["data_fidelities"], [1])
                 self.assertTrue(kwargs["train_X"].equal(data_dict["train_X"]))
                 self.assertTrue(kwargs["train_Y"].equal(data_dict["train_Y"]))
+
+    def test_custom_data_covar_module(self):
+        iteration_fidelity, data_fidelities = self.FIDELITY_TEST_PAIRS[0]
+        d = 1
+        m = 2
+        batch_shape = torch.Size([2, 3])
+        aug_batch_shape = batch_shape + torch.Size([m])
+        tkwargs = {"device": self.device, "dtype": torch.double}
+
+        _, model_kwargs = self._get_model_and_data(
+            iteration_fidelity=iteration_fidelity,
+            data_fidelities=data_fidelities,
+            batch_shape=batch_shape,
+            m=m,
+            lin_truncated=False,
+            **tkwargs,
+        )
+
+        active_dimsX = [0]
+        linear_kernel = LinearKernel(
+            ard_num_dims=len(active_dimsX),
+            batch_shape=aug_batch_shape,
+            active_dims=active_dimsX,
+        )
+
+        expected_kernels = (RBFKernel, LinearKernel)
+        expected_subset_batch_dict = {
+            "mean_module.raw_constant": -1,
+            "covar_module.kernels.1.raw_power": -2,
+            "covar_module.kernels.1.raw_offset": -2,
+        }
+        if model_kwargs.get("train_Yvar", None) is None:
+            expected_subset_batch_dict["likelihood.noise_covar.raw_noise"] = -2
+
+        for covar_module, expected_kernel in zip(
+            (None, linear_kernel), expected_kernels
+        ):
+            model = SingleTaskMultiFidelityGP(**model_kwargs, covar_module=covar_module)
+            non_fid_kernel = model.covar_module.kernels[0]
+            self.assertIsInstance(non_fid_kernel, expected_kernel)
+            self.assertEqual(non_fid_kernel.ard_num_dims, d)
+            self.assertEqual(non_fid_kernel.batch_shape, aug_batch_shape)
+            self.assertEqual(
+                non_fid_kernel.active_dims,
+                torch.as_tensor(list(range(d)), device=self.device),
+            )
+
+            extra_subset_batch_dict = (
+                {
+                    "covar_module.kernels.0.raw_lengthscale": -3,
+                }
+                if covar_module is None
+                else {}
+            )
+            self.assertEqual(
+                model._subset_batch_dict,
+                {**expected_subset_batch_dict, **extra_subset_batch_dict},
+            )
+
+        model_kwargs.update({"linear_truncated": True})
+        with self.assertRaises(ValueError):
+            model = SingleTaskMultiFidelityGP(**model_kwargs, covar_module=covar_module)
 
 
 class TestFixedNoiseSingleTaskMultiFidelityGP(TestSingleTaskMultiFidelityGP):
