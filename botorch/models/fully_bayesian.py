@@ -165,7 +165,12 @@ class PyroModel:
             return self.train_X
 
     def set_inputs(
-        self, train_X: Tensor, train_Y: Tensor, train_Yvar: Tensor | None = None
+        self,
+        train_X: Tensor,
+        train_Y: Tensor,
+        train_Yvar: Tensor | None = None,
+        task_feature: int | None = None,
+        task_rank: int | None = None,
     ) -> None:
         """Set the training data.
 
@@ -173,6 +178,10 @@ class PyroModel:
             train_X: Training inputs (n x d)
             train_Y: Training targets (n x 1)
             train_Yvar: Observed noise variance (n x 1). Inferred if None.
+            task_feature: The index of the task feature column. Used by
+                multi-task mixins.
+            task_rank: The number of learned task embeddings. Used by
+                multi-task mixins.
         """
         self.train_X = train_X
         self.train_Y = train_Y
@@ -190,6 +199,19 @@ class PyroModel:
         mcmc_samples: dict[str, Tensor],
     ) -> dict[str, Tensor]:
         """Post-process the final MCMC samples."""
+        pass  # pragma: no cover
+
+    @abstractmethod
+    def get_dummy_mcmc_samples(
+        self,
+        num_mcmc_samples: int,
+        **tkwargs: Any,
+    ) -> dict[str, Tensor]:
+        """Return dummy MCMC samples for state dict loading.
+
+        Each subclass returns a dict of ones with the keys and shapes that
+        ``load_mcmc_samples`` expects.
+        """
         pass  # pragma: no cover
 
     @abstractmethod
@@ -244,6 +266,68 @@ class PyroModel:
         )
 
         return c0, c1
+
+    def _common_dummy_samples(
+        self,
+        mcmc_samples: dict[str, Tensor],
+        num_mcmc_samples: int,
+        **tkwargs: Any,
+    ) -> dict[str, Tensor]:
+        """Add noise and warping entries to ``mcmc_samples`` in-place."""
+        dim = self.ard_num_dims
+        if self.train_Yvar is None:
+            mcmc_samples["noise"] = torch.ones(num_mcmc_samples, **tkwargs)
+        if self.use_input_warping:
+            mcmc_samples["c0"] = torch.ones(num_mcmc_samples, dim, **tkwargs)
+            mcmc_samples["c1"] = torch.ones(num_mcmc_samples, dim, **tkwargs)
+        return mcmc_samples
+
+    def _prepare_features(self, X: Tensor, **tkwargs: Any) -> Tensor:
+        """Select feature columns for kernel computation.
+
+        Overridden by multi-task mixins to strip the task column.
+        """
+        return X
+
+    def _maybe_multitask_transform(
+        self, K_noiseless: Tensor, mean: Tensor, **tkwargs: Any
+    ) -> tuple[Tensor, Tensor]:
+        r"""Apply multi-task covariance transform to the kernel and mean.
+
+        No-op for single-task models. Overridden by multi-task mixins.
+        """
+        return K_noiseless, mean
+
+    def _build_mean_module(
+        self,
+        mcmc_samples: dict[str, Tensor],
+        batch_shape: torch.Size,
+        **tkwargs: Any,
+    ) -> Mean:
+        """Construct and populate the mean module from MCMC samples.
+
+        Returns a scalar ``ConstantMean`` for single-task models. Overridden by
+        multi-task mixins to return a ``MultitaskMean``.
+        """
+        mean_module = ConstantMean(batch_shape=batch_shape).to(**tkwargs)
+        mean_module.constant.data = reshape_and_detach(
+            target=mean_module.constant.data,
+            new_value=mcmc_samples["mean"],
+        )
+        return mean_module
+
+    def _build_multitask_covariance(
+        self,
+        mcmc_samples: dict[str, Tensor],
+        covar_module: Kernel,
+        batch_shape: torch.Size,
+        **tkwargs: Any,
+    ) -> Kernel:
+        """Optionally wrap covar_module with task covariance.
+
+        No-op for single-task models. Overridden by multi-task mixins.
+        """
+        return covar_module
 
     def sample_observations(
         self,
@@ -322,7 +406,11 @@ class MaternPyroModel(PyroModel):
         noise = self.sample_noise(**tkwargs)
         lengthscale = self.sample_lengthscale(dim=self.ard_num_dims, **tkwargs)
         X_tf = self._maybe_input_warp(self.train_X, **tkwargs)
+        X_tf = self._prepare_features(X_tf, **tkwargs)
         K_noiseless = outputscale * matern52_kernel(X=X_tf, lengthscale=lengthscale)
+        K_noiseless, mean = self._maybe_multitask_transform(
+            K_noiseless, mean, **tkwargs
+        )
         self.sample_observations(
             mean=mean, K_noiseless=K_noiseless, noise=noise, **tkwargs
         )
@@ -375,6 +463,18 @@ class MaternPyroModel(PyroModel):
         """
         return mcmc_samples
 
+    def get_dummy_mcmc_samples(
+        self,
+        num_mcmc_samples: int,
+        **tkwargs: Any,
+    ) -> dict[str, Tensor]:
+        """Return dummy MCMC samples for state dict loading."""
+        mcmc_samples = {
+            "mean": torch.ones(num_mcmc_samples, **tkwargs),
+            "lengthscale": torch.ones(num_mcmc_samples, self.ard_num_dims, **tkwargs),
+        }
+        return self._common_dummy_samples(mcmc_samples, num_mcmc_samples, **tkwargs)
+
     def _get_covar_module(
         self,
         use_scale_kernel: bool,
@@ -410,7 +510,9 @@ class MaternPyroModel(PyroModel):
         num_mcmc_samples = len(mcmc_samples["mean"])
         batch_shape = torch.Size([num_mcmc_samples])
 
-        mean_module = ConstantMean(batch_shape=batch_shape).to(**tkwargs)
+        mean_module = self._build_mean_module(
+            mcmc_samples=mcmc_samples, batch_shape=batch_shape, **tkwargs
+        )
         outputscale = mcmc_samples.get("outputscale")
         covar_module = self._get_covar_module(
             use_scale_kernel=outputscale is not None, batch_shape=batch_shape, **tkwargs
@@ -444,10 +546,6 @@ class MaternPyroModel(PyroModel):
             target=base_kernel.lengthscale,
             new_value=mcmc_samples["lengthscale"],
         )
-        mean_module.constant.data = reshape_and_detach(
-            target=mean_module.constant.data,
-            new_value=mcmc_samples["mean"],
-        )
         if self.use_input_warping:
             indices = (
                 list(range(self.ard_num_dims)) if self.indices is None else self.indices
@@ -470,6 +568,13 @@ class MaternPyroModel(PyroModel):
             )
         else:
             warping_function = None
+
+        covar_module = self._build_multitask_covariance(
+            mcmc_samples=mcmc_samples,
+            covar_module=covar_module,
+            batch_shape=batch_shape,
+            **tkwargs,
+        )
         return mean_module, covar_module, likelihood, warping_function
 
 
@@ -529,6 +634,18 @@ class SaasPyroModel(MaternPyroModel):
         del mcmc_samples["kernel_tausq"], mcmc_samples["_kernel_inv_length_sq"]
         return mcmc_samples
 
+    def get_dummy_mcmc_samples(
+        self,
+        num_mcmc_samples: int,
+        **tkwargs: Any,
+    ) -> dict[str, Tensor]:
+        """Return dummy MCMC samples for state dict loading."""
+        mcmc_samples = super().get_dummy_mcmc_samples(
+            num_mcmc_samples=num_mcmc_samples, **tkwargs
+        )
+        mcmc_samples["outputscale"] = torch.ones(num_mcmc_samples, **tkwargs)
+        return mcmc_samples
+
 
 class LinearPyroModel(PyroModel):
     r"""Implementation of a Bayesian Linear pyro model.
@@ -546,9 +663,13 @@ class LinearPyroModel(PyroModel):
         mean = self.sample_mean(**tkwargs)
         weight_variance = self.sample_weight_variance(**tkwargs)
         X_tf = self._maybe_input_warp(X=self.train_X, **tkwargs)
+        X_tf = self._prepare_features(X_tf, **tkwargs)
         X_tf = X_tf - 0.5  # center transformed data at 0 (for linear model)
         K_noiseless = linear_kernel(X=X_tf, weight_variance=weight_variance)
         noise = self.sample_noise(**tkwargs)
+        K_noiseless, mean = self._maybe_multitask_transform(
+            K_noiseless, mean, **tkwargs
+        )
         self.sample_observations(
             mean=mean, K_noiseless=K_noiseless, noise=noise, **tkwargs
         )
@@ -588,6 +709,20 @@ class LinearPyroModel(PyroModel):
         ).sqrt()
         del mcmc_samples["tau_sq"], mcmc_samples["_weight_variance_sq"]
         return mcmc_samples
+
+    def get_dummy_mcmc_samples(
+        self,
+        num_mcmc_samples: int,
+        **tkwargs: Any,
+    ) -> dict[str, Tensor]:
+        """Return dummy MCMC samples for state dict loading."""
+        mcmc_samples = {
+            "mean": torch.ones(num_mcmc_samples, **tkwargs),
+            "weight_variance": torch.ones(
+                num_mcmc_samples, self.ard_num_dims, **tkwargs
+            ),
+        }
+        return self._common_dummy_samples(mcmc_samples, num_mcmc_samples, **tkwargs)
 
     def load_mcmc_samples(
         self, mcmc_samples: dict[str, Tensor]
@@ -975,27 +1110,6 @@ class FullyBayesianSingleTaskGP(AbstractFullyBayesianSingleTaskGP):
         lengthscale = base_kernel.lengthscale.clone()
         return lengthscale.median(0).values.squeeze(0)
 
-    def _get_dummy_mcmc_samples(
-        self,
-        num_mcmc_samples: int,
-        dim: int,
-        dtype: torch.dtype,
-        device: torch.device,
-    ) -> dict[str, Tensor]:
-        # Load some dummy samples
-        tkwargs = {"dtype": dtype, "device": device}
-        mcmc_samples = {
-            "mean": torch.ones(num_mcmc_samples, **tkwargs),
-            "lengthscale": torch.ones(num_mcmc_samples, dim, **tkwargs),
-        }
-        if self.pyro_model.train_Yvar is None:
-            mcmc_samples["noise"] = torch.ones(num_mcmc_samples, **tkwargs)
-
-        if self.pyro_model.use_input_warping:
-            mcmc_samples["c0"] = torch.ones(num_mcmc_samples, dim, **tkwargs)
-            mcmc_samples["c1"] = torch.ones(num_mcmc_samples, dim, **tkwargs)
-        return mcmc_samples
-
     def load_state_dict(
         self, state_dict: Mapping[str, Any], strict: bool = True
     ) -> None:
@@ -1012,11 +1126,10 @@ class FullyBayesianSingleTaskGP(AbstractFullyBayesianSingleTaskGP):
         the model construction logic into the Pyro model itself.
         """
         raw_mean = state_dict["mean_module.raw_constant"]
-        mcmc_samples = self._get_dummy_mcmc_samples(
-            num_mcmc_samples=len(raw_mean),
-            dim=self.pyro_model.train_X.shape[-1],
-            dtype=raw_mean.dtype,
-            device=raw_mean.device,
+        num_mcmc_samples = len(raw_mean)
+        tkwargs = {"dtype": raw_mean.dtype, "device": raw_mean.device}
+        mcmc_samples = self.pyro_model.get_dummy_mcmc_samples(
+            num_mcmc_samples=num_mcmc_samples, **tkwargs
         )
         self.load_mcmc_samples(mcmc_samples=mcmc_samples)
         # Load the actual samples from the state dict
@@ -1042,22 +1155,6 @@ class SaasFullyBayesianSingleTaskGP(FullyBayesianSingleTaskGP):
     """
 
     _pyro_model_class: type[PyroModel] = SaasPyroModel
-
-    def _get_dummy_mcmc_samples(
-        self,
-        num_mcmc_samples: int,
-        dim: int,
-        dtype: torch.dtype,
-        device: torch.device,
-    ) -> dict[str, Tensor]:
-        mcmc_samples = super()._get_dummy_mcmc_samples(
-            num_mcmc_samples=num_mcmc_samples, dim=dim, dtype=dtype, device=device
-        )
-        # add outputscale
-        mcmc_samples["outputscale"] = torch.ones(
-            num_mcmc_samples, dtype=dtype, device=device
-        )
-        return mcmc_samples
 
 
 class FullyBayesianLinearSingleTaskGP(AbstractFullyBayesianSingleTaskGP):
@@ -1102,19 +1199,10 @@ class FullyBayesianLinearSingleTaskGP(AbstractFullyBayesianSingleTaskGP):
         """
         weight_variance = state_dict["covar_module.raw_variance"]
         num_mcmc_samples = len(weight_variance)
-        dim = self.pyro_model.train_X.shape[-1]
         tkwargs = {"device": weight_variance.device, "dtype": weight_variance.dtype}
-        # Load some dummy samples
-        # deal with c0 c1
-        mcmc_samples = {
-            "mean": torch.ones(num_mcmc_samples, **tkwargs),
-            "weight_variance": torch.ones(num_mcmc_samples, dim, **tkwargs),
-        }
-        if self.pyro_model.use_input_warping:
-            mcmc_samples["c0"] = torch.ones(num_mcmc_samples, dim, **tkwargs)
-            mcmc_samples["c1"] = torch.ones(num_mcmc_samples, dim, **tkwargs)
-        if self.pyro_model.train_Yvar is None:
-            mcmc_samples["noise"] = torch.ones(num_mcmc_samples, **tkwargs)
+        mcmc_samples = self.pyro_model.get_dummy_mcmc_samples(
+            num_mcmc_samples=num_mcmc_samples, **tkwargs
+        )
         self.load_mcmc_samples(mcmc_samples=mcmc_samples)
         # Load the actual samples from the state dict
         super().load_state_dict(state_dict=state_dict, strict=strict)
