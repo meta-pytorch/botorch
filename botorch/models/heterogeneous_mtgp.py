@@ -27,9 +27,6 @@ from botorch.models.kernels.heterogeneous_multitask import MultiTaskConditionalK
 from botorch.models.multitask import MultiTaskGP
 from botorch.models.transforms.input import InputTransform
 from botorch.models.transforms.outcome import OutcomeTransform
-from botorch.models.utils.gpytorch_modules import (
-    get_gaussian_likelihood_with_gamma_prior,
-)
 from botorch.posteriors.gpytorch import GPyTorchPosterior
 from botorch.posteriors.transformed import TransformedPosterior
 from botorch.utils.datasets import MultiTaskDataset
@@ -127,11 +124,7 @@ class HeterogeneousMTGP(MultiTaskGP):
         # The features that are forward passed through the kernel should include
         # the task dim
         covar_module.active_dims = torch.arange(full_feature_dim + 1)
-        likelihood = (
-            None  # Constructed in MultiTaskGP.
-            if full_Yvar is not None
-            else get_gaussian_likelihood_with_gamma_prior()
-        )
+        likelihood = None  # Constructed in MultiTaskGP.
         super().__init__(
             train_X=full_X,
             train_Y=full_Y,
