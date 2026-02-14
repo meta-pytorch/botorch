@@ -58,10 +58,12 @@ from __future__ import annotations
 import math
 from abc import ABC
 
+import numpy as np
 import torch
 from botorch.exceptions.errors import InputDataError
 from botorch.test_functions.base import BaseTestProblem, ConstrainedBaseTestProblem
 from botorch.test_functions.utils import round_nearest
+from scipy import interpolate as si
 from torch import Tensor
 
 
@@ -988,6 +990,211 @@ class Labs(SyntheticTestFunction):
                 (X[..., 0 : self.dim - k] * X[..., k : self.dim]).sum(dim=-1).pow(2)
             )
         return (self.dim**2) / (2.0 * energy)
+
+
+class TrajectoryPlanning(SyntheticTestFunction):
+    r"""Trajectory optimization benchmark for navigating through obstacle fields.
+
+    This test function optimizes a trajectory from a fixed start point to a goal
+    point while minimizing the cost integrated over the trajectory.
+
+    Problem Setup:
+        - Domain: [0, 1]^dim hypercube (dim must be even)
+        - Start: (0.05, 0.05)
+        - Goal: (0.95, 0.95)
+        - Obstacles: Grid of axis-aligned squares centered at regular intervals
+
+    Parameterization:
+        Parameters specify perturbations to goal-directed steps. This biases
+        the search toward trajectories that make progress toward the goal
+        while allowing deviations to avoid obstacles.
+
+    Interpolation Modes:
+        - Cubic spline (use_smooth_interp=True, default): Smooth C2 trajectories
+        - Piecewise linear (use_smooth_interp=False): Straight-line segments
+
+    Cost Function:
+        The cost is computed by integrating the arc length of the trajectory
+        that passes through obstacles:
+
+        cost = integral over trajectory of (20 if in_obstacle else 0) ds
+
+    Example:
+        >>> problem = TrajectoryPlanning(dim=20)
+        >>> x = torch.rand(problem.dim)  # Random trajectory parameters
+        >>> cost = problem(x)  # Evaluate obstacle cost
+    """
+
+    _optimal_value = 0.0
+    _check_grad_at_opt: bool = False
+
+    def __init__(
+        self,
+        dim: int = 30,
+        use_smooth_interp: bool = True,
+        max_step_size: float | None = None,
+        negate: bool = False,
+        dtype: torch.dtype = torch.double,
+    ) -> None:
+        """Initialize the trajectory planning problem.
+
+        Args:
+            dim: Dimensionality of the optimization problem. Must be even since
+                each waypoint has 2 coordinates.
+            use_smooth_interp: If True, use cubic spline interpolation for
+                smooth trajectories. If False, use piecewise linear interpolation.
+            max_step_size: Maximum allowed step size. If None, automatically computed.
+            negate: If True, negate the cost (for maximization problems).
+            dtype: Data type for tensors.
+
+        Raises:
+            ValueError: If dim is not even.
+        """
+        if dim % 2 != 0:
+            raise ValueError(f"dim must be even, got {dim}")
+
+        self.dim = dim
+        self.num_waypoints = dim // 2
+        self.use_smooth_interp = use_smooth_interp
+        self.start = torch.full((2,), 0.05, dtype=dtype)
+        self.goal = torch.full((2,), 0.95, dtype=dtype)
+
+        straight_line_dist = torch.linalg.norm(self.goal - self.start).item()
+        self.max_step_size = (
+            max_step_size or 1.5 * straight_line_dist / self.num_waypoints
+        )
+
+        # Create obstacle grid (6x6 grid excluding corners)
+        grid = torch.linspace(0, 1, 6)
+        centers = (
+            torch.stack(torch.meshgrid(grid, grid, indexing="ij")).reshape(2, -1).T
+        )
+        centers = centers[1:-1]  # exclude (0,0) and (1,1) corners
+        self.obs_low, self.obs_high = centers - 0.05, centers + 0.05
+        self.obs_cost = 20
+        self._bounds = [(0.0, 1.0)] * self.dim
+        self.continuous_inds = list(range(self.dim))
+
+        super().__init__(negate=negate)
+
+    def _is_in_obstacle(self, points: Tensor) -> Tensor:
+        """Check if points collide with any obstacle.
+
+        Args:
+            points: Tensor of shape (n_points, dim) containing positions to check.
+
+        Returns:
+            Boolean tensor of shape (n_points,) where True indicates collision.
+        """
+        if points.dim() == 1:
+            points = points.unsqueeze(0)
+        obs_low = self.obs_low.to(points.device)
+        obs_high = self.obs_high.to(points.device)
+        # Shape: (n_points, n_obstacles, 2) -> check all obstacles at once
+        in_box = (points.unsqueeze(1) >= obs_low) & (points.unsqueeze(1) <= obs_high)
+        return in_box.all(dim=-1).any(dim=-1)
+
+    def _build_waypoints(self, params: Tensor) -> Tensor:
+        """Build waypoints from optimization parameters.
+
+        Args:
+            params: Flat tensor of parameters with shape (num_waypoints * 2,).
+
+        Returns:
+            Tensor of shape (n_waypoints, 2) containing the full
+            trajectory waypoints including start and goal. The number of
+            waypoints may be less than num_waypoints + 2 if the goal is
+            reached early.
+        """
+        device, dtype = params.device, params.dtype
+        start = self.start.to(device=device, dtype=dtype)
+        goal = self.goal.to(device=device, dtype=dtype)
+
+        step_params = params.reshape((self.num_waypoints, 2))
+        waypoints = [start]
+        current_pos = start.clone()
+
+        for i in range(self.num_waypoints):
+            to_goal = goal - current_pos
+            dist = torch.linalg.norm(to_goal)
+
+            # If we've reached the goal, terminate early
+            if dist <= 1e-6:
+                break
+
+            perturbation = (step_params[i] - 0.5) * 2 * self.max_step_size
+            ideal_step = min(dist.item() / (self.num_waypoints - i), self.max_step_size)
+            step = to_goal / dist * ideal_step + perturbation
+            step_norm = torch.linalg.norm(step)
+            if step_norm > self.max_step_size:
+                step = step * (self.max_step_size / step_norm)
+
+            current_pos = (current_pos + step).clamp(0, 1)
+            waypoints.append(current_pos.clone())
+
+        waypoints.append(goal)
+        return torch.stack(waypoints)
+
+    def _interpolate_trajectory(
+        self, waypoints: Tensor, n_samples: int = 1000
+    ) -> Tensor:
+        """Interpolate dense trajectory points between waypoints.
+
+        Args:
+            waypoints: Tensor of shape (n_waypoints, dim) containing waypoint positions.
+            n_samples: Number of points to sample along the interpolated trajectory.
+
+        Returns:
+            Tensor of shape (n_samples, dim) containing trajectory points.
+        """
+        device, dtype = waypoints.device, waypoints.dtype
+
+        if self.use_smooth_interp:
+            # Remove duplicate waypoints for spline stability
+            dists = torch.linalg.norm(waypoints[1:] - waypoints[:-1], dim=1)
+            unique_mask = torch.cat(
+                [torch.ones(1, dtype=torch.bool, device=device), dists > 1e-6]
+            )
+            unique_waypoints = waypoints[unique_mask]
+
+            if len(unique_waypoints) >= 4:
+                wp_np = unique_waypoints.cpu().numpy()
+                tck, _ = si.splprep(wp_np.T, k=3, s=0)
+                t = torch.linspace(0, 1, n_samples).numpy()
+                points_np = np.array(si.splev(t, tck))
+                return torch.tensor(points_np, device=device, dtype=dtype).T.clamp(0, 1)
+
+        # Linear interpolation (pure PyTorch)
+        n_seg = len(waypoints) - 1
+        t = torch.linspace(0, 1, n_samples // n_seg, device=device, dtype=dtype)[
+            :-1, None
+        ]
+        # segments shape: (n_seg, n_samples_per_seg, 2)
+        # Each segment[i] has interpolated points between waypoints[i] and [i+1]
+        segments = (1 - t) * waypoints[:-1, None, :] + t * waypoints[1:, None, :]
+        return segments.reshape(-1, 2)
+
+    def _evaluate_trajectory(self, params: Tensor) -> Tensor:
+        """Evaluate trajectory cost by integrating distance through obstacles.
+
+        Args:
+            params: Flat tensor of trajectory parameters.
+
+        Returns:
+            Integrated obstacle cost scaled by self.obs_cost.
+        """
+        waypoints = self._build_waypoints(params)
+        points = self._interpolate_trajectory(waypoints, n_samples=1000)
+        collisions = self._is_in_obstacle(points)
+        segment_lengths = torch.linalg.norm(points[1:] - points[:-1], dim=1)
+        collision_weights = 0.5 * (collisions[:-1].float() + collisions[1:].float())
+        return torch.sum(segment_lengths * collision_weights) * self.obs_cost
+
+    def _evaluate_true(self, X: Tensor) -> Tensor:
+        """Evaluate the objective function on a batch of inputs."""
+        if X.ndim == 1:
+            X = X.unsqueeze(0)
+        return torch.stack([self._evaluate_trajectory(x) for x in X])
 
 
 #  ------------ Constrained synthetic test functions ----------- #
