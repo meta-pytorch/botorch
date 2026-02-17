@@ -2,6 +2,55 @@
 
 The release log for BoTorch.
 
+## [0.17.0] -- Feb 17, 2026
+
+#### Compatibility
+* Require Python>=3.11 and PyTorch>=2.2 (#3152).
+* Require GPyTorch>=1.15.1 (#3181).
+
+#### New Features
+* Efficient leave-one-out cross-validation for Gaussian processes (#3098) and ensemble models (#3103).
+* `TrajectoryPlanningProblem` test problem (#3182).
+
+#### New Tutorials & Community Notebooks
+* Feasibility-driven Trust Region Bayesian Optimization tutorial (#3048).
+* HIPE tutorial notebook (#3102).
+* Optimization help example notebook (#3148).
+
+#### Bug Fixes
+* Fix the shape of `NoisyExpectedHypervolumeMixin._initial_hvs` (#3090).
+* Fix `KroneckerMultiTaskGP.posterior` transforming inputs twice (#3132).
+* Fix minor bugs in `safe_math.py` (#3172).
+
+#### Other Changes
+* Make SAAS prior sampleable (#3105).
+* Add retries to `optimize_with_nsgaii` (#3116).
+* Allow `PosteriorTransform` API to optionally accept features `X` (#3117).
+* Clean up `get_constants_like` usage in `botorch/utils/probability` (#3131).
+* Improve gradient stability in BVN (#3143).
+* Enable evaluation of `MultiTaskGP` with unobserved tasks (#3145).
+* Simplify task value remapping API (#3163).
+* Update `optimize_acqf_homotopy` to support mixed optimization (#3165).
+* Support custom data covariance modules in `SingleTaskMultifidelityGP` (#3167).
+* Add task-level means to `SaasFullyBayesianMultiTaskGP` (#3175).
+* Use `HadamardGaussianLikelihood` in `HeterogeneousMTGP` for inferred noise (#3176).
+* Add multi-task mixin support to `PyroModel` hierarchy (#3177).
+
+#### Deprecations and Removals
+* Remove deprecated APIs for v0.17 (#3134).
+  * `get_fitted_map_saas_ensemble`
+  * `qMultiObjectiveMaxValueEntropy`
+  * `FullyBayesianPosterior`
+  * `task_feature` parameter from `SingleTaskGP.construct_inputs`
+  * `fixed_features` argument from `optimize_acqf_homotopy`
+
+#### Changes to botorch_community
+* HIPE acquisition function (#3083, #3108).
+* Clamp to 0 to avoid sqrt of negative numbers in `mvn_hellinger_distance` (#3109).
+* Add support for styles to PFN models (#3099, #3114).
+* Batched NEI with PFNs, enable more styles in botorch PFNs (#3113).
+
+
 ## [0.16.1] -- Nov 21, 2025
 
 #### New Features
