@@ -69,7 +69,7 @@ class FlattenedStandardize(Standardize):
     ):
         r"""
         Args:
-            output_shape: A `n x output_shape`-dim tensor of training targets.
+            output_shape: A ``n x output_shape``-dim tensor of training targets.
             batch_shape: The batch_shape of the training targets.
             min_stddv: The minimum standard deviation for which to perform
                 standardization (if lower, only de-mean the data).
@@ -151,9 +151,9 @@ class HigherOrderGP(BatchedMultiOutputGPyTorchModel, ExactGP, FantasizeMixin):
     The posterior uses Matheron's rule [Doucet2010sampl]_
     as described in [Maddox2021bohdo]_.
 
-    `HigherOrderGP` differs from a "vector” multi-output model in that it uses
+    ``HigherOrderGP`` differs from a "vector” multi-output model in that it uses
     Kronecker algebra to obtain parsimonious covariance matrices for these
-    outputs (see `KroneckerMultiTaskGP` for more information). For example,
+    outputs (see ``KroneckerMultiTaskGP`` for more information). For example,
     imagine a 10 x 20 x 30 grid of images. If we were to vectorize the
     resulting 6,000 data points in order to use them in a non-higher-order GP,
     they would have a 6,000 x 6,000 covariance matrix, with 36 million entries.
@@ -162,11 +162,11 @@ class HigherOrderGP(BatchedMultiOutputGPyTorchModel, ExactGP, FantasizeMixin):
 
     NOTE: This model requires the use of specialized Kronecker solves in
     linear operator, which are disabled by default in BoTorch. These are enabled
-    by default in the `HigherOrderGP.posterior` call. However, they need to be
+    by default in the ``HigherOrderGP.posterior`` call. However, they need to be
     manually enabled by the user during model fitting. Note also that we're using
-    `fit_gpytorch_mll_torch()` here instead of `fit_gpytorch_mll()` since the
+    ``fit_gpytorch_mll_torch()`` here instead of ``fit_gpytorch_mll()`` since the
     approximate computations result in a non-smooth MLL that the default
-    L-BFGS-B optimizer invoked by `fit_gpytorch_mll()` does not handle well.
+    L-BFGS-B optimizer invoked by ``fit_gpytorch_mll()`` does not handle well.
 
     Example:
         >>> from linear_operator.settings import _fast_solves
@@ -191,8 +191,9 @@ class HigherOrderGP(BatchedMultiOutputGPyTorchModel, ExactGP, FantasizeMixin):
     ):
         r"""
         Args:
-            train_X: A `batch_shape x n x d`-dim tensor of training inputs.
-            train_Y: A `batch_shape x n x output_shape`-dim tensor of training targets.
+            train_X: A ``batch_shape x n x d``-dim tensor of training inputs.
+            train_Y: A ``batch_shape x n x output_shape``-dim tensor of
+                training targets.
             likelihood: Gaussian likelihood for the model.
             covar_modules: List of kernels for each output structure.
             num_latent_dims: Sizes for the latent dimensions.
@@ -200,18 +201,19 @@ class HigherOrderGP(BatchedMultiOutputGPyTorchModel, ExactGP, FantasizeMixin):
             latent_init: [default or gp] how to initialize the latent parameters.
             outcome_transform: An outcome transform that is applied to the
                 training data during instantiation and to the posterior during
-                inference (that is, the `Posterior` obtained by calling
-                `.posterior` on the model will be on the original scale). We use a
-                `Standardize` transform if no `outcome_transform` is specified.
-                Pass down `None` to use no outcome transform. Note that `.train()` will
-                be called on the outcome transform during instantiation of the model.
+                inference (that is, the ``Posterior`` obtained by calling
+                ``.posterior`` on the model will be on the original scale). We use a
+                ``Standardize`` transform if no ``outcome_transform`` is specified.
+                Pass down ``None`` to use no outcome transform. Note that
+                ``.train()`` will be called on the outcome transform during
+                instantiation of the model.
             input_transform: An input transform that is applied in the model's
                 forward pass.
         """
         if input_transform is not None:
             input_transform.to(train_X)
 
-        # infer the dimension of `output_shape`.
+        # infer the dimension of ``output_shape``.
         num_output_dims = train_Y.dim() - train_X.dim() + 1
         batch_shape = train_X.shape[:-2]
         if len(batch_shape) > 1:
@@ -230,7 +232,7 @@ class HigherOrderGP(BatchedMultiOutputGPyTorchModel, ExactGP, FantasizeMixin):
                 warnings.warn(
                     "HigherOrderGP does not support the outcome_transform "
                     "`Standardize`! Using `FlattenedStandardize` with `output_shape="
-                    f"{train_Y.shape[- num_output_dims:]} and batch_shape="
+                    f"{train_Y.shape[-num_output_dims:]} and batch_shape="
                     f"{batch_shape} instead.",
                     RuntimeWarning,
                     stacklevel=2,
@@ -406,25 +408,25 @@ class HigherOrderGP(BatchedMultiOutputGPyTorchModel, ExactGP, FantasizeMixin):
         r"""Condition the model on new observations.
 
         Args:
-            X: A `batch_shape x n' x d`-dim Tensor, where `d` is the dimension of
-                the feature space, `m` is the number of points per batch, and
-                `batch_shape` is the batch shape (must be compatible with the
+            X: A ``batch_shape x n' x d``-dim Tensor, where ``d`` is the dimension of
+                the feature space, ``m`` is the number of points per batch, and
+                ``batch_shape`` is the batch shape (must be compatible with the
                 batch shape of the model).
-            Y: A `batch_shape' x n' x m_d`-dim Tensor, where `m_d` is the shaping
-                of the model outputs, `n'` is the number of points per batch, and
-                `batch_shape'` is the batch shape of the observations.
-                `batch_shape'` must be broadcastable to `batch_shape` using
-                standard broadcasting semantics. If `Y` has fewer batch dimensions
-                than `X`, its is assumed that the missing batch dimensions are
-                the same for all `Y`.
-            noise: If not None, a tensor of the same shape as `Y` representing
+            Y: A ``batch_shape' x n' x m_d``-dim Tensor, where ``m_d`` is the shaping
+                of the model outputs, ``n'`` is the number of points per batch, and
+                ``batch_shape'`` is the batch shape of the observations.
+                ``batch_shape'`` must be broadcastable to ``batch_shape`` using
+                standard broadcasting semantics. If ``Y`` has fewer batch dimensions
+                than ``X``, its is assumed that the missing batch dimensions are
+                the same for all ``Y``.
+            noise: If not None, a tensor of the same shape as ``Y`` representing
                 the noise variance associated with each observation.
-            kwargs: Passed to `condition_on_observations`.
+            kwargs: Passed to ``condition_on_observations``.
 
         Returns:
-            A `BatchedMultiOutputGPyTorchModel` object of the same type with
-            `n + n'` training examples, representing the original model
-            conditioned on the new observations `(X, Y)` (and possibly noise
+            A ``BatchedMultiOutputGPyTorchModel`` object of the same type with
+            ``n + n'`` training examples, representing the original model
+            conditioned on the new observations ``(X, Y)`` (and possibly noise
             observations passed in via kwargs).
         """
         if hasattr(self, "outcome_transform"):
@@ -463,8 +465,8 @@ class HigherOrderGP(BatchedMultiOutputGPyTorchModel, ExactGP, FantasizeMixin):
                 f"{self.__class__.__name__}"
             )
 
-        # input transforms are applied at `posterior` in `eval` mode, and at
-        # `model.forward()` at the training time
+        # input transforms are applied at ``posterior`` in ``eval`` mode, and at
+        # ``model.forward()`` at the training time
         X = self.transform_inputs(X)
         no_pred_variance = skip_posterior_variances._state
 

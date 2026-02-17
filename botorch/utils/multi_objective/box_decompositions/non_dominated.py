@@ -14,6 +14,11 @@ References
     2012 IEEE Congress on Evolutionary Computation, Brisbane, QLD, 2012,
     pp. 1-8.
 
+.. [Watanabe2025]
+    S. Watanabe. "Approximation of Box Decomposition Algorithm for Fast
+    Hypervolume-Based Multi-Objective Optimization," arXiv preprint
+    arXiv:2512.05825. 2025.
+
 """
 
 from __future__ import annotations
@@ -40,13 +45,13 @@ class NondominatedPartitioning(BoxDecomposition):
     internally as well.
 
     Note: it is only feasible to use this algorithm to compute an exact
-    decomposition of the non-dominated space for `m<5` objectives (alpha=0.0).
+    decomposition of the non-dominated space for ``m<5`` objectives (alpha=0.0).
 
     The alpha parameter can be increased to obtain an approximate partitioning
-    faster. The `alpha` is a fraction of the total hypervolume encapsuling the
+    faster. The ``alpha`` is a fraction of the total hypervolume encapsuling the
     entire Pareto set. When a hypercell's volume divided by the total hypervolume
-    is less than `alpha`, we discard the hypercell. See Figure 2 in
-    [Couckuyt2012]_ for a visual representation.
+    is less than ``alpha``, we discard the hypercell. See Figure 2 in
+    [Watanabe2025]_ for a visual representation.
 
     This PyTorch implementation of the binary partitioning algorithm ([Couckuyt2012]_)
     is adapted from numpy/tensorflow implementation at:
@@ -65,8 +70,8 @@ class NondominatedPartitioning(BoxDecomposition):
         """Initialize NondominatedPartitioning.
 
         Args:
-            ref_point: A `m`-dim tensor containing the reference point.
-            Y: A `(batch_shape) x n x m`-dim tensor.
+            ref_point: A ``m``-dim tensor containing the reference point.
+            Y: A ``(batch_shape) x n x m``-dim tensor.
             alpha: A thresold fraction of total volume used in an approximate
                 decomposition.
 
@@ -80,7 +85,7 @@ class NondominatedPartitioning(BoxDecomposition):
         r"""Partition the non-dominated space into disjoint hypercells.
 
         This method supports an arbitrary number of outcomes, but is
-        less efficient than `partition_space_2d` for the 2-outcome case.
+        less efficient than ``partition_space_2d`` for the 2-outcome case.
         """
         # The binary parititoning algorithm uses indices the augmented Pareto front.
         # n_pareto + 2 x m
@@ -95,7 +100,7 @@ class NondominatedPartitioning(BoxDecomposition):
 
         # hypercells contains the indices of the (augmented) Pareto front
         # that specify that bounds of the each hypercell.
-        # It is a `2 x num_cells x m`-dim tensor
+        # It is a ``2 x num_cells x m``-dim tensor
         self.hypercells = torch.empty(
             2, 0, self.num_outcomes, dtype=torch.long, device=self._neg_Y.device
         )
@@ -115,7 +120,7 @@ class NondominatedPartitioning(BoxDecomposition):
             # Extend Pareto front with the ideal and anti-ideal point
             ideal_point = self._neg_pareto_Y.min(dim=0, keepdim=True).values - 1
             anti_ideal_point = self._neg_pareto_Y.max(dim=0, keepdim=True).values + 1
-            # `n_pareto + 2 x m`
+            # ``n_pareto + 2 x m``
             aug_pareto_Y = torch.cat(
                 [ideal_point, self._neg_pareto_Y, anti_ideal_point], dim=0
             )
@@ -124,7 +129,7 @@ class NondominatedPartitioning(BoxDecomposition):
 
             # Use binary partitioning
             while len(stack) > 0:
-                # The following 3 tensors are all `2 x m`
+                # The following 3 tensors are all ``2 x m``
                 cell = stack.pop()
                 cell_bounds_pareto_idcs = aug_pareto_Y_idcs[cell, outcome_idxr]
                 cell_bounds_pareto_values = aug_pareto_Y[
@@ -152,7 +157,7 @@ class NondominatedPartitioning(BoxDecomposition):
                 ):
                     # The cell overlaps the pareto front
                     # compute the distance (in integer indices)
-                    # This has shape `m`
+                    # This has shape ``m``
                     idx_dist = cell[1] - cell[0]
 
                     any_not_adjacent = (idx_dist > 1).any()
@@ -192,7 +197,7 @@ class NondominatedPartitioning(BoxDecomposition):
     def _partition_space_2d(self) -> None:
         r"""Partition the non-dominated space into disjoint hypercells.
 
-        This direct method works for `m=2` outcomes.
+        This direct method works for ``m=2`` outcomes.
         """
         pf_ext_idx = self._get_augmented_pareto_front_indices()
         n_pf_plus_1 = self._neg_pareto_Y.shape[-2] + 1
@@ -247,10 +252,11 @@ class NondominatedPartitioning(BoxDecomposition):
         r"""Get the bounds of each hypercell in the decomposition.
 
         Args:
-            ref_point: A `(batch_shape) x m`-dim tensor containing the reference point.
+            ref_point: A ``(batch_shape) x m``-dim tensor containing the reference
+                point.
 
         Returns:
-            A `2 x num_cells x m`-dim tensor containing the
+            A ``2 x num_cells x m``-dim tensor containing the
                 lower and upper vertices bounding each hypercell.
         """
         ref_point = _expand_ref_point(
@@ -285,11 +291,11 @@ class NondominatedPartitioning(BoxDecomposition):
         r"""Get the bounds of each hypercell in the decomposition.
 
         Args:
-            aug_pareto_Y: A `n_pareto + 2 x m`-dim tensor containing
+            aug_pareto_Y: A ``n_pareto + 2 x m``-dim tensor containing
             the augmented Pareto front.
 
         Returns:
-            A `2 x (batch_shape) x num_cells x m`-dim tensor containing the
+            A ``2 x (batch_shape) x num_cells x m``-dim tensor containing the
                 lower and upper vertices bounding each hypercell.
         """
         num_cells = self.hypercells.shape[-2]
@@ -373,8 +379,8 @@ class FastNondominatedPartitioning(FastPartitioning):
         """Initialize FastNondominatedPartitioning.
 
         Args:
-            ref_point: A `m`-dim tensor containing the reference point.
-            Y: A `(batch_shape) x n x m`-dim tensor.
+            ref_point: A ``m``-dim tensor containing the reference point.
+            Y: A ``(batch_shape) x n x m``-dim tensor.
 
         Example:
             >>> bd = FastNondominatedPartitioning(ref_point, Y=Y1)
@@ -432,7 +438,7 @@ class FastNondominatedPartitioning(FastPartitioning):
     def _partition_space_2d(self) -> None:
         r"""Partition the non-dominated space into disjoint hypercells.
 
-        This direct method works for `m=2` outcomes.
+        This direct method works for ``m=2`` outcomes.
         """
         cell_bounds = compute_non_dominated_hypercell_bounds_2d(
             pareto_Y_sorted=self.pareto_Y.flip(-2),

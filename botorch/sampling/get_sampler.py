@@ -30,7 +30,7 @@ from torch.quasirandom import SobolEngine
 def _posterior_to_distribution_encoder(
     posterior: Posterior,
 ) -> type[Distribution] | type[Posterior]:
-    r"""An encoder returning the type of the distribution for `TorchPosterior`
+    r"""An encoder returning the type of the distribution for ``TorchPosterior``
     and the type of the posterior for the rest.
     """
     if isinstance(posterior, TorchPosterior):
@@ -49,18 +49,18 @@ def get_sampler(
 ) -> MCSampler:
     r"""Get the sampler for the given posterior.
 
-    The sampler can be used as `sampler(posterior)` to produce samples
+    The sampler can be used as ``sampler(posterior)`` to produce samples
     suitable for use in acquisition function optimization via SAA.
 
     Args:
-        posterior: A `Posterior` to get the sampler for.
+        posterior: A ``Posterior`` to get the sampler for.
         sample_shape: The sample shape of the samples produced by the
             given sampler. The full shape of the resulting samples is
-            given by `posterior._extended_shape(sample_shape)`.
+            given by ``posterior._extended_shape(sample_shape)``.
         seed: Seed used to initialize sampler.
 
     Returns:
-        The `MCSampler` object for the given posterior.
+        The ``MCSampler`` object for the given posterior.
     """
     return GetSampler(posterior, sample_shape=sample_shape, seed=seed)
 
@@ -72,9 +72,9 @@ def _get_sampler_mvn(
     *,
     seed: int | None = None,
 ) -> NormalMCSampler:
-    r"""The Sobol normal sampler for the `MultivariateNormal` posterior.
+    r"""The Sobol normal sampler for the ``MultivariateNormal`` posterior.
 
-    If the output dim is too large, falls back to `IIDNormalSampler`.
+    If the output dim is too large, falls back to ``IIDNormalSampler``.
     """
     sampler = SobolQMCNormalSampler(sample_shape=sample_shape, seed=seed)
     collapsed_shape = sampler._get_collapsed_shape(posterior=posterior)
@@ -107,10 +107,10 @@ def _get_sampler_derived(
 def _get_sampler_list(
     posterior: PosteriorList, sample_shape: torch.Size, *, seed: int | None = None
 ) -> MCSampler:
-    r"""Get the `ListSampler` with the appropriate list of samplers.
+    r"""Get the ``ListSampler`` with the appropriate list of samplers.
 
     NOTE: Does not dispatch to Sobol sampling for normal posteriors due to
-    correlations between samplers. Instead uses `IIDNormalSampler`. See the following
+    correlations between samplers. Instead uses ``IIDNormalSampler``. See the following
     issue for details: https://github.com/meta-pytorch/botorch/issues/2658
     """
     samplers = []
@@ -129,7 +129,7 @@ def _get_sampler_ensemble(
     sample_shape: torch.Size,
     seed: int | None = None,
 ) -> MCSampler:
-    r"""Get the `IndexSampler` for the `EnsemblePosterior`."""
+    r"""Get the ``IndexSampler`` for the ``EnsemblePosterior``."""
     return IndexSampler(sample_shape=sample_shape, seed=seed)
 
 

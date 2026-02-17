@@ -11,7 +11,6 @@ from collections.abc import Sequence
 import torch
 from botorch.utils.probability.lin_ess import LinearEllipticalSliceSampler
 from botorch.utils.probability.mvnxpb import MVNXPB
-from botorch.utils.probability.utils import get_constants_like
 from torch import Tensor
 from torch.distributions.multivariate_normal import MultivariateNormal
 
@@ -30,18 +29,18 @@ class TruncatedMultivariateNormal(MultivariateNormal):
     ):
         r"""Initializes an instance of a TruncatedMultivariateNormal distribution.
 
-        Let `x ~ N(0, K)` be an `n`-dimensional Gaussian random vector. This class
+        Let ``x ~ N(0, K)`` be an ``n``-dimensional Gaussian random vector. This class
         represents the distribution of the truncated Multivariate normal random vector
-        `x | a <= x <= b`.
+        ``x | a <= x <= b``.
 
         Args:
-            loc: A mean vector for the distribution, `batch_shape x event_shape`.
+            loc: A mean vector for the distribution, ``batch_shape x event_shape``.
             covariance_matrix: Covariance matrix distribution parameter.
             precision_matrix: Inverse covariance matrix distribution parameter.
             scale_tril: Lower triangular, square-root covariance matrix distribution
                 parameter.
-            bounds: A `batch_shape x event_shape x 2` tensor of strictly increasing
-                bounds for `x` so that `bounds[..., 0] < bounds[..., 1]` everywhere.
+            bounds: A ``batch_shape x event_shape x 2`` tensor of strictly increasing
+                bounds for ``x`` so that ``bounds[..., 0] < bounds[..., 1]`` everywhere.
             solver: A pre-solved MVNXPB instance used to approximate the log partition.
             sampler: A LinearEllipticalSliceSampler instance used for sample generation.
             validate_args: Optional argument to super().__init__.
@@ -68,7 +67,7 @@ class TruncatedMultivariateNormal(MultivariateNormal):
 
     def log_prob(self, value: Tensor) -> Tensor:
         r"""Approximates the true log probability."""
-        neg_inf = get_constants_like(-float("inf"), value)
+        neg_inf = float("-inf")
         inbounds = torch.logical_and(
             (self.bounds[..., 0] < value).all(-1),
             (self.bounds[..., 1] > value).all(-1),
@@ -138,7 +137,7 @@ class TruncatedMultivariateNormal(MultivariateNormal):
         super().expand(batch_shape=batch_shape, _instance=new)
 
         new.bounds = self.bounds.expand(*new.batch_shape, *self.event_shape, 2)
-        new._sampler = None  # does not implement `expand`
+        new._sampler = None  # does not implement ``expand``
         new._solver = (
             None if self._solver is None else self._solver.expand(*batch_shape)
         )

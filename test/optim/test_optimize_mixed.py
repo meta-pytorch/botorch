@@ -61,7 +61,7 @@ def _make_opt_inputs(
     sequential: bool = True,
     post_processing_func: Callable[[Tensor], Tensor] | None = None,
 ) -> OptimizeAcqfInputs:
-    r"""Helper to construct `OptimizeAcqfInputs` from limited inputs."""
+    r"""Helper to construct ``OptimizeAcqfInputs`` from limited inputs."""
     return OptimizeAcqfInputs(
         acq_function=acq_function,
         bounds=bounds,
@@ -901,7 +901,7 @@ class TestOptimizeAcqfMixed(BotorchTestCase):
             return_best_only=True,
             sequential=True,
         )
-        # Can't just use `assert_called_once_with` here b/c of tensor ambiguity.
+        # Can't just use ``assert_called_once_with`` here b/c of tensor ambiguity.
         wrapped_optimize.assert_called_once()
         opt_inputs = wrapped_optimize.call_args.kwargs["opt_inputs"]
         for field in fields(opt_inputs):
@@ -1477,9 +1477,12 @@ class TestOptimizeAcqfMixed(BotorchTestCase):
             return X
 
         # The key test is that this call doesn't error out.
-        with mock.patch(
-            "botorch.optim.optimize_mixed._optimize_acqf", wraps=_optimize_acqf
-        ) as mock_opt, warnings.catch_warnings(record=True) as ws:
+        with (
+            mock.patch(
+                "botorch.optim.optimize_mixed._optimize_acqf", wraps=_optimize_acqf
+            ) as mock_opt,
+            warnings.catch_warnings(record=True) as ws,
+        ):
             X, _ = generate_starting_points(
                 opt_inputs=_make_opt_inputs(
                     acq_function=qLogNoisyExpectedImprovement(

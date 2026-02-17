@@ -1,16 +1,17 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+#
+# This source code is licensed under the MIT license found in the
+# LICENSE file in the root directory of this source tree.
+
 import unittest
 
 import torch
 from botorch.models.transforms.input import Normalize
 from botorch.posteriors import GPyTorchPosterior
+from botorch.utils.test_helpers import DummyNonScalarizingPosteriorTransform
 from botorch_community.models.np_regression import NeuralProcessModel
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-
-class Identity:
-    def __call__(self, posterior):
-        return posterior
 
 
 class TestNeuralProcessModel(unittest.TestCase):
@@ -35,6 +36,32 @@ class TestNeuralProcessModel(unittest.TestCase):
             self.z_dim,
             self.n_context,
         )
+
+    def test_default_hidden_dims(self):
+        """Test that default hidden dimensions are used when not provided."""
+        x_dim = 2
+        y_dim = 1
+        r_dim = 8
+        z_dim = 8
+        n_context = 20
+
+        # Create model without specifying hidden dimensions (use defaults)
+        model = NeuralProcessModel(
+            train_X=torch.rand(100, x_dim),
+            train_Y=torch.rand(100, y_dim),
+            r_hidden_dims=None,
+            z_hidden_dims=None,
+            decoder_hidden_dims=None,
+            x_dim=x_dim,
+            y_dim=y_dim,
+            r_dim=r_dim,
+            z_dim=z_dim,
+            n_context=n_context,
+        )
+
+        # Test that the model works with default dimensions
+        output = model(model.train_X, model.train_Y)
+        self.assertEqual(output.loc.shape, (80, y_dim))
 
     def test_r_encoder(self):
         self.initialize()
@@ -109,7 +136,9 @@ class TestNeuralProcessModel(unittest.TestCase):
         self.initialize()
         self.model(self.model.train_X, self.model.train_Y)
         identity_posterior = self.model.posterior(
-            self.model.train_X, observation_noise=True, posterior_transform=Identity()
+            self.model.train_X,
+            observation_noise=True,
+            posterior_transform=DummyNonScalarizingPosteriorTransform(),
         )
         posterior = self.model.posterior(self.model.train_X, observation_noise=True)
         self.assertIsInstance(identity_posterior, GPyTorchPosterior)

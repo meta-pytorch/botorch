@@ -10,14 +10,31 @@ from botorch.acquisition.objective import PosteriorTransform
 from botorch.exceptions.errors import InputDataError
 from botorch.models.deterministic import GenericDeterministicModel
 from botorch.models.model import Model, ModelDict, ModelList
+from botorch.models.transforms.input import Normalize
 from botorch.posteriors.ensemble import EnsemblePosterior
 from botorch.posteriors.posterior_list import PosteriorList
 from botorch.utils.datasets import SupervisedDataset
 from botorch.utils.testing import BotorchTestCase, MockModel, MockPosterior
-from torch import rand
+from torch import rand, Tensor
 
 
 class NotSoAbstractBaseModel(Model):
+    def posterior(self, X, output_indices, observation_noise, **kwargs):
+        pass
+
+
+class ModelWithInputTransformButNoTrainInputs(Model):
+    """A model that has input_transform but no train_inputs attribute."""
+
+    def __init__(self, input_transform):
+        """Initialize the model with an input transform.
+
+        Args:
+            input_transform: The input transform to apply.
+        """
+        super().__init__()
+        self.input_transform = input_transform
+
     def posterior(self, X, output_indices, observation_noise, **kwargs):
         pass
 
@@ -30,10 +47,12 @@ class GenericDeterministicModelWithBatchShape(GenericDeterministicModel):
 
 
 class DummyPosteriorTransform(PosteriorTransform):
-    def evaluate(self, Y):
+    def evaluate(self, Y: Tensor, X: Tensor | None = None) -> Tensor:
         return 2 * Y + 1
 
-    def forward(self, posterior):
+    def forward(
+        self, posterior: PosteriorList, X: Tensor | None = None
+    ) -> PosteriorList:
         return PosteriorList(
             *[
                 EnsemblePosterior(2 * p.mean.unsqueeze(0) + 1)
@@ -58,10 +77,41 @@ class TestBaseModel(BotorchTestCase):
         with self.assertRaises(NotImplementedError):
             model.subset_output([0])
 
+    def test_set_transformed_inputs_warning_without_train_inputs(self) -> None:
+        # Test that a RuntimeWarning is raised when a model has an input_transform
+        # but no train_inputs attribute.
+        input_transform = Normalize(d=2)
+        model = ModelWithInputTransformButNoTrainInputs(input_transform=input_transform)
+
+        # Verify the model has input_transform but no train_inputs
+        self.assertTrue(hasattr(model, "input_transform"))
+        self.assertFalse(hasattr(model, "train_inputs"))
+
+        # Test cases: (method_name, callable that triggers _set_transformed_inputs)
+        test_cases = [
+            ("_set_transformed_inputs", lambda: model._set_transformed_inputs()),
+            ("eval", lambda: model.eval()),
+            ("train(mode=False)", lambda: model.train(mode=False)),
+        ]
+
+        for method_name, trigger_fn in test_cases:
+            with self.subTest(method=method_name):
+                with self.assertWarnsRegex(
+                    RuntimeWarning,
+                    "Could not update `train_inputs` with transformed inputs since "
+                    "ModelWithInputTransformButNoTrainInputs does not have a "
+                    "`train_inputs` attribute",
+                ):
+                    trigger_fn()
+
     def test_construct_inputs(self) -> None:
         model = NotSoAbstractBaseModel()
-        with self.subTest("Wrong training data type"), self.assertRaisesRegex(
-            TypeError, "Expected `training_data` to be a `SupervisedDataset`, but got "
+        with (
+            self.subTest("Wrong training data type"),
+            self.assertRaisesRegex(
+                TypeError,
+                "Expected `training_data` to be a `SupervisedDataset`, but got ",
+            ),
         ):
             model.construct_inputs(training_data=None)
 

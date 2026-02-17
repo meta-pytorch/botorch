@@ -175,7 +175,7 @@ class TestEnsemblePosterior(BotorchTestCase):
             self.assertAllClose(p_2d.weights, expected_norm_2d)
 
     def test_EnsembleModel_weighted_rsample(self):
-        """Test that weighted rsample works correctly. All negative `batch_values`
+        """Test that weighted rsample works correctly. All negative ``batch_values``
         have zero weight, so all samples should be positive."""
         batch_values = torch.tensor(
             [

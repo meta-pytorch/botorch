@@ -40,7 +40,7 @@ from torch import Tensor
 
 
 class EnsembleAcquisition(AcquisitionFunction):
-    """An acquisition function that returns a `batch_shape x ensemble_shape` tensor"""
+    """An acquisition function that returns a ``batch_shape x ensemble_shape`` tensor"""
 
     def __init__(self, mc_samples: int = 3, num_ensembles: int = 1) -> None:
         """Initialize the acquisition function.
@@ -57,36 +57,36 @@ class EnsembleAcquisition(AcquisitionFunction):
         """Forward method.
 
         Args:
-            X: A `batch_shape x n x d`-dim Tensor of model inputs.
+            X: A ``batch_shape x n x d``-dim Tensor of model inputs.
 
         Returns:
-            A `batch_shape x ensemble_shape`-dim Tensor of acquisition values.
+            A ``batch_shape x ensemble_shape``-dim Tensor of acquisition values.
         """
         _ = X.shape[-1]
         q = X.shape[-2]
         n = X.shape[-3] if len(X.shape) >= 3 else 1
         batch_shape = X.shape[:-3]
-        # shape is `sample_sample x batch_shape x ensemble_shape x q`
+        # shape is ``sample_sample x batch_shape x ensemble_shape x q``
         acqvals = torch.randn(self.mc_samples, *batch_shape, n, self.num_ensembles, q)
-        # return shape is `batch_shape x ensemble_shape`
+        # return shape is ``batch_shape x ensemble_shape``
         return acqvals.mean(dim=0).amax(dim=-1)
 
 
-# With decorator, forward returns a `batch_shape`-dim tensor
+# With decorator, forward returns a ``batch_shape``-dim tensor
 class EnsembleAveragedAcquisition(EnsembleAcquisition):
-    """An acquisition function that returns a `batch_shape`-dim tensor"""
+    """An acquisition function that returns a ``batch_shape``-dim tensor"""
 
     @average_over_ensemble_models
     def forward(self, X: Tensor) -> Tensor:
         """Forward method.
 
         Args:
-            X: A `batch_shape x n x d`-dim Tensor of model inputs.
+            X: A ``batch_shape x n x d``-dim Tensor of model inputs.
 
         Returns:
             A batch_shape-dim Tensor of acquisition values.
         """
-        # return shape through decorator is `batch_shape`
+        # return shape through decorator is ``batch_shape``
         return super().forward(X)
 
 

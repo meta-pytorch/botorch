@@ -3,6 +3,14 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+"""
+References
+
+.. [Daulton2026bonsai]
+    S. Daulton, D. Eriksson, M. Balandat, and E. Bakshy. BONSAI: Bayesian
+    Optimization with Natural Simplicity and Interpretability. ArXiv, 2026.
+"""
+
 from typing import Any, Mapping
 
 import torch
@@ -39,16 +47,16 @@ class SaasPriorHelper:
         """Instantiates a new helper object.
 
         Args:
-            tau: Value of the global shrinkage parameter. If `None`, the tau will be
+            tau: Value of the global shrinkage parameter. If ``None``, the tau will be
                 a free parameter and inferred from the data.
                 Tau can be a tensor for batched models, like
-                `EnsembleMapSaasSingleTaskGP`, where each batch has a different
-                sparsity prior. If tau is a tensor, it must have shape `batch_shape`.
+                ``EnsembleMapSaasSingleTaskGP``, where each batch has a different
+                sparsity prior. If tau is a tensor, it must have shape ``batch_shape``.
         """
         self._tau = torch.as_tensor(tau) if tau is not None else None
 
     def tau(self, m: Kernel) -> Tensor:
-        """The global shrinkage parameter `tau`.
+        """The global shrinkage parameter ``tau``.
 
         Args:
             m: A kernel object equipped with a lengthscale.
@@ -63,7 +71,7 @@ class SaasPriorHelper:
         )
 
     def inv_lengthscale_prior_param_or_closure(self, m: Kernel) -> Tensor:
-        """Closure to compute the scaled inverse lengthscale parameter (`tau / l^2`)
+        """Closure to compute the scaled inverse lengthscale parameter (``tau / l^2``)
         to which the SAAS prior is applied.
 
         Args:
@@ -80,8 +88,9 @@ class SaasPriorHelper:
 
         Args:
             m: A kernel object equipped with a lengthscale.
-            value: The value of the scaled inverse lengthscale parameter, (`tau / l^2`),
-                used to recover and set the lengthscale of the kernel.
+            value: The value of the scaled inverse lengthscale parameter,
+                (``tau / l^2``), used to recover and set the lengthscale of
+                the kernel.
         """
         # Lengthscale is batch x m x 1 x d, update tau to avoid unwanted broadcasting.
         tau = self.tau(m)
@@ -91,21 +100,21 @@ class SaasPriorHelper:
         m._set_lengthscale((tau / value.to(tau)).sqrt().clamp(lb + EPS, ub - EPS))
 
     def tau_prior_param_or_closure(self, m: Kernel) -> Tensor:
-        """Closure to compute the global shrinkage parameter `tau`.
+        """Closure to compute the global shrinkage parameter ``tau``.
 
         Args:
-            m: A kernel object equipped with a `raw_tau` parameter.
+            m: A kernel object equipped with a ``raw_tau`` parameter.
 
         Returns:
-            The transformed global shrinkage parameter `tau`.
+            The transformed global shrinkage parameter ``tau``.
         """
         return m.raw_tau_constraint.transform(m.raw_tau)
 
     def tau_prior_setting_closure(self, m: Kernel, value: Tensor) -> None:
-        """Closure to set the global shrinkage parameter `tau`.
+        """Closure to set the global shrinkage parameter ``tau``.
 
         Args:
-            m: A kernel object equipped with a `raw_tau` parameter.
+            m: A kernel object equipped with a ``raw_tau`` parameter.
             value: The value of the global shrinkage parameter.
         """
         lb = m.raw_tau_constraint.lower_bound.to(m.raw_tau)
@@ -133,12 +142,12 @@ def add_saas_prior(
     Args:
         base_kernel: Base kernel that has a lengthscale and uses ARD.
             Note that this function modifies the kernel object in place.
-        tau: Value of the global shrinkage. If `None`, infer the global
+        tau: Value of the global shrinkage. If ``None``, infer the global
             shrinkage parameter.
-        log_scale: Set to `True` if the lengthscale and tau should be optimized on
+        log_scale: Set to ``True`` if the lengthscale and tau should be optimized on
             a log-scale without any domain rescaling. That is, we will learn
-            `raw_lengthscale := log(lengthscale)` and this hyperparameter needs to
-            satisfy the corresponding bound constraints. Setting this to `True` will
+            ``raw_lengthscale := log(lengthscale)`` and this hyperparameter needs to
+            satisfy the corresponding bound constraints. Setting this to ``True`` will
             generally improve the numerical stability, but requires an optimizer that
             can handle bound constraints, e.g., L-BFGS-B.
 
@@ -196,9 +205,9 @@ def get_map_saas_model(
     """Helper method for creating an unfitted MAP SAAS model.
 
     Args:
-        train_X: Tensor of shape `n x d` with training inputs.
-        train_Y: Tensor of shape `n x 1` with training targets.
-        train_Yvar: Optional tensor of shape `n x 1` with observed noise,
+        train_X: Tensor of shape ``n x d`` with training inputs.
+        train_Y: Tensor of shape ``n x 1`` with training targets.
+        train_Yvar: Optional tensor of shape ``n x 1`` with observed noise,
             inferred if None.
         input_transform: An optional input transform.
         outcome_transform: An optional outcome transforms.
@@ -222,10 +231,10 @@ def get_map_saas_model(
     base_kernel = MaternKernel(
         nu=2.5, ard_num_dims=ard_num_dims, batch_shape=aug_batch_shape
     )
-    # NOTE: need to call `to` to set device and dtype before calling `add_saas_prior`,
-    # since the SAAS prior contains tensors that are not parameters of the model, and
-    # therefore not automatically moved to the correct device with a `to` call on the
-    # model.
+    # NOTE: need to call ``to`` to set device and dtype before calling
+    # ``add_saas_prior``, since the SAAS prior contains tensors that are not
+    # parameters of the model, and therefore not automatically moved to the
+    # correct device with a ``to`` call on the model.
     base_kernel.to(train_X)
     add_saas_prior(base_kernel=base_kernel, tau=tau)
     covar_module = ScaleKernel(
@@ -307,7 +316,7 @@ def get_additive_map_saas_covar_module(
 ):
     """Return an additive map SAAS covar module.
 
-    The constructed kernel is an additive kernel with `num_taus` terms. Each term is a
+    The constructed kernel is an additive kernel with ``num_taus`` terms. Each term is a
     scaled Matern kernel with a SAAS prior and a tau sampled from a HalfCauchy(0, 1)
     distrbution.
 
@@ -344,7 +353,7 @@ class AdditiveMapSaasSingleTaskGP(SingleTaskGP):
     """An additive MAP SAAS single-task GP.
 
     This is a maximum-a-posteriori (MAP) version of sparse axis-aligned subspace BO
-    (SAASBO), see `SaasFullyBayesianSingleTaskGP` for more details. SAASBO is a
+    (SAASBO), see ``SaasFullyBayesianSingleTaskGP`` for more details. SAASBO is a
     high-dimensional Bayesian optimization approach that uses approximate fully
     Bayesian inference via NUTS to learn the model hyperparameters. This works very
     well, but is very computationally expensive which limits the use of SAASBO to a
@@ -380,15 +389,15 @@ class AdditiveMapSaasSingleTaskGP(SingleTaskGP):
         """Instantiates an AdditiveMapSaasSingleTaskGP.
 
         Args:
-            train_X: A `batch_shape x n x d` tensor of training features.
-            train_Y: A `batch_shape x n x m` tensor of training observations.
-            train_Yvar: A `batch_shape x n x m` tensor of observed noise.
+            train_X: A ``batch_shape x n x d`` tensor of training features.
+            train_Y: A ``batch_shape x n x m`` tensor of training observations.
+            train_Yvar: A ``batch_shape x n x m`` tensor of observed noise.
             outcome_transform: An outcome transform that is applied to the
                 training data during instantiation and to the posterior during
-                inference (that is, the `Posterior` obtained by calling
-                `.posterior` on the model will be on the original scale). We use a
-                `Standardize` transform if no `outcome_transform` is specified.
-                Pass down `None` to use no outcome transform.
+                inference (that is, the ``Posterior`` obtained by calling
+                ``.posterior`` on the model will be on the original scale). We use a
+                ``Standardize`` transform if no ``outcome_transform`` is specified.
+                Pass down ``None`` to use no outcome transform.
             input_transform: An optional input transform.
             num_taus: The number of taus to use (4 if omitted).
         """
@@ -416,7 +425,7 @@ class AdditiveMapSaasSingleTaskGP(SingleTaskGP):
             batch_shape=self._aug_batch_shape,
             # Need to pass dtype and device at initialization of the covar_module
             # because its priors contain tensors, and prior are currently not moved
-            # to the correct device/dtype when callling `to` on the model.
+            # to the correct device/dtype when callling ``to`` on the model.
             dtype=train_X.dtype,
             device=train_X.device,
         )
@@ -449,7 +458,8 @@ class EnsembleMapSaasSingleTaskGP(SingleTaskGP):
         outcome_transform: OutcomeTransform | _DefaultType | None = DEFAULT,
         input_transform: InputTransform | None = None,
     ) -> None:
-        """Instantiates an ``EnsembleMapSaasSingleTaskGP``, which is a batched
+        """Instantiates an ``EnsembleMapSaasSingleTaskGP`` [Daulton2026bonsai]_,
+        which is a batched
         ensemble of ``SingleTaskGP``s with the Matern-5/2 kernel and a SAAS prior.
         The model is intended to be trained with ``ExactMarginalLogLikelihood`` and
         ``fit_gpytorch_mll``. Under the hood, the model is equivalent to a
@@ -457,20 +467,21 @@ class EnsembleMapSaasSingleTaskGP(SingleTaskGP):
         ``MixtureGaussiaPosterior``, which leads to ensembling of the model outputs.
 
         Args:
-            train_X: An `n x d` tensor of training features.
-            train_Y: An `n x 1` tensor of training observations.
-            train_Yvar: An optional `n x 1` tensor of observed measurement noise.
+            train_X: An ``n x d`` tensor of training features.
+            train_Y: An ``n x 1`` tensor of training observations.
+            train_Yvar: An optional ``n x 1`` tensor of observed measurement noise.
             num_taus: The number of taus to use (4 if omitted). Each tau is
                 a sparsity parameter for the corresponding kernel in the ensemble.
-            taus: An optional tensor of shape `num_taus` containing the taus to use.
+            taus: An optional tensor of shape ``num_taus`` containing the taus to use.
                 If omitted, the taus are sampled from a HalfCauchy(0.1) distribution.
             outcome_transform: An outcome transform that is applied to the
                 training data during instantiation and to the posterior during
-                inference (that is, the `Posterior` obtained by calling
-                `.posterior` on the model will be on the original scale). We use a
-                `Standardize` transform if no `outcome_transform` is specified.
-                Pass down `None` to use no outcome transform. Note that `.train()` will
-                be called on the outcome transform during instantiation of the model.
+                inference (that is, the ``Posterior`` obtained by calling
+                ``.posterior`` on the model will be on the original scale). We use a
+                ``Standardize`` transform if no ``outcome_transform`` is specified.
+                Pass down ``None`` to use no outcome transform. Note that
+                ``.train()`` will be called on the outcome transform during
+                instantiation of the model.
             input_transform: An input transform that is applied in the model's
                 forward pass.
         """
@@ -505,10 +516,10 @@ class EnsembleMapSaasSingleTaskGP(SingleTaskGP):
         base_kernel = MaternKernel(
             nu=2.5, ard_num_dims=ard_num_dims, batch_shape=batch_shape
         )
-        # NOTE: need to call `to` to set device and dtype before calling
-        # `add_saas_prior`, since the SAAS prior contains tensors that are not
+        # NOTE: need to call ``to`` to set device and dtype before calling
+        # ``add_saas_prior``, since the SAAS prior contains tensors that are not
         # parameters of the model, and therefore not automatically moved to the
-        # correct device with a `to` call on the model.
+        # correct device with a ``to`` call on the model.
         base_kernel.to(train_X)
         add_saas_prior(base_kernel=base_kernel, tau=taus)
         covar_module = ScaleKernel(
@@ -547,8 +558,8 @@ class EnsembleMapSaasSingleTaskGP(SingleTaskGP):
         r"""Computes the posterior over model outputs at the provided points.
 
         Args:
-            X: A `(batch_shape) x q x d`-dim Tensor, where `d` is the dimension
-                of the feature space and `q` is the number of points considered
+            X: A ``(batch_shape) x q x d``-dim Tensor, where ``d`` is the dimension
+                of the feature space and ``q`` is the number of points considered
                 jointly.
             output_indices: A list of indices, corresponding to the outputs over
                 which to compute the posterior (if the model is multi-output).
@@ -557,11 +568,11 @@ class EnsembleMapSaasSingleTaskGP(SingleTaskGP):
                 computes the posterior over all model outputs.
             observation_noise: If True, add the observation noise from the
                 likelihood to the posterior. If a Tensor, use it directly as the
-                observation noise (must be of shape `(batch_shape) x q x m`).
+                observation noise (must be of shape ``(batch_shape) x q x m``).
             posterior_transform: An optional PosteriorTransform.
 
         Returns:
-            A `GaussianMixturePosterior` object. Includes observation noise
+            A ``GaussianMixturePosterior`` object. Includes observation noise
                 if specified.
         """
         posterior = super().posterior(
@@ -580,10 +591,10 @@ class EnsembleMapSaasSingleTaskGP(SingleTaskGP):
         *,
         num_taus: int = 4,
     ) -> dict[str, BotorchContainer | Tensor]:
-        r"""Construct `Model` keyword arguments from a dict of `SupervisedDataset`.
+        r"""Construct ``Model`` keyword arguments from a dict of ``SupervisedDataset``.
 
         Args:
-            training_data: A `SupervisedDataset` containing the training data.
+            training_data: A ``SupervisedDataset`` containing the training data.
             num_taus: Number of taus to use in the ensemble (4 if omitted).
         """
         base_inputs = super().construct_inputs(training_data=training_data)

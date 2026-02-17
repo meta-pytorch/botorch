@@ -14,11 +14,7 @@ from unittest import mock
 
 import torch
 from botorch.exceptions import UnsupportedError
-from botorch.fit import (
-    fit_gpytorch_mll,
-    get_fitted_map_saas_ensemble,
-    get_fitted_map_saas_model,
-)
+from botorch.fit import fit_gpytorch_mll, get_fitted_map_saas_model
 from botorch.models import SingleTaskGP
 from botorch.models.map_saas import (
     add_saas_prior,
@@ -297,23 +293,6 @@ class TestMapSaas(BotorchTestCase):
             loss = -mll(model(*train_inputs), train_targets).item()
             # longer running optimization should have smaller loss than the shorter one
             self.assertTrue(loss < loss_short)
-
-    def test_get_saas_ensemble(self) -> None:
-        train_X, train_Y, _ = self._get_data_hardcoded(device=self.device)
-        with self.assertWarnsRegex(
-            DeprecationWarning, "EnsembleMapSaasSingleTaskGP"
-        ), mock.patch("botorch.fit.fit_gpytorch_mll") as mock_fit:
-            model = get_fitted_map_saas_ensemble(
-                train_X=train_X,
-                train_Y=train_Y,
-                input_transform=Normalize(d=train_X.shape[-1]),
-                outcome_transform=Standardize(m=1, batch_shape=torch.Size([4])),
-                optimizer_kwargs={"options": {"maxiter": 3}},
-            )
-        self.assertEqual(
-            mock_fit.call_args.kwargs["optimizer_kwargs"], {"options": {"maxiter": 3}}
-        )
-        self.assertIsInstance(model, EnsembleMapSaasSingleTaskGP)
 
     def test_input_transform_in_train(self) -> None:
         train_X, train_Y, test_X = self._get_data()

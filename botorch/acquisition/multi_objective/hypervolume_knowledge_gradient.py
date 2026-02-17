@@ -27,7 +27,6 @@ from botorch.acquisition.acquisition import (
     AcquisitionFunction,
     OneShotAcquisitionFunction,
 )
-
 from botorch.acquisition.cost_aware import CostAwareUtility
 from botorch.acquisition.decoupled import DecoupledAcquisitionFunction
 from botorch.acquisition.knowledge_gradient import ProjectedAcquisitionFunction
@@ -72,10 +71,10 @@ class qHypervolumeKnowledgeGradient(
     This computes the batch Hypervolume Knowledge Gradient using fantasies for
     the outer expectation and MC-sampling for the inner expectation.
 
-    In addition to the design variables, the input `X` also includes variables
+    In addition to the design variables, the input ``X`` also includes variables
     for the optimal designs for each of the fantasy models (Note this is
-    `N x N_pareto` optimal designs). For a fixed number of fantasies, all points
-    in `X` can be optimized in a "one-shot" fashion.
+    ``N x N_pareto`` optimal designs). For a fixed number of fantasies, all points
+    in ``X`` can be optimized in a "one-shot" fashion.
     """
 
     def __init__(
@@ -99,35 +98,35 @@ class qHypervolumeKnowledgeGradient(
 
         Args:
             model: A fitted model. Must support fantasizing.
-            ref_point: A `m`-dim tensor containing the reference point.
+            ref_point: A ``m``-dim tensor containing the reference point.
             num_fantasies: The number of fantasy points to use. More fantasy
                 points result in a better approximation, at the expense of
-                memory and wall time. Unused if `sampler` is specified.
+                memory and wall time. Unused if ``sampler`` is specified.
             num_pareto: The number of pareto optimal designs to consider.
             sampler: The sampler used to sample fantasy observations. Optional
-                if `num_fantasies` is specified. The optimization performance
+                if ``num_fantasies`` is specified. The optimization performance
                 does not seem particularly sensitive to the number of fantasies.
                 As the number of fantasies increases, the estimation of the
                 expectation over fantasies becomes more accurate, but the one-
                 shot optimization problem gets harder as there are more "fantasy"
                 designs that need to be optimized.
             objective: The objective under which the samples are evaluated. If
-                `None`, then the analytic posterior mean is used. Otherwise, the
+                ``None``, then the analytic posterior mean is used. Otherwise, the
                 objective is MC-evaluated (using inner_sampler).
             inner_sampler: The sampler used for inner sampling. Ignored if the
-                objective is `None`.
-            X_evaluation_mask: A `q x m`-dim tensor of booleans indicating which
-                objective(s) each of the `q` points should be evaluated on.
-            X_pending: A `n' x d`-dim Tensor of `m` design points that have
+                objective is ``None``.
+            X_evaluation_mask: A ``q x m``-dim tensor of booleans indicating which
+                objective(s) each of the ``q`` points should be evaluated on.
+            X_pending: A ``n' x d``-dim Tensor of ``m`` design points that have
                 points that have been submitted for function evaluation
                 but have not yet been evaluated.
-            X_pending_evaluation_mask: A `n' x m`-dim tensor of booleans indicating
-                which objective(s) each of the `n'` pending points are being
+            X_pending_evaluation_mask: A ``n' x m``-dim tensor of booleans indicating
+                which objective(s) each of the ``n'`` pending points are being
                 evaluated on.
             current_value: The current value, i.e. the expected best objective
-                given the observed points `D`. If omitted, forward will not
+                given the observed points ``D``. If omitted, forward will not
                 return the actual KG value, but the expected best objective
-                given the data set `D u X`. If pending points are used,
+                given the data set ``D u X``. If pending points are used,
                 this should be the current value under the fantasy model
                 conditioned on the pending points so that the incremental KG value
                 from the new candidates (not pending points) is used.
@@ -135,7 +134,7 @@ class qHypervolumeKnowledgeGradient(
                 mean, otherwise optimize the expected hypervolume. See
                 [Daulton2023hvkg]_ for details.
             cost_aware_utility: A CostAwareUtility specifying the cost function for
-                evaluating the `X` on the objectives indicated by `evaluation_mask`.
+                evaluating the ``X`` on the objectives indicated by ``evaluation_mask``.
             log: If True, then returns the log of the HVKG value. If True, then it
                 expects current_value to be in log-space and cost_aware_utility to
                 output log utilities.
@@ -195,29 +194,29 @@ class qHypervolumeKnowledgeGradient(
     @t_batch_mode_transform()
     @average_over_ensemble_models
     def forward(self, X: Tensor) -> Tensor:
-        r"""Evaluate qKnowledgeGradient on the candidate set `X`.
+        r"""Evaluate qKnowledgeGradient on the candidate set ``X``.
 
         Args:
-            X: A `b x (q + num_fantasies) x d` Tensor with `b` t-batches of
-                `q + num_fantasies` design points each. We split this X tensor
-                into two parts in the `q` dimension (`dim=-2`). The first `q`
+            X: A ``b x (q + num_fantasies) x d`` Tensor with ``b`` t-batches of
+                ``q + num_fantasies`` design points each. We split this X tensor
+                into two parts in the ``q`` dimension (``dim=-2``). The first ``q``
                 are the q-batch of design points and the last num_fantasies are
                 the current solutions of the inner optimization problem.
 
-                `X_fantasies = X[..., -num_fantasies:, :]`
-                `X_fantasies.shape = b x num_fantasies x d`
+                ``X_fantasies = X[..., -num_fantasies:, :]``
+                ``X_fantasies.shape = b x num_fantasies x d``
 
-                `X_actual = X[..., :-num_fantasies, :]`
-                `X_actual.shape = b x q x d`
+                ``X_actual = X[..., :-num_fantasies, :]``
+                ``X_actual.shape = b x q x d``
 
         Returns:
-            A Tensor of shape `b`. For t-batch b, the q-KG value of the design
-                `X_actual[b]` is averaged across the fantasy models, where
-                `X_fantasies[b, i]` is chosen as the final selection for the
-                `i`-th fantasy model.
-                NOTE: If `current_value` is not provided, then this is not the
-                true KG value of `X_actual[b]`, and `X_fantasies[b, : ]` must be
-                maximized at fixed `X_actual[b]`.
+            A Tensor of shape ``b``. For t-batch b, the q-KG value of the design
+                ``X_actual[b]`` is averaged across the fantasy models, where
+                ``X_fantasies[b, i]`` is chosen as the final selection for the
+                ``i``-th fantasy model.
+                NOTE: If ``current_value`` is not provided, then this is not the
+                true KG value of ``X_actual[b]``, and ``X_fantasies[b, : ]`` must be
+                maximized at fixed ``X_actual[b]``.
         """
         X_actual, X_fantasies = _split_hvkg_fantasy_points(
             X=X, n_f=self.num_fantasies, num_pareto=self.num_pareto
@@ -232,7 +231,7 @@ class qHypervolumeKnowledgeGradient(
                 [X_actual, match_batch_shape(self.X_pending, X_actual)], dim=-2
             )
 
-        # Construct the fantasy model of shape `num_fantasies x b`
+        # Construct the fantasy model of shape ``num_fantasies x b``
         # Note: For the decoupled, cost-aware (e.g. not async) setting, we
         # technically want to make sure to copy the base samples here, so
         # that the same fantasies are used for X_pending on the left and
@@ -306,11 +305,11 @@ class qHypervolumeKnowledgeGradient(
         r"""We only return X as the set of candidates post-optimization.
 
         Args:
-            X_full: A `b x (q + num_fantasies) x d`-dim Tensor with `b`
-                t-batches of `q + num_fantasies` design points each.
+            X_full: A ``b x (q + num_fantasies) x d``-dim Tensor with ``b``
+                t-batches of ``q + num_fantasies`` design points each.
 
         Returns:
-            A `b x q x d`-dim Tensor with `b` t-batches of `q` design points each.
+            A ``b x q x d``-dim Tensor with ``b`` t-batches of ``q`` design points each.
         """
         return X_full[..., : -self.num_pseudo_points, :]
 
@@ -320,10 +319,10 @@ class qMultiFidelityHypervolumeKnowledgeGradient(qHypervolumeKnowledgeGradient):
 
     See [Daulton2023hvkg]_ for details.
 
-    A version of `qHypervolumeKnowledgeGradient` that supports multi-fidelity
-    optimization via a `CostAwareUtility` and the `project` and `expand`
+    A version of ``qHypervolumeKnowledgeGradient`` that supports multi-fidelity
+    optimization via a ``CostAwareUtility`` and the ``project`` and ``expand``
     operators. If none of these are set, this acquisition function reduces to
-    `qHypervolumeKnowledgeGradient`. Through `valfunc_cls` and `valfunc_argfac`,
+    ``qHypervolumeKnowledgeGradient``. Through ``valfunc_cls`` and ``valfunc_argfac``,
     this can be changed into a custom multi-fidelity acquisition function.
     """
 
@@ -353,30 +352,30 @@ class qMultiFidelityHypervolumeKnowledgeGradient(qHypervolumeKnowledgeGradient):
 
         Args:
             model: A fitted model. Must support fantasizing.
-            ref_point: A `m`-dim tensor containing the reference point.
+            ref_point: A ``m``-dim tensor containing the reference point.
             num_fantasies: The number of fantasy points to use. More fantasy
                 points result in a better approximation, at the expense of
-                memory and wall time. Unused if `sampler` is specified.
+                memory and wall time. Unused if ``sampler`` is specified.
             num_pareto: The number of pareto optimal designs to consider.
             sampler: The sampler used to sample fantasy observations. Optional
-                if `num_fantasies` is specified.
+                if ``num_fantasies`` is specified.
             objective: The objective under which the samples are evaluated. If
-                `None`, then the analytic posterior mean is used. Otherwise, the
+                ``None``, then the analytic posterior mean is used. Otherwise, the
                 objective is MC-evaluated (using inner_sampler).
             inner_sampler: The sampler used for inner sampling. Ignored if the
-                objective is `None`.
-            X_evaluation_mask: A `q x m`-dim tensor of booleans indicating which
-                objective(s) each of the `q` points should be evaluated on.
-            X_pending: A `n' x d`-dim Tensor of `m` design points that have
+                objective is ``None``.
+            X_evaluation_mask: A ``q x m``-dim tensor of booleans indicating which
+                objective(s) each of the ``q`` points should be evaluated on.
+            X_pending: A ``n' x d``-dim Tensor of ``m`` design points that have
                 points that have been submitted for function evaluation
                 but have not yet been evaluated.
-            X_pending_evaluation_mask: A `n' x m`-dim tensor of booleans indicating
-                which objective(s) each of the `n'` pending points are being
+            X_pending_evaluation_mask: A ``n' x m``-dim tensor of booleans indicating
+                which objective(s) each of the ``n'`` pending points are being
                 evaluated on.
             current_value: The current value, i.e. the expected best objective
-                given the observed points `D`. If omitted, forward will not
+                given the observed points ``D``. If omitted, forward will not
                 return the actual KG value, but the expected best objective
-                given the data set `D u X`. If pending points are used,
+                given the data set ``D u X``. If pending points are used,
                 this should be the current value under the fantasy model
                 conditioned on the pending points so that the incremental KG value
                 from the new candidates (not pending points) is used.
@@ -384,16 +383,16 @@ class qMultiFidelityHypervolumeKnowledgeGradient(qHypervolumeKnowledgeGradient):
                 the hypervolume of the posterior mean or whether to optimize the
                 expected hypervolume. See [Daulton2023hvkg]_ for details.
             cost_aware_utility: A CostAwareUtility specifying the cost function for
-                evaluating the `X` on the objectives indicated by `evaluation_mask`.
-            project: A callable mapping a `batch_shape x q x d` tensor of design
-                points to a tensor with shape `batch_shape x q_term x d` projected
+                evaluating the ``X`` on the objectives indicated by ``evaluation_mask``.
+            project: A callable mapping a ``batch_shape x q x d`` tensor of design
+                points to a tensor with shape ``batch_shape x q_term x d`` projected
                 to the desired target set (e.g. the target fidelities in case of
-                multi-fidelity optimization). For the basic case, `q_term = q`.
+                multi-fidelity optimization). For the basic case, ``q_term = q``.
             valfunc_cls: An acquisition function class to be used as the terminal
                 value function.
-            valfunc_argfac: An argument factory, i.e. callable that maps a `Model`
+            valfunc_argfac: An argument factory, i.e. callable that maps a ``Model``
                 to a dictionary of kwargs for the terminal value function (e.g.
-                `best_f` for `ExpectedImprovement`).
+                ``best_f`` for ``ExpectedImprovement``).
             log: If True, then returns the log of the HVKG value. If True, then it
                 expects current_value to be in log-space and cost_aware_utility to
                 output log utilities.
@@ -429,33 +428,33 @@ class qMultiFidelityHypervolumeKnowledgeGradient(qHypervolumeKnowledgeGradient):
     @t_batch_mode_transform()
     @average_over_ensemble_models
     def forward(self, X: Tensor) -> Tensor:
-        r"""Evaluate qMultiFidelityKnowledgeGradient on the candidate set `X`.
+        r"""Evaluate qMultiFidelityKnowledgeGradient on the candidate set ``X``.
 
         Args:
-            X: A `b x (q + num_fantasies) x d` Tensor with `b` t-batches of
-                `q + num_fantasies` design points each. We split this X tensor
-                into two parts in the `q` dimension (`dim=-2`). The first `q`
+            X: A ``b x (q + num_fantasies) x d`` Tensor with ``b`` t-batches of
+                ``q + num_fantasies`` design points each. We split this X tensor
+                into two parts in the ``q`` dimension (``dim=-2``). The first ``q``
                 are the q-batch of design points and the last num_fantasies are
                 the current solutions of the inner optimization problem.
 
-                `X_fantasies = X[..., -num_fantasies:, :]`
-                `X_fantasies.shape = b x num_fantasies x d`
+                ``X_fantasies = X[..., -num_fantasies:, :]``
+                ``X_fantasies.shape = b x num_fantasies x d``
 
-                `X_actual = X[..., :-num_fantasies, :]`
-                `X_actual.shape = b x q x d`
+                ``X_actual = X[..., :-num_fantasies, :]``
+                ``X_actual.shape = b x q x d``
 
-                In addition, `X` may be augmented with fidelity parameteres as
-                part of thee `d`-dimension. Projecting fidelities to the target
-                fidelity is handled by `project`.
+                In addition, ``X`` may be augmented with fidelity parameteres as
+                part of thee ``d``-dimension. Projecting fidelities to the target
+                fidelity is handled by ``project``.
 
         Returns:
-            A Tensor of shape `b`. For t-batch b, the q-KG value of the design
-                `X_actual[b]` is averaged across the fantasy models, where
-                `X_fantasies[b, i]` is chosen as the final selection for the
-                `i`-th fantasy model.
-                NOTE: If `current_value` is not provided, then this is not the
-                true KG value of `X_actual[b]`, and `X_fantasies[b, : ]` must be
-                maximized at fixed `X_actual[b]`.
+            A Tensor of shape ``b``. For t-batch b, the q-KG value of the design
+                ``X_actual[b]`` is averaged across the fantasy models, where
+                ``X_fantasies[b, i]`` is chosen as the final selection for the
+                ``i``-th fantasy model.
+                NOTE: If ``current_value`` is not provided, then this is not the
+                true KG value of ``X_actual[b]``, and ``X_fantasies[b, : ]`` must be
+                maximized at fixed ``X_actual[b]``.
         """
         X_actual, X_fantasies = _split_hvkg_fantasy_points(
             X=X, n_f=self.num_fantasies, num_pareto=self.num_pareto
@@ -471,7 +470,7 @@ class qMultiFidelityHypervolumeKnowledgeGradient(qHypervolumeKnowledgeGradient):
                 [X_actual, match_batch_shape(self.X_pending, X_actual)], dim=-2
             )
 
-        # construct the fantasy model of shape `num_fantasies x b`
+        # construct the fantasy model of shape ``num_fantasies x b``
         fantasy_model = self.model.fantasize(
             X=X_actual,
             sampler=self.sampler,
@@ -586,16 +585,16 @@ def _split_hvkg_fantasy_points(
     r"""Split a one-shot HV-KGoptimization input into actual and fantasy points
 
     Args:
-        X: A `batch_shape x (q + n_f*num_pareto) x d`-dim tensor of actual
+        X: A ``batch_shape x (q + n_f*num_pareto) x d``-dim tensor of actual
             and fantasy points
 
     Returns:
         2-element tuple containing
 
-        - A `batch_shape x q x d`-dim tensor `X_actual` of input candidates.
-        - A `n_f x batch_shape x num_pareto x d`-dim tensor `X_fantasies` of
-            fantasy points, where `X_fantasies[i, batch_idx]` is the i-th
-            fantasy point associated with the batch indexed by `batch_idx`.
+        - A ``batch_shape x q x d``-dim tensor ``X_actual`` of input candidates.
+        - A ``n_f x batch_shape x num_pareto x d``-dim tensor ``X_fantasies`` of
+            fantasy points, where ``X_fantasies[i, batch_idx]`` is the i-th
+            fantasy point associated with the batch indexed by ``batch_idx``.
     """
     if n_f * num_pareto > X.size(-2):
         raise ValueError(

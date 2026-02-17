@@ -32,11 +32,11 @@ KWARG_ERR_MSG = (
 class MCSampler(Module, ABC):
     r"""Abstract base class for Samplers.
 
-    Subclasses must implement the `forward` method.
+    Subclasses must implement the ``forward`` method.
 
     Example:
         This method is usually not called directly, but via the sampler's
-        `__call__` method:
+        ``__call__`` method:
         >>> posterior = model.posterior(test_X)
         >>> samples = sampler(posterior)
     """
@@ -49,8 +49,9 @@ class MCSampler(Module, ABC):
         r"""Abstract base class for samplers.
 
         Args:
-            sample_shape: The `sample_shape` of the samples to generate. The full shape
-                of the samples is given by `posterior._extended_shape(sample_shape)`.
+            sample_shape: The ``sample_shape`` of the samples to generate. The full
+                shape of the samples is given by
+                ``posterior._extended_shape(sample_shape)``.
             seed: An optional seed to use for sampling.
         """
         super().__init__()
@@ -80,9 +81,9 @@ class MCSampler(Module, ABC):
     def _get_batch_range(self, posterior: Posterior) -> tuple[int, int]:
         r"""Get the t-batch range of the posterior with an optional override.
 
-        In rare cases, e.g., in `qMultiStepLookahead`, we may want to override the
-        `batch_range` of the posterior. If this behavior is desired, one can set
-        `batch_range_override` attribute on the samplers.
+        In rare cases, e.g., in ``qMultiStepLookahead``, we may want to override the
+        ``batch_range`` of the posterior. If this behavior is desired, one can set
+        ``batch_range_override`` attribute on the samplers.
 
         Args:
             posterior: The posterior to sample from.
@@ -141,7 +142,7 @@ class MCSampler(Module, ABC):
         )
 
     def _instance_check(self, base_sampler):
-        r"""Check that `base_sampler` is an instance of `self.__class__`."""
+        r"""Check that ``base_sampler`` is an instance of ``self.__class__``."""
         if not isinstance(base_sampler, self.__class__):
             raise RuntimeError(
                 "Expected `base_sampler` to be an instance of "

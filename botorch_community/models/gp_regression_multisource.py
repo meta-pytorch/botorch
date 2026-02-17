@@ -24,7 +24,6 @@ from copy import deepcopy
 from typing import Optional
 
 import torch
-
 from botorch import fit_gpytorch_mll
 from botorch.exceptions import InputDataError
 from botorch.models import SingleTaskGP
@@ -50,8 +49,8 @@ def get_random_x_for_agp(
 
     Args:
         n: The number of samples.
-        bounds: A `2 x d` dimensional tensor specifying box constraints on a
-            `d`-dimensional space, where bounds[0, :] and bounds[1, :] correspond
+        bounds: A ``2 x d`` dimensional tensor specifying box constraints on a
+            ``d``-dimensional space, where bounds[0, :] and bounds[1, :] correspond
             to lower and upper bounds, respectively. The last dimension represents
             number of sources.
         q: The size of each q-batch.
@@ -59,7 +58,7 @@ def get_random_x_for_agp(
             use a random seed.
 
     Returns:
-        A `n x q x d`-dim tensor of qMC samples from the box
+        A ``n x q x d``-dim tensor of qMC samples from the box
         defined by bounds.
     """
     if n < 1:
@@ -102,23 +101,23 @@ class SingleTaskAugmentedGP(SingleTaskGP):
     ) -> None:
         r"""
         Args:
-            train_X: A `batch_shape x n x (d + 1)` tensor of training features,
+            train_X: A ``batch_shape x n x (d + 1)`` tensor of training features,
                 where the additional dimension is for the source parameter.
-            train_Y: A `batch_shape x n x m` tensor of training observations.
-            train_Yvar: A `batch_shape x n x m` tensor of observed measurement
+            train_Y: A ``batch_shape x n x m`` tensor of training observations.
+            train_Yvar: A ``batch_shape x n x m`` tensor of observed measurement
                 noise.
             m: The multiplication factor of the model standard deviation used to select
                 points from other sources to add to the Augmented GP.
             likelihood: A likelihood. If omitted, use a standard
                 GaussianLikelihood with inferred noise level.
             covar_module: The module computing the covariance (Kernel) matrix.
-                If omitted, use a `MaternKernel`.
+                If omitted, use a ``MaternKernel``.
             mean_module: The mean function to be used. If omitted, use a
-                `ConstantMean`.
+                ``ConstantMean``.
             outcome_transform: An outcome transform that is applied to the
                 training data during instantiation and to the posterior during
-                inference (that is, the `Posterior` obtained by calling
-                `.posterior` on the model will be on the original scale).
+                inference (that is, the ``Posterior`` obtained by calling
+                ``.posterior`` on the model will be on the original scale).
             input_transform: An input transform that is applied in the model's
                 forward pass.
         """
@@ -209,19 +208,19 @@ class SingleTaskAugmentedGP(SingleTaskGP):
         r"""Initialize and fit a Single Task GP model.
 
         Args:
-            train_X: A `batch_shape x n x d` tensor of training features.
-            train_Y: A `batch_shape x n x m` tensor of training observations.
-            train_Y: A `batch_shape x n x m` tensor of training observations.
+            train_X: A ``batch_shape x n x d`` tensor of training features.
+            train_Y: A ``batch_shape x n x m`` tensor of training observations.
+            train_Y: A ``batch_shape x n x m`` tensor of training observations.
             likelihood: A likelihood. If omitted, use a standard
                 GaussianLikelihood with inferred noise level.
             covar_module: The module computing the covariance (Kernel) matrix.
-                If omitted, use a `MaternKernel`.
+                If omitted, use a ``MaternKernel``.
             mean_module: The mean function to be used. If omitted, use a
-                `ConstantMean`.
+                ``ConstantMean``.
             outcome_transform: An outcome transform that is applied to the
                 training data during instantiation and to the posterior during
-                inference (that is, the `Posterior` obtained by calling
-                `.posterior` on the model will be on the original scale).
+                inference (that is, the ``Posterior`` obtained by calling
+                ``.posterior`` on the model will be on the original scale).
             input_transform: An input transform that is applied in the model's
                 forward pass.
 
@@ -255,11 +254,11 @@ def _get_reliable_observations(
     Args:
         trusty_model: The GP model of the trust source.
         other_model: The GP model of a lower fidelity source.
-        x: A `batch_shape x n x d` tensor of training features.
+        x: A ``batch_shape x n x d`` tensor of training features.
         m: The moltiplicator factor of the model standard deviation used to select
             points from other sources to add to the Augmented GP.
     Returns:
-        A `batch_shape x N x d` tensor of reliable points
+        A ``batch_shape x N x d`` tensor of reliable points
     """
     m0_posterior = trusty_model.posterior(x)
     m0_mu = torch.flatten(m0_posterior.mean)

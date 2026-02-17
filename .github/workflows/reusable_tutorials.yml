@@ -29,21 +29,20 @@ jobs:
       UV_SYSTEM_PYTHON: 1
     steps:
     - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
     - name: Install uv
       uses: astral-sh/setup-uv@v5
     - if: ${{ !inputs.use_stable_pytorch_gpytorch }}
       name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: "3.13"
+        python-version: "3.14"
     - if: ${{ inputs.use_stable_pytorch_gpytorch }}
       name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: "3.10"
-    - name: Fetch all history for all tags and branches
-      # We need to do this so setuptools_scm knows how to set the BoTorch version.
-      run: git fetch --prune --unshallow
+        python-version: "3.11"
     - if: ${{ !inputs.use_stable_pytorch_gpytorch }}
       name: Install latest PyTorch & GPyTorch
       run: |
@@ -57,7 +56,6 @@ jobs:
         min_torch_version=$(grep '"torch>=' pyproject.toml | sed 's/.*"torch>=\([^"]*\)".*/\1/')
         min_gpytorch_version=$(grep '"gpytorch>=' pyproject.toml | sed 's/.*"gpytorch>=\([^"]*\)".*/\1/')
         min_linear_operator_version=$(grep '"linear_operator>=' pyproject.toml | sed 's/.*"linear_operator>=\([^"]*\)".*/\1/')
-        uv pip install "numpy<2"  # Numpy >2.0 is not compatible with PyTorch <2.2.
         uv pip install "torch==${min_torch_version}" "gpytorch==${min_gpytorch_version}" "linear_operator==${min_linear_operator_version}" torchvision
     - name: Install BoTorch with tutorials dependencies
       run: |

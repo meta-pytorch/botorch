@@ -27,7 +27,6 @@ and [Wu2016parallelkg]_.
 from __future__ import annotations
 
 from collections.abc import Callable
-
 from copy import deepcopy
 from typing import Any
 
@@ -62,9 +61,9 @@ class qKnowledgeGradient(MCAcquisitionFunction, OneShotAcquisitionFunction):
     expectation and either the model posterior mean or MC-sampling for the inner
     expectation.
 
-    In addition to the design variables, the input `X` also includes variables
+    In addition to the design variables, the input ``X`` also includes variables
     for the optimal designs for each of the fantasy models. For a fixed number
-    of fantasies, all parts of `X` can be optimized in a "one-shot" fashion.
+    of fantasies, all parts of ``X`` can be optimized in a "one-shot" fashion.
     """
 
     def __init__(
@@ -84,27 +83,27 @@ class qKnowledgeGradient(MCAcquisitionFunction, OneShotAcquisitionFunction):
             model: A fitted model. Must support fantasizing.
             num_fantasies: The number of fantasy points to use. More fantasy
                 points result in a better approximation, at the expense of
-                memory and wall time. Unused if `sampler` is specified.
+                memory and wall time. Unused if ``sampler`` is specified.
             sampler: The sampler used to sample fantasy observations. Optional
-                if `num_fantasies` is specified.
+                if ``num_fantasies`` is specified.
             objective: The objective under which the samples are evaluated. If
-                `None`, then the analytic posterior mean is used. Otherwise, the
+                ``None``, then the analytic posterior mean is used. Otherwise, the
                 objective is MC-evaluated (using inner_sampler).
             posterior_transform: An optional PosteriorTransform. If given, this
-                transforms the posterior before evaluation. If `objective is None`,
+                transforms the posterior before evaluation. If ``objective is None``,
                 then the analytic posterior mean of the transformed posterior is
-                used. If `objective` is given, the `inner_sampler` is used to draw
+                used. If ``objective`` is given, the ``inner_sampler`` is used to draw
                 samples from the transformed posterior, which are then evaluated under
-                the `objective`.
+                the ``objective``.
             inner_sampler: The sampler used for inner sampling. Ignored if the
-                objective is `None`.
-            X_pending: A `m x d`-dim Tensor of `m` design points that have
+                objective is ``None``.
+            X_pending: A ``m x d``-dim Tensor of ``m`` design points that have
                 points that have been submitted for function evaluation
                 but have not yet been evaluated.
             current_value: The current value, i.e. the expected best objective
-                given the observed points `D`. If omitted, forward will not
+                given the observed points ``D``. If omitted, forward will not
                 return the actual KG value, but the expected best objective
-                given the data set `D u X`.
+                given the data set ``D u X``.
         """
         if sampler is None:
             if num_fantasies is None:
@@ -154,29 +153,29 @@ class qKnowledgeGradient(MCAcquisitionFunction, OneShotAcquisitionFunction):
     @t_batch_mode_transform()
     @average_over_ensemble_models
     def forward(self, X: Tensor) -> Tensor:
-        r"""Evaluate qKnowledgeGradient on the candidate set `X`.
+        r"""Evaluate qKnowledgeGradient on the candidate set ``X``.
 
         Args:
-            X: A `b x (q + num_fantasies) x d` Tensor with `b` t-batches of
-                `q + num_fantasies` design points each. We split this X tensor
-                into two parts in the `q` dimension (`dim=-2`). The first `q`
+            X: A ``b x (q + num_fantasies) x d`` Tensor with ``b`` t-batches of
+                ``q + num_fantasies`` design points each. We split this X tensor
+                into two parts in the ``q`` dimension (``dim=-2``). The first ``q``
                 are the q-batch of design points and the last num_fantasies are
                 the current solutions of the inner optimization problem.
 
-                `X_fantasies = X[..., -num_fantasies:, :]`
-                `X_fantasies.shape = b x num_fantasies x d`
+                ``X_fantasies = X[..., -num_fantasies:, :]``
+                ``X_fantasies.shape = b x num_fantasies x d``
 
-                `X_actual = X[..., :-num_fantasies, :]`
-                `X_actual.shape = b x q x d`
+                ``X_actual = X[..., :-num_fantasies, :]``
+                ``X_actual.shape = b x q x d``
 
         Returns:
-            A Tensor of shape `b`. For t-batch b, the q-KG value of the design
-                `X_actual[b]` is averaged across the fantasy models, where
-                `X_fantasies[b, i]` is chosen as the final selection for the
-                `i`-th fantasy model.
-                NOTE: If `current_value` is not provided, then this is not the
-                true KG value of `X_actual[b]`, and `X_fantasies[b, : ]` must be
-                maximized at fixed `X_actual[b]`.
+            A Tensor of shape ``b``. For t-batch b, the q-KG value of the design
+                ``X_actual[b]`` is averaged across the fantasy models, where
+                ``X_fantasies[b, i]`` is chosen as the final selection for the
+                ``i``-th fantasy model.
+                NOTE: If ``current_value`` is not provided, then this is not the
+                true KG value of ``X_actual[b]``, and ``X_fantasies[b, : ]`` must be
+                maximized at fixed ``X_actual[b]``.
         """
         X_actual, X_fantasies = _split_fantasy_points(X=X, n_f=self.num_fantasies)
 
@@ -186,7 +185,7 @@ class qKnowledgeGradient(MCAcquisitionFunction, OneShotAcquisitionFunction):
                 [X_actual, match_batch_shape(self.X_pending, X_actual)], dim=-2
             )
 
-        # construct the fantasy model of shape `num_fantasies x b`
+        # construct the fantasy model of shape ``num_fantasies x b``
         fantasy_model = self.model.fantasize(
             X=X_actual,
             sampler=self.sampler,
@@ -214,30 +213,31 @@ class qKnowledgeGradient(MCAcquisitionFunction, OneShotAcquisitionFunction):
     @t_batch_mode_transform()
     @average_over_ensemble_models
     def evaluate(self, X: Tensor, bounds: Tensor, **kwargs: Any) -> Tensor:
-        r"""Evaluate qKnowledgeGradient on the candidate set `X_actual` by
+        r"""Evaluate qKnowledgeGradient on the candidate set ``X_actual`` by
         solving the inner optimization problem.
 
         Args:
-            X: A `b x q x d` Tensor with `b` t-batches of `q` design points
-                each. Unlike `forward()`, this does not include solutions of the
+            X: A ``b x q x d`` Tensor with ``b`` t-batches of ``q`` design points
+                each. Unlike ``forward()``, this does not include solutions of the
                 inner optimization problem.
-            bounds: A `2 x d` tensor of lower and upper bounds for each column of
+            bounds: A ``2 x d`` tensor of lower and upper bounds for each column of
                 the solutions to the inner problem.
             kwargs: Additional keyword arguments. This includes the options for
-                optimization of the inner problem, i.e. `num_restarts`, `raw_samples`,
-                an `options` dictionary to be passed on to the optimization helpers, and
-                a `scipy_options` dictionary to be passed to `scipy.optimize.minimize`.
+                optimization of the inner problem, i.e. ``num_restarts``,
+                ``raw_samples``, an ``options`` dictionary to be passed on to
+                the optimization helpers, and a ``scipy_options`` dictionary to
+                be passed to ``scipy.optimize.minimize``.
 
         Returns:
-            A Tensor of shape `b`. For t-batch b, the q-KG value of the design
-                `X[b]` is averaged across the fantasy models.
-                NOTE: If `current_value` is not provided, then this is not the
-                true KG value of `X[b]`.
+            A Tensor of shape ``b``. For t-batch b, the q-KG value of the design
+                ``X[b]`` is averaged across the fantasy models.
+                NOTE: If ``current_value`` is not provided, then this is not the
+                true KG value of ``X[b]``.
         """
         if hasattr(self, "expand"):
             X = self.expand(X)
 
-        # construct the fantasy model of shape `num_fantasies x b`
+        # construct the fantasy model of shape ``num_fantasies x b``
         fantasy_model = self.model.fantasize(
             X=X,
             sampler=self.sampler,
@@ -303,11 +303,11 @@ class qKnowledgeGradient(MCAcquisitionFunction, OneShotAcquisitionFunction):
         r"""We only return X as the set of candidates post-optimization.
 
         Args:
-            X_full: A `b x (q + num_fantasies) x d`-dim Tensor with `b`
-                t-batches of `q + num_fantasies` design points each.
+            X_full: A ``b x (q + num_fantasies) x d``-dim Tensor with ``b``
+                t-batches of ``q + num_fantasies`` design points each.
 
         Returns:
-            A `b x q x d`-dim Tensor with `b` t-batches of `q` design points each.
+            A ``b x q x d``-dim Tensor with ``b`` t-batches of ``q`` design points each.
         """
         return X_full[..., : -self.num_fantasies, :]
 
@@ -315,10 +315,10 @@ class qKnowledgeGradient(MCAcquisitionFunction, OneShotAcquisitionFunction):
 class qMultiFidelityKnowledgeGradient(qKnowledgeGradient):
     r"""Batch Knowledge Gradient for multi-fidelity optimization.
 
-    A version of `qKnowledgeGradient` that supports multi-fidelity optimization
-    via a `CostAwareUtility` and the `project` and `expand` operators. If none
-    of these are set, this acquisition function reduces to `qKnowledgeGradient`.
-    Through `valfunc_cls` and `valfunc_argfac`, this can be changed into a custom
+    A version of ``qKnowledgeGradient`` that supports multi-fidelity optimization
+    via a ``CostAwareUtility`` and the ``project`` and ``expand`` operators. If none
+    of these are set, this acquisition function reduces to ``qKnowledgeGradient``.
+    Through ``valfunc_cls`` and ``valfunc_argfac``, this can be changed into a custom
     multi-fidelity acquisition function (it is only KG if the terminal value is
     computed using a posterior mean).
     """
@@ -345,42 +345,42 @@ class qMultiFidelityKnowledgeGradient(qKnowledgeGradient):
             model: A fitted model. Must support fantasizing.
             num_fantasies: The number of fantasy points to use. More fantasy
                 points result in a better approximation, at the expense of
-                memory and wall time. Unused if `sampler` is specified.
+                memory and wall time. Unused if ``sampler`` is specified.
             sampler: The sampler used to sample fantasy observations. Optional
-                if `num_fantasies` is specified.
+                if ``num_fantasies`` is specified.
             objective: The objective under which the samples are evaluated. If
-                `None`, then the analytic posterior mean is used. Otherwise, the
+                ``None``, then the analytic posterior mean is used. Otherwise, the
                 objective is MC-evaluated (using inner_sampler).
             posterior_transform: An optional PosteriorTransform. If given, this
-                transforms the posterior before evaluation. If `objective is None`,
+                transforms the posterior before evaluation. If ``objective is None``,
                 then the analytic posterior mean of the transformed posterior is
-                used. If `objective` is given, the `inner_sampler` is used to draw
+                used. If ``objective`` is given, the ``inner_sampler`` is used to draw
                 samples from the transformed posterior, which are then evaluated under
-                the `objective`.
+                the ``objective``.
             inner_sampler: The sampler used for inner sampling. Ignored if the
-                objective is `None`.
-            X_pending: A `m x d`-dim Tensor of `m` design points that have
+                objective is ``None``.
+            X_pending: A ``m x d``-dim Tensor of ``m`` design points that have
                 points that have been submitted for function evaluation
                 but have not yet been evaluated.
             current_value: The current value, i.e. the expected best objective
-                given the observed points `D`. If omitted, forward will not
+                given the observed points ``D``. If omitted, forward will not
                 return the actual KG value, but the expected best objective
-                given the data set `D u X`.
+                given the data set ``D u X``.
             cost_aware_utility: A CostAwareUtility computing the cost-transformed
                 utility from a candidate set and samples of increases in utility.
-            project: A callable mapping a `batch_shape x q x d` tensor of design
-                points to a tensor with shape `batch_shape x q_term x d` projected
+            project: A callable mapping a ``batch_shape x q x d`` tensor of design
+                points to a tensor with shape ``batch_shape x q_term x d`` projected
                 to the desired target set (e.g. the target fidelities in case of
-                multi-fidelity optimization). For the basic case, `q_term = q`.
-            expand: A callable mapping a `batch_shape x q x d` input tensor to
-                a `batch_shape x (q + q_e)' x d`-dim output tensor, where the
-                `q_e` additional points in each q-batch correspond to
+                multi-fidelity optimization). For the basic case, ``q_term = q``.
+            expand: A callable mapping a ``batch_shape x q x d`` input tensor to
+                a ``batch_shape x (q + q_e)' x d``-dim output tensor, where the
+                ``q_e`` additional points in each q-batch correspond to
                 additional ("trace") observations.
             valfunc_cls: An acquisition function class to be used as the terminal
                 value function.
-            valfunc_argfac: An argument factory, i.e. callable that maps a `Model`
+            valfunc_argfac: An argument factory, i.e. callable that maps a ``Model``
                 to a dictionary of kwargs for the terminal value function (e.g.
-                `best_f` for `ExpectedImprovement`).
+                ``best_f`` for ``ExpectedImprovement``).
         """
         if current_value is None and cost_aware_utility is not None:
             raise UnsupportedError(
@@ -420,33 +420,33 @@ class qMultiFidelityKnowledgeGradient(qKnowledgeGradient):
     @t_batch_mode_transform()
     @average_over_ensemble_models
     def forward(self, X: Tensor) -> Tensor:
-        r"""Evaluate qMultiFidelityKnowledgeGradient on the candidate set `X`.
+        r"""Evaluate qMultiFidelityKnowledgeGradient on the candidate set ``X``.
 
         Args:
-            X: A `b x (q + num_fantasies) x d` Tensor with `b` t-batches of
-                `q + num_fantasies` design points each. We split this X tensor
-                into two parts in the `q` dimension (`dim=-2`). The first `q`
+            X: A ``b x (q + num_fantasies) x d`` Tensor with ``b`` t-batches of
+                ``q + num_fantasies`` design points each. We split this X tensor
+                into two parts in the ``q`` dimension (``dim=-2``). The first ``q``
                 are the q-batch of design points and the last num_fantasies are
                 the current solutions of the inner optimization problem.
 
-                `X_fantasies = X[..., -num_fantasies:, :]`
-                `X_fantasies.shape = b x num_fantasies x d`
+                ``X_fantasies = X[..., -num_fantasies:, :]``
+                ``X_fantasies.shape = b x num_fantasies x d``
 
-                `X_actual = X[..., :-num_fantasies, :]`
-                `X_actual.shape = b x q x d`
+                ``X_actual = X[..., :-num_fantasies, :]``
+                ``X_actual.shape = b x q x d``
 
-                In addition, `X` may be augmented with fidelity parameters as
-                part of thee `d`-dimension. Projecting fidelities to the target
-                fidelity is handled by `project`.
+                In addition, ``X`` may be augmented with fidelity parameters as
+                part of thee ``d``-dimension. Projecting fidelities to the target
+                fidelity is handled by ``project``.
 
         Returns:
-            A Tensor of shape `b`. For t-batch b, the q-KG value of the design
-                `X_actual[b]` is averaged across the fantasy models, where
-                `X_fantasies[b, i]` is chosen as the final selection for the
-                `i`-th fantasy model.
-                NOTE: If `current_value` is not provided, then this is not the
-                true KG value of `X_actual[b]`, and `X_fantasies[b, : ]` must be
-                maximized at fixed `X_actual[b]`.
+            A Tensor of shape ``b``. For t-batch b, the q-KG value of the design
+                ``X_actual[b]`` is averaged across the fantasy models, where
+                ``X_fantasies[b, i]`` is chosen as the final selection for the
+                ``i``-th fantasy model.
+                NOTE: If ``current_value`` is not provided, then this is not the
+                true KG value of ``X_actual[b]``, and ``X_fantasies[b, : ]`` must be
+                maximized at fixed ``X_actual[b]``.
         """
         X_actual, X_fantasies = _split_fantasy_points(X=X, n_f=self.num_fantasies)
 
@@ -458,7 +458,7 @@ class qMultiFidelityKnowledgeGradient(qKnowledgeGradient):
         else:
             X_eval = X_actual
 
-        # construct the fantasy model of shape `num_fantasies x b`
+        # construct the fantasy model of shape ``num_fantasies x b``
         # expand X (to potentially add trace observations)
         fantasy_model = self.model.fantasize(
             X=self.expand(X_eval),
@@ -494,7 +494,7 @@ class qMultiFidelityKnowledgeGradient(qKnowledgeGradient):
 
 class ProjectedAcquisitionFunction(AcquisitionFunction):
     r"""
-    Defines a wrapper around  an `AcquisitionFunction` that incorporates the project
+    Defines a wrapper around  an ``AcquisitionFunction`` that incorporates the project
     operator. Typically used to handle value functions in look-ahead methods.
     """
 
@@ -505,11 +505,11 @@ class ProjectedAcquisitionFunction(AcquisitionFunction):
     ) -> None:
         r"""
         Args:
-            base_value_function: The wrapped `AcquisitionFunction`.
-            project: A callable mapping a `batch_shape x q x d` tensor of design
-                points to a tensor with shape `batch_shape x q_term x d` projected
+            base_value_function: The wrapped ``AcquisitionFunction``.
+            project: A callable mapping a ``batch_shape x q x d`` tensor of design
+                points to a tensor with shape ``batch_shape x q_term x d`` projected
                 to the desired target set (e.g. the target fidelities in case of
-                multi-fidelity optimization). For the basic case, `q_term = q`.
+                multi-fidelity optimization). For the basic case, ``q_term = q``.
         """
         super().__init__(base_value_function.model)
         self.base_value_function = base_value_function
@@ -568,16 +568,16 @@ def _split_fantasy_points(X: Tensor, n_f: int) -> tuple[Tensor, Tensor]:
     r"""Split a one-shot optimization input into actual and fantasy points
 
     Args:
-        X: A `batch_shape x (q + n_f) x d`-dim tensor of actual and fantasy
+        X: A ``batch_shape x (q + n_f) x d``-dim tensor of actual and fantasy
             points
 
     Returns:
         2-element tuple containing
 
-        - A `batch_shape x q x d`-dim tensor `X_actual` of input candidates.
-        - A `n_f x batch_shape x 1 x d`-dim tensor `X_fantasies` of fantasy
-            points, where `X_fantasies[i, batch_idx]` is the i-th fantasy point
-            associated with the batch indexed by `batch_idx`.
+        - A ``batch_shape x q x d``-dim tensor ``X_actual`` of input candidates.
+        - A ``n_f x batch_shape x 1 x d``-dim tensor ``X_fantasies`` of fantasy
+            points, where ``X_fantasies[i, batch_idx]`` is the i-th fantasy point
+            associated with the batch indexed by ``batch_idx``.
     """
     if n_f > X.size(-2):
         raise ValueError(

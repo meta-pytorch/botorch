@@ -18,12 +18,11 @@ References
 from __future__ import annotations
 
 import math
-
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
 from copy import copy, deepcopy
 from functools import partial
-from typing import Any, cast, Optional
+from typing import Any, cast
 from warnings import warn
 
 import torch
@@ -104,8 +103,8 @@ class RelevancePursuitMixin(ABC):
 
     @property
     def is_active(self) -> Tensor:
-        """A Boolean Tensor of length `dim`, indicating which of the `dim` indices of
-        `self.sparse_parameter` are in the support, i.e. active."""
+        """A Boolean Tensor of length ``dim``, indicating which of the ``dim``
+        indices of ``self.sparse_parameter`` are in the support, i.e. active."""
         is_active = [(i in self.support) for i in range(self.dim)]
         return torch.tensor(
             is_active, dtype=torch.bool, device=self.sparse_parameter.device
@@ -113,8 +112,8 @@ class RelevancePursuitMixin(ABC):
 
     @property
     def inactive_indices(self) -> Tensor:
-        """An integral Tensor of length `dim - len(support)`, indicating which of the
-        indices of `self.sparse_parameter` are not in the support, i.e. inactive."""
+        """An integral Tensor of length ``dim - len(support)``, indicating which of the
+        indices of ``self.sparse_parameter`` are not in the support, i.e. inactive."""
         device = self.sparse_parameter.device
         return torch.arange(self.dim, device=device)[~self.is_active]
 
@@ -132,7 +131,7 @@ class RelevancePursuitMixin(ABC):
         return self
 
     def to_dense(self) -> RelevancePursuitMixin:
-        """Converts the sparse parameter to its dense, length-`dim` representation.
+        """Converts the sparse parameter to its dense, length-``dim`` representation.
 
         Returns:
             The current object in its dense representation.
@@ -162,7 +161,8 @@ class RelevancePursuitMixin(ABC):
         """Expands the support by a number of indices.
 
         Args:
-            indices: A list of indices of `self.sparse_parameter` to add to the support.
+            indices: A list of indices of ``self.sparse_parameter`` to add to
+                the support.
 
         Returns:
             The current object, updated with the expanded support.
@@ -190,7 +190,7 @@ class RelevancePursuitMixin(ABC):
         """Contracts the support by a number of indices.
 
         Args:
-            indices: A list of indices of `self.sparse_parameter` to remove from
+            indices: A list of indices of ``self.sparse_parameter`` to remove from
                 the support.
 
         Returns:
@@ -217,7 +217,7 @@ class RelevancePursuitMixin(ABC):
 
     # support initialization helpers
     def full_support(self) -> RelevancePursuitMixin:
-        """Initializes the RelevancePursuitMixin with a full, size-`dim` support.
+        """Initializes the RelevancePursuitMixin with a full, size-``dim`` support.
 
         Returns:
             The current object with full support in the dense representation.
@@ -262,7 +262,7 @@ class RelevancePursuitMixin(ABC):
                 marginal likelihood optimization, so we could generalize this to work
                 with any objective.
             n: The maximum number of elements to select. NOTE: The actual number of
-                elements that are added could be fewer if there are fewer than `n`
+                elements that are added could be fewer if there are fewer than ``n``
                 elements with a positive gradient.
             modifier: A function that modifies the gradient of the inactive elements
                 before computing the support expansion criterion. This can be used
@@ -418,9 +418,9 @@ class RelevancePursuitMixin(ABC):
                 other GP hyper-parameters that are *not* part of the Relevance Pursuit
                 module, to the initial values provided by their associated constraints.
             closure: A closure to use to compute the loss and the gradients, see
-                docstring of `fit_gpytorch_mll` for details.
-            optimizer: The numerical optimizer, see docstring of `fit_gpytorch_mll`.
-            closure_kwargs: Additional arguments to pass to the `closure` function.
+                docstring of ``fit_gpytorch_mll`` for details.
+            optimizer: The numerical optimizer, see docstring of ``fit_gpytorch_mll``.
+            closure_kwargs: Additional arguments to pass to the ``closure`` function.
             optimizer_kwargs: A dictionary of keyword arguments for the optimizer.
 
         Returns:
@@ -468,13 +468,13 @@ def forward_relevance_pursuit(
     optimizer: Callable | None = None,
     closure_kwargs: dict[str, Any] | None = None,
     optimizer_kwargs: dict[str, Any] | None = None,
-) -> tuple[RelevancePursuitMixin, Optional[list[Model]]]:
+) -> tuple[RelevancePursuitMixin, list[Model] | None]:
     """Forward Relevance Pursuit.
 
-    NOTE: For the robust `SparseOutlierNoise` model of [Ament2024pursuit]_, the forward
-    algorithm is generally faster than the backward algorithm, particularly when the
-    maximum sparsity level is small, but it leads to less robust results when the number
-    of outliers is large.
+    NOTE: For the robust ``SparseOutlierNoise`` model of
+    [Ament2024pursuit]_, the forward algorithm is generally faster than the
+    backward algorithm, particularly when the maximum sparsity level is small,
+    but it leads to less robust results when the number of outliers is large.
 
     For details, see [Ament2024pursuit]_ or https://arxiv.org/abs/2410.24222.
 
@@ -490,7 +490,7 @@ def forward_relevance_pursuit(
         >>> )
         >>> model = SingleTaskGP(train_X=X, train_Y=Y, likelihood=likelihood)
         >>> mll = ExactMarginalLogLikelihood(model.likelihood, model)
-        >>> # NOTE: `likelihood.noise_covar` is the `RelevancePursuitMixin`
+        >>> # NOTE: ``likelihood.noise_covar`` is the ``RelevancePursuitMixin``
         >>> sparse_module = likelihood.noise_covar
         >>> sparse_module, model_trace = forward_relevance_pursuit(sparse_module, mll)
 
@@ -507,12 +507,12 @@ def forward_relevance_pursuit(
         initial_support: The support with which to initialize the sparse module. By
             default, the support is initialized to the empty set.
         closure: A closure to use to compute the loss and the gradients, see docstring
-            of `fit_gpytorch_mll` for details.
-        optimizer: The numerical optimizer, see docstring of `fit_gpytorch_mll`.
-        closure_kwargs: Additional arguments to pass to the `closure` function.
+            of ``fit_gpytorch_mll`` for details.
+        optimizer: The numerical optimizer, see docstring of ``fit_gpytorch_mll``.
+        closure_kwargs: Additional arguments to pass to the ``closure`` function.
         optimizer_kwargs: A dictionary of keyword arguments to pass to the optimizer.
-            By default, initializes the "options" sub-dictionary with `maxiter` and
-            `ftol`, `gtol` values, unless specified.
+            By default, initializes the "options" sub-dictionary with ``maxiter`` and
+            ``ftol``, ``gtol`` values, unless specified.
 
     Returns:
         The relevance pursuit module after forward relevance pursuit optimization, and
@@ -584,13 +584,14 @@ def backward_relevance_pursuit(
     optimizer: Callable | None = None,
     closure_kwargs: dict[str, Any] | None = None,
     optimizer_kwargs: dict[str, Any] | None = None,
-) -> tuple[RelevancePursuitMixin, Optional[list[Model]]]:
+) -> tuple[RelevancePursuitMixin, list[Model] | None]:
     """Backward Relevance Pursuit.
 
-    NOTE: For the robust `SparseOutlierNoise` model of [Ament2024pursuit]_, the backward
-    algorithm generally leads to more robust results than the forward algorithm,
-    especially when the number of outliers is large, but is more expensive unless the
-    support is contracted by more than one in each iteration.
+    NOTE: For the robust ``SparseOutlierNoise`` model of
+    [Ament2024pursuit]_, the backward algorithm generally leads to more robust
+    results than the forward algorithm, especially when the number of outliers
+    is large, but is more expensive unless the support is contracted by more than
+    one in each iteration.
 
     For details, see [Ament2024pursuit]_ or https://arxiv.org/abs/2410.24222.
 
@@ -606,7 +607,7 @@ def backward_relevance_pursuit(
         >>> )
         >>> model = SingleTaskGP(train_X=X, train_Y=Y, likelihood=likelihood)
         >>> mll = ExactMarginalLogLikelihood(model.likelihood, model)
-        >>> # NOTE: `likelihood.noise_covar` is the `RelevancePursuitMixin`
+        >>> # NOTE: ``likelihood.noise_covar`` is the ``RelevancePursuitMixin``
         >>> sparse_module = likelihood.noise_covar
         >>> sparse_module, model_trace = backward_relevance_pursuit(sparse_module, mll)
 
@@ -623,12 +624,12 @@ def backward_relevance_pursuit(
         initial_support: The support with which to initialize the sparse module. By
             default, the support is initialized to the full set.
         closure: A closure to use to compute the loss and the gradients, see docstring
-            of `fit_gpytorch_mll` for details.
-        optimizer: The numerical optimizer, see docstring of `fit_gpytorch_mll`.
-        closure_kwargs: Additional arguments to pass to the `closure` function.
+            of ``fit_gpytorch_mll`` for details.
+        optimizer: The numerical optimizer, see docstring of ``fit_gpytorch_mll``.
+        closure_kwargs: Additional arguments to pass to the ``closure`` function.
         optimizer_kwargs: A dictionary of keyword arguments to pass to the optimizer.
-            By default, initializes the "options" sub-dictionary with `maxiter` and
-            `ftol`, `gtol` values, unless specified.
+            By default, initializes the "options" sub-dictionary with ``maxiter`` and
+            ``ftol``, ``gtol`` values, unless specified.
 
     Returns:
         The relevance pursuit module after forward relevance pursuit optimization, and
@@ -706,10 +707,10 @@ def get_posterior_over_support(
         >>> )
         >>> model = SingleTaskGP(train_X=X, train_Y=Y, likelihood=likelihood)
         >>> mll = ExactMarginalLogLikelihood(model.likelihood, model)
-        >>> # NOTE: `likelihood.noise_covar` is the `RelevancePursuitMixin`
+        >>> # NOTE: ``likelihood.noise_covar`` is the ``RelevancePursuitMixin``
         >>> sparse_module = likelihood.noise_covar
         >>> sparse_module, model_trace = backward_relevance_pursuit(sparse_module, mll)
-        >>> # NOTE: SparseOutlierNoise is the type of `sparse_module`
+        >>> # NOTE: SparseOutlierNoise is the type of ``sparse_module``
         >>> support_size, bmc_probabilities = get_posterior_over_support(
         >>>    SparseOutlierNoise, model_trace, prior_mean_of_support=2.0
         >>> )
@@ -717,15 +718,15 @@ def get_posterior_over_support(
     Args:
         rp_class: The relevance pursuit class to use for computing the support size.
             This is used to get the RelevancePursuitMixin from the Model via the static
-            method `_from_model`. We could generalize this and let the user pass this
+            method ``_from_model``. We could generalize this and let the user pass this
             getter instead.
         model_trace: A list of models with different support sizes, usually generated
             with relevance_pursuit.
         log_support_prior: Callable that computes the log prior probability of a
             support size. If None, uses a default exponential prior with a mean
-            specified by `prior_mean_of_support`.
+            specified by ``prior_mean_of_support``.
         prior_mean_of_support: A mean value for the default exponential prior
-            distribution over the support size. Ignored if `log_support_prior`
+            distribution over the support size. Ignored if ``log_support_prior``
             is passed.
 
     Returns:

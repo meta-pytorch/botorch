@@ -17,7 +17,7 @@ from botorch.utils.testing import BotorchTestCase
 
 
 def _helper_test_source(val):
-    """Helper method for testing `Dispatcher._source`."""
+    """Helper method for testing ``Dispatcher._source``."""
     ...  # pragma: nocover
 
 
@@ -128,7 +128,7 @@ class TestDispatcher(BotorchTestCase):
             with redirect_stdout(StringIO()) as buffer:
                 self.dispatcher.source(0)
 
-            # buffer.getvalue() has two newlines at the end, one due to `print`
+            # buffer.getvalue() has two newlines at the end, one due to ``print``
             self.assertEqual(buffer.getvalue()[:-1], source)
             with self.assertRaisesRegex(TypeError, "No function found"):
                 self.dispatcher._source(0.5)

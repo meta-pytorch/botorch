@@ -17,12 +17,12 @@ class ExponentialDecayKernel(Kernel):
     r"""GPyTorch Exponential Decay Kernel.
 
     Computes a covariance matrix based on the exponential decay kernel
-    between inputs `x_1` and `x_2` (we expect `d = 1`):
+    between inputs ``x_1`` and ``x_2`` (we expect ``d = 1``):
 
         K(x_1, x_2) = w + beta^alpha / (x_1 + x_2 + beta)^alpha.
 
-    where `w` is an offset parameter, `beta` is a lenthscale parameter, and
-    `alpha` is a power parameter.
+    where ``w`` is an offset parameter, ``beta`` is a lenthscale parameter, and
+    ``alpha`` is a power parameter.
     """
 
     has_lengthscale = True
@@ -38,15 +38,15 @@ class ExponentialDecayKernel(Kernel):
         r"""
         Args:
             lengthscale_constraint: Constraint to place on lengthscale parameter.
-                Default is `Positive`.
+                Default is ``Positive``.
             lengthscale_prior: Prior over the lengthscale parameter.
             power_constraint: Constraint to place on power parameter. Default is
-                `Positive`.
+                ``Positive``.
             power_prior: Prior over the power parameter.
             offset_constraint: Constraint to place on offset parameter. Default is
-                `Positive`.
-            active_dims: List of data dimensions to operate on. `len(active_dims)`
-                should equal `num_dimensions`.
+                ``Positive``.
+            active_dims: List of data dimensions to operate on. ``len(active_dims)``
+                should equal ``num_dimensions``.
         """
         super().__init__(**kwargs)
 

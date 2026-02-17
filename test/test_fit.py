@@ -44,7 +44,7 @@ class MockOptimizer:
         warnings: Iterable[WarningMessage] = (),
         exception: BaseException | None = None,
     ):
-        r"""Class used to mock `optimizer` argument to `fit_gpytorch_mll."""
+        r"""Class used to mock ``optimizer`` argument to `fit_gpytorch_mll."""
         self.randomize_requires_grad = randomize_requires_grad
         self.warnings = warnings
         self.exception = exception
@@ -94,7 +94,7 @@ class TestFitAPI(BotorchTestCase):
             self.mll = ExactMarginalLogLikelihood(model.likelihood, model)
 
     def test_fit_gpytorch_mll(self):
-        # Test that `optimizer` is only passed when non-None
+        # Test that ``optimizer`` is only passed when non-None
         with patch.object(fit, "FitGPyTorchMLL") as mock_dispatcher:
             fit_gpytorch_mll(self.mll, optimizer=None)
             mock_dispatcher.assert_called_once_with(
@@ -163,7 +163,7 @@ class TestFitFallback(BotorchTestCase):
             self._test_exceptions(mll, self.checkpoints[case])
 
     def _test_main(self, mll, ckpt):
-        r"""Main test for `_fit_fallback`."""
+        r"""Main test for ``_fit_fallback``."""
         optimizer = MockOptimizer()
         optimizer.warnings = [
             WarningMessage("test_runtime_warning", RuntimeWarning, __file__, 0),
@@ -178,7 +178,7 @@ class TestFitFallback(BotorchTestCase):
                         None,
                         max_attempts=2,
                         optimizer=optimizer,
-                        warning_handler=lambda w: not should_fail,
+                        warning_handler=lambda w, sf=should_fail: not sf,
                     )
                 except ModelFittingError:
                     failed = True
@@ -203,7 +203,7 @@ class TestFitFallback(BotorchTestCase):
                         except AttributeError:
                             pass
 
-        # Test `closure_kwargs`
+        # Test ``closure_kwargs``
         with self.subTest("closure_kwargs"):
             mock_closure = MagicMock(side_effect=StopIteration("foo"))
             with self.assertRaisesRegex(StopIteration, "foo"):
@@ -213,7 +213,7 @@ class TestFitFallback(BotorchTestCase):
             mock_closure.assert_called_once_with(ab="cd")
 
     def _test_warnings(self, mll, ckpt):
-        r"""Test warning handling for `_fit_fallback`."""
+        r"""Test warning handling for ``_fit_fallback``."""
         optimizer = MockOptimizer(randomize_requires_grad=False)
         optimizer.warnings = [
             WarningMessage("test_runtime_warning", RuntimeWarning, __file__, 0),
@@ -286,7 +286,7 @@ class TestFitFallback(BotorchTestCase):
             )
 
     def _test_exceptions(self, mll, ckpt):
-        r"""Test exception handling for `_fit_fallback`."""
+        r"""Test exception handling for ``_fit_fallback``."""
         optimizer = MockOptimizer(exception=NotPSDError("not_psd"))
         with catch_warnings():
             # Test behavior when encountering a caught exception

@@ -76,3 +76,14 @@ class TestStatDist(BotorchTestCase):
         )
         self.assertTrue(torch.all(permean_res > 0))
         self.assertTrue(torch.all(percov_res > 0))
+
+    def test_mvn_hellinger_distance_numerical_stability(self):
+        # Two almost equal distributions. Distance is approximatly 0.
+        dist1_mean = torch.tensor([[-0.4615126826879162]], dtype=torch.float64)
+        dist2_mean = torch.tensor([[-0.46151268268791173]], dtype=torch.float64)
+        dist1_cov = torch.tensor([[0.12132352941175625]], dtype=torch.float64)
+        dist2_cov = torch.tensor([[0.12132352941176472]], dtype=torch.float64)
+
+        res = mvn_hellinger_distance(dist1_mean, dist2_mean, dist1_cov, dist2_cov)
+        self.assertFalse(res.isnan().any())
+        self.assertAllClose(res, torch.tensor([0.0], dtype=torch.float64))

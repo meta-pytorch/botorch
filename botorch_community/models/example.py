@@ -30,9 +30,9 @@ class ExampleModel(SingleTaskGP):
         r"""Initialize the example model from [Example2024paper]_.
 
         Args:
-            train_X: A `batch_shape x n x d` tensor of training features.
-            train_Y: A `batch_shape x n x m` tensor of training observations.
-            train_Yvar: An optional `batch_shape x n x m` tensor of observed
+            train_X: A ``batch_shape x n x d`` tensor of training features.
+            train_Y: A ``batch_shape x n x m`` tensor of training observations.
+            train_Yvar: An optional ``batch_shape x n x m`` tensor of observed
                 measurement noise.
         """
         super().__init__(

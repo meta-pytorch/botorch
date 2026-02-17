@@ -114,13 +114,13 @@ class TestInitializeQBatch(BotorchTestCase):
             self.assertEqual(ics.shape, torch.Size([2, 3, 4]))
             with self.assertRaises(RuntimeError):
                 initialize_q_batch_nonneg(X=X, acq_vals=acq_vals, n=10)
-            # test less than `n` positive acquisition values
+            # test less than ``n`` positive acquisition values
             acq_vals = torch.arange(5, device=self.device, dtype=dtype) - 3
             ics_X, ics_acq_vals = initialize_q_batch_nonneg(X=X, acq_vals=acq_vals, n=2)
             self.assertEqual(ics_X.shape, torch.Size([2, 3, 4]))
             # check that we chose the point with the positive acquisition value
             self.assertTrue((ics_acq_vals > 0).any())
-            # test less than `n` alpha_pos values
+            # test less than ``n`` alpha_pos values
             acq_vals = torch.arange(5, device=self.device, dtype=dtype)
             ics, _ = initialize_q_batch_nonneg(X=X, acq_vals=acq_vals, n=2, alpha=1.0)
             self.assertEqual(ics.shape, torch.Size([2, 3, 4]))
@@ -241,11 +241,14 @@ class TestGenBatchInitialCandidates(BotorchTestCase):
             bounds = bounds.to(device=self.device, dtype=dtype)
             mock_acqf.X_baseline = bounds  # for testing sample_around_best
             mock_acqf.model = MockModel(MockPosterior(mean=bounds[:, :1]))
-            with mock.patch.object(
-                MockAcquisitionFunction,
-                "__call__",
-                wraps=mock_acqf.__call__,
-            ) as mock_acqf_call, warnings.catch_warnings():
+            with (
+                mock.patch.object(
+                    MockAcquisitionFunction,
+                    "__call__",
+                    wraps=mock_acqf.__call__,
+                ) as mock_acqf_call,
+                warnings.catch_warnings(),
+            ):
                 warnings.simplefilter("ignore", category=BadInitialCandidatesWarning)
                 batch_initial_conditions = gen_batch_initial_conditions(
                     acq_function=mock_acqf,
@@ -318,11 +321,14 @@ class TestGenBatchInitialCandidates(BotorchTestCase):
             bounds = bounds.to(device=self.device, dtype=dtype)
             mock_acqf.X_baseline = bounds  # for testing sample_around_best
             mock_acqf.model = MockModel(MockPosterior(mean=bounds[:, :1]))
-            with mock.patch.object(
-                MockAcquisitionFunction,
-                "__call__",
-                wraps=mock_acqf.__call__,
-            ) as mock_acqf_call, warnings.catch_warnings():
+            with (
+                mock.patch.object(
+                    MockAcquisitionFunction,
+                    "__call__",
+                    wraps=mock_acqf.__call__,
+                ) as mock_acqf_call,
+                warnings.catch_warnings(),
+            ):
                 warnings.simplefilter("ignore", category=BadInitialCandidatesWarning)
                 options = {
                     "topn": topn,
@@ -421,12 +427,15 @@ class TestGenBatchInitialCandidates(BotorchTestCase):
         for dtype in (torch.float, torch.double):
             bounds = torch.tensor([[0, 0], [1, 1]], device=self.device, dtype=dtype)
             samples = torch.zeros(10, 1, 2, device=self.device, dtype=dtype)
-            with self.assertWarnsRegex(
-                expected_warning=BadInitialCandidatesWarning,
-                expected_regex="Unable to find non-zero acquisition",
-            ), mock.patch(
-                "botorch.optim.initializers.draw_sobol_samples",
-                return_value=samples,
+            with (
+                self.assertWarnsRegex(
+                    expected_warning=BadInitialCandidatesWarning,
+                    expected_regex="Unable to find non-zero acquisition",
+                ),
+                mock.patch(
+                    "botorch.optim.initializers.draw_sobol_samples",
+                    return_value=samples,
+                ),
             ):
                 batch_initial_conditions = gen_batch_initial_conditions(
                     acq_function=MockAcquisitionFunction(),
@@ -677,11 +686,14 @@ class TestGenBatchInitialCandidates(BotorchTestCase):
                 [True, False], [None, 1234], [None, 1], [None, {0: 0.5}]
             ):
                 mock_acqf = MockAcquisitionFunction()
-                with mock.patch.object(
-                    MockAcquisitionFunction,
-                    "__call__",
-                    wraps=mock_acqf.__call__,
-                ) as mock_acqf_call, warnings.catch_warnings():
+                with (
+                    mock.patch.object(
+                        MockAcquisitionFunction,
+                        "__call__",
+                        wraps=mock_acqf.__call__,
+                    ) as mock_acqf_call,
+                    warnings.catch_warnings(),
+                ):
                     warnings.simplefilter(
                         "ignore", category=BadInitialCandidatesWarning
                     )
@@ -840,27 +852,30 @@ class TestGenBatchInitialCandidates(BotorchTestCase):
                 [True, False], [None, 1234], [None, 1], [None, {0: 0.5}]
             ):
 
-                def generator(n: int, q: int, seed: int | None):
+                def generator(n: int, q: int, seed: int | None, _bounds=bounds):
                     with manual_seed(seed):
                         X_rnd_nlzd = torch.rand(
                             n,
                             q,
-                            bounds.shape[-1],
-                            dtype=bounds.dtype,
+                            _bounds.shape[-1],
+                            dtype=_bounds.dtype,
                             device=self.device,
                         )
                         X_rnd = unnormalize(
-                            X_rnd_nlzd, bounds, update_constant_bounds=False
+                            X_rnd_nlzd, _bounds, update_constant_bounds=False
                         )
                         X_rnd[..., -1] = 0.42
                         return X_rnd
 
                 mock_acqf = MockAcquisitionFunction()
-                with mock.patch.object(
-                    MockAcquisitionFunction,
-                    "__call__",
-                    wraps=mock_acqf.__call__,
-                ), warnings.catch_warnings():
+                with (
+                    mock.patch.object(
+                        MockAcquisitionFunction,
+                        "__call__",
+                        wraps=mock_acqf.__call__,
+                    ),
+                    warnings.catch_warnings(),
+                ):
                     warnings.simplefilter(
                         "ignore", category=BadInitialCandidatesWarning
                     )
@@ -1061,13 +1076,14 @@ class TestGenOneShotKGInitialConditions(BotorchTestCase):
                         )
                     ]
                 }
-                with self.subTest(
-                    f"intra-point {constraint_type} not supported"
-                ), self.assertRaisesRegex(
-                    NotImplementedError,
-                    "Indices must be one-dimensional "
-                    "in gen_one_shot_kg_initial_conditions. "
-                    "Received indices",
+                with (
+                    self.subTest(f"intra-point {constraint_type} not supported"),
+                    self.assertRaisesRegex(
+                        NotImplementedError,
+                        "Indices must be one-dimensional "
+                        "in gen_one_shot_kg_initial_conditions. "
+                        "Received indices",
+                    ),
                 ):
                     gen_one_shot_kg_initial_conditions(
                         acq_function=mock_kg,
@@ -1173,15 +1189,15 @@ class TestGenOneShotHVKGInitialConditions(BotorchTestCase):
                 mock_fantasy_cands = torch.ones(20, 10, 2)
                 mock_fantasy_vals = torch.randn(20)
 
-                def mock_gen_ics(*args, **kwargs):
+                def mock_gen_ics(*args, _q=q, _hvkg=hvkg, **kwargs):
                     fixed_X_fantasies = kwargs.get("fixed_X_fantasies")
                     if fixed_X_fantasies is None:
                         return torch.rand(
-                            kwargs["num_restarts"], q + hvkg.num_pseudo_points, 2
+                            kwargs["num_restarts"], _q + _hvkg.num_pseudo_points, 2
                         )
                     rand_candidates = torch.rand(
                         1,
-                        q,
+                        _q,
                         2,
                         dtype=fixed_X_fantasies.dtype,
                         device=fixed_X_fantasies.device,

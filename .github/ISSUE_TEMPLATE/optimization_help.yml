@@ -1,0 +1,61 @@
+name: 🌱 Optimization Help
+description: Get help with optimization performance issues.
+labels: ["opt-performance"]
+title: "[Optimization Help]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reaching out! We're here to help you get the most out of BoTorch.
+
+        To help us diagnose your issue quickly, please provide the information below. You can use the `get_data_for_optimization_help` helper function (see [this notebook](https://github.com/meta-pytorch/botorch/blob/main/tutorials/optimization_issue_diagnostics/optimization_issue_diagnostics.ipynb) for a full example) to export your training data and model state dict:
+
+        ```
+        from botorch.models.utils import get_data_for_optimization_help
+        # call this on your model to save as optimization_help_data.json
+        get_data_for_optimization_help(model)
+        ```
+  - type: textarea
+    id: problem-description
+    attributes:
+      label: Problem Description
+      description: Describe what optimization you're running. Then, describe - as best as you can - what results you're seeing vs. what you expected.
+      placeholder: |
+        I'm running single-objective BO with qEI on a 5-dimensional problem, and it seems to get stuck at [some X or Y] after [N iterations]. I expected BO to explore more, but it appears stuck at the edge of the search space.
+    validations:
+      required: true
+  - type: textarea
+    id: optimization-help-data
+    attributes:
+      label: Optimization Help Data
+      description: Attach your `optimization_help_data.json` file (see above for how to generate it).
+    validations:
+      required: true
+  - type: textarea
+    id: code-snippet
+    attributes:
+      label: Code Snippet (optional)
+      description: A minimal code snippet showing your optimization loop.
+      render: python
+  - type: input
+    id: botorch-version
+    attributes:
+      label: BoTorch Version
+      description: What version of BoTorch are you using? If you're using a development version, include the commit hash.
+    validations:
+      required: true
+  - type: input
+    id: python-version
+    attributes:
+      label: Python Version
+      description: What version of Python are you using?
+    validations:
+      required: false
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Code of Conduct
+      description: By submitting this issue, you agree to follow BoTorch's [Code of Conduct](https://github.com/meta-pytorch/botorch/blob/main/CODE_OF_CONDUCT.md).
+      options:
+        - label: I agree to follow BoTorch's Code of Conduct
+          required: true

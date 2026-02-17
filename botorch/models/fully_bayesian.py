@@ -12,7 +12,7 @@ hyperparameters using the No-U-Turn-Sampler (NUTS). This is followed by
 sampling a small set of hyperparameters (often ~16) from the posterior
 that we will use for model predictions and for computing acquisition function
 values. By contrast, our “standard” models (e.g.
-`SingleTaskGP`) learn only a single best value for each hyperparameter using
+``SingleTaskGP``) learn only a single best value for each hyperparameter using
 MAP. The fully Bayesian method generally results in a better and more
 well-calibrated model, but is more computationally intensive. For a full
 description, see [Eriksson2021saasbo].
@@ -110,7 +110,7 @@ def compute_dists(X: Tensor, lengthscale: Tensor) -> Tensor:
 
 
 def reshape_and_detach(target: Tensor, new_value: Tensor) -> None:
-    """Detach and reshape `new_value` to match `target`."""
+    """Detach and reshape ``new_value`` to match ``target``."""
     return new_value.detach().clone().view(target.shape).to(target)
 
 
@@ -119,15 +119,18 @@ class PyroModel:
     Base class for a Pyro model; used to assist in learning hyperparameters.
 
     This class and its subclasses are not a standard BoTorch models; instead
-    the subclasses are used as inputs to a `SaasFullyBayesianSingleTaskGP`,
+    the subclasses are used as inputs to a ``SaasFullyBayesianSingleTaskGP``,
     which should then have its hyperparameters fit with
-    `fit_fully_bayesian_model_nuts`. (By default, its subclass `SaasPyroModel`
-    is used).  A `PyroModel`’s `sample` method should specify lightweight
+    ``fit_fully_bayesian_model_nuts``. (By default, its subclass ``SaasPyroModel``
+    is used).  A ``PyroModel``'s ``sample`` method should specify lightweight
     PyTorch functionality, which will be used for fast model fitting with NUTS.
-    The utility of `PyroModel` is in enabling fast fitting with NUTS, since we
+    The utility of ``PyroModel`` is in enabling fast fitting with NUTS, since we
     would otherwise need to use GPyTorch, which is computationally infeasible
     in combination with Pyro.
     """
+
+    _prior_mode: bool = False
+    _noiseless_eps_for_sampleability: float = 1e-7
 
     def __init__(
         self,
@@ -162,7 +165,12 @@ class PyroModel:
             return self.train_X
 
     def set_inputs(
-        self, train_X: Tensor, train_Y: Tensor, train_Yvar: Tensor | None = None
+        self,
+        train_X: Tensor,
+        train_Y: Tensor,
+        train_Yvar: Tensor | None = None,
+        task_feature: int | None = None,
+        task_rank: int | None = None,
     ) -> None:
         """Set the training data.
 
@@ -170,6 +178,10 @@ class PyroModel:
             train_X: Training inputs (n x d)
             train_Y: Training targets (n x 1)
             train_Yvar: Observed noise variance (n x 1). Inferred if None.
+            task_feature: The index of the task feature column. Used by
+                multi-task mixins.
+            task_rank: The number of learned task embeddings. Used by
+                multi-task mixins.
         """
         self.train_X = train_X
         self.train_Y = train_Y
@@ -187,6 +199,19 @@ class PyroModel:
         mcmc_samples: dict[str, Tensor],
     ) -> dict[str, Tensor]:
         """Post-process the final MCMC samples."""
+        pass  # pragma: no cover
+
+    @abstractmethod
+    def get_dummy_mcmc_samples(
+        self,
+        num_mcmc_samples: int,
+        **tkwargs: Any,
+    ) -> dict[str, Tensor]:
+        """Return dummy MCMC samples for state dict loading.
+
+        Each subclass returns a dict of ones with the keys and shapes that
+        ``load_mcmc_samples`` expects.
+        """
         pass  # pragma: no cover
 
     @abstractmethod
@@ -242,12 +267,124 @@ class PyroModel:
 
         return c0, c1
 
+    def _common_dummy_samples(
+        self,
+        mcmc_samples: dict[str, Tensor],
+        num_mcmc_samples: int,
+        **tkwargs: Any,
+    ) -> dict[str, Tensor]:
+        """Add noise and warping entries to ``mcmc_samples`` in-place."""
+        dim = self.ard_num_dims
+        if self.train_Yvar is None:
+            mcmc_samples["noise"] = torch.ones(num_mcmc_samples, **tkwargs)
+        if self.use_input_warping:
+            mcmc_samples["c0"] = torch.ones(num_mcmc_samples, dim, **tkwargs)
+            mcmc_samples["c1"] = torch.ones(num_mcmc_samples, dim, **tkwargs)
+        return mcmc_samples
+
+    def _prepare_features(self, X: Tensor, **tkwargs: Any) -> Tensor:
+        """Select feature columns for kernel computation.
+
+        Overridden by multi-task mixins to strip the task column.
+        """
+        return X
+
+    def _maybe_multitask_transform(
+        self, K_noiseless: Tensor, mean: Tensor, **tkwargs: Any
+    ) -> tuple[Tensor, Tensor]:
+        r"""Apply multi-task covariance transform to the kernel and mean.
+
+        No-op for single-task models. Overridden by multi-task mixins.
+        """
+        return K_noiseless, mean
+
+    def _build_mean_module(
+        self,
+        mcmc_samples: dict[str, Tensor],
+        batch_shape: torch.Size,
+        **tkwargs: Any,
+    ) -> Mean:
+        """Construct and populate the mean module from MCMC samples.
+
+        Returns a scalar ``ConstantMean`` for single-task models. Overridden by
+        multi-task mixins to return a ``MultitaskMean``.
+        """
+        mean_module = ConstantMean(batch_shape=batch_shape).to(**tkwargs)
+        mean_module.constant.data = reshape_and_detach(
+            target=mean_module.constant.data,
+            new_value=mcmc_samples["mean"],
+        )
+        return mean_module
+
+    def _build_multitask_covariance(
+        self,
+        mcmc_samples: dict[str, Tensor],
+        covar_module: Kernel,
+        batch_shape: torch.Size,
+        **tkwargs: Any,
+    ) -> Kernel:
+        """Optionally wrap covar_module with task covariance.
+
+        No-op for single-task models. Overridden by multi-task mixins.
+        """
+        return covar_module
+
+    def sample_observations(
+        self,
+        mean: Tensor,
+        K_noiseless: Tensor,
+        noise: Tensor,
+        **tkwargs: Any,
+    ) -> None:
+        r"""Sample the observations Y (or prior samples in prior mode).
+
+        Args:
+            mean: The mean constant.
+            K_noiseless: The kernel matrix without noise.
+            noise: The noise variance.
+            **tkwargs: dtype and device keyword arguments.
+        """
+        if self.train_Y.shape[-2] == 0:
+            # Do not attempt to sample Y if the data is empty.
+            return
+
+        n = self.train_X.shape[0]
+        K = K_noiseless + noise * torch.eye(n, **tkwargs)
+
+        if self._prior_mode:
+            self.f_prior_sample = pyro.sample(
+                "f",
+                pyro.distributions.MultivariateNormal(
+                    loc=mean.view(-1).expand(n),
+                    covariance_matrix=K_noiseless
+                    + self._noiseless_eps_for_sampleability * torch.eye(n, **tkwargs),
+                    # sadly need to add a little bit of noise to be possible
+                    # to sample from this
+                ),
+            )
+            self.Y_prior_sample = pyro.sample(
+                "Y",
+                pyro.distributions.Normal(
+                    loc=self.f_prior_sample,
+                    scale=noise.sqrt(),
+                ),
+            )
+        else:
+            pyro.sample(
+                "Y",
+                pyro.distributions.MultivariateNormal(
+                    loc=mean.view(-1).expand(n),
+                    covariance_matrix=K,
+                ),
+                obs=self.train_Y.squeeze(-1),
+            )
+
 
 class MaternPyroModel(PyroModel):
     r"""Implementation of the a fully Bayesian model with a dimension-scaling prior.
 
-    `MaternPyroModel` is not a standard BoTorch model; instead, it is used as
-    an input to `FullyBayesianSingleTaskGP`.
+    ``MaternPyroModel`` is not a standard BoTorch model; instead, it is used as
+    an input to ``FullyBayesianSingleTaskGP``.
     """
 
     _outputscale_prior_concentration: float | None = None
@@ -269,19 +406,14 @@ class MaternPyroModel(PyroModel):
         noise = self.sample_noise(**tkwargs)
         lengthscale = self.sample_lengthscale(dim=self.ard_num_dims, **tkwargs)
         X_tf = self._maybe_input_warp(self.train_X, **tkwargs)
-        if self.train_Y.shape[-2] > 0:
-            # Do not attempt to sample Y if the data is empty.
-            # This leads to errors with empty data.
-            K = matern52_kernel(X=X_tf, lengthscale=lengthscale)
-            K = outputscale * K + noise * torch.eye(self.train_X.shape[0], **tkwargs)
-            pyro.sample(
-                "Y",
-                pyro.distributions.MultivariateNormal(
-                    loc=mean.view(-1).expand(self.train_X.shape[0]),
-                    covariance_matrix=K,
-                ),
-                obs=self.train_Y.squeeze(-1),
-            )
+        X_tf = self._prepare_features(X_tf, **tkwargs)
+        K_noiseless = outputscale * matern52_kernel(X=X_tf, lengthscale=lengthscale)
+        K_noiseless, mean = self._maybe_multitask_transform(
+            K_noiseless, mean, **tkwargs
+        )
+        self.sample_observations(
+            mean=mean, K_noiseless=K_noiseless, noise=noise, **tkwargs
+        )
 
     def sample_lengthscale(self, dim: int, **tkwargs: Any) -> Tensor:
         r"""Sample the lengthscale."""
@@ -331,6 +463,18 @@ class MaternPyroModel(PyroModel):
         """
         return mcmc_samples
 
+    def get_dummy_mcmc_samples(
+        self,
+        num_mcmc_samples: int,
+        **tkwargs: Any,
+    ) -> dict[str, Tensor]:
+        """Return dummy MCMC samples for state dict loading."""
+        mcmc_samples = {
+            "mean": torch.ones(num_mcmc_samples, **tkwargs),
+            "lengthscale": torch.ones(num_mcmc_samples, self.ard_num_dims, **tkwargs),
+        }
+        return self._common_dummy_samples(mcmc_samples, num_mcmc_samples, **tkwargs)
+
     def _get_covar_module(
         self,
         use_scale_kernel: bool,
@@ -366,14 +510,16 @@ class MaternPyroModel(PyroModel):
         num_mcmc_samples = len(mcmc_samples["mean"])
         batch_shape = torch.Size([num_mcmc_samples])
 
-        mean_module = ConstantMean(batch_shape=batch_shape).to(**tkwargs)
+        mean_module = self._build_mean_module(
+            mcmc_samples=mcmc_samples, batch_shape=batch_shape, **tkwargs
+        )
         outputscale = mcmc_samples.get("outputscale")
         covar_module = self._get_covar_module(
             use_scale_kernel=outputscale is not None, batch_shape=batch_shape, **tkwargs
         )
         if self.train_Yvar is not None:
             likelihood = FixedNoiseGaussianLikelihood(
-                # Reshape to shape `num_mcmc_samples x N`
+                # Reshape to shape ``num_mcmc_samples x N``
                 noise=self.train_Yvar.squeeze(-1).expand(
                     num_mcmc_samples, len(self.train_Yvar)
                 ),
@@ -400,10 +546,6 @@ class MaternPyroModel(PyroModel):
             target=base_kernel.lengthscale,
             new_value=mcmc_samples["lengthscale"],
         )
-        mean_module.constant.data = reshape_and_detach(
-            target=mean_module.constant.data,
-            new_value=mcmc_samples["mean"],
-        )
         if self.use_input_warping:
             indices = (
                 list(range(self.ard_num_dims)) if self.indices is None else self.indices
@@ -426,6 +568,13 @@ class MaternPyroModel(PyroModel):
             )
         else:
             warping_function = None
+
+        covar_module = self._build_multitask_covariance(
+            mcmc_samples=mcmc_samples,
+            covar_module=covar_module,
+            batch_shape=batch_shape,
+            **tkwargs,
+        )
         return mean_module, covar_module, likelihood, warping_function
 
 
@@ -436,11 +585,11 @@ class SaasPyroModel(MaternPyroModel):
     parameters. This model is suitable for high-dimensional BO with potentially
     hundreds of tunable parameters. See [Eriksson2021saasbo]_ for more details.
 
-    `SaasPyroModel` is not a standard BoTorch model; instead, it is used as
-    an input to `SaasFullyBayesianSingleTaskGP`. It is used as a default keyword
+    ``SaasPyroModel`` is not a standard BoTorch model; instead, it is used as
+    an input to ``SaasFullyBayesianSingleTaskGP``. It is used as a default keyword
     argument, and end users are not likely to need to instantiate or modify a
-    `SaasPyroModel` unless they want to customize its attributes (such as
-    `covar_module`).
+    ``SaasPyroModel`` unless they want to customize its attributes (such as
+    ``covar_module``).
     """
 
     _outputscale_prior_concentration: float | None = 2.0
@@ -480,20 +629,32 @@ class SaasPyroModel(MaternPyroModel):
             * mcmc_samples["_kernel_inv_length_sq"]
         )
         mcmc_samples["lengthscale"] = inv_length_sq.rsqrt()
-        # Delete `kernel_tausq` and `_kernel_inv_length_sq` since they aren't loaded
+        # Delete ``kernel_tausq`` and ``_kernel_inv_length_sq`` since they aren't loaded
         # into the final model.
         del mcmc_samples["kernel_tausq"], mcmc_samples["_kernel_inv_length_sq"]
+        return mcmc_samples
+
+    def get_dummy_mcmc_samples(
+        self,
+        num_mcmc_samples: int,
+        **tkwargs: Any,
+    ) -> dict[str, Tensor]:
+        """Return dummy MCMC samples for state dict loading."""
+        mcmc_samples = super().get_dummy_mcmc_samples(
+            num_mcmc_samples=num_mcmc_samples, **tkwargs
+        )
+        mcmc_samples["outputscale"] = torch.ones(num_mcmc_samples, **tkwargs)
         return mcmc_samples
 
 
 class LinearPyroModel(PyroModel):
     r"""Implementation of a Bayesian Linear pyro model.
 
-    `LinearPyroModel` is not a standard BoTorch model; instead, it is used as
-    an input to `FullyBayesianLinearSingleTaskGP`. It is used as a default keyword
+    ``LinearPyroModel`` is not a standard BoTorch model; instead, it is used as
+    an input to ``FullyBayesianLinearSingleTaskGP``. It is used as a default keyword
     argument, and end users are not likely to need to instantiate or modify a
-    `LinearPyroModel` unless they want to customize its attributes (such as
-    `covar_module`).
+    ``LinearPyroModel`` unless they want to customize its attributes (such as
+    ``covar_module``).
     """
 
     def sample(self) -> None:
@@ -502,17 +663,15 @@ class LinearPyroModel(PyroModel):
         mean = self.sample_mean(**tkwargs)
         weight_variance = self.sample_weight_variance(**tkwargs)
         X_tf = self._maybe_input_warp(X=self.train_X, **tkwargs)
+        X_tf = self._prepare_features(X_tf, **tkwargs)
         X_tf = X_tf - 0.5  # center transformed data at 0 (for linear model)
-        K = linear_kernel(X=X_tf, weight_variance=weight_variance)
+        K_noiseless = linear_kernel(X=X_tf, weight_variance=weight_variance)
         noise = self.sample_noise(**tkwargs)
-        K = K + noise * torch.eye(self.train_X.shape[0], **tkwargs)
-        pyro.sample(
-            "Y",
-            pyro.distributions.MultivariateNormal(
-                loc=mean.view(-1).expand(self.train_X.shape[0]),
-                covariance_matrix=K,
-            ),
-            obs=self.train_Y.squeeze(-1),
+        K_noiseless, mean = self._maybe_multitask_transform(
+            K_noiseless, mean, **tkwargs
+        )
+        self.sample_observations(
+            mean=mean, K_noiseless=K_noiseless, noise=noise, **tkwargs
         )
 
     def sample_weight_variance(self, alpha: float = 0.1, **tkwargs: Any) -> Tensor:
@@ -550,6 +709,20 @@ class LinearPyroModel(PyroModel):
         ).sqrt()
         del mcmc_samples["tau_sq"], mcmc_samples["_weight_variance_sq"]
         return mcmc_samples
+
+    def get_dummy_mcmc_samples(
+        self,
+        num_mcmc_samples: int,
+        **tkwargs: Any,
+    ) -> dict[str, Tensor]:
+        """Return dummy MCMC samples for state dict loading."""
+        mcmc_samples = {
+            "mean": torch.ones(num_mcmc_samples, **tkwargs),
+            "weight_variance": torch.ones(
+                num_mcmc_samples, self.ard_num_dims, **tkwargs
+            ),
+        }
+        return self._common_dummy_samples(mcmc_samples, num_mcmc_samples, **tkwargs)
 
     def load_mcmc_samples(
         self, mcmc_samples: dict[str, Tensor]
@@ -596,7 +769,7 @@ class LinearPyroModel(PyroModel):
             input_tf = ChainedInputTransform(warp=warping_function, normalize=input_tf)
         if self.train_Yvar is not None:
             likelihood = FixedNoiseGaussianLikelihood(
-                # Reshape to shape `num_mcmc_samples x N`
+                # Reshape to shape ``num_mcmc_samples x N``
                 noise=self.train_Yvar.squeeze(-1).expand(
                     num_mcmc_samples, len(self.train_Yvar)
                 ),
@@ -628,10 +801,10 @@ class AbstractFullyBayesianSingleTaskGP(ExactGP, BatchedMultiOutputGPyTorchModel
     This model assumes that the inputs have been normalized to [0, 1]^d and that
     the output has been standardized to have zero mean and unit variance. You can
     either normalize and standardize the data before constructing the model or use
-    an `input_transform` and `outcome_transform`.
+    an ``input_transform`` and ``outcome_transform``.
 
-    You are expected to use `fit_fully_bayesian_model_nuts` to fit this model as it
-    isn't compatible with `fit_gpytorch_mll`.
+    You are expected to use ``fit_fully_bayesian_model_nuts`` to fit this model as it
+    isn't compatible with ``fit_gpytorch_mll``.
     """
 
     _is_fully_bayesian = True
@@ -656,9 +829,9 @@ class AbstractFullyBayesianSingleTaskGP(ExactGP, BatchedMultiOutputGPyTorchModel
             train_Yvar: Observed noise variance (n x 1). Inferred if None.
             outcome_transform: An outcome transform that is applied to the
                 training data during instantiation and to the posterior during
-                inference (that is, the `Posterior` obtained by calling
-                `.posterior` on the model will be on the original scale).
-                Note that `.train()` will be called on the outcome transform during
+                inference (that is, the ``Posterior`` obtained by calling
+                ``.posterior`` on the model will be on the original scale).
+                Note that ``.train()`` will be called on the outcome transform during
                 instantiation of the model.
             input_transform: An input transform that is applied in the model's
                 forward pass.
@@ -733,7 +906,7 @@ class AbstractFullyBayesianSingleTaskGP(ExactGP, BatchedMultiOutputGPyTorchModel
     @property
     def batch_shape(self) -> torch.Size:
         r"""Batch shape of the model, equal to the number of MCMC samples.
-        Note that `SaasFullyBayesianSingleTaskGP` does not support batching
+        Note that ``SaasFullyBayesianSingleTaskGP`` does not support batching
         over input data at this point."""
         return torch.Size([self.num_mcmc_samples])
 
@@ -748,12 +921,12 @@ class AbstractFullyBayesianSingleTaskGP(ExactGP, BatchedMultiOutputGPyTorchModel
     def train(
         self: TFullyBayesianSingleTaskGP, mode: bool = True, reset: bool = True
     ) -> TFullyBayesianSingleTaskGP:
-        r"""Puts the model in `train` mode.
+        r"""Puts the model in ``train`` mode.
 
         Args:
             mode: A boolean indicating whether to put the model in training mode.
             reset: A boolean indicating whether to reset the model to its initial
-                state if mode is True. If `mode` is False, this argument is ignored.
+                state if mode is True. If ``mode`` is False, this argument is ignored.
 
         Returns:
             The model itself.
@@ -768,7 +941,7 @@ class AbstractFullyBayesianSingleTaskGP(ExactGP, BatchedMultiOutputGPyTorchModel
     def load_mcmc_samples(self, mcmc_samples: dict[str, Tensor]) -> None:
         r"""Load the MCMC hyperparameter samples into the model.
 
-        This method will be called by `fit_fully_bayesian_model_nuts` when the model
+        This method will be called by ``fit_fully_bayesian_model_nuts`` when the model
         has been fitted in order to create a batched SingleTaskGP model.
         """
         (self.mean_module, self.covar_module, self.likelihood, input_transform) = (
@@ -789,10 +962,11 @@ class AbstractFullyBayesianSingleTaskGP(ExactGP, BatchedMultiOutputGPyTorchModel
 
     def forward(self, X: Tensor) -> MultivariateNormal:
         """
-        Unlike in other classes' `forward` methods, there is no `if self.training`
-        block, because it ought to be unreachable: If `self.train()` has been called,
-        then `self.covar_module` will be None, `check_if_fitted()` will fail, and the
-        rest of this method will not run.
+        Unlike in other classes' ``forward`` methods, there is no
+        ``if self.training`` block, because it ought to be unreachable:
+        If ``self.train()`` has been called, then ``self.covar_module`` will
+        be None, ``check_if_fitted()`` will fail, and the rest of this method
+        will not run.
         """
         self._check_if_fitted()
         if self.training:
@@ -813,8 +987,8 @@ class AbstractFullyBayesianSingleTaskGP(ExactGP, BatchedMultiOutputGPyTorchModel
         r"""Computes the posterior over model outputs at the provided points.
 
         Args:
-            X: A `(batch_shape) x q x d`-dim Tensor, where `d` is the dimension
-                of the feature space and `q` is the number of points considered
+            X: A ``(batch_shape) x q x d``-dim Tensor, where ``d`` is the dimension
+                of the feature space and ``q`` is the number of points considered
                 jointly.
             output_indices: A list of indices, corresponding to the outputs over
                 which to compute the posterior (if the model is multi-output).
@@ -823,11 +997,11 @@ class AbstractFullyBayesianSingleTaskGP(ExactGP, BatchedMultiOutputGPyTorchModel
                 computes the posterior over all model outputs.
             observation_noise: If True, add the observation noise from the
                 likelihood to the posterior. If a Tensor, use it directly as the
-                observation noise (must be of shape `(batch_shape) x q x m`).
+                observation noise (must be of shape ``(batch_shape) x q x m``).
             posterior_transform: An optional PosteriorTransform.
 
         Returns:
-            A `GaussianMixturePosterior` object. Includes observation noise
+            A ``GaussianMixturePosterior`` object. Includes observation noise
                 if specified.
         """
         self._check_if_fitted()
@@ -848,17 +1022,17 @@ class AbstractFullyBayesianSingleTaskGP(ExactGP, BatchedMultiOutputGPyTorchModel
         identical across models or unique per-model).
 
         Args:
-            X: A `batch_shape x num_samples x d`-dim Tensor, where `d` is
-                the dimension of the feature space and `batch_shape` is the number of
+            X: A ``batch_shape x num_samples x d``-dim Tensor, where ``d`` is
+                the dimension of the feature space and ``batch_shape`` is the number of
                 sampled models.
-            Y: A `batch_shape x num_samples x 1`-dim Tensor, where `d` is
-                the dimension of the feature space and `batch_shape` is the number of
+            Y: A ``batch_shape x num_samples x 1``-dim Tensor, where ``d`` is
+                the dimension of the feature space and ``batch_shape`` is the number of
                 sampled models.
 
         Returns:
             BatchedMultiOutputGPyTorchModel: A fully bayesian model conditioned on
-              given observations. The returned model has `batch_shape` copies of the
-              training data in case of identical observations (and `batch_shape`
+              given observations. The returned model has ``batch_shape`` copies of the
+              training data in case of identical observations (and ``batch_shape``
               training datasets otherwise).
         """
         if X.ndim == 2 and Y.ndim == 2:
@@ -883,19 +1057,19 @@ class AbstractFullyBayesianSingleTaskGP(ExactGP, BatchedMultiOutputGPyTorchModel
         use_input_warping: bool = False,
         indices_to_warp: list[int] | None = None,
     ) -> dict[str, BotorchContainer | Tensor | None]:
-        r"""Construct `SingleTaskGP` keyword arguments from a `SupervisedDataset`.
+        r"""Construct ``SingleTaskGP`` keyword arguments from a ``SupervisedDataset``.
 
         Args:
-            training_data: A `SupervisedDataset`, with attributes `train_X`,
-                `train_Y`, and, optionally, `train_Yvar`.
+            training_data: A ``SupervisedDataset``, with attributes ``train_X``,
+                ``train_Y``, and, optionally, ``train_Yvar``.
             use_input_warping: A boolean indicating whether to use input warping.
             indices_to_warp: An optional list of indices to warp. The default
                 is to warp all inputs.
 
         Returns:
             A dict of keyword arguments that can be used to initialize a
-            `FullyBayesianLinearSingleTaskGP`, with keys `train_X`, `train_Y`,
-            `use_input_warping`, `indices_to_warp`, and, optionally, `train_Yvar`.
+            ``FullyBayesianLinearSingleTaskGP``, with keys ``train_X``, ``train_Y``,
+            ``use_input_warping``, ``indices_to_warp``, and, optionally, ``train_Yvar``.
         """
         return {
             **super().construct_inputs(training_data=training_data),
@@ -910,12 +1084,12 @@ class FullyBayesianSingleTaskGP(AbstractFullyBayesianSingleTaskGP):
     This model assumes that the inputs have been normalized to [0, 1]^d and that
     the output has been standardized to have zero mean and unit variance. You can
     either normalize and standardize the data before constructing the model or use
-    an `input_transform` and `outcome_transform`. A model with a Matern-5/2 kernel
+    an ``input_transform`` and ``outcome_transform``. A model with a Matern-5/2 kernel
     and dimension-scaled priors on the hyperparameters from [Hvarfner2024vanilla]_
     is used by default.
 
-    You are expected to use `fit_fully_bayesian_model_nuts` to fit this model as it
-    isn't compatible with `fit_gpytorch_mll`.
+    You are expected to use ``fit_fully_bayesian_model_nuts`` to fit this model as it
+    isn't compatible with ``fit_gpytorch_mll``.
 
     Example:
         >>> fully_bayesian_gp = FullyBayesianSingleTaskGP(train_X, train_Y)
@@ -936,47 +1110,26 @@ class FullyBayesianSingleTaskGP(AbstractFullyBayesianSingleTaskGP):
         lengthscale = base_kernel.lengthscale.clone()
         return lengthscale.median(0).values.squeeze(0)
 
-    def _get_dummy_mcmc_samples(
-        self,
-        num_mcmc_samples: int,
-        dim: int,
-        dtype: torch.dtype,
-        device: torch.device,
-    ) -> dict[str, Tensor]:
-        # Load some dummy samples
-        tkwargs = {"dtype": dtype, "device": device}
-        mcmc_samples = {
-            "mean": torch.ones(num_mcmc_samples, **tkwargs),
-            "lengthscale": torch.ones(num_mcmc_samples, dim, **tkwargs),
-        }
-        if self.pyro_model.train_Yvar is None:
-            mcmc_samples["noise"] = torch.ones(num_mcmc_samples, **tkwargs)
-
-        if self.pyro_model.use_input_warping:
-            mcmc_samples["c0"] = torch.ones(num_mcmc_samples, dim, **tkwargs)
-            mcmc_samples["c1"] = torch.ones(num_mcmc_samples, dim, **tkwargs)
-        return mcmc_samples
-
     def load_state_dict(
         self, state_dict: Mapping[str, Any], strict: bool = True
     ) -> None:
         r"""Custom logic for loading the state dict.
 
-        The standard approach of calling `load_state_dict` currently doesn't play well
-        with the `SaasFullyBayesianSingleTaskGP` since the `mean_module`, `covar_module`
-        and `likelihood` aren't initialized until the model has been fitted. The reason
-        for this is that we don't know the number of MCMC samples until NUTS is called.
-        Given the state dict, we can initialize a new model with some dummy samples and
-        then load the state dict into this model. This currently only works for a
-        `SaasPyroModel` and supporting more Pyro models likely requires moving the model
-        construction logic into the Pyro model itself.
+        The standard approach of calling ``load_state_dict`` currently doesn't
+        play well with the ``SaasFullyBayesianSingleTaskGP`` since the
+        ``mean_module``, ``covar_module`` and ``likelihood`` aren't initialized
+        until the model has been fitted. The reason for this is that we don't
+        know the number of MCMC samples until NUTS is called. Given the state
+        dict, we can initialize a new model with some dummy samples and then
+        load the state dict into this model. This currently only works for a
+        ``SaasPyroModel`` and supporting more Pyro models likely requires moving
+        the model construction logic into the Pyro model itself.
         """
         raw_mean = state_dict["mean_module.raw_constant"]
-        mcmc_samples = self._get_dummy_mcmc_samples(
-            num_mcmc_samples=len(raw_mean),
-            dim=self.pyro_model.train_X.shape[-1],
-            dtype=raw_mean.dtype,
-            device=raw_mean.device,
+        num_mcmc_samples = len(raw_mean)
+        tkwargs = {"dtype": raw_mean.dtype, "device": raw_mean.device}
+        mcmc_samples = self.pyro_model.get_dummy_mcmc_samples(
+            num_mcmc_samples=num_mcmc_samples, **tkwargs
         )
         self.load_mcmc_samples(mcmc_samples=mcmc_samples)
         # Load the actual samples from the state dict
@@ -989,11 +1142,11 @@ class SaasFullyBayesianSingleTaskGP(FullyBayesianSingleTaskGP):
     This model assumes that the inputs have been normalized to [0, 1]^d and that
     the output has been standardized to have zero mean and unit variance. You can
     either normalize and standardize the data before constructing the model or use
-    an `input_transform` and `outcome_transform`. The SAAS model [Eriksson2021saasbo]_
-    with a Matern-5/2 kernel is used by default.
+    an ``input_transform`` and ``outcome_transform``. The SAAS model
+    [Eriksson2021saasbo]_ with a Matern-5/2 kernel is used by default.
 
-    You are expected to use `fit_fully_bayesian_model_nuts` to fit this model as it
-    isn't compatible with `fit_gpytorch_mll`.
+    You are expected to use ``fit_fully_bayesian_model_nuts`` to fit this model
+    as it isn't compatible with ``fit_gpytorch_mll``.
 
     Example:
         >>> saas_gp = SaasFullyBayesianSingleTaskGP(train_X, train_Y)
@@ -1003,22 +1156,6 @@ class SaasFullyBayesianSingleTaskGP(FullyBayesianSingleTaskGP):
 
     _pyro_model_class: type[PyroModel] = SaasPyroModel
 
-    def _get_dummy_mcmc_samples(
-        self,
-        num_mcmc_samples: int,
-        dim: int,
-        dtype: torch.dtype,
-        device: torch.device,
-    ) -> dict[str, Tensor]:
-        mcmc_samples = super()._get_dummy_mcmc_samples(
-            num_mcmc_samples=num_mcmc_samples, dim=dim, dtype=dtype, device=device
-        )
-        # add outputscale
-        mcmc_samples["outputscale"] = torch.ones(
-            num_mcmc_samples, dtype=dtype, device=device
-        )
-        return mcmc_samples
-
 
 class FullyBayesianLinearSingleTaskGP(AbstractFullyBayesianSingleTaskGP):
     r"""A fully Bayesian single-task GP model with a linear kernel.
@@ -1026,10 +1163,10 @@ class FullyBayesianLinearSingleTaskGP(AbstractFullyBayesianSingleTaskGP):
     This model assumes that the inputs have been normalized to [0, 1]^d and that
     the output has been standardized to have zero mean and unit variance. You can
     either normalize and standardize the data before constructing the model or use
-    an `input_transform` and `outcome_transform`.
+    an ``input_transform`` and ``outcome_transform``.
 
-    You are expected to use `fit_fully_bayesian_model_nuts` to fit this model as it
-    isn't compatible with `fit_gpytorch_mll`.
+    You are expected to use ``fit_fully_bayesian_model_nuts`` to fit this model as it
+    isn't compatible with ``fit_gpytorch_mll``.
 
     Example:
         >>> gp = FullyBayesianLinearSingleTaskGP(train_X, train_Y)
@@ -1051,30 +1188,21 @@ class FullyBayesianLinearSingleTaskGP(AbstractFullyBayesianSingleTaskGP):
     ) -> None:
         r"""Custom logic for loading the state dict.
 
-        The standard approach of calling `load_state_dict` currently doesn't play well
-        with the `FullyBayesianLinearSingleTaskGP` since the `mean_module`,
-        `covar_module` and `likelihood` aren't initialized until the model has been
+        The standard approach of calling ``load_state_dict`` currently doesn't play well
+        with the ``FullyBayesianLinearSingleTaskGP`` since the ``mean_module``,
+        ``covar_module`` and ``likelihood`` aren't initialized until the model has been
         fitted. The reason for this is that we don't know the number of MCMC samples
         until NUTS is called. Given the state dict, we can initialize a new model with
         some dummy samples andthen load the state dict into this model. This currently
-        only works for a `LinearPyroModel` and supporting more Pyro models likely
+        only works for a ``LinearPyroModel`` and supporting more Pyro models likely
         requires moving the model construction logic into the Pyro model itself.
         """
         weight_variance = state_dict["covar_module.raw_variance"]
         num_mcmc_samples = len(weight_variance)
-        dim = self.pyro_model.train_X.shape[-1]
         tkwargs = {"device": weight_variance.device, "dtype": weight_variance.dtype}
-        # Load some dummy samples
-        # deal with c0 c1
-        mcmc_samples = {
-            "mean": torch.ones(num_mcmc_samples, **tkwargs),
-            "weight_variance": torch.ones(num_mcmc_samples, dim, **tkwargs),
-        }
-        if self.pyro_model.use_input_warping:
-            mcmc_samples["c0"] = torch.ones(num_mcmc_samples, dim, **tkwargs)
-            mcmc_samples["c1"] = torch.ones(num_mcmc_samples, dim, **tkwargs)
-        if self.pyro_model.train_Yvar is None:
-            mcmc_samples["noise"] = torch.ones(num_mcmc_samples, **tkwargs)
+        mcmc_samples = self.pyro_model.get_dummy_mcmc_samples(
+            num_mcmc_samples=num_mcmc_samples, **tkwargs
+        )
         self.load_mcmc_samples(mcmc_samples=mcmc_samples)
         # Load the actual samples from the state dict
         super().load_state_dict(state_dict=state_dict, strict=strict)

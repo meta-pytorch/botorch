@@ -69,7 +69,7 @@ def sample_random_feasible(
         device: The device of the random point.
 
     Returns:
-        A random feasible point of shape `1 x f.dim`.
+        A random feasible point of shape ``1 x f.dim``.
     """
     round_ids = f.discrete_inds + f.categorical_inds
     if isinstance(f, ConstrainedBaseTestProblem):
@@ -100,7 +100,7 @@ class BotorchTestCase(TestCase):
     r"""Basic test case for Botorch.
 
     This
-        1. sets the default device to be `torch.device("cpu")`
+        1. sets the default device to be ``torch.device("cpu")``
         2. ensures that no warnings are suppressed by default.
     """
 
@@ -175,10 +175,10 @@ class BotorchTestCase(TestCase):
             Absolute difference: 1.0000034868717194 (up to 0.0001 allowed)
             Relative difference: 0.8348668001940709 (up to 1e-05 allowed)
         """
-        # Why not just use the signature and behavior of `torch.testing.assert_close`?
-        # Because we used `torch.allclose` for testing in the past, and the two don't
-        # behave exactly the same. In particular, `assert_close` requires both `atol`
-        # and `rtol` to be set if either one is.
+        # Why not just use the signature and behavior of ``torch.testing.assert_close``?
+        # Because we used ``torch.allclose`` for testing in the past, and the two don't
+        # behave exactly the same. In particular, ``assert_close`` requires both
+        # ``atol`` and ``rtol`` to be set if either one is.
         torch.testing.assert_close(
             input,
             other,
@@ -192,8 +192,8 @@ class BaseTestProblemTestCaseMixIn:
     r"""Mixin for testing BaseTestProblem (functions) implementations."""
 
     def test_forward_and_evaluate_true(self):
-        r"""Run every BaseTestProblem in `self.functions` on random inputs.
-        Runs both `forward` and `evaluate_true`.
+        r"""Run every BaseTestProblem in ``self.functions`` on random inputs.
+        Runs both ``forward`` and ``evaluate_true``.
         """
         dtypes = (torch.float, torch.double)
         batch_shapes = (torch.Size(), torch.Size([2]), torch.Size([2, 3]))
@@ -235,7 +235,7 @@ class BaseTestProblemTestCaseMixIn:
 
 
 class SyntheticTestFunctionTestCaseMixin:
-    r"""Mixin for testing synthetic `BaseTestProblem` aka test functions."""
+    r"""Mixin for testing synthetic ``BaseTestProblem`` aka test functions."""
 
     def test_optimal_value(self):
         """Test that a function's optimal_value is correctly computed,
@@ -494,11 +494,11 @@ class MockPosterior(Posterior):
         Args:
             mean: The mean of the posterior.
             variance: The variance of the posterior.
-            samples: Samples to return from `rsample`,
-                unless `base_samples` is provided.
-            base_shape: If given, this is returned as `base_sample_shape`,
-                and also used as the base of the `_extended_shape`.
-            batch_range: If given, this is returned as `batch_range`.
+            samples: Samples to return from ``rsample``,
+                unless ``base_samples`` is provided.
+            base_shape: If given, this is returned as ``base_sample_shape``,
+                and also used as the base of the ``_extended_shape``.
+            batch_range: If given, this is returned as ``batch_range``.
                 Defaults to (0, -2).
         """
         self._mean = mean
@@ -601,16 +601,16 @@ class MockPosterior(Posterior):
 def get_sampler_mock(
     posterior: MockPosterior, sample_shape: torch.Size, **kwargs: Any
 ) -> MCSampler:
-    """Get a `StochasticSampler` with the specified `sample_shape`.
+    """Get a ``StochasticSampler`` with the specified ``sample_shape``.
 
     Args:
-        posterior: Used only for dispatching so that `get_sampler`
-            works with a `MockPosterior`.
+        posterior: Used only for dispatching so that ``get_sampler``
+            works with a ``MockPosterior``.
         sample_shape: The shape of the samples to generate.
-        kwargs: Passed to `StochasticSampler`
+        kwargs: Passed to ``StochasticSampler``
 
     Returns:
-        A `StochasticSampler` for the mock posterior.
+        A ``StochasticSampler`` for the mock posterior.
     """
     return StochasticSampler(sample_shape=sample_shape, **kwargs)
 
@@ -715,10 +715,10 @@ def get_random_data(
         m: The number of outputs.
         d: The dimension of the input.
         n: The number of data points.
-        tkwargs: `device` and `dtype` tensor constructor kwargs.
+        tkwargs: ``device`` and ``dtype`` tensor constructor kwargs.
 
     Returns:
-        A tuple `(train_X, train_Y)` with randomly generated training data.
+        A tuple ``(train_X, train_Y)`` with randomly generated training data.
     """
     rep_shape = batch_shape + torch.Size([1, 1])
     train_x = torch.stack(
@@ -750,7 +750,7 @@ def get_test_posterior(
             MultitaskMultivariateNormal
         lazy: A boolean indicating if the posterior should be lazy
         independent: A boolean indicating whether the outputs are independent
-        tkwargs: `device` and `dtype` tensor constructor kwargs.
+        tkwargs: ``device`` and ``dtype`` tensor constructor kwargs.
 
 
     """
@@ -784,9 +784,9 @@ def get_max_violation_of_bounds(samples: torch.Tensor, bounds: torch.Tensor) -> 
     A negative value indicates that all samples lie within bounds.
 
     Args:
-        samples: An `n x q x d` - dimension tensor, as might be returned from
-            `sample_q_batches_from_polytope`.
-        bounds: A `2 x d` tensor of lower and upper bounds for each column.
+        samples: An ``n x q x d`` - dimension tensor, as might be returned from
+            ``sample_q_batches_from_polytope``.
+        bounds: A ``2 x d`` tensor of lower and upper bounds for each column.
     """
     n, q, d = samples.shape
     samples = samples.reshape((n * q, d))
@@ -806,12 +806,12 @@ def get_max_violation_of_constraints(
     Amount by which equality constraints are not obeyed.
 
     Args:
-        samples: An `n x q x d` - dimension tensor, as might be returned from
-            `sample_q_batches_from_polytope`.
+        samples: An ``n x q x d`` - dimension tensor, as might be returned from
+            ``sample_q_batches_from_polytope``.
         constraints: A list of tuples (indices, coefficients, rhs),
             with each tuple encoding an inequality constraint of the form
-            `\sum_i (X[indices[i]] * coefficients[i]) = rhs`, or `>=` if
-            `equality` is False.
+            ``\sum_i (X[indices[i]] * coefficients[i]) = rhs``, or ``>=`` if
+            ``equality`` is False.
         equality: Whether these are equality constraints (not inequality).
     """
     n, q, d = samples.shape

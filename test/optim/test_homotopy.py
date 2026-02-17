@@ -17,6 +17,7 @@ from botorch.optim.homotopy import (
     LogLinearHomotopySchedule,
 )
 from botorch.optim.optimize_homotopy import optimize_acqf_homotopy, prune_candidates
+from botorch.optim.optimize_mixed import should_use_mixed_alternating_optimizer
 from botorch.utils.testing import BotorchTestCase
 from torch.nn import Parameter
 
@@ -126,72 +127,10 @@ class TestHomotopy(BotorchTestCase):
         self.assertEqual(candidate, torch.zeros(1, **tkwargs))
         self.assertEqual(acqf_val, 5 * torch.ones(1, **tkwargs))
 
-        # test fixed feature
-        fixed_features = {0: 1.0}
-        model = GenericDeterministicModel(
-            f=lambda x: 5 - (x - p).sum(dim=-1, keepdims=True) ** 2
-        )
-        acqf = PosteriorMean(model=model)
-        # test raise warning on using `fixed_features` argument
-        message = (
-            "The `fixed_features` argument is deprecated, "
-            "use `fixed_features_list` instead."
-        )
-        with self.assertWarnsRegex(DeprecationWarning, message):
-            optimize_acqf_homotopy(
-                q=1,
-                acq_function=acqf,
-                bounds=torch.tensor([[-10, -10], [5, 5]]).to(**tkwargs),
-                homotopy=Homotopy(homotopy_parameters=[hp]),
-                num_restarts=2,
-                raw_samples=16,
-                fixed_features=fixed_features,
-            )
-
-        candidate, acqf_val = optimize_acqf_homotopy(
-            q=1,
-            acq_function=acqf,
-            bounds=torch.tensor([[-10, -10], [5, 5]], **tkwargs),
-            homotopy=Homotopy(homotopy_parameters=[hp]),
-            num_restarts=2,
-            raw_samples=16,
-            fixed_features_list=[fixed_features],
-        )
-        self.assertEqual(candidate[0, 0], torch.tensor(1, **tkwargs))
-
-        # test fixed feature list
-        fixed_features_list = [{0: 1.0}, {1: 3.0}]
-        model = GenericDeterministicModel(
-            f=lambda x: 5 - (x - p).sum(dim=-1, keepdims=True) ** 2
-        )
-        acqf = PosteriorMean(model=model)
-        # test raise error when fixed_features and fixed_features_list are both provided
-        with self.assertRaisesRegex(
-            ValueError,
-            "Either `fixed_feature` or `fixed_features_list` can be provided",
-        ):
-            optimize_acqf_homotopy(
-                q=1,
-                acq_function=acqf,
-                bounds=torch.tensor([[-10, -10, -10], [5, 5, 5]], **tkwargs),
-                homotopy=Homotopy(homotopy_parameters=[hp]),
-                num_restarts=2,
-                raw_samples=16,
-                fixed_features_list=fixed_features_list,
-                fixed_features=fixed_features,
-            )
-        candidate, acqf_val = optimize_acqf_homotopy(
-            q=1,
-            acq_function=acqf,
-            bounds=torch.tensor([[-10, -10, -10], [5, 5, 5]], **tkwargs),
-            homotopy=Homotopy(homotopy_parameters=[hp]),
-            num_restarts=2,
-            raw_samples=16,
-            fixed_features_list=fixed_features_list,
-        )
-        self.assertEqual(candidate[0, 0], torch.tensor(1, **tkwargs))
-
         # With q > 1.
+        model = GenericDeterministicModel(
+            f=lambda x: 5 - (x - p).sum(dim=-1, keepdims=True) ** 2
+        )
         acqf = qExpectedImprovement(model=model, best_f=0.0)
         candidate, acqf_val = optimize_acqf_homotopy(
             q=3,
@@ -200,7 +139,7 @@ class TestHomotopy(BotorchTestCase):
             homotopy=Homotopy(homotopy_parameters=[hp]),
             num_restarts=2,
             raw_samples=16,
-            fixed_features_list=[fixed_features],
+            fixed_features={0: 1.0},
         )
         self.assertEqual(candidate.shape, torch.Size([3, 2]))
         self.assertEqual(acqf_val.shape, torch.Size([3]))
@@ -282,7 +221,7 @@ class TestHomotopy(BotorchTestCase):
             post_processing_func=lambda x: x.round(),
             return_full_tree=True,
         )
-        # First time we expect to call `prune_candidates` with 4 candidates
+        # First time we expect to call ``prune_candidates`` with 4 candidates
         self.assertEqual(
             prune_candidates_mock.call_args_list[0][1]["candidates"].shape,
             torch.Size([4, 1]),
@@ -292,3 +231,171 @@ class TestHomotopy(BotorchTestCase):
                 prune_candidates_mock.call_args_list[i][1]["candidates"].shape,
                 torch.Size([1, 1]),
             )
+
+    def test_optimize_acqf_homotopy_discrete_dims(self):
+        """Test optimize_acqf_homotopy with discrete_dims and cat_dims."""
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        p = Parameter(-2 * torch.ones(1, **tkwargs))
+        hp = HomotopyParameter(
+            parameter=p,
+            schedule=LinearHomotopySchedule(start=4, end=0, num_steps=3),
+        )
+        model = GenericDeterministicModel(
+            f=lambda x: 5 - (x - p).sum(dim=-1, keepdims=True) ** 2
+        )
+        acqf = PosteriorMean(model=model)
+
+        # Test with few discrete combinations (<=10) -> should use optimize_acqf_mixed
+        # 2 * 2 = 4 combinations
+        discrete_dims = {0: [0.0, 1.0]}
+        cat_dims = {1: [0.0, 1.0]}
+        candidate, acqf_val = optimize_acqf_homotopy(
+            q=1,
+            acq_function=acqf,
+            bounds=torch.tensor([[0, 0, -10], [1, 1, 5]], **tkwargs),
+            homotopy=Homotopy(homotopy_parameters=[hp]),
+            num_restarts=2,
+            raw_samples=16,
+            discrete_dims=discrete_dims,
+            cat_dims=cat_dims,
+        )
+        self.assertEqual(candidate.shape, torch.Size([1, 3]))
+        self.assertEqual(acqf_val.shape, torch.Size([1]))
+        # The discrete dimensions should be in the allowed values
+        self.assertIn(candidate[0, 0].item(), [0.0, 1.0])
+        self.assertIn(candidate[0, 1].item(), [0.0, 1.0])
+
+    def test_optimize_acqf_homotopy_discrete_dims_many_combos(self):
+        """Test with many discrete combinations (>10) -> uses mixed_alternating."""
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        p = Parameter(-2 * torch.ones(1, **tkwargs))
+        hp = HomotopyParameter(
+            parameter=p,
+            schedule=LinearHomotopySchedule(start=4, end=0, num_steps=3),
+        )
+        model = GenericDeterministicModel(
+            f=lambda x: 5 - (x - p).sum(dim=-1, keepdims=True) ** 2
+        )
+        acqf = PosteriorMean(model=model)
+
+        # Test with many discrete combinations (>10) -> uses
+        # optimize_acqf_mixed_alternating
+        # 4 * 4 = 16 combinations
+        discrete_dims = {0: [0.0, 1.0, 2.0, 3.0], 1: [0.0, 1.0, 2.0, 3.0]}
+        candidate, acqf_val = optimize_acqf_homotopy(
+            q=1,
+            acq_function=acqf,
+            bounds=torch.tensor([[0, 0, -10], [3, 3, 5]], **tkwargs),
+            homotopy=Homotopy(homotopy_parameters=[hp]),
+            num_restarts=2,
+            raw_samples=16,
+            discrete_dims=discrete_dims,
+        )
+        self.assertEqual(candidate.shape, torch.Size([1, 3]))
+        self.assertEqual(acqf_val.shape, torch.Size([1]))
+        # The discrete dimensions should be in the allowed values
+        self.assertIn(candidate[0, 0].item(), [0.0, 1.0, 2.0, 3.0])
+        self.assertIn(candidate[0, 1].item(), [0.0, 1.0, 2.0, 3.0])
+
+    @mock.patch(
+        "botorch.optim.optimize_homotopy.optimize_acqf_mixed_alternating",
+        wraps=None,
+    )
+    @mock.patch(
+        "botorch.optim.optimize_homotopy.optimize_acqf_mixed",
+        wraps=None,
+    )
+    def test_optimize_acqf_homotopy_dispatch_logic(
+        self, mock_mixed, mock_mixed_alternating
+    ):
+        """Test that the correct optimizer is dispatched based on number of combos."""
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        p = Parameter(-2 * torch.ones(1, **tkwargs))
+        hp = HomotopyParameter(
+            parameter=p,
+            schedule=LinearHomotopySchedule(start=1, end=0, num_steps=1),
+        )
+        model = GenericDeterministicModel(
+            f=lambda x: 5 - (x - p).sum(dim=-1, keepdims=True) ** 2
+        )
+        acqf = PosteriorMean(model=model)
+
+        # Mock return values
+        mock_candidates = torch.zeros(1, 3, **tkwargs)
+        mock_acq_values = torch.zeros(1, **tkwargs)
+        mock_mixed.return_value = (mock_candidates.unsqueeze(0), mock_acq_values)
+        mock_mixed_alternating.return_value = (mock_candidates, mock_acq_values)
+
+        # Test with few combinations (<=10) -> should call optimize_acqf_mixed
+        discrete_dims = {0: [0.0, 1.0]}  # 2 combinations
+        optimize_acqf_homotopy(
+            q=1,
+            acq_function=acqf,
+            bounds=torch.tensor([[0, 0, -10], [1, 1, 5]], **tkwargs),
+            homotopy=Homotopy(homotopy_parameters=[hp]),
+            num_restarts=2,
+            raw_samples=16,
+            discrete_dims=discrete_dims,
+        )
+        self.assertTrue(mock_mixed.called)
+        self.assertFalse(mock_mixed_alternating.called)
+
+        # Reset mocks
+        mock_mixed.reset_mock()
+        mock_mixed_alternating.reset_mock()
+        hp = HomotopyParameter(
+            parameter=p,
+            schedule=LinearHomotopySchedule(start=1, end=0, num_steps=1),
+        )
+
+        # Test with many combinations (>10) -> should call
+        # optimize_acqf_mixed_alternating
+        discrete_dims = {0: [0.0, 1.0, 2.0, 3.0], 1: [0.0, 1.0, 2.0, 3.0]}  # 16 combos
+        optimize_acqf_homotopy(
+            q=1,
+            acq_function=acqf,
+            bounds=torch.tensor([[0, 0, -10], [3, 3, 5]], **tkwargs),
+            homotopy=Homotopy(homotopy_parameters=[hp]),
+            num_restarts=2,
+            raw_samples=16,
+            discrete_dims=discrete_dims,
+        )
+        self.assertTrue(mock_mixed_alternating.called)
+        self.assertFalse(mock_mixed.called)
+
+    def test_should_use_mixed_alternating_optimizer(self):
+        """Test the shared utility function for determining optimizer dispatch."""
+        # Test with no discrete dims -> should return False
+        self.assertFalse(should_use_mixed_alternating_optimizer())
+        self.assertFalse(
+            should_use_mixed_alternating_optimizer(discrete_dims=None, cat_dims=None)
+        )
+
+        # Test with few combinations (<=10) -> should return False
+        self.assertFalse(
+            should_use_mixed_alternating_optimizer(discrete_dims={0: [0.0, 1.0]})
+        )
+        self.assertFalse(
+            should_use_mixed_alternating_optimizer(
+                discrete_dims={0: [0.0, 1.0]}, cat_dims={1: [0.0, 1.0]}
+            )
+        )  # 2 * 2 = 4 combinations
+        self.assertFalse(
+            should_use_mixed_alternating_optimizer(
+                discrete_dims={0: [0.0, 1.0, 2.0, 3.0, 4.0]},
+                cat_dims={1: [0.0, 1.0]},
+            )
+        )  # 5 * 2 = 10 combinations (boundary)
+
+        # Test with many combinations (>10) -> should return True
+        self.assertTrue(
+            should_use_mixed_alternating_optimizer(
+                discrete_dims={0: [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]},
+                cat_dims={1: [0.0, 1.0]},
+            )
+        )  # 6 * 2 = 12 combinations
+        self.assertTrue(
+            should_use_mixed_alternating_optimizer(
+                discrete_dims={0: [0.0, 1.0, 2.0, 3.0], 1: [0.0, 1.0, 2.0, 3.0]}
+            )
+        )  # 4 * 4 = 16 combinations

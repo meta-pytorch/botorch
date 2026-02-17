@@ -25,7 +25,6 @@ from abc import ABC, abstractmethod
 import torch
 from botorch.exceptions.errors import UnsupportedError
 from botorch.models.model import Model
-
 from botorch.utils.probability.utils import ndtr as Phi, phi
 from gpytorch.module import Module
 from linear_operator.operators import LinearOperator
@@ -37,7 +36,7 @@ NEG_INF = torch.tensor(float("-inf"))
 class InducingPointAllocator(ABC):
     r"""
     This class provides functionality to initialize the inducing point locations
-    of an inducing point-based model, e.g. a `SingleTaskVariationalGP`.
+    of an inducing point-based model, e.g. a ``SingleTaskVariationalGP``.
     """
 
     @abstractmethod
@@ -59,7 +58,7 @@ class InducingPointAllocator(ABC):
         input_batch_shape: torch.Size,
     ) -> Tensor:
         r"""
-        Initialize the `num_inducing` inducing point locations according to a
+        Initialize the ``num_inducing`` inducing point locations according to a
         specific initialization strategy. todo say something about quality
 
         Args:
@@ -74,9 +73,9 @@ class InducingPointAllocator(ABC):
         quality_function = self._get_quality_function()
         covar_module = covar_module.to(inputs.device)
 
-        # We use 'no_grad' here because `inducing_points` are not
+        # We use 'no_grad' here because ``inducing_points`` are not
         # auto-differentiable with respect to the kernel hyper-parameters,
-        # because `_pivoted_cholesky_init` does in-place operations.
+        # because ``_pivoted_cholesky_init`` does in-place operations.
         with torch.no_grad():
             # Evaluate lazily because this may only be needed to figure out what
             # case we are in
@@ -123,9 +122,9 @@ class InducingPointAllocator(ABC):
         for input_element in reshaped_inputs:
             # the extra kernel evals are a little wasteful but make it
             # easier to infer the task batch size
-            # We use 'no_grad' here because `inducing_points` are not
+            # We use 'no_grad' here because ``inducing_points`` are not
             # auto-differentiable with respect to the kernel hyper-parameters,
-            # because `_pivoted_cholesky_init` does in-place operations.
+            # because ``_pivoted_cholesky_init`` does in-place operations.
             with torch.no_grad():
                 kernel_element = covar_module(input_element).evaluate_kernel()
             # handle extra task batch dimension

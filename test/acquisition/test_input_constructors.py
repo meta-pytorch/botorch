@@ -6,7 +6,7 @@
 
 """
 When adding tests for a new input constructor, please add a new case to
-`TestInstantiationFromInputConstructor.setUp`.
+``TestInstantiationFromInputConstructor.setUp``.
 """
 
 from __future__ import annotations
@@ -14,7 +14,6 @@ from __future__ import annotations
 import math
 from collections.abc import Callable
 from functools import reduce
-
 from random import randint
 from unittest import mock
 from unittest.mock import MagicMock
@@ -54,7 +53,6 @@ from botorch.acquisition.knowledge_gradient import (
     qKnowledgeGradient,
     qMultiFidelityKnowledgeGradient,
 )
-
 from botorch.acquisition.logei import (
     qLogExpectedImprovement,
     qLogNoisyExpectedImprovement,
@@ -83,7 +81,6 @@ from botorch.acquisition.multi_objective.hypervolume_knowledge_gradient import (
     qHypervolumeKnowledgeGradient,
     qMultiFidelityHypervolumeKnowledgeGradient,
 )
-
 from botorch.acquisition.multi_objective.logei import (
     qLogExpectedHypervolumeImprovement,
     qLogNoisyExpectedHypervolumeImprovement,
@@ -716,8 +713,7 @@ class TestMCAcquisitionFunctionInputConstructors(InputConstructorBaseTestCase):
         # test that constraints on multiple outcomes raises an exception
         with self.assertRaisesRegex(
             BotorchError,
-            "LogProbabilityOfFeasibility only support constraints on single"
-            " outcomes.",
+            "LogProbabilityOfFeasibility only support constraints on single outcomes.",
         ):
             c(
                 model=mock_model,
@@ -758,7 +754,7 @@ class TestMCAcquisitionFunctionInputConstructors(InputConstructorBaseTestCase):
         multi_Y = torch.cat([d.Y for d in self.blockX_multiY.values()], dim=-1)
         best_f_expected = objective(multi_Y).max()
         self.assertEqual(kwargs["best_f"], best_f_expected)
-        # Check explicitly specifying `best_f`.
+        # Check explicitly specifying ``best_f``.
         best_f_expected = best_f_expected - 1  # Random value.
         kwargs = c(
             model=mock_model,
@@ -915,7 +911,7 @@ class TestMCAcquisitionFunctionInputConstructors(InputConstructorBaseTestCase):
         self.assertIs(acqf.model, mock_model)
         self.assertIs(acqf.objective, objective)
 
-        # Check explicitly specifying `best_f`.
+        # Check explicitly specifying ``best_f``.
         best_f_expected = best_f_expected - 1  # Random value.
         outcome_constraints = (torch.tensor([[0.0, 1.0]]), torch.tensor([[0.5]]))
         constraints = get_outcome_constraint_transforms(
@@ -1546,7 +1542,7 @@ class TestKGandESAcquisitionFunctionInputConstructors(InputConstructorBaseTestCa
                     )
                 )
 
-                # check that `optimize_acqf` is called with the desired value function
+                # check that ``optimize_acqf`` is called with the desired value function
                 if acqf_cls == qMultiFidelityHypervolumeKnowledgeGradient:
                     self.assertIsInstance(
                         mock_optimize_acqf.call_args.kwargs["acq_function"],

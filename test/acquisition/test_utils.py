@@ -86,7 +86,8 @@ class TestConstraintUtils(BotorchTestCase):
                         samples=samples,
                         obj=obj,
                         constraints=[
-                            lambda samples: samples[..., 0] - (con_cutoff + 1 / 2)
+                            lambda samples, cc=con_cutoff: samples[..., 0]
+                            - (cc + 1 / 2)
                         ],
                         model=mm,
                         X_baseline=X,
@@ -107,11 +108,11 @@ class TestConstraintUtils(BotorchTestCase):
                             ],
                             **tkwargs,
                         )
+                        # When ``batch_shape = (b,)``, this expands ``expected_best_f``
+                        # from shape (3, 1) to (3, 1, 1), then to
+                        # (1, 1, ..., 1, 3, b, 1), where there are
+                        # ``len(sample_shape) - 1`` leading ones.
                         if len(batch_shape) > 0:
-                            # When `batch_shape = (b,)`, this expands `expected_best_f`
-                            # from shape (3, 1) to (3, 1, 1), then to
-                            # (1, 1, ..., 1, 3, b, 1), where there are
-                            # `len(sample_shape) - 1` leading ones.
                             expected_best_f = expected_best_f.unsqueeze(1).repeat(
                                 *[1] * len(sample_shape), *batch_shape
                             )
@@ -128,7 +129,8 @@ class TestConstraintUtils(BotorchTestCase):
                             samples=samples,
                             obj=obj,
                             constraints=[
-                                lambda samples: samples[..., 0] - (con_cutoff + 1 / 2)
+                                lambda samples, cc=con_cutoff: samples[..., 0]
+                                - (cc + 1 / 2)
                             ],
                             infeasible_obj=torch.ones(1, **tkwargs),
                         )
@@ -231,7 +233,7 @@ class TestPruneInferiorPoints(BotorchTestCase):
     def test_prune_inferior_points(self):
         for dtype in (torch.float, torch.double):
             X = torch.rand(3, 2, device=self.device, dtype=dtype)
-            # the event shape is `q x t` = 3 x 1
+            # the event shape is ``q x t`` = 3 x 1
             samples = torch.tensor(
                 [[-1.0], [0.0], [1.0]], device=self.device, dtype=dtype
             )
@@ -342,7 +344,7 @@ class TestFidelityUtils(BotorchTestCase):
             self.assertTrue(torch.equal(X_proj[..., :, [0]], 0.1 * ones))
             self.assertTrue(torch.equal(X_proj[..., :, [2]], 0.5 * ones))
             # test unexpected shape
-            msg = "X must have a last dimension with size `d` or `d-d_f`," " but got 3."
+            msg = "X must have a last dimension with size `d` or `d-d_f`, but got 3."
             with self.assertRaisesRegex(BotorchTensorDimensionError, msg):
                 project_to_target_fidelity(
                     X[..., :3], target_fidelities=target_fids, d=4
@@ -573,12 +575,12 @@ class TestPreferenceUtils(BotorchTestCase):
         # Patch the posterior call such that sampling from the model's output will give
         # basically the same samples. This way, we are able to tell which preference
         # sample comes from which outcome sample.
-        # When `samples` of shape `num_samples x ...` being passed through obj,
+        # When ``samples`` of shape ``num_samples x ...`` being passed through obj,
         # the returned augmented sample is of shape
-        # `(num_pref_sample * num_samples) x ...`.
+        # ``(num_pref_sample * num_samples) x ...``.
         # If num_samples = 3 and num_pref_sample = 2,
         # along the first dimension of objective, objective values should correspond to
-        # index [0, 1, 2, 0, 1, 2] of `samples`.
+        # index [0, 1, 2, 0, 1, 2] of ``samples``.
         with patch.object(SingleTaskGP, "posterior", new=nearly_zero_covar_posterior):
             objective = obj(samples)
 

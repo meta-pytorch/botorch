@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from functools import partial
-from typing import Union
 
 import numpy as np
 import numpy.typing as npt
@@ -24,7 +23,7 @@ from torch import Tensor
 
 
 ScipyConstraintDict = dict[
-    str, Union[str, Callable[[np.ndarray], float], Callable[[np.ndarray], np.ndarray]]
+    str, str | Callable[[np.ndarray], float] | Callable[[np.ndarray], np.ndarray]
 ]
 
 
@@ -54,14 +53,14 @@ def make_scipy_bounds(
     r"""Creates a scipy Bounds object for optimization
 
     Args:
-        X: `... x d` tensor
-        lower_bounds: Lower bounds on each column (last dimension) of `X`. If
+        X: ``... x d`` tensor
+        lower_bounds: Lower bounds on each column (last dimension) of ``X``. If
             this is a single float, then all columns have the same bound.
-        upper_bounds: Lower bounds on each column (last dimension) of `X`. If
+        upper_bounds: Lower bounds on each column (last dimension) of ``X``. If
             this is a single float, then all columns have the same bound.
 
     Returns:
-        A scipy `Bounds` object if either lower_bounds or upper_bounds is not
+        A scipy ``Bounds`` object if either lower_bounds or upper_bounds is not
         None, and None otherwise.
 
     Example:
@@ -93,23 +92,23 @@ def make_scipy_linear_constraints(
     r"""Generate scipy constraints from torch representation.
 
     Args:
-        shapeX: The shape of the torch.Tensor to optimize over (i.e. `(b) x q x d`)
+        shapeX: The shape of the torch.Tensor to optimize over (i.e. ``(b) x q x d``)
         inequality constraints: A list of tuples (indices, coefficients, rhs),
             with each tuple encoding an inequality constraint of the form
-            `\sum_i (X[indices[i]] * coefficients[i]) >= rhs`, where
-            `indices` is a single-dimensional index tensor (long dtype) containing
-            indices into the last dimension of `X`, `coefficients` is a
+            ``\sum_i (X[indices[i]] * coefficients[i]) >= rhs``, where
+            ``indices`` is a single-dimensional index tensor (long dtype) containing
+            indices into the last dimension of ``X``, ``coefficients`` is a
             single-dimensional tensor of coefficients of the same length, and
             rhs is a scalar.
         equality constraints: A list of tuples (indices, coefficients, rhs),
             with each tuple encoding an inequality constraint of the form
-            `\sum_i (X[indices[i]] * coefficients[i]) == rhs` (with `indices`
-            and `coefficients` of the same form as in `inequality_constraints`).
+            ``\sum_i (X[indices[i]] * coefficients[i]) == rhs`` (with ``indices``
+            and ``coefficients`` of the same form as in ``inequality_constraints``).
 
     Returns:
         A list of dictionaries containing callables for constraint function
         values and Jacobians and a string indicating the associated constraint
-        type ("eq", "ineq"), as expected by `scipy.optimize.minimize`.
+        type ("eq", "ineq"), as expected by ``scipy.optimize.minimize``.
 
     This function assumes that constraints are the same for each input batch,
     and broadcasts the constraints accordingly to the input batch shape. This
@@ -117,7 +116,7 @@ def make_scipy_linear_constraints(
     indices are a 2-d Tensor.
 
     Example:
-        The following will enforce that `x[1] + 0.5 x[3] >= -0.1` for each `x`
+        The following will enforce that ``x[1] + 0.5 x[3] >= -0.1`` for each ``x``
         in both elements of the q-batch, and each of the 3 t-batches:
 
         >>> constraints = make_scipy_linear_constraints(
@@ -125,7 +124,7 @@ def make_scipy_linear_constraints(
         >>>     [(torch.tensor([1, 3]), torch.tensor([1.0, 0.5]), -0.1)],
         >>> )
 
-        The following will enforce that `x[0, 1] + 0.5 x[1, 3] >= -0.1` where
+        The following will enforce that ``x[0, 1] + 0.5 x[1, 3] >= -0.1`` where
         x[0, :] is the first element of the q-batch and x[1, :] is the second
         element of the q-batch, for each of the 3 t-batches:
 
@@ -155,12 +154,12 @@ def eval_lin_constraint(
 
     Args:
         x: The input array.
-        flat_idxr: The indices in `x` to consider.
+        flat_idxr: The indices in ``x`` to consider.
         coeffs: The coefficients corresponding to the indices.
         rhs: The right-hand-side of the constraint.
 
     Returns:
-        The evaluted constraint: `\sum_i (coeffs[i] * x[i]) - rhs`
+        The evaluted constraint: ``\sum_i (coeffs[i] * x[i]) - rhs``
     """
     return np.sum(x[flat_idxr] * coeffs, -1) - rhs
 
@@ -192,14 +191,14 @@ def _arrayify(X: Tensor) -> npt.NDArray:
         X: The input tensor.
 
     Returns:
-        A numpy array of double dtype with the same shape and data as `X`.
+        A numpy array of double dtype with the same shape and data as ``X``.
     """
     return X.cpu().detach().contiguous().double().clone().numpy()
 
 
 def _validate_linear_constraints_shape_input(shapeX: torch.Size) -> torch.Size:
     """
-    Validate `shapeX` input to `_make_linear_constraints`.
+    Validate ``shapeX`` input to ``_make_linear_constraints``.
 
     Check that it has either 2 or 3 dimensions, and add a scalar batch
     dimension if it is only 2d.
@@ -240,12 +239,12 @@ def _make_linear_constraints(
     shapeX: torch.Size,
     eq: bool = False,
 ) -> list[ScipyConstraintDict]:
-    r"""Create linear constraints to be used by `scipy.optimize.minimize`.
+    r"""Create linear constraints to be used by ``scipy.optimize.minimize``.
 
     Encodes constraints of the form
-    `\sum_i (coefficients[i] * X[..., indices[i]]) ? rhs`
-    where `?` can be designated either as `>=` by setting `eq=False`, or as
-    `=` by setting `eq=True`.
+    ``\sum_i (coefficients[i] * X[..., indices[i]]) ? rhs``
+    where ``?`` can be designated either as ``>=`` by setting ``eq=False``, or as
+    ``=`` by setting ``eq=True``.
 
     If indices is one-dimensional, the constraints are broadcasted across
     all elements of the q-batch. If indices is two-dimensional, then
@@ -253,28 +252,28 @@ def _make_linear_constraints(
     constraints are created for all t-batches.
 
     Args:
-        indices: A tensor of shape `c` or `c x 2`, where c is the number of terms
+        indices: A tensor of shape ``c`` or ``c x 2``, where c is the number of terms
             in the constraint. If single-dimensional, contains the indices of
             the dimensions of the feature space that occur in the linear
             constraint. If two-dimensional, contains pairs of indices of the
             q-batch (0) and the feature space (1) that occur in the linear
             constraint.
         coefficients: A single-dimensional tensor of coefficients with the same
-            number of elements as `indices`.
+            number of elements as ``indices``.
         rhs: The right hand side of the constraint.
         shapeX: The shape of the torch tensor to construct the constraints for
-            (i.e. `(b) x q x d`). Must have two or three dimensions.
+            (i.e. ``(b) x q x d``). Must have two or three dimensions.
         eq: If True, return an equality constraint, o/w return an inequality
-            constraint (indicated by "eq" / "ineq" value of the `type` key).
+            constraint (indicated by "eq" / "ineq" value of the ``type`` key).
 
     Returns:
         A list of constraint dictionaries with the following keys
 
-        - "type": Indicates the type of the constraint ("eq" if `eq=True`, "ineq" o/w)
-        - "fun": A callable evaluating the constraint value on `x`, a flattened
-            version of the input tensor `X`, returning a scalar.
-        - "jac": A callable evaluating the constraint's Jacobian on `x`, a flattened
-            version of the input tensor `X`, returning a numpy array.
+        - "type": Indicates the type of the constraint ("eq" if ``eq=True``, "ineq" o/w)
+        - "fun": A callable evaluating the constraint value on ``x``, a flattened
+            version of the input tensor ``X``, returning a scalar.
+        - "jac": A callable evaluating the constraint's Jacobian on ``x``, a flattened
+            version of the input tensor ``X``, returning a numpy array.
 
     >>> shapeX = torch.Size([3, 5, 4])
     >>> constraints = _make_linear_constraints(
@@ -335,30 +334,31 @@ def _make_linear_constraints(
 def _make_nonlinear_constraints(
     f_np_wrapper: Callable, nlc: Callable, is_intrapoint: bool, shapeX: torch.Size
 ) -> list[ScipyConstraintDict]:
-    """Create nonlinear constraints to be used by `scipy.optimize.minimize`.
+    """Create nonlinear constraints to be used by ``scipy.optimize.minimize``.
 
     Args:
         f_np_wrapper: A wrapper function that given a constraint evaluates
             the value and gradient (using autograd) of a numpy input and returns both
             the objective and the gradient.
-        nlc: Callable representing a constraint of the form `callable(x) >= 0`. In case
-            of an intra-point constraint, `callable()`takes in an one-dimensional tensor
-            of shape `d` and returns a scalar. In case of an inter-point constraint,
-            `callable()` takes a two dimensional tensor of shape `q x d` and again
+        nlc: Callable representing a constraint of the form ``callable(x) >= 0``.
+            In case of an intra-point constraint, ``callable()``takes in an
+            one-dimensional tensor
+            of shape ``d`` and returns a scalar. In case of an inter-point constraint,
+            ``callable()`` takes a two dimensional tensor of shape ``q x d`` and again
             returns a scalar.
         is_intrapoint: A Boolean indicating if a constraint is an intra-point or
-            inter-point constraint (see the docstring of the `inequality_constraints`
-            argument to `optimize_acqf()`).
+            inter-point constraint (see the docstring of the ``inequality_constraints``
+            argument to ``optimize_acqf()``).
         shapeX: Shape of the three-dimensional batch X, that should be optimized.
 
     Returns:
         A list of constraint dictionaries with the following keys
 
         - "type": Indicates the type of the constraint, here always "ineq".
-        - "fun": A callable evaluating the constraint value on `x`, a flattened
-            version of the input tensor `X`, returning a scalar.
-        - "jac": A callable evaluating the constraint's Jacobian on `x`, a flattened
-            version of the input tensor `X`, returning a numpy array.
+        - "fun": A callable evaluating the constraint value on ``x``, a flattened
+            version of the input tensor ``X``, returning a scalar.
+        - "jac": A callable evaluating the constraint's Jacobian on ``x``, a flattened
+            version of the input tensor ``X``, returning a numpy array.
     """
     shapeX = _validate_linear_constraints_shape_input(shapeX)
     b, q, _ = shapeX
@@ -499,8 +499,8 @@ def _make_f_and_grad_nonlinear_inequality_constraints(
     The Scipy interface requires specifying separate callables and we use caching to
     avoid evaluating the same input twice. This caching only works if
     the returned functions are evaluated on the same input in immediate
-    sequence (i.e., calling `f_obj(X_1)`, `f_grad(X_1)` will result in a
-    single forward pass, while `f_obj(X_1)`, `f_grad(X_2)`, `f_obj(X_1)`
+    sequence (i.e., calling ``f_obj(X_1)``, ``f_grad(X_1)`` will result in a
+    single forward pass, while ``f_obj(X_1)``, ``f_grad(X_2)``, ``f_obj(X_1)``
     will result in three forward passes).
     """
 
@@ -543,13 +543,13 @@ def nonlinear_constraint_is_feasible(
             constraint has to evaluated over the whole q-batch and is a an
             inter-point constraint.
         x: Tensor of shape (batch x q x d).
-        tolerance: Rather than using the exact `const(x) >= 0` constraint, this helper
-            checks feasibility of `const(x) >= -tolerance`. This avoids marking the
+        tolerance: Rather than using the exact ``const(x) >= 0`` constraint, this helper
+            checks feasibility of ``const(x) >= -tolerance``. This avoids marking the
             candidates as infeasible due to tiny violations.
 
     Returns:
         A boolean tensor of shape (batch) indicating if the constraint is
-        satified by the corresponding batch of `x`.
+        satified by the corresponding batch of ``x``.
     """
     if tolerance is None:
         tolerance = get_constraint_tolerance(dtype=x.dtype)
@@ -578,15 +578,16 @@ def make_scipy_nonlinear_inequality_constraints(
     Args:
         nonlinear_inequality_constraints: A list of tuples representing the nonlinear
             inequality constraints. The first element in the tuple is a callable
-            representing a constraint of the form `callable(x) >= 0`. In case of an
-            intra-point constraint, `callable()`takes in an one-dimensional tensor of
-            shape `d` and returns a scalar. In case of an inter-point constraint,
-            `callable()` takes a two dimensional tensor of shape `q x d` and again
+            representing a constraint of the form ``callable(x) >= 0``. In case of an
+            intra-point constraint, ``callable()``takes in an one-dimensional tensor of
+            shape ``d`` and returns a scalar. In case of an inter-point constraint,
+            ``callable()`` takes a two dimensional tensor of shape ``q x d`` and again
             returns a scalar. The second element is a boolean, indicating if it is an
-            intra-point or inter-point constraint (`True` for intra-point. `False` for
-            inter-point). For more information on intra-point vs inter-point
-            constraints, see the docstring of the `inequality_constraints` argument to
-            `optimize_acqf()`. The constraints will later be passed to the scipy
+            intra-point or inter-point constraint (``True`` for intra-point.
+            ``False`` for inter-point). For more information on intra-point vs
+            inter-point
+            constraints, see the docstring of the ``inequality_constraints`` argument to
+            ``optimize_acqf()``. The constraints will later be passed to the scipy
             solver.
         f_np_wrapper: A wrapper function that given a constraint evaluates the value
              and gradient (using autograd) of a numpy input and returns both the
@@ -598,7 +599,7 @@ def make_scipy_nonlinear_inequality_constraints(
     Returns:
         A list of dictionaries containing callables for constraint function
         values and Jacobians and a string indicating the associated constraint
-        type ("eq", "ineq"), as expected by `scipy.optimize.minimize`.
+        type ("eq", "ineq"), as expected by ``scipy.optimize.minimize``.
     """
 
     scipy_nonlinear_inequality_constraints = []
@@ -640,42 +641,44 @@ def evaluate_feasibility(
     r"""Evaluate feasibility of candidate points (within a tolerance).
 
     Args:
-        X: The candidate tensor of shape `batch x q x d`.
+        X: The candidate tensor of shape ``batch x q x d``.
         inequality_constraints: A list of tuples (indices, coefficients, rhs),
             with each tuple encoding an inequality constraint of the form
-            `\sum_i (X[indices[i]] * coefficients[i]) >= rhs`. `indices` and
-            `coefficients` should be torch tensors. See the docstring of
-            `make_scipy_linear_constraints` for an example. When q=1, or when
+            ``\sum_i (X[indices[i]] * coefficients[i]) >= rhs``. ``indices`` and
+            ``coefficients`` should be torch tensors. See the docstring of
+            ``make_scipy_linear_constraints`` for an example. When q=1, or when
             applying the same constraint to each candidate in the batch
-            (intra-point constraint), `indices` should be a 1-d tensor.
+            (intra-point constraint), ``indices`` should be a 1-d tensor.
             For inter-point constraints, in which the constraint is applied to the
-            whole batch of candidates, `indices` must be a 2-d tensor, where
-            in each row `indices[i] =(k_i, l_i)` the first index `k_i` corresponds
-            to the `k_i`-th element of the `q`-batch and the second index `l_i`
-            corresponds to the `l_i`-th feature of that element.
+            whole batch of candidates, ``indices`` must be a 2-d tensor, where
+            in each row ``indices[i] =(k_i, l_i)`` the first index ``k_i`` corresponds
+            to the ``k_i``-th element of the ``q``-batch and the second index ``l_i``
+            corresponds to the ``l_i``-th feature of that element.
         equality_constraints: A list of tuples (indices, coefficients, rhs),
             with each tuple encoding an equality constraint of the form
-            `\sum_i (X[indices[i]] * coefficients[i]) = rhs`. See the docstring of
-            `make_scipy_linear_constraints` for an example.
+            ``\sum_i (X[indices[i]] * coefficients[i]) = rhs``. See the docstring of
+            ``make_scipy_linear_constraints`` for an example.
         nonlinear_inequality_constraints: A list of tuples representing the nonlinear
             inequality constraints. The first element in the tuple is a callable
-            representing a constraint of the form `callable(x) >= 0`. In case of an
-            intra-point constraint, `callable()`takes in an one-dimensional tensor of
-            shape `d` and returns a scalar. In case of an inter-point constraint,
-            `callable()` takes a two dimensional tensor of shape `q x d` and again
+            representing a constraint of the form ``callable(x) >= 0``. In case of an
+            intra-point constraint, ``callable()``takes in an one-dimensional tensor of
+            shape ``d`` and returns a scalar. In case of an inter-point constraint,
+            ``callable()`` takes a two dimensional tensor of shape ``q x d`` and again
             returns a scalar. The second element is a boolean, indicating if it is an
-            intra-point or inter-point constraint (`True` for intra-point. `False` for
-            inter-point). For more information on intra-point vs inter-point
-            constraints, see the docstring of the `inequality_constraints` argument.
+            intra-point or inter-point constraint (``True`` for intra-point.
+            ``False`` for inter-point). For more information on intra-point vs
+            inter-point constraints, see the docstring of the
+            ``inequality_constraints`` argument.
         tolerance: The tolerance used to check the feasibility of constraints.
-            For inequality constraints, we check if `const(X) >= rhs - tolerance`.
-            For equality constraints, we check if `abs(const(X) - rhs) < tolerance`.
-            For non-linear inequality constraints, we check if `const(X) >= -tolerance`.
-            This avoids marking the candidates as infeasible due to tiny violations.
+            For inequality constraints, we check if ``const(X) >= rhs - tolerance``.
+            For equality constraints, we check if ``abs(const(X) - rhs) < tolerance``.
+            For non-linear inequality constraints, we check if
+            ``const(X) >= -tolerance``. This avoids marking the candidates as
+            infeasible due to tiny violations.
 
     Returns:
-        A boolean tensor of shape `batch` indicating if the corresponding candidate of
-        shape `q x d` is feasible.
+        A boolean tensor of shape ``batch`` indicating if the corresponding candidate of
+        shape ``q x d`` is feasible.
     """
     if tolerance is None:
         tolerance = get_constraint_tolerance(dtype=X.dtype)
@@ -732,17 +735,17 @@ def project_to_feasible_space_via_slsqp(
     limited.
 
     Args:
-        X: A `(batch_shape x) n x d`-dim tensor of inptus.
-        bounds: A `2 x d`-dim tensor of lower and upper bounds.
+        X: A ``(batch_shape x) n x d``-dim tensor of inptus.
+        bounds: A ``2 x d``-dim tensor of lower and upper bounds.
         inequality_constraints: A list of tuples (indices, coefficients, rhs),
             with each tuple encoding an inequality constraint of the form
-            `sum_i (X[indices[i]] * coefficients[i]) >= rhs`. `indices` and
-            `coefficients` should be torch tensors. See the docstring of
-            `make_scipy_linear_constraints` for an example.
+            ``sum_i (X[indices[i]] * coefficients[i]) >= rhs``. ``indices`` and
+            ``coefficients`` should be torch tensors. See the docstring of
+            ``make_scipy_linear_constraints`` for an example.
         equality_constraints: A list of tuples (indices, coefficients, rhs).
 
     Returns:
-        A `(batch_shape x) n x d`-dim tensor of  projected values.
+        A ``(batch_shape x) n x d``-dim tensor of  projected values.
     """
     if inequality_constraints is None and equality_constraints is None:
         return X

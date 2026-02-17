@@ -58,10 +58,12 @@ from __future__ import annotations
 import math
 from abc import ABC
 
+import numpy as np
 import torch
 from botorch.exceptions.errors import InputDataError
 from botorch.test_functions.base import BaseTestProblem, ConstrainedBaseTestProblem
 from botorch.test_functions.utils import round_nearest
+from scipy import interpolate as si
 from torch import Tensor
 
 
@@ -122,7 +124,7 @@ class SyntheticTestFunction(BaseTestProblem, ABC):
         r"""The global optimum of the function.
 
         This can be either the minimum or maximum depending the value of
-        `self.is_minimization_problem`.
+        ``self.is_minimization_problem``.
         """
         if self._optimal_value is not None:
             return -self._optimal_value if self.negate else self._optimal_value
@@ -135,13 +137,13 @@ class SyntheticTestFunction(BaseTestProblem, ABC):
 class Ackley(SyntheticTestFunction):
     r"""Ackley test function.
 
-    d-dimensional function (usually evaluated on `[-32.768, 32.768]^d`):
+    d-dimensional function (usually evaluated on ``[-32.768, 32.768]^d``):
 
         f(x) = -A exp(-B sqrt(1/d sum_{i=1}^d x_i^2)) -
             exp(1/d sum_{i=1}^d cos(c x_i)) + A + exp(1)
 
-    f has one minimizer for its global minimum at `z_1 = (0, 0, ..., 0)` with
-    `f(z_1) = 0`.
+    f has one minimizer for its global minimum at ``z_1 = (0, 0, ..., 0)`` with
+    ``f(z_1) = 0``.
     """
 
     _optimal_value = 0.0
@@ -197,14 +199,15 @@ class Beale(SyntheticTestFunction):
 class Branin(SyntheticTestFunction):
     r"""Branin test function.
 
-    Two-dimensional function (usually evaluated on `[-5, 10] x [0, 15]`):
+    Two-dimensional function (usually evaluated on ``[-5, 10] x [0, 15]``):
 
         B(x) = (x_2 - b x_1^2 + c x_1 - r)^2 + 10 (1-t) cos(x_1) + 10
 
-    Here `b`, `c`, `r` and `t` are constants where `b = 5.1 / (4 * math.pi ** 2)`
-    `c = 5 / math.pi`, `r = 6`, `t = 1 / (8 * math.pi)`
-    B has 3 minimizers for its global minimum at `z_1 = (-pi, 12.275)`,
-    `z_2 = (pi, 2.275)`, `z_3 = (9.42478, 2.475)` with `B(z_i) = 0.397887`.
+    Here ``b``, ``c``, ``r`` and ``t`` are constants where
+    ``b = 5.1 / (4 * math.pi ** 2)`` ``c = 5 / math.pi``, ``r = 6``,
+    ``t = 1 / (8 * math.pi)``
+    B has 3 minimizers for its global minimum at ``z_1 = (-pi, 12.275)``,
+    ``z_2 = (pi, 2.275)``, ``z_3 = (9.42478, 2.475)`` with ``B(z_i) = 0.397887``.
     """
 
     dim = 2
@@ -241,12 +244,12 @@ class Bukin(SyntheticTestFunction):
 class Cosine8(SyntheticTestFunction):
     r"""Cosine Mixture test function.
 
-    8-dimensional function (usually evaluated on `[-1, 1]^8`):
+    8-dimensional function (usually evaluated on ``[-1, 1]^8``):
 
         f(x) = 0.1 sum_{i=1}^8 cos(5 pi x_i) - sum_{i=1}^8 x_i^2
 
-    f has one maximizer for its global maximum at `z_1 = (0, 0, ..., 0)` with
-    `f(z_1) = 0.8`
+    f has one maximizer for its global maximum at ``z_1 = (0, 0, ..., 0)`` with
+    ``f(z_1) = 0.8``
     """
 
     dim = 8
@@ -316,11 +319,11 @@ class DixonPrice(SyntheticTestFunction):
 class EggHolder(SyntheticTestFunction):
     r"""Eggholder test function.
 
-    Two-dimensional function (usually evaluated on `[-512, 512]^2`):
+    Two-dimensional function (usually evaluated on ``[-512, 512]^2``):
 
         E(x) = (x_2 + 47) sin(R1(x)) - x_1 * sin(R2(x))
 
-    where `R1(x) = sqrt(|x_2 + x_1 / 2 + 47|)`, `R2(x) = sqrt|x_1 - (x_2 + 47)|)`.
+    where ``R1(x) = sqrt(|x_2 + x_1 / 2 + 47|)``, ``R2(x) = sqrt|x_1 - (x_2 + 47)|)``.
     """
 
     dim = 2
@@ -340,13 +343,13 @@ class EggHolder(SyntheticTestFunction):
 class Griewank(SyntheticTestFunction):
     r"""Griewank synthetic test function.
 
-    The Griewank function is defined for any `d`, is typically evaluated on
-    `[-600, 600]^d`, and given by:
+    The Griewank function is defined for any ``d``, is typically evaluated on
+    ``[-600, 600]^d``, and given by:
 
         G(x) = sum_{i=1}^d x_i**2 / 4000 - prod_{i=1}^d cos(x_i / sqrt(i)) + 1
 
     G has many widespread local minima, which are regularly distributed.
-    The global minimum is at `z = (0, ..., 0)` with `G(z) = 0`.
+    The global minimum is at ``z = (0, ..., 0)`` with ``G(z) = 0``.
     """
 
     _optimal_value = 0.0
@@ -385,7 +388,7 @@ class Hartmann(SyntheticTestFunction):
     r"""Hartmann synthetic test function.
 
     Most commonly used is the six-dimensional version (typically evaluated on
-    `[0, 1]^6`):
+    ``[0, 1]^6``):
 
         H(x) = - sum_{i=1}^4 ALPHA_i exp( - sum_{j=1}^6 A_ij (x_j - P_ij)**2 )
 
@@ -393,7 +396,7 @@ class Hartmann(SyntheticTestFunction):
 
         z = (0.20169, 0.150011, 0.476874, 0.275332, 0.311652, 0.6573)
 
-    with `H(z) = -3.32237`.
+    with ``H(z) = -3.32237``.
     """
 
     def __init__(
@@ -487,11 +490,11 @@ class Hartmann(SyntheticTestFunction):
 class HolderTable(SyntheticTestFunction):
     r"""Holder Table synthetic test function.
 
-    Two-dimensional function (typically evaluated on `[0, 10] x [0, 10]`):
+    Two-dimensional function (typically evaluated on ``[0, 10] x [0, 10]``):
 
-        `H(x) = - | sin(x_1) * cos(x_2) * exp(| 1 - ||x|| / pi | ) |`
+        ``H(x) = - | sin(x_1) * cos(x_2) * exp(| 1 - ||x|| / pi | ) |``
 
-    H has 4 global minima with `H(z_i) = -19.2085` at
+    H has 4 global minima with ``H(z_i) = -19.2085`` at
 
         z_1 = ( 8.05502,  9.66459)
         z_2 = (-8.05502, -9.66459)
@@ -520,16 +523,16 @@ class HolderTable(SyntheticTestFunction):
 class Levy(SyntheticTestFunction):
     r"""Levy synthetic test function.
 
-    d-dimensional function (usually evaluated on `[-10, 10]^d`):
+    d-dimensional function (usually evaluated on ``[-10, 10]^d``):
 
         f(x) = sin^2(pi w_1) +
             sum_{i=1}^{d-1} (w_i-1)^2 (1 + 10 sin^2(pi w_i + 1)) +
             (w_d - 1)^2 (1 + sin^2(2 pi w_d))
 
-    where `w_i = 1 + (x_i - 1) / 4` for all `i`.
+    where ``w_i = 1 + (x_i - 1) / 4`` for all ``i``.
 
-    f has one minimizer for its global minimum at `z_1 = (1, 1, ..., 1)` with
-    `f(z_1) = 0`.
+    f has one minimizer for its global minimum at ``z_1 = (1, 1, ..., 1)`` with
+    ``f(z_1) = 0``.
     """
 
     _optimal_value = 0.0
@@ -626,7 +629,7 @@ class Michalewicz(SyntheticTestFunction):
 class Powell(SyntheticTestFunction):
     r"""Powell synthetic test function.
 
-    `d`-dim function (usually evaluated on the hypercube `[-4, 5]^d`):
+    ``d``-dim function (usually evaluated on the hypercube ``[-4, 5]^d``):
 
         P(x) = sum_{i=1}^d/4 (
         (x_{4i-3} + 10 x_{4i-2})**2
@@ -636,7 +639,7 @@ class Powell(SyntheticTestFunction):
         )
 
 
-    P has a global minimizer at `z = (0, ..., 0)` with `P(z) = 0`.
+    P has a global minimizer at ``z = (0, ..., 0)`` with ``P(z) = 0``.
     """
 
     _optimal_value = 0.0
@@ -711,12 +714,12 @@ class Rastrigin(SyntheticTestFunction):
 class Rosenbrock(SyntheticTestFunction):
     r"""Rosenbrock synthetic test function.
 
-    d-dimensional function (usually evaluated on `[-5, 10]^d`):
+    d-dimensional function (usually evaluated on ``[-5, 10]^d``):
 
         f(x) = sum_{i=1}^{d-1} (100 (x_{i+1} - x_i^2)^2 + (x_i - 1)^2)
 
-    f has one minimizer for its global minimum at `z_1 = (1, 1, ..., 1)` with
-    `f(z_i) = 0.0`.
+    f has one minimizer for its global minimum at ``z_1 = (1, 1, ..., 1)`` with
+    ``f(z_i) = 0.0``.
     """
 
     _optimal_value = 0.0
@@ -754,12 +757,12 @@ class Rosenbrock(SyntheticTestFunction):
 class Shekel(SyntheticTestFunction):
     r"""Shekel synthtetic test function.
 
-    4-dimensional function (usually evaluated on `[0, 10]^4`):
+    4-dimensional function (usually evaluated on ``[0, 10]^4``):
 
         f(x) = -sum_{i=1}^10 (sum_{j=1}^4 (x_j - A_{ji})^2 + C_i)^{-1}
 
-    f has one minimizer for its global minimum at `z_1 = (4, 4, 4, 4)` with
-    `f(z_1) = -10.5363`.
+    f has one minimizer for its global minimum at ``z_1 = (4, 4, 4, 4)`` with
+    ``f(z_1) = -10.5363``.
     """
 
     dim = 4
@@ -828,11 +831,11 @@ class SixHumpCamel(SyntheticTestFunction):
 class StyblinskiTang(SyntheticTestFunction):
     r"""Styblinski-Tang synthtetic test function.
 
-    d-dimensional function (usually evaluated on the hypercube `[-5, 5]^d`):
+    d-dimensional function (usually evaluated on the hypercube ``[-5, 5]^d``):
 
         H(x) = 0.5 * sum_{i=1}^d (x_i^4 - 16 * x_i^2 + 5 * x_i)
 
-    H has a single global mininimum `H(z) = -39.166166 * d` at `z = [-2.903534]^d`
+    H has a single global mininimum ``H(z) = -39.166166 * d`` at ``z = [-2.903534]^d``
     """
 
     def __init__(
@@ -882,7 +885,7 @@ class AckleyMixed(SyntheticTestFunction):
 
     This problem has dim-3 binary parameters and 3 continuous parameters in the
     range [0, 1]. This means dim > 3 is required. To make the problem a bit more
-    interesting, the optimal value is not at the origin, but rather at `x_opt`
+    interesting, the optimal value is not at the origin, but rather at ``x_opt``
     which is a randomly generated point.
 
     The goal is  to minimize f(x) = Ackley(x - x_opt).
@@ -989,6 +992,211 @@ class Labs(SyntheticTestFunction):
         return (self.dim**2) / (2.0 * energy)
 
 
+class TrajectoryPlanning(SyntheticTestFunction):
+    r"""Trajectory optimization benchmark for navigating through obstacle fields.
+
+    This test function optimizes a trajectory from a fixed start point to a goal
+    point while minimizing the cost integrated over the trajectory.
+
+    Problem Setup:
+        - Domain: [0, 1]^dim hypercube (dim must be even)
+        - Start: (0.05, 0.05)
+        - Goal: (0.95, 0.95)
+        - Obstacles: Grid of axis-aligned squares centered at regular intervals
+
+    Parameterization:
+        Parameters specify perturbations to goal-directed steps. This biases
+        the search toward trajectories that make progress toward the goal
+        while allowing deviations to avoid obstacles.
+
+    Interpolation Modes:
+        - Cubic spline (use_smooth_interp=True, default): Smooth C2 trajectories
+        - Piecewise linear (use_smooth_interp=False): Straight-line segments
+
+    Cost Function:
+        The cost is computed by integrating the arc length of the trajectory
+        that passes through obstacles:
+
+        cost = integral over trajectory of (20 if in_obstacle else 0) ds
+
+    Example:
+        >>> problem = TrajectoryPlanning(dim=20)
+        >>> x = torch.rand(problem.dim)  # Random trajectory parameters
+        >>> cost = problem(x)  # Evaluate obstacle cost
+    """
+
+    _optimal_value = 0.0
+    _check_grad_at_opt: bool = False
+
+    def __init__(
+        self,
+        dim: int = 30,
+        use_smooth_interp: bool = True,
+        max_step_size: float | None = None,
+        negate: bool = False,
+        dtype: torch.dtype = torch.double,
+    ) -> None:
+        """Initialize the trajectory planning problem.
+
+        Args:
+            dim: Dimensionality of the optimization problem. Must be even since
+                each waypoint has 2 coordinates.
+            use_smooth_interp: If True, use cubic spline interpolation for
+                smooth trajectories. If False, use piecewise linear interpolation.
+            max_step_size: Maximum allowed step size. If None, automatically computed.
+            negate: If True, negate the cost (for maximization problems).
+            dtype: Data type for tensors.
+
+        Raises:
+            ValueError: If dim is not even.
+        """
+        if dim % 2 != 0:
+            raise ValueError(f"dim must be even, got {dim}")
+
+        self.dim = dim
+        self.num_waypoints = dim // 2
+        self.use_smooth_interp = use_smooth_interp
+        self.start = torch.full((2,), 0.05, dtype=dtype)
+        self.goal = torch.full((2,), 0.95, dtype=dtype)
+
+        straight_line_dist = torch.linalg.norm(self.goal - self.start).item()
+        self.max_step_size = (
+            max_step_size or 1.5 * straight_line_dist / self.num_waypoints
+        )
+
+        # Create obstacle grid (6x6 grid excluding corners)
+        grid = torch.linspace(0, 1, 6)
+        centers = (
+            torch.stack(torch.meshgrid(grid, grid, indexing="ij")).reshape(2, -1).T
+        )
+        centers = centers[1:-1]  # exclude (0,0) and (1,1) corners
+        self.obs_low, self.obs_high = centers - 0.05, centers + 0.05
+        self.obs_cost = 20
+        self._bounds = [(0.0, 1.0)] * self.dim
+        self.continuous_inds = list(range(self.dim))
+
+        super().__init__(negate=negate)
+
+    def _is_in_obstacle(self, points: Tensor) -> Tensor:
+        """Check if points collide with any obstacle.
+
+        Args:
+            points: Tensor of shape (n_points, dim) containing positions to check.
+
+        Returns:
+            Boolean tensor of shape (n_points,) where True indicates collision.
+        """
+        if points.dim() == 1:
+            points = points.unsqueeze(0)
+        obs_low = self.obs_low.to(points.device)
+        obs_high = self.obs_high.to(points.device)
+        # Shape: (n_points, n_obstacles, 2) -> check all obstacles at once
+        in_box = (points.unsqueeze(1) >= obs_low) & (points.unsqueeze(1) <= obs_high)
+        return in_box.all(dim=-1).any(dim=-1)
+
+    def _build_waypoints(self, params: Tensor) -> Tensor:
+        """Build waypoints from optimization parameters.
+
+        Args:
+            params: Flat tensor of parameters with shape (num_waypoints * 2,).
+
+        Returns:
+            Tensor of shape (n_waypoints, 2) containing the full
+            trajectory waypoints including start and goal. The number of
+            waypoints may be less than num_waypoints + 2 if the goal is
+            reached early.
+        """
+        device, dtype = params.device, params.dtype
+        start = self.start.to(device=device, dtype=dtype)
+        goal = self.goal.to(device=device, dtype=dtype)
+
+        step_params = params.reshape((self.num_waypoints, 2))
+        waypoints = [start]
+        current_pos = start.clone()
+
+        for i in range(self.num_waypoints):
+            to_goal = goal - current_pos
+            dist = torch.linalg.norm(to_goal)
+
+            # If we've reached the goal, terminate early
+            if dist <= 1e-6:
+                break
+
+            perturbation = (step_params[i] - 0.5) * 2 * self.max_step_size
+            ideal_step = min(dist.item() / (self.num_waypoints - i), self.max_step_size)
+            step = to_goal / dist * ideal_step + perturbation
+            step_norm = torch.linalg.norm(step)
+            if step_norm > self.max_step_size:
+                step = step * (self.max_step_size / step_norm)
+
+            current_pos = (current_pos + step).clamp(0, 1)
+            waypoints.append(current_pos.clone())
+
+        waypoints.append(goal)
+        return torch.stack(waypoints)
+
+    def _interpolate_trajectory(
+        self, waypoints: Tensor, n_samples: int = 1000
+    ) -> Tensor:
+        """Interpolate dense trajectory points between waypoints.
+
+        Args:
+            waypoints: Tensor of shape (n_waypoints, dim) containing waypoint positions.
+            n_samples: Number of points to sample along the interpolated trajectory.
+
+        Returns:
+            Tensor of shape (n_samples, dim) containing trajectory points.
+        """
+        device, dtype = waypoints.device, waypoints.dtype
+
+        if self.use_smooth_interp:
+            # Remove duplicate waypoints for spline stability
+            dists = torch.linalg.norm(waypoints[1:] - waypoints[:-1], dim=1)
+            unique_mask = torch.cat(
+                [torch.ones(1, dtype=torch.bool, device=device), dists > 1e-6]
+            )
+            unique_waypoints = waypoints[unique_mask]
+
+            if len(unique_waypoints) >= 4:
+                wp_np = unique_waypoints.cpu().numpy()
+                tck, _ = si.splprep(wp_np.T, k=3, s=0)
+                t = torch.linspace(0, 1, n_samples).numpy()
+                points_np = np.array(si.splev(t, tck))
+                return torch.tensor(points_np, device=device, dtype=dtype).T.clamp(0, 1)
+
+        # Linear interpolation (pure PyTorch)
+        n_seg = len(waypoints) - 1
+        t = torch.linspace(0, 1, n_samples // n_seg, device=device, dtype=dtype)[
+            :-1, None
+        ]
+        # segments shape: (n_seg, n_samples_per_seg, 2)
+        # Each segment[i] has interpolated points between waypoints[i] and [i+1]
+        segments = (1 - t) * waypoints[:-1, None, :] + t * waypoints[1:, None, :]
+        return segments.reshape(-1, 2)
+
+    def _evaluate_trajectory(self, params: Tensor) -> Tensor:
+        """Evaluate trajectory cost by integrating distance through obstacles.
+
+        Args:
+            params: Flat tensor of trajectory parameters.
+
+        Returns:
+            Integrated obstacle cost scaled by self.obs_cost.
+        """
+        waypoints = self._build_waypoints(params)
+        points = self._interpolate_trajectory(waypoints, n_samples=1000)
+        collisions = self._is_in_obstacle(points)
+        segment_lengths = torch.linalg.norm(points[1:] - points[:-1], dim=1)
+        collision_weights = 0.5 * (collisions[:-1].float() + collisions[1:].float())
+        return torch.sum(segment_lengths * collision_weights) * self.obs_cost
+
+    def _evaluate_true(self, X: Tensor) -> Tensor:
+        """Evaluate the objective function on a batch of inputs."""
+        if X.ndim == 1:
+            X = X.unsqueeze(0)
+        return torch.stack([self._evaluate_trajectory(x) for x in X])
+
+
 #  ------------ Constrained synthetic test functions ----------- #
 
 
@@ -1071,7 +1279,7 @@ class ConstrainedGramacy(ConstrainedSyntheticTestFunction):
         Evaluate the function (w/o observation noise) on a set of points.
 
         Args:
-            X: A `batch_shape x d`-dim tensor of point(s) at which to evaluate the
+            X: A ``batch_shape x d``-dim tensor of point(s) at which to evaluate the
                 function.
         """
         return X.sum(dim=-1)
@@ -1087,7 +1295,7 @@ class ConstrainedHartmann(Hartmann, ConstrainedSyntheticTestFunction):
     r"""Constrained Hartmann test function.
 
     This is a constrained version of the standard Hartmann test function that
-    uses `||x||_2 <= 1` as the constraint. This problem comes from [Letham2019]_.
+    uses ``||x||_2 <= 1`` as the constraint. This problem comes from [Letham2019]_.
     """
 
     num_constraints = 1
@@ -1136,7 +1344,7 @@ class ConstrainedHartmannSmooth(Hartmann, ConstrainedSyntheticTestFunction):
     r"""Smooth constrained Hartmann test function.
 
     This is a constrained version of the standard Hartmann test function that
-    uses `||x||_2^2 <= 1` as the constraint to obtain smoother constraint slack.
+    uses ``||x||_2^2 <= 1`` as the constraint to obtain smoother constraint slack.
     """
 
     num_constraints = 1
@@ -1226,7 +1434,7 @@ class WeldedBeamSO(ConstrainedSyntheticTestFunction):
     black-box constraints from [CoelloCoello2002constraint]_.
 
     For a (somewhat modified) multi-objective version, see
-    `botorch.test_functions.multi_objective.WeldedBeam`.
+    ``botorch.test_functions.multi_objective.WeldedBeam``.
     """
 
     dim = 4

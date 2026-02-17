@@ -43,7 +43,9 @@ from torch.nn.functional import one_hot
 
 
 def _allclose(input: Tensor, other: Tensor) -> bool:
-    """Check if `input` and `other` are the same shape, and satisfy `torch.allclose`."""
+    """Check if ``input`` and ``other`` are the same shape, and satisfy
+    ``torch.allclose``.
+    """
     if input.shape != other.shape:
         return False
     return torch.allclose(input, other)
@@ -60,7 +62,7 @@ class InputTransform(Module, ABC):
         transform_on_eval: A boolean indicating whether to apply the
             transform in eval() mode.
         transform_on_fantasize: A boolean indicating whether to apply
-            the transform when called from within a `fantasize` call.
+            the transform when called from within a ``fantasize`` call.
     """
 
     is_one_to_many: bool = False
@@ -72,10 +74,10 @@ class InputTransform(Module, ABC):
         r"""Transform the inputs to a model.
 
         Args:
-            X: A `batch_shape x n x d`-dim tensor of inputs.
+            X: A ``batch_shape x n x d``-dim tensor of inputs.
 
         Returns:
-            A `batch_shape x n' x d`-dim tensor of transformed inputs.
+            A ``batch_shape x n' x d``-dim tensor of transformed inputs.
         """
         if self.training:
             if self.transform_on_train:
@@ -90,10 +92,10 @@ class InputTransform(Module, ABC):
         r"""Transform the inputs to a model.
 
         Args:
-            X: A `batch_shape x n x d`-dim tensor of inputs.
+            X: A ``batch_shape x n x d``-dim tensor of inputs.
 
         Returns:
-            A `batch_shape x n x d`-dim tensor of transformed inputs.
+            A ``batch_shape x n x d``-dim tensor of transformed inputs.
         """
         pass  # pragma: no cover
 
@@ -101,10 +103,10 @@ class InputTransform(Module, ABC):
         r"""Un-transform the inputs to a model.
 
         Args:
-            X: A `batch_shape x n x d`-dim tensor of transformed inputs.
+            X: A ``batch_shape x n x d``-dim tensor of transformed inputs.
 
         Returns:
-            A `batch_shape x n x d`-dim tensor of un-transformed inputs.
+            A ``batch_shape x n x d``-dim tensor of un-transformed inputs.
         """
         raise NotImplementedError(
             f"{self.__class__.__name__} does not implement the `untransform` method."
@@ -140,15 +142,15 @@ class InputTransform(Module, ABC):
         r"""Apply transforms for preprocessing inputs.
 
         The main use cases for this method are 1) to preprocess training data
-        before calling `set_train_data` and 2) preprocess `X_baseline` for noisy
-        acquisition functions so that `X_baseline` is "preprocessed" with the
+        before calling ``set_train_data`` and 2) preprocess ``X_baseline`` for noisy
+        acquisition functions so that ``X_baseline`` is "preprocessed" with the
         same transformations as the cached training inputs.
 
         Args:
-            X: A `batch_shape x n x d`-dim tensor of inputs.
+            X: A ``batch_shape x n x d``-dim tensor of inputs.
 
         Returns:
-            A `batch_shape x n x d`-dim tensor of (transformed) inputs.
+            A ``batch_shape x n x d``-dim tensor of (transformed) inputs.
         """
         if self.transform_on_train:
             # We need to disable learning of bounds / affine coefficients here.
@@ -173,13 +175,13 @@ class BatchBroadcastedInputTransform(InputTransform, ModuleDict):
         broadcast_index: int = -3,
     ) -> None:
         r"""A transform list that is broadcasted across a batch dimension specified by
-        `broadcast_index`. This is allows using a batched Gaussian process model when
+        ``broadcast_index``. This is allows using a batched Gaussian process model when
         the input transforms are different for different batch dimensions.
 
         Args:
             transforms: The transforms to broadcast across the first batch dimension.
-                The transform at position i in the list will be applied to `X[i]` for
-                a given input tensor `X` in the forward pass.
+                The transform at position i in the list will be applied to ``X[i]`` for
+                a given input tensor ``X`` in the forward pass.
             broadcast_index: The tensor index at which the transforms are broadcasted.
 
         Example:
@@ -215,10 +217,10 @@ class BatchBroadcastedInputTransform(InputTransform, ModuleDict):
         a batched tensor.
 
         Args:
-            X: A `batch_shape x n x d`-dim tensor of inputs.
+            X: A ``batch_shape x n x d``-dim tensor of inputs.
 
         Returns:
-            A `batch_shape x n x d`-dim tensor of transformed inputs.
+            A ``batch_shape x n x d``-dim tensor of transformed inputs.
         """
         return torch.stack(
             [t.forward(Xi) for Xi, t in self._Xs_and_transforms(X)],
@@ -231,10 +233,10 @@ class BatchBroadcastedInputTransform(InputTransform, ModuleDict):
         Un-transforms of the individual transforms are applied in reverse sequence.
 
         Args:
-            X: A `batch_shape x n x d`-dim tensor of transformed inputs.
+            X: A ``batch_shape x n x d``-dim tensor of transformed inputs.
 
         Returns:
-            A `batch_shape x n x d`-dim tensor of un-transformed inputs.
+            A ``batch_shape x n x d``-dim tensor of un-transformed inputs.
         """
         return torch.stack(
             [t.untransform(Xi) for Xi, t in self._Xs_and_transforms(X)],
@@ -260,15 +262,15 @@ class BatchBroadcastedInputTransform(InputTransform, ModuleDict):
         r"""Apply transforms for preprocessing inputs.
 
         The main use cases for this method are 1) to preprocess training data
-        before calling `set_train_data` and 2) preprocess `X_baseline` for noisy
-        acquisition functions so that `X_baseline` is "preprocessed" with the
+        before calling ``set_train_data`` and 2) preprocess ``X_baseline`` for noisy
+        acquisition functions so that ``X_baseline`` is "preprocessed" with the
         same transformations as the cached training inputs.
 
         Args:
-            X: A `batch_shape x n x d`-dim tensor of inputs.
+            X: A ``batch_shape x n x d``-dim tensor of inputs.
 
         Returns:
-            A `batch_shape x n x d`-dim tensor of (transformed) inputs.
+            A ``batch_shape x n x d``-dim tensor of (transformed) inputs.
         """
         return torch.stack(
             [t.preprocess_transform(Xi) for Xi, t in self._Xs_and_transforms(X)],
@@ -279,7 +281,7 @@ class BatchBroadcastedInputTransform(InputTransform, ModuleDict):
         r"""Returns an iterable of sub-tensors of X and their associated transforms.
 
         Args:
-            X: A `batch_shape x n x d`-dim tensor of inputs.
+            X: A ``batch_shape x n x d``-dim tensor of inputs.
 
         Returns:
             An iterable containing tuples of sub-tensors of X and their transforms.
@@ -325,10 +327,10 @@ class ChainedInputTransform(InputTransform, ModuleDict):
         Individual transforms are applied in sequence.
 
         Args:
-            X: A `batch_shape x n x d`-dim tensor of inputs.
+            X: A ``batch_shape x n x d``-dim tensor of inputs.
 
         Returns:
-            A `batch_shape x n x d`-dim tensor of transformed inputs.
+            A ``batch_shape x n x d``-dim tensor of transformed inputs.
         """
         for tf in self.values():
             X = tf.forward(X)
@@ -340,10 +342,10 @@ class ChainedInputTransform(InputTransform, ModuleDict):
         Un-transforms of the individual transforms are applied in reverse sequence.
 
         Args:
-            X: A `batch_shape x n x d`-dim tensor of transformed inputs.
+            X: A ``batch_shape x n x d``-dim tensor of transformed inputs.
 
         Returns:
-            A `batch_shape x n x d`-dim tensor of un-transformed inputs.
+            A ``batch_shape x n x d``-dim tensor of un-transformed inputs.
         """
         for tf in reversed(self.values()):
             X = tf.untransform(X)
@@ -366,15 +368,15 @@ class ChainedInputTransform(InputTransform, ModuleDict):
         r"""Apply transforms for preprocessing inputs.
 
         The main use cases for this method are 1) to preprocess training data
-        before calling `set_train_data` and 2) preprocess `X_baseline` for noisy
-        acquisition functions so that `X_baseline` is "preprocessed" with the
+        before calling ``set_train_data`` and 2) preprocess ``X_baseline`` for noisy
+        acquisition functions so that ``X_baseline`` is "preprocessed" with the
         same transformations as the cached training inputs.
 
         Args:
-            X: A `batch_shape x n x d`-dim tensor of inputs.
+            X: A ``batch_shape x n x d``-dim tensor of inputs.
 
         Returns:
-            A `batch_shape x n x d`-dim tensor of (transformed) inputs.
+            A ``batch_shape x n x d``-dim tensor of (transformed) inputs.
         """
         for tf in self.values():
             X = tf.preprocess_transform(X)
@@ -395,10 +397,10 @@ class ReversibleInputTransform(InputTransform, ABC):
         r"""Transform the inputs.
 
         Args:
-            X: A `batch_shape x n x d`-dim tensor of inputs.
+            X: A ``batch_shape x n x d``-dim tensor of inputs.
 
         Returns:
-            A `batch_shape x n x d`-dim tensor of transformed inputs.
+            A ``batch_shape x n x d``-dim tensor of transformed inputs.
         """
         return self._untransform(X) if self.reverse else self._transform(X)
 
@@ -406,10 +408,10 @@ class ReversibleInputTransform(InputTransform, ABC):
         r"""Un-transform the inputs.
 
         Args:
-            X: A `batch_shape x n x d`-dim tensor of inputs.
+            X: A ``batch_shape x n x d``-dim tensor of inputs.
 
         Returns:
-            A `batch_shape x n x d`-dim tensor of un-transformed inputs.
+            A ``batch_shape x n x d``-dim tensor of un-transformed inputs.
         """
         return self._transform(X) if self.reverse else self._untransform(X)
 
@@ -418,10 +420,10 @@ class ReversibleInputTransform(InputTransform, ABC):
         r"""Forward transform the inputs.
 
         Args:
-            X: A `batch_shape x n x d`-dim tensor of inputs.
+            X: A ``batch_shape x n x d``-dim tensor of inputs.
 
         Returns:
-            A `batch_shape x n x d`-dim tensor of transformed inputs.
+            A ``batch_shape x n x d``-dim tensor of transformed inputs.
         """
         pass  # pragma: no cover
 
@@ -430,10 +432,10 @@ class ReversibleInputTransform(InputTransform, ABC):
         r"""Reverse transform the inputs.
 
         Args:
-            X: A `batch_shape x n x d`-dim tensor of inputs.
+            X: A ``batch_shape x n x d``-dim tensor of inputs.
 
         Returns:
-            A `batch_shape x n x d`-dim tensor of transformed inputs.
+            A ``batch_shape x n x d``-dim tensor of transformed inputs.
         """
         pass  # pragma: no cover
 
@@ -464,26 +466,26 @@ class AffineInputTransform(ReversibleInputTransform):
     ) -> None:
         r"""Apply affine transformation to input:
 
-            `output = (input - offset) / coefficient`
+            ``output = (input - offset) / coefficient``
 
         Args:
             d: The dimension of the input space.
             coefficient: Tensor of linear coefficients, shape must to be
-                broadcastable with `(batch_shape x n x d)`-dim input tensors.
+                broadcastable with ``(batch_shape x n x d)``-dim input tensors.
             offset: Tensor of offset coefficients, shape must to be
-                broadcastable with `(batch_shape x n x d)`-dim input tensors.
+                broadcastable with ``(batch_shape x n x d)``-dim input tensors.
             indices: The indices of the inputs to transform. If omitted,
                 take all dimensions of the inputs into account. Either a list of ints
-                or a Tensor of type `torch.long`.
+                or a Tensor of type ``torch.long``.
             batch_shape: The batch shape of the inputs (assuming input tensors
-                of shape `batch_shape x n x d`). If provided, perform individual
+                of shape ``batch_shape x n x d``). If provided, perform individual
                 transformation per batch, otherwise uses a single transformation.
             transform_on_train: A boolean indicating whether to apply the
                 transform in train() mode. Default: True.
             transform_on_eval: A boolean indicating whether to apply the
                 transform in eval() mode. Default: True.
             transform_on_fantasize: A boolean indicating whether to apply the
-                transform when called from within a `fantasize` call. Default: True.
+                transform when called from within a ``fantasize`` call. Default: True.
             reverse: A boolean indicating whether the forward pass should untransform
                 the inputs.
         """
@@ -540,10 +542,10 @@ class AffineInputTransform(ReversibleInputTransform):
         r"""Apply affine transformation to input.
 
         Args:
-            X: A `batch_shape x n x d`-dim tensor of inputs.
+            X: A ``batch_shape x n x d``-dim tensor of inputs.
 
         Returns:
-            A `batch_shape x n x d`-dim tensor of transformed inputs.
+            A ``batch_shape x n x d``-dim tensor of transformed inputs.
         """
         self._check_shape(X)
         if self.learn_coefficients and self.training:
@@ -556,10 +558,10 @@ class AffineInputTransform(ReversibleInputTransform):
         r"""Apply inverse of affine transformation.
 
         Args:
-            X: A `batch_shape x n x d`-dim tensor of transformed inputs.
+            X: A ``batch_shape x n x d``-dim tensor of transformed inputs.
 
         Returns:
-            A `batch_shape x n x d`-dim tensor of un-transformed inputs.
+            A ``batch_shape x n x d``-dim tensor of un-transformed inputs.
         """
         self._to(X)
         return self.coefficient * X + self.offset
@@ -628,8 +630,8 @@ class Normalize(AffineInputTransform):
     r"""Normalize the inputs have unit range and be centered at 0.5 (by default).
 
     If no explicit bounds are provided this module is stateful: If in train mode,
-    calling `forward` updates the module state (i.e. the normalizing bounds). If
-    in eval mode, calling `forward` simply applies the normalization using the
+    calling ``forward`` updates the module state (i.e. the normalizing bounds). If
+    in eval mode, calling ``forward`` simply applies the normalization using the
     current module state.
     """
 
@@ -657,21 +659,21 @@ class Normalize(AffineInputTransform):
             bounds: If provided, use these bounds to normalize the inputs. If
                 omitted, learn the bounds in train mode.
             batch_shape: The batch shape of the inputs (assuming input tensors
-                of shape `batch_shape x n x d`). If provided, perform individual
+                of shape ``batch_shape x n x d``). If provided, perform individual
                 normalization per batch, otherwise uses a single normalization.
             transform_on_train: A boolean indicating whether to apply the
                 transforms in train() mode. Default: True.
             transform_on_eval: A boolean indicating whether to apply the
                 transform in eval() mode. Default: True.
             transform_on_fantasize: A boolean indicating whether to apply the
-                transform when called from within a `fantasize` call. Default: True.
+                transform when called from within a ``fantasize`` call. Default: True.
             reverse: A boolean indicating whether the forward pass should untransform
                 the inputs.
-            min_range: If the range of an input dimension is smaller than `min_range`,
+            min_range: If the range of an input dimension is smaller than ``min_range``,
                 that input dimension will not be normalized. This is equivalent to
-                using bounds of `[0, 1]` for this dimension, and helps avoid division
+                using bounds of ``[0, 1]`` for this dimension, and helps avoid division
                 by zero errors and related numerical issues. See the example below.
-                NOTE: This only applies if `learn_bounds=True`.
+                NOTE: This only applies if ``learn_bounds=True``.
             learn_bounds: Whether to learn the bounds in train mode. Defaults
                 to False if bounds are provided, otherwise defaults to True.
             center: The center of the range for each parameter. Default: 0.5.
@@ -753,7 +755,7 @@ class Normalize(AffineInputTransform):
         coefficients, which determine the base class's behavior.
         """
         # Aggregate mins and ranges over extra batch and marginal dims
-        batch_ndim = min(len(self.batch_shape), X.ndim - 2)  # batch rank of `X`
+        batch_ndim = min(len(self.batch_shape), X.ndim - 2)  # batch rank of ``X``
         reduce_dims = (*range(X.ndim - batch_ndim - 2), X.ndim - 2)
         offset = torch.amin(X, dim=reduce_dims).unsqueeze(-2)
         coefficient = torch.amax(X, dim=reduce_dims).unsqueeze(-2) - offset
@@ -783,8 +785,8 @@ class Normalize(AffineInputTransform):
 class InputStandardize(AffineInputTransform):
     r"""Standardize inputs (zero mean, unit variance).
 
-    In train mode, calling `forward` updates the module state
-    (i.e. the mean/std normalizing constants). If in eval mode, calling `forward`
+    In train mode, calling ``forward`` updates the module state
+    (i.e. the mean/std normalizing constants). If in eval mode, calling ``forward``
     simply applies the standardization using the current module state.
     """
 
@@ -806,7 +808,7 @@ class InputStandardize(AffineInputTransform):
             indices: The indices of the inputs to standardize. If omitted,
                 take all dimensions of the inputs into account.
             batch_shape: The batch shape of the inputs (asssuming input tensors
-                of shape `batch_shape x n x d`). If provided, perform individual
+                of shape ``batch_shape x n x d``). If provided, perform individual
                 normalization per batch, otherwise uses a single normalization.
             transform_on_train: A boolean indicating whether to apply the
                 transforms in train() mode. Default: True
@@ -815,7 +817,7 @@ class InputStandardize(AffineInputTransform):
             reverse: A boolean indicating whether the forward pass should untransform
                 the inputs.
             min_std: If the standard deviation of an input dimension is smaller than
-                `min_std`, that input dimension will not be standardized. This is
+                ``min_std``, that input dimension will not be standardized. This is
                 equivalent to using a standard deviation of 1.0 and a mean of 0.0 for
                 this dimension, and helps avoid division by zero errors and related
                 numerical issues.
@@ -848,7 +850,7 @@ class InputStandardize(AffineInputTransform):
         coefficients, which determine the base class's behavior.
         """
         # Aggregate means and standard deviations over extra batch and marginal dims
-        batch_ndim = min(len(self.batch_shape), X.ndim - 2)  # batch rank of `X`
+        batch_ndim = min(len(self.batch_shape), X.ndim - 2)  # batch rank of ``X``
         reduce_dims = (*range(X.ndim - batch_ndim - 2), X.ndim - 2)
         coefficient, offset = (
             values.unsqueeze(-2)
@@ -862,10 +864,10 @@ class InputStandardize(AffineInputTransform):
 class Round(InputTransform):
     r"""A discretization transformation for discrete inputs.
 
-    If `approximate=False` (the default), uses PyTorch's `round`.
+    If ``approximate=False`` (the default), uses PyTorch's ``round``.
 
-    If `approximate=True`, a differentiable approximate rounding function is
-    used, with a temperature parameter of `tau`. This method is a piecewise
+    If ``approximate=True``, a differentiable approximate rounding function is
+    used, with a temperature parameter of ``tau``. This method is a piecewise
     approximation of a rounding function where each piece is a hyperbolic
     tangent function.
 
@@ -933,7 +935,7 @@ class Round(InputTransform):
             transform_on_eval: A boolean indicating whether to apply the
                 transform in eval() mode. Default: True.
             transform_on_fantasize: A boolean indicating whether to apply the
-                transform when called from within a `fantasize` call. Default: True.
+                transform when called from within a ``fantasize`` call. Default: True.
             approximate: A boolean indicating whether approximate or exact
                 rounding should be used. Default: False.
             tau: The temperature parameter for approximate rounding.
@@ -956,10 +958,10 @@ class Round(InputTransform):
         r"""Discretize the inputs.
 
         Args:
-            X: A `batch_shape x n x d`-dim tensor of inputs.
+            X: A ``batch_shape x n x d``-dim tensor of inputs.
 
         Returns:
-            A `batch_shape x n x d`-dim tensor of discretized inputs.
+            A ``batch_shape x n x d``-dim tensor of discretized inputs.
         """
         X_rounded = X.clone()
         # round integers
@@ -1026,7 +1028,7 @@ class Log10(ReversibleInputTransform):
             transform_on_eval: A boolean indicating whether to apply the
                 transform in eval() mode. Default: True.
             transform_on_fantasize: A boolean indicating whether to apply the
-                transform when called from within a `fantasize` call. Default: True.
+                transform when called from within a ``fantasize`` call. Default: True.
             reverse: A boolean indicating whether the forward pass should untransform
                 the inputs.
         """
@@ -1042,10 +1044,10 @@ class Log10(ReversibleInputTransform):
         r"""Log transform the inputs.
 
         Args:
-            X: A `batch_shape x n x d`-dim tensor of inputs.
+            X: A ``batch_shape x n x d``-dim tensor of inputs.
 
         Returns:
-            A `batch_shape x n x d`-dim tensor of transformed inputs.
+            A ``batch_shape x n x d``-dim tensor of transformed inputs.
         """
         return X.log10()
 
@@ -1054,10 +1056,10 @@ class Log10(ReversibleInputTransform):
         r"""Reverse the log transformation.
 
         Args:
-            X: A `batch_shape x n x d`-dim tensor of normalized inputs.
+            X: A ``batch_shape x n x d``-dim tensor of normalized inputs.
 
         Returns:
-            A `batch_shape x n x d`-dim tensor of un-normalized inputs.
+            A ``batch_shape x n x d``-dim tensor of un-normalized inputs.
         """
         return 10.0**X
 
@@ -1103,7 +1105,7 @@ class Warp(ReversibleInputTransform, GPyTorchModule):
             transform_on_eval: A boolean indicating whether to apply the
                 transform in eval() mode. Default: True.
             transform_on_fantasize: A boolean indicating whether to apply the
-                transform when called from within a `fantasize` call. Default: True.
+                transform when called from within a ``fantasize`` call. Default: True.
             reverse: A boolean indicating whether the forward pass should untransform
                 the inputs.
             eps: A small value used to clip values to be in the interval (0, 1).
@@ -1113,9 +1115,9 @@ class Warp(ReversibleInputTransform, GPyTorchModule):
                 of the Kumaraswamy distribution.
             batch_shape: An optional batch shape, for learning independent warping
                 parameters for each batch of inputs. This should match the input batch
-                shape of the model (i.e., `train_X.shape[:-2]`).
+                shape of the model (i.e., ``train_X.shape[:-2]``).
                 NOTE: This is only supported for single-output models.
-            bounds: A `2 x d`-dim tensor of lower and upper bounds for the inputs.
+            bounds: A ``2 x d``-dim tensor of lower and upper bounds for the inputs.
         """
         super().__init__()
         self.register_buffer("indices", torch.tensor(indices, dtype=torch.long))
@@ -1131,7 +1133,7 @@ class Warp(ReversibleInputTransform, GPyTorchModule):
         self._normalize = Normalize(d=d, indices=indices, bounds=bounds)
         if len(self.batch_shape) > 0:
             # Note: this follows the gpytorch shape convention for lengthscales
-            # There is ongoing discussion about the extra `1`.
+            # There is ongoing discussion about the extra ``1``.
             # TODO: update to follow new gpytorch convention resulting from
             # https://github.com/cornellius-gp/gpytorch/issues/1317
             batch_shape = self.batch_shape + torch.Size([1])
@@ -1177,12 +1179,12 @@ class Warp(ReversibleInputTransform, GPyTorchModule):
         r"""Warp the inputs through the Kumaraswamy CDF.
 
         Args:
-            X: A `input_batch_shape x (batch_shape) x n x d`-dim tensor of inputs.
+            X: A ``input_batch_shape x (batch_shape) x n x d``-dim tensor of inputs.
                 batch_shape here can either be self.batch_shape or 1's such that
                 it is broadcastable with self.batch_shape if self.batch_shape is set.
 
         Returns:
-            A `input_batch_shape x (batch_shape) x n x d`-dim tensor
+            A ``input_batch_shape x (batch_shape) x n x d``-dim tensor
                 of transformed inputs.
         """
         return kumaraswamy_warp(
@@ -1193,12 +1195,12 @@ class Warp(ReversibleInputTransform, GPyTorchModule):
         r"""Warp the inputs through the Kumaraswamy CDF.
 
         Args:
-            X: A `input_batch_shape x (batch_shape) x n x d`-dim tensor of inputs.
+            X: A ``input_batch_shape x (batch_shape) x n x d``-dim tensor of inputs.
                 batch_shape here can either be self.batch_shape or 1's such that
                 it is broadcastable with self.batch_shape if self.batch_shape is set.
 
         Returns:
-            A `input_batch_shape x (batch_shape) x n x d`-dim tensor of transformed
+            A ``input_batch_shape x (batch_shape) x n x d``-dim tensor of transformed
                 inputs.
         """
         # Normalize to unit cube
@@ -1210,10 +1212,10 @@ class Warp(ReversibleInputTransform, GPyTorchModule):
         r"""Warp the inputs through the Kumaraswamy inverse CDF.
 
         Args:
-            X: A `input_batch_shape x batch_shape x n x d`-dim tensor of inputs.
+            X: A ``input_batch_shape x batch_shape x n x d``-dim tensor of inputs.
 
         Returns:
-            A `input_batch_shape x batch_shape x n x d`-dim tensor of transformed
+            A ``input_batch_shape x batch_shape x n x d``-dim tensor of transformed
                 inputs.
         """
         if len(self.batch_shape) > 0:
@@ -1230,10 +1232,10 @@ class Warp(ReversibleInputTransform, GPyTorchModule):
         r"""Warp the inputs through the Kumaraswamy inverse CDF.
 
         Args:
-            X: A `input_batch_shape x batch_shape x n x d`-dim tensor of inputs.
+            X: A ``input_batch_shape x batch_shape x n x d``-dim tensor of inputs.
 
         Returns:
-            A `input_batch_shape x batch_shape x n x d`-dim tensor of transformed
+            A ``input_batch_shape x batch_shape x n x d``-dim tensor of transformed
                 inputs.
         """
         return inv_kumaraswamy_warp(
@@ -1246,27 +1248,27 @@ class AppendFeatures(InputTransform):
     provided beforehand or generated on the fly via a callable.
 
     As an example, the predefined set of features can be used with
-    `RiskMeasureMCObjective` to optimize risk measures as described in
+    ``RiskMeasureMCObjective`` to optimize risk measures as described in
     [Cakmak2020risk]_. A tutorial notebook implementing the rhoKG acqusition
     function introduced in [Cakmak2020risk]_ can be found at
     https://botorch.org/docs/tutorials/risk_averse_bo_with_environmental_variables.
 
     The steps for using this to obtain samples of a risk measure are as follows:
 
-    -   Train a model on `(x, w)` inputs and the corresponding observations;
+    -   Train a model on ``(x, w)`` inputs and the corresponding observations;
 
-    -   Pass in an instance of `AppendFeatures` with the `feature_set` denoting the
-        samples of `W` as the `input_transform` to the trained model;
+    -   Pass in an instance of ``AppendFeatures`` with the ``feature_set`` denoting the
+        samples of ``W`` as the ``input_transform`` to the trained model;
 
-    -   Call `posterior(...).rsample(...)` on the model with `x` inputs only to
-        get the joint posterior samples over `(x, w)`s, where the `w`s come
-        from the `feature_set`;
+    -   Call ``posterior(...).rsample(...)`` on the model with ``x`` inputs only to
+        get the joint posterior samples over ``(x, w)``s, where the ``w``s come
+        from the ``feature_set``;
 
-    -   Pass these posterior samples through the `RiskMeasureMCObjective` of choice to
+    -   Pass these posterior samples through the ``RiskMeasureMCObjective`` of choice to
         get the samples of the risk measure.
 
     Note: The samples of the risk measure obtained this way are in general biased
-    since the `feature_set` does not fully represent the distribution of the
+    since the ``feature_set`` does not fully represent the distribution of the
     environmental variable.
 
     Possible examples for using a callable include statistical models that are built on
@@ -1275,7 +1277,7 @@ class AppendFeatures(InputTransform):
     and transfer learning models within the optimization loop.
 
     Example:
-        >>> # We consider 1D `x` and 1D `w`, with `W` having a
+        >>> # We consider 1D ``x`` and 1D ``w``, with ``W`` having a
         >>> # uniform distribution over [0, 1]
         >>> model = SingleTaskGP(
         ...     train_X=torch.rand(10, 2),
@@ -1285,10 +1287,10 @@ class AppendFeatures(InputTransform):
         >>> mll = ExactMarginalLogLikelihood(model.likelihood, model)
         >>> fit_gpytorch_mll(mll)
         >>> test_x = torch.rand(3, 1)
-        >>> # `posterior_samples` is a `10 x 30 x 1`-dim tensor
+        >>> # ``posterior_samples`` is a ``10 x 30 x 1``-dim tensor
         >>> posterior_samples = model.posterior(test_x).rsamples(torch.size([10]))
         >>> risk_measure = VaR(alpha=0.8, n_w=10)
-        >>> # `risk_measure_samples` is a `10 x 3`-dim tensor of samples of the
+        >>> # ``risk_measure_samples`` is a ``10 x 3``-dim tensor of samples of the
         >>> # risk measure VaR
         >>> risk_measure_samples = risk_measure(posterior_samples)
     """
@@ -1306,31 +1308,31 @@ class AppendFeatures(InputTransform):
         transform_on_eval: bool = True,
         transform_on_fantasize: bool = False,
     ) -> None:
-        r"""Append `feature_set` to each input or generate a set of features to
+        r"""Append ``feature_set`` to each input or generate a set of features to
         append on the fly via a callable.
 
         Args:
-            feature_set: An `n_f x d_f`-dim tensor denoting the features to be
+            feature_set: An ``n_f x d_f``-dim tensor denoting the features to be
                 appended to the inputs. Default: None.
-            f: A callable mapping a `batch_shape x q x d`-dim input tensor `X`
-                to a `batch_shape x q x n_f x d_f`-dimensional output tensor.
+            f: A callable mapping a ``batch_shape x q x d``-dim input tensor ``X``
+                to a ``batch_shape x q x n_f x d_f``-dimensional output tensor.
                 Default: None.
             indices: List of indices denoting the indices of the features to be
-                passed into f. Per default all features are passed to `f`.
+                passed into f. Per default all features are passed to ``f``.
                 Default: None.
-            fkwargs: Dictionary of keyword arguments passed to the callable `f`.
+            fkwargs: Dictionary of keyword arguments passed to the callable ``f``.
                 Default: None.
             skip_expand: A boolean indicating whether to expand the input tensor
                 before appending features. This is intended for use with an
-                `InputPerturbation`. If `True`, the input tensor will be expected
-                to be of shape `batch_shape x (q * n_f) x d`. Not implemented
+                ``InputPerturbation``. If ``True``, the input tensor will be expected
+                to be of shape ``batch_shape x (q * n_f) x d``. Not implemented
                 in combination with a callable.
             transform_on_train: A boolean indicating whether to apply the
                 transforms in train() mode. Default: False.
             transform_on_eval: A boolean indicating whether to apply the
                 transform in eval() mode. Default: True.
             transform_on_fantasize: A boolean indicating whether to apply the
-                transform when called from within a `fantasize` call. Default: False.
+                transform when called from within a ``fantasize`` call. Default: False.
         """
         super().__init__()
         if (feature_set is None) and (f is None):
@@ -1369,27 +1371,29 @@ class AppendFeatures(InputTransform):
         self.transform_on_fantasize = transform_on_fantasize
 
     def transform(self, X: Tensor) -> Tensor:
-        r"""Transform the inputs by appending `feature_set` to each input or
+        r"""Transform the inputs by appending ``feature_set`` to each input or
         by generating a set of features to be appended on the fly via a callable.
 
-        For each `1 x d`-dim element in the input tensor, this will produce
-        an `n_f x (d + d_f)`-dim tensor with `feature_set` appended as the last `d_f`
-        dimensions. For a generic `batch_shape x q x d`-dim `X`, this translates to a
-        `batch_shape x (q * n_f) x (d + d_f)`-dim output, where the values corresponding
-        to `X[..., i, :]` are found in `output[..., i * n_f: (i + 1) * n_f, :]`.
+        For each ``1 x d``-dim element in the input tensor, this will produce
+        an ``n_f x (d + d_f)``-dim tensor with ``feature_set`` appended as
+        the last ``d_f`` dimensions. For a generic ``batch_shape x q x d``-dim
+        ``X``, this translates to a ``batch_shape x (q * n_f) x (d + d_f)``-dim
+        output, where the values corresponding to ``X[..., i, :]`` are found in
+        ``output[..., i * n_f: (i + 1) * n_f, :]``.
 
-        Note: Adding the `feature_set` on the `q-batch` dimension is necessary to avoid
-        introducing additional bias by evaluating the inputs on independent GP
-        sample paths.
+        Note: Adding the ``feature_set`` on the ``q-batch`` dimension is
+        necessary to avoid introducing additional bias by evaluating the inputs
+        on independent GP sample paths.
 
         Args:
-            X: A `batch_shape x q x d`-dim tensor of inputs. If `self.skip_expand` is
-                `True`, then `X` should be of shape `batch_shape x (q * n_f) x d`,
-                typically obtained by passing a `batch_shape x q x d` shape input
-                through an `InputPerturbation` with `n_f` perturbation values.
+            X: A ``batch_shape x q x d``-dim tensor of inputs. If
+                ``self.skip_expand`` is ``True``, then ``X`` should be of shape
+                ``batch_shape x (q * n_f) x d``, typically obtained by passing a
+                ``batch_shape x q x d`` shape input through an
+                ``InputPerturbation`` with ``n_f`` perturbation values.
 
         Returns:
-            A `batch_shape x (q * n_f) x (d + d_f)`-dim tensor of appended inputs.
+            A ``batch_shape x (q * n_f) x (d + d_f)``-dim tensor of appended inputs.
         """
         if self._f is not None:
             expanded_features = self._f(X[..., self.indices], **self.fkwargs)
@@ -1434,10 +1438,12 @@ class InteractionFeatures(AppendFeatures):
 
 
 class FilterFeatures(InputTransform):
-    r"""A transform that filters the input with a given set of features indices.
+    r"""A transform that filters the input with a given set of features
+    indices.
 
-    As an example, this can be used in a multiobjective optimization with `ModelListGP`
-    in which the specific models only share subsets of features (feature selection).
+    As an example, this can be used in a multiobjective optimization with
+    ``ModelListGP`` in which the specific models only share subsets of
+    features (feature selection).
     A reason could be that it is known that specific features do not have any impact on
     a specific objective but they need to be included in the model for another one.
     """
@@ -1452,14 +1458,14 @@ class FilterFeatures(InputTransform):
         r"""Filter features from a model.
 
         Args:
-            feature_set: An one-dim tensor denoting the indices of the features to be
-                kept and fed to the model.
+            feature_indices: An one-dim tensor denoting the indices of the features to
+                be kept and fed to the model.
             transform_on_train: A boolean indicating whether to apply the
                 transforms in train() mode. Default: True.
             transform_on_eval: A boolean indicating whether to apply the
                 transform in eval() mode. Default: True.
             transform_on_fantasize: A boolean indicating whether to apply the
-                transform when called from within a `fantasize` call. Default: True.
+                transform when called from within a ``fantasize`` call. Default: True.
         """
         super().__init__()
         if feature_indices.dim() != 1:
@@ -1478,15 +1484,15 @@ class FilterFeatures(InputTransform):
         self.register_buffer("feature_indices", feature_indices)
 
     def transform(self, X: Tensor) -> Tensor:
-        r"""Transform the inputs by keeping only the in `feature_indices` specified
+        r"""Transform the inputs by keeping only the in ``feature_indices`` specified
         feature indices and filtering out the others.
 
         Args:
-            X: A `batch_shape x q x d`-dim tensor of inputs.
+            X: A ``batch_shape x q x d``-dim tensor of inputs.
 
         Returns:
-            A `batch_shape x q x e`-dim tensor of filtered inputs,
-                where `e` is the length of `feature_indices`.
+            A ``batch_shape x q x e``-dim tensor of filtered inputs,
+                where ``e`` is the length of ``feature_indices``.
         """
         return X[..., self.feature_indices]
 
@@ -1507,11 +1513,11 @@ class FilterFeatures(InputTransform):
 class InputPerturbation(InputTransform):
     r"""A transform that adds the set of perturbations to the given input.
 
-    Similar to `AppendFeatures`, this can be used with `RiskMeasureMCObjective`
-    to optimize risk measures. See `AppendFeatures` for additional discussion
+    Similar to ``AppendFeatures``, this can be used with ``RiskMeasureMCObjective``
+    to optimize risk measures. See ``AppendFeatures`` for additional discussion
     on optimizing risk measures.
 
-    A tutorial notebook using this with `qNoisyExpectedImprovement` can be found at
+    A tutorial notebook using this with ``qNoisyExpectedImprovement`` can be found at
     https://botorch.org/docs/tutorials/risk_averse_bo_with_input_perturbations.
     """
 
@@ -1527,20 +1533,20 @@ class InputPerturbation(InputTransform):
         transform_on_eval: bool = True,
         transform_on_fantasize: bool = False,
     ) -> None:
-        r"""Add `perturbation_set` to each input.
+        r"""Add ``perturbation_set`` to each input.
 
         Args:
-            perturbation_set: An `n_p x d`-dim tensor denoting the perturbations
+            perturbation_set: An ``n_p x d``-dim tensor denoting the perturbations
                 to be added to the inputs. Alternatively, this can be a callable that
-                returns `batch x n_p x d`-dim tensor of perturbations for input of
-                shape `batch x d`. This is useful for heteroscedastic perturbations.
-            bounds: A `2 x d`-dim tensor of lower and upper bounds for each
+                returns ``batch x n_p x d``-dim tensor of perturbations for input of
+                shape ``batch x d``. This is useful for heteroscedastic perturbations.
+            bounds: A ``2 x d``-dim tensor of lower and upper bounds for each
                 column of the input. If given, the perturbed inputs will be
                 clamped to these bounds.
             indices: A list of indices specifying a subset of inputs on which to apply
-                the transform. Note that `len(indices)` should be equal to the second
-                dimension of `perturbation_set` and `bounds`. The dimensionality of
-                the input `X.shape[-1]` can be larger if we only transform a subset.
+                the transform. Note that ``len(indices)`` should be equal to the second
+                dimension of ``perturbation_set`` and ``bounds``. The dimensionality of
+                the input ``X.shape[-1]`` can be larger if we only transform a subset.
             multiplicative: A boolean indicating whether the input perturbations
                 are additive or multiplicative. If True, inputs will be multiplied
                 with the perturbations.
@@ -1549,7 +1555,7 @@ class InputPerturbation(InputTransform):
             transform_on_eval: A boolean indicating whether to apply the
                 transform in eval() mode. Default: True.
             transform_on_fantasize: A boolean indicating whether to apply the
-                transform when called from within a `fantasize` call. Default: False.
+                transform when called from within a ``fantasize`` call. Default: False.
         """
         super().__init__()
         if isinstance(perturbation_set, Tensor):
@@ -1579,27 +1585,27 @@ class InputPerturbation(InputTransform):
         self.transform_on_fantasize = transform_on_fantasize
 
     def transform(self, X: Tensor) -> Tensor:
-        r"""Transform the inputs by adding `perturbation_set` to each input.
+        r"""Transform the inputs by adding ``perturbation_set`` to each input.
 
-        For each `1 x d`-dim element in the input tensor, this will produce
-        an `n_p x d`-dim tensor with the `perturbation_set` added to the input.
-        For a generic `batch_shape x q x d`-dim `X`, this translates to a
-        `batch_shape x (q * n_p) x d`-dim output, where the values corresponding
-        to `X[..., i, :]` are found in `output[..., i * n_w: (i + 1) * n_w, :]`.
+        For each ``1 x d``-dim element in the input tensor, this will produce
+        an ``n_p x d``-dim tensor with the ``perturbation_set`` added to the input.
+        For a generic ``batch_shape x q x d``-dim ``X``, this translates to a
+        ``batch_shape x (q * n_p) x d``-dim output, where the values corresponding
+        to ``X[..., i, :]`` are found in ``output[..., i * n_w: (i + 1) * n_w, :]``.
 
-        Note: Adding the `perturbation_set` on the `q-batch` dimension is necessary
+        Note: Adding the ``perturbation_set`` on the ``q-batch`` dimension is necessary
         to avoid introducing additional bias by evaluating the inputs on independent
         GP sample paths.
 
         Args:
-            X: A `batch_shape x q x d`-dim tensor of inputs.
+            X: A ``batch_shape x q x d``-dim tensor of inputs.
 
         Returns:
-            A `batch_shape x (q * n_p) x d`-dim tensor of perturbed inputs.
+            A ``batch_shape x (q * n_p) x d``-dim tensor of perturbed inputs.
         """
         # NOTE: If we had access to n_p without evaluating _perturbations when the
-        # perturbation_set is a function, we could move this into `_transform`.
-        # Further, we could remove the two `transpose` calls below if one were
+        # perturbation_set is a function, we could move this into ``_transform``.
+        # Further, we could remove the two ``transpose`` calls below if one were
         # willing to accept a different ordering of the transformed output.
         self._perturbations = self._expanded_perturbations(X)
         # make space for n_p dimension, switch n_p with n after transform, and flatten.
@@ -1615,11 +1621,11 @@ class InputPerturbation(InputTransform):
 
     @property
     def batch_shape(self):
-        """Returns a shape tuple such that `subset_transform` pre-allocates
-        a (b x n_p x n x d) - dim tensor, where `b` is the batch shape of the
-        input `X` of the transform and `n_p` is the number of perturbations.
-        NOTE: this function is dependent on calling `_expanded_perturbations(X)`
-        because `n_p` is inaccessible otherwise if `perturbation_set` is a function.
+        """Returns a shape tuple such that ``subset_transform`` pre-allocates
+        a (b x n_p x n x d) - dim tensor, where ``b`` is the batch shape of the
+        input ``X`` of the transform and ``n_p`` is the number of perturbations.
+        NOTE: this function is dependent on calling ``_expanded_perturbations(X)``
+        because ``n_p`` is inaccessible otherwise if ``perturbation_set`` is a function.
         """
         return self._perturbations.shape[:-2]
 
@@ -1684,7 +1690,7 @@ class NumericToCategoricalEncoding(InputTransform):
             transform_on_eval: A boolean indicating whether to apply the
                 transform in eval() mode. Default: True.
             transform_on_fantasize: A boolean indicating whether to apply the
-                transform when called from within a `fantasize` call. Default: False.
+                transform when called from within a ``fantasize`` call. Default: False.
         """
         super().__init__()
         self.transform_on_train = transform_on_train
@@ -1750,11 +1756,11 @@ class NumericToCategoricalEncoding(InputTransform):
         r"""Transform the categorical inputs into a vector representation.
 
         Args:
-            X: A `batch_shape x n x d`-dim tensor of inputs.
+            X: A ``batch_shape x n x d``-dim tensor of inputs.
 
         Returns:
-            A `batch_shape x n x d'`-dim tensor with
-            `d' = d + sum(categorical_features.values())` in which the
+            A ``batch_shape x n x d'``-dim tensor with
+            ``d' = d + sum(categorical_features.values())`` in which the
             integer-encoded categoricals are transformed to a vector representation.
         """
         s = list(X.shape)
@@ -1807,7 +1813,7 @@ class OneHotToNumeric(InputTransform):
             transform_on_eval: A boolean indicating whether to apply the
                 transform in eval() mode. Default: True.
             transform_on_fantasize: A boolean indicating whether to apply the
-                transform when called from within a `fantasize` call. Default: False.
+                transform when called from within a ``fantasize`` call. Default: False.
         """
         super().__init__()
         self.transform_on_train = transform_on_train
@@ -1850,10 +1856,10 @@ class OneHotToNumeric(InputTransform):
         r"""Transform the categorical inputs into integer representation.
 
         Args:
-            X: A `batch_shape x n x d`-dim tensor of inputs.
+            X: A ``batch_shape x n x d``-dim tensor of inputs.
 
         Returns:
-            A `batch_shape x n x d'`-dim tensor of where the one-hot encoded
+            A ``batch_shape x n x d'``-dim tensor of where the one-hot encoded
             categoricals are transformed to integer representation.
         """
         if len(self.categorical_features) > 0:
@@ -1871,11 +1877,11 @@ class OneHotToNumeric(InputTransform):
         r"""Transform the categoricals from integer representation to one-hot.
 
         Args:
-            X: A `batch_shape x n x d'`-dim tensor of transformed inputs, where
+            X: A ``batch_shape x n x d'``-dim tensor of transformed inputs, where
                 the categoricals are represented as integers.
 
         Returns:
-            A `batch_shape x n x d`-dim tensor of inputs, where the categoricals
+            A ``batch_shape x n x d``-dim tensor of inputs, where the categoricals
             have been transformed to one-hot representation.
         """
         if len(self.categorical_features) > 0:

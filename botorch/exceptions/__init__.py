@@ -35,7 +35,6 @@ __all__ = [
     "CostAwareWarning",
     "InputDataWarning",
     "InputDataError",
-    "BadInitialCandidatesWarning",
     "CandidateGenerationError",
     "ModelFittingError",
     "NumericsWarning",

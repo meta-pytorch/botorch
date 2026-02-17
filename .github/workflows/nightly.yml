@@ -25,14 +25,14 @@ jobs:
       UV_SYSTEM_PYTHON: 1
     steps:
     - uses: actions/checkout@v4
-    - name: Fetch all history for all tags and branches
-      run: git fetch --prune --unshallow
+      with:
+        fetch-depth: 0
     - name: Install uv
       uses: astral-sh/setup-uv@v5
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: "3.13"
+        python-version: "3.14"
     - name: Install dependencies
       run: |
         uv pip install --pre torch --index-url https://download.pytorch.org/whl/nightly/cpu

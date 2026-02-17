@@ -33,7 +33,7 @@ class EnsembleModel(Model, ABC):
                 corresponding mixture posterior.
         """
         super().__init__()
-        # buffer `weights` is generally a name occupied by another module,
+        # buffer ``weights`` is generally a name occupied by another module,
         # so we have to be more specific here
         self.ensemble_weights = weights
 
@@ -42,11 +42,11 @@ class EnsembleModel(Model, ABC):
         r"""Compute the (ensemble) model output at X.
 
         Args:
-            X: A `batch_shape x n x d`-dim input tensor `X`.
+            X: A ``batch_shape x n x d``-dim input tensor ``X``.
 
         Returns:
-            A `batch_shape x s x n x m`-dimensional output tensor where
-            `s` is the size of the ensemble.
+            A ``batch_shape x s x n x m``-dimensional output tensor where
+            ``s`` is the size of the ensemble.
         """
         pass  # pragma: no cover
 
@@ -68,35 +68,36 @@ class EnsembleModel(Model, ABC):
         r"""Compute the ensemble posterior at X.
 
         Args:
-            X: A `batch_shape x q x d`-dim input tensor `X`.
+            X: A ``batch_shape x q x d``-dim input tensor ``X``.
             output_indices: A list of indices, corresponding to the outputs over
                 which to compute the posterior. If omitted, computes the posterior
                 over all model outputs.
             posterior_transform: An optional PosteriorTransform.
 
         Returns:
-            An `EnsemblePosterior` object, representing `batch_shape` joint
-            posteriors over `n` points and the outputs selected by `output_indices`.
+            An ``EnsemblePosterior`` object, representing ``batch_shape`` joint
+            posteriors over ``n`` points and the outputs selected by ``output_indices``.
         """
-        # Apply the input transforms in `eval` mode.
+        # Apply the input transforms in ``eval`` mode.
         self.eval()
         X = self.transform_inputs(X)
-        # Note: we use a Tensor instance check so that `observation_noise = True`
+        # Note: we use a Tensor instance check so that ``observation_noise = True``
         # just gets ignored. This avoids having to do a bunch of case distinctions
         # when using a ModelList.
         if isinstance(kwargs.get("observation_noise"), Tensor):
             # TODO: Consider returning an MVN here instead
             raise UnsupportedError("Ensemble models do not support observation noise.")
         values = self._forward(X)
-        # NOTE: The `outcome_transform` `untransform`s the predictions rather than the
-        # `posterior` (as is done in GP models). This is more general since it works
-        # even if the transform doesn't support `untransform_posterior`.
+        # NOTE: The ``outcome_transform`` ``untransform``s the predictions rather
+        # than the ``posterior`` (as is done in GP models). This is more general
+        # since it works even if the transform doesn't support
+        # ``untransform_posterior``.
         if hasattr(self, "outcome_transform"):
             values, _ = self.outcome_transform.untransform(values, X=X)
         if output_indices is not None:
             values = values[..., output_indices]
         posterior = EnsemblePosterior(values=values, weights=self.ensemble_weights)
         if posterior_transform is not None:
-            return posterior_transform(posterior)
+            return posterior_transform(posterior=posterior, X=X)
         else:
             return posterior

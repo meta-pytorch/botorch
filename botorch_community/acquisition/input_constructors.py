@@ -16,7 +16,6 @@ from __future__ import annotations
 from typing import Any, Hashable, List, Optional, Tuple
 
 import torch
-
 from botorch.acquisition.input_constructors import (
     acqf_input_constructor,
     get_best_f_analytic,
@@ -27,16 +26,15 @@ from botorch.acquisition.objective import (
 )
 from botorch.acquisition.utils import get_optimal_samples
 from botorch.models.model import Model
-
 from botorch.utils.datasets import SupervisedDataset
 from botorch_community.acquisition.bayesian_active_learning import (
     qBayesianQueryByComittee,
     qBayesianVarianceReduction,
     qStatisticalDistanceActiveLearning,
 )
-
 from botorch_community.acquisition.discretized import (
     DiscretizedExpectedImprovement,
+    DiscretizedNoisyExpectedImprovement,
     DiscretizedProbabilityOfImprovement,
 )
 from botorch_community.acquisition.scorebo import qSelfCorrectingBayesianOptimization
@@ -52,12 +50,12 @@ def construct_inputs_best_f(
     posterior_transform: PosteriorTransform | None = None,
     best_f: float | Tensor | None = None,
 ) -> dict[str, Any]:
-    r"""Construct kwargs for the acquisition functions requiring `best_f`.
+    r"""Construct kwargs for the acquisition functions requiring ``best_f``.
 
     Args:
         model: The model to be used in the acquisition function.
         training_data: Dataset(s) used to train the model.
-            Used to determine default value for `best_f`.
+            Used to determine default value for ``best_f``.
         best_f: Threshold above (or below) which improvement is defined.
         posterior_transform: The posterior transform to be used in the
             acquisition function.
@@ -75,6 +73,33 @@ def construct_inputs_best_f(
         "model": model,
         "posterior_transform": posterior_transform,
         "best_f": best_f,
+    }
+
+
+@acqf_input_constructor(DiscretizedNoisyExpectedImprovement)
+def construct_inputs_noisy(
+    model: Model,
+    posterior_transform: PosteriorTransform | None = None,
+    X_pending: Optional[Tensor] = None,
+) -> dict[str, Any]:
+    r"""Construct kwargs for the acquisition functions requiring ``best_f``.
+
+    Args:
+        model: The model to be used in the acquisition function.
+        best_f: Threshold above (or below) which improvement is defined.
+        posterior_transform: The posterior transform to be used in the
+            acquisition function.
+        X_pending: Points already tried, but not yet included in the
+            training data.
+
+
+    Returns:
+        A dict mapping kwarg names of the constructor to values.
+    """
+    return {
+        "model": model,
+        "posterior_transform": posterior_transform,
+        "X_pending": X_pending,
     }
 
 

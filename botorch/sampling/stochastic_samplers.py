@@ -18,7 +18,7 @@ from torch import Tensor
 
 
 class ForkedRNGSampler(MCSampler):
-    r"""A sampler using `torch.fork_rng` to enable replicable sampling
+    r"""A sampler using ``torch.fork_rng`` to enable replicable sampling
     from a posterior that does not support base samples.
 
     NOTE: This approach is not a one-to-one replacement for base sample
@@ -30,7 +30,7 @@ class ForkedRNGSampler(MCSampler):
     """
 
     def forward(self, posterior: Posterior) -> Tensor:
-        r"""Draws MC samples from the posterior in a `fork_rng` context.
+        r"""Draws MC samples from the posterior in a ``fork_rng`` context.
 
         Args:
             posterior: The posterior to sample from.
@@ -44,13 +44,13 @@ class ForkedRNGSampler(MCSampler):
 
 
 class StochasticSampler(MCSampler):
-    r"""A sampler that simply calls `posterior.rsample` to generate the
+    r"""A sampler that simply calls ``posterior.rsample`` to generate the
     samples. This should only be used for stochastic optimization of the
-    acquisition functions, e.g., via `gen_candidates_torch`. This should
-    not be used with `optimize_acqf`, which uses deterministic optimizers
+    acquisition functions, e.g., via ``gen_candidates_torch``. This should
+    not be used with ``optimize_acqf``, which uses deterministic optimizers
     under the hood.
 
-    NOTE: This ignores the `seed` option.
+    NOTE: This ignores the ``seed`` option.
     """
 
     def forward(self, posterior: Posterior) -> Tensor:

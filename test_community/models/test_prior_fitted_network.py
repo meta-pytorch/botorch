@@ -18,6 +18,7 @@ from botorch_community.models.prior_fitted_network import (
     BoundedRiemannPosterior,
     MultivariatePFNModel,
     PFNModel,
+    PFNModelWithPendingPoints,
 )
 from botorch_community.models.utils.prior_fitted_network import (
     download_model,
@@ -45,74 +46,94 @@ class DummyPFN(nn.Module):
         self.n_buckets = n_buckets
         self.criterion = MagicMock()
         self.criterion.borders = torch.linspace(0, 1, n_buckets + 1)
+        self.style_encoder = None
+        self.y_style_encoder = None
 
-    def forward(self, train_X: Tensor, train_Y: Tensor, test_X: Tensor) -> Tensor:
-        return torch.zeros(*test_X.shape[:-1], self.n_buckets, device=test_X.device)
+    def forward(
+        self,
+        x: Tensor,
+        y: Tensor,
+        test_x: Tensor,
+        style: Tensor | None = None,
+        y_style: Tensor | None = None,
+    ) -> Tensor:
+        return torch.zeros(*test_x.shape[:-1], self.n_buckets, device=test_x.device)
 
 
 class TestPriorFittedNetwork(BotorchTestCase):
     def test_raises(self):
         for dtype in (torch.float, torch.double):
-            tkwargs = {"device": self.device, "dtype": dtype}
-            train_X = torch.rand(10, 3, **tkwargs)
-            train_Y = torch.rand(10, 1, **tkwargs)
-            train_Yvar = torch.rand(10, 1, **tkwargs)
-            test_X = torch.rand(5, 3, **tkwargs)
+            for model_type in (PFNModel, PFNModelWithPendingPoints):
+                with self.subTest(model_type=model_type, dtype=dtype):
+                    tkwargs = {"device": self.device, "dtype": dtype}
+                    train_X = torch.rand(10, 3, **tkwargs)
+                    train_Y = torch.rand(10, 1, **tkwargs)
+                    train_Yvar = torch.rand(10, 1, **tkwargs)
+                    test_X = torch.rand(5, 3, **tkwargs)
 
-            with self.assertLogs(logger="botorch", level=DEBUG) as log:
-                PFNModel(train_X, train_Y, DummyPFN(), train_Yvar=train_Yvar)
-                self.assertIn(
-                    "train_Yvar provided but ignored for PFNModel.",
-                    log.output[0],
-                )
+                    with self.assertLogs(logger="botorch", level=DEBUG) as log:
+                        model_type(train_X, train_Y, DummyPFN(), train_Yvar=train_Yvar)
+                        self.assertIn(
+                            "train_Yvar provided but ignored for PFNModel.",
+                            log.output[0],
+                        )
 
-            train_Y_4d = torch.rand(10, 2, 2, 1, **tkwargs)
-            with self.assertRaisesRegex(
-                UnsupportedError, "train_Y must be 2-dimensional"
-            ):
-                PFNModel(train_X, train_Y_4d, DummyPFN())
+                    train_Y_4d = torch.rand(10, 2, 2, 1, **tkwargs)
+                    with self.assertRaisesRegex(
+                        UnsupportedError, "train_Y must be 2-dimensional"
+                    ):
+                        model_type(train_X, train_Y_4d, DummyPFN())
 
-            train_Y_2d = torch.rand(10, 2, **tkwargs)
-            with self.assertRaisesRegex(UnsupportedError, "Only 1 target allowed"):
-                PFNModel(train_X, train_Y_2d, DummyPFN())
+                    train_Y_2d = torch.rand(10, 2, **tkwargs)
+                    with self.assertRaisesRegex(
+                        UnsupportedError, "Only 1 target allowed"
+                    ):
+                        model_type(train_X, train_Y_2d, DummyPFN())
 
-            with self.assertRaisesRegex(
-                UnsupportedError, "train_X must be 2-dimensional"
-            ):
-                PFNModel(torch.rand(10, 3, 3, 2, **tkwargs), train_Y, DummyPFN())
+                    with self.assertRaisesRegex(
+                        UnsupportedError, "train_X must be 2-dimensional"
+                    ):
+                        model_type(
+                            torch.rand(10, 3, 3, 2, **tkwargs), train_Y, DummyPFN()
+                        )
+                    with self.assertRaisesRegex(
+                        UnsupportedError, "same number of rows"
+                    ):
+                        model_type(train_X, torch.rand(11, 1, **tkwargs), DummyPFN())
 
-            with self.assertRaisesRegex(UnsupportedError, "same number of rows"):
-                PFNModel(train_X, torch.rand(11, 1, **tkwargs), DummyPFN())
+                    pfn = model_type(train_X, train_Y, DummyPFN())
 
-            pfn = PFNModel(train_X, train_Y, DummyPFN())
+                    with self.assertRaisesRegex(
+                        UnsupportedError, "output_indices is not None"
+                    ):
+                        pfn.posterior(test_X, output_indices=[0, 1])
+                    with self.assertLogs(logger="botorch", level=WARN) as log:
+                        pfn.posterior(test_X, observation_noise=True)
+                        self.assertIn(
+                            "observation_noise is not supported for PFNModel",
+                            log.output[0],
+                        )
+                    with self.assertRaisesRegex(
+                        UnsupportedError, "posterior_transform is not supported"
+                    ):
+                        pfn.posterior(
+                            test_X,
+                            posterior_transform=ScalarizedPosteriorTransform(
+                                weights=torch.ones(1)
+                            ),
+                        )
 
-            with self.assertRaisesRegex(UnsupportedError, "output_indices is not None"):
-                pfn.posterior(test_X, output_indices=[0, 1])
-            with self.assertLogs(logger="botorch", level=WARN) as log:
-                pfn.posterior(test_X, observation_noise=True)
-                self.assertIn(
-                    "observation_noise is not supported for PFNModel",
-                    log.output[0],
-                )
-            with self.assertRaisesRegex(
-                UnsupportedError, "posterior_transform is not supported"
-            ):
-                pfn.posterior(
-                    test_X,
-                    posterior_transform=ScalarizedPosteriorTransform(
-                        weights=torch.ones(1)
-                    ),
-                )
+                    # (b', b, d) prediction works as expected
+                    test_X = torch.rand(5, 4, 2, **tkwargs)
+                    post = pfn.posterior(test_X)
+                    self.assertEqual(post.mean.shape, torch.Size([5, 4, 1]))
 
-            # (b', b, d) prediction works as expected
-            test_X = torch.rand(5, 4, 2, **tkwargs)
-            post = pfn.posterior(test_X)
-            self.assertEqual(post.mean.shape, torch.Size([5, 4, 1]))
-
-            # X dims should be 1 to 4
-            test_X = torch.rand(5, 4, 2, 1, 2, **tkwargs)
-            with self.assertRaisesRegex(UnsupportedError, "X must be at most 3-d"):
-                pfn.posterior(test_X)
+                    # X dims should be 1 to 4
+                    test_X = torch.rand(5, 4, 2, 1, 2, **tkwargs)
+                    with self.assertRaisesRegex(
+                        UnsupportedError, "X must be at most 3-d"
+                    ):
+                        pfn.posterior(test_X)
 
     def test_shapes(self):
         tkwargs = {"device": self.device, "dtype": torch.float}
@@ -148,11 +169,15 @@ class TestPriorFittedNetwork(BotorchTestCase):
 
         # prepare_data
         X = torch.rand(5, 3, **tkwargs)
-        X, train_X, train_Y, orig_X_shape = pfn._prepare_data(X)
+        X, train_X, train_Y, orig_X_shape, styles = pfn._prepare_data(X)
         self.assertEqual(X.shape, torch.Size([1, 5, 3]))
         self.assertEqual(train_X.shape, torch.Size([1, 10, 3]))
         self.assertEqual(train_Y.shape, torch.Size([1, 10, 1]))
         self.assertEqual(orig_X_shape, torch.Size([5, 3]))
+        self.assertEqual(styles, {})
+        pfn.style = torch.rand(4, **tkwargs)
+        X, train_X, train_Y, orig_X_shape, styles = pfn._prepare_data(X)
+        self.assertEqual(styles["style"].shape, torch.Size([1, 1, 4]))
 
     def test_input_transform(self):
         model = PFNModel(
@@ -163,6 +188,81 @@ class TestPriorFittedNetwork(BotorchTestCase):
         )
         self.assertIsInstance(model.input_transform, Normalize)
         self.assertEqual(model.input_transform.bounds.shape, torch.Size([2, 3]))
+
+    def test_style_hyperparameters(self):
+        """Test that style_hyperparameters are stored and passed through get_styles."""
+        train_X, train_Y = torch.rand(10, 3), torch.rand(10, 1)
+        style_hps = {"noise_std": 0.1}
+
+        # Create PFN with mock style_encoder and y_style_encoder
+        dummy_pfn = DummyPFN()
+        mock_encoder = MagicMock()
+        mock_encoder.hyperparameters = ["noise_std"]
+        mock_encoder.hyperparameters_dict_to_tensor.return_value = torch.tensor([0.5])
+        mock_y_encoder = MagicMock()
+        mock_y_encoder.hyperparameters = ["noise_std"]
+        mock_y_encoder.hyperparameters_dict_to_tensor.return_value = torch.tensor(
+            [0.25]
+        )
+        dummy_pfn.style_encoder = [mock_encoder]
+        dummy_pfn.y_style_encoder = [mock_y_encoder]
+
+        pfn = PFNModel(train_X, train_Y, dummy_pfn, style_hyperparameters=style_hps)
+        self.assertEqual(pfn.style_hyperparameters, style_hps)
+
+        # Capture kwargs passed to forward
+        captured = {}
+        orig_forward = dummy_pfn.forward
+        dummy_pfn.forward = lambda *a, **kw: (
+            captured.update(kw),
+            orig_forward(**kw),
+        )[1]
+
+        pfn.posterior(torch.rand(5, 3))
+
+        self.assertIn("style", captured)
+        self.assertIn("y_style", captured)
+        self.assertEqual(captured["style"].item(), 0.5)
+        self.assertEqual(captured["y_style"].item(), 0.25)
+        mock_encoder.hyperparameters_dict_to_tensor.assert_called_once_with(style_hps)
+        mock_y_encoder.hyperparameters_dict_to_tensor.assert_called_once_with(style_hps)
+
+    def test_style_params_require_style_hyperparameters(self):
+        """Test no style params if style_hyperparameters=None, some when {}."""
+        train_X, train_Y = torch.rand(10, 3), torch.rand(10, 1)
+        dummy_pfn = DummyPFN()
+        mock_enc = MagicMock()
+        mock_enc.hyperparameters = []
+        mock_enc.hyperparameters_dict_to_tensor.return_value = torch.tensor([0.5])
+        dummy_pfn.style_encoder = [mock_enc]
+
+        captured = {}
+        orig = dummy_pfn.forward
+        dummy_pfn.forward = lambda *a, **kw: (captured.update(kw), orig(**kw))[1]
+
+        PFNModel(train_X, train_Y, dummy_pfn).posterior(torch.rand(5, 3))
+        self.assertNotIn("style", captured)
+
+        pfn = PFNModel(train_X, train_Y, dummy_pfn, style_hyperparameters={})
+        pfn.posterior(torch.rand(5, 3))
+        self.assertIn("style", captured)
+
+    def test_raw_style_tensor(self):
+        """Test that raw style tensor is passed through when provided."""
+        train_X, train_Y = torch.rand(10, 3), torch.rand(10, 1)
+        style = torch.tensor([[0.1, 0.2], [0.3, 0.4], [0.5, 0.6]])
+
+        captured = {}
+        dummy_pfn = DummyPFN()
+        orig = dummy_pfn.forward
+        dummy_pfn.forward = lambda *a, **kw: (captured.update(kw), orig(**kw))[1]
+
+        pfn = PFNModel(train_X, train_Y, dummy_pfn, style=style)
+        pfn.posterior(torch.rand(5, 3))
+
+        self.assertIn("style", captured)
+        self.assertEqual(captured["style"].shape[1:], style.shape)
+        self.assertTrue(torch.equal(captured["style"][0], style))
 
     def test_unpack_checkpoint(self):
         config = MainConfig(
@@ -355,6 +455,7 @@ class TestMultivariatePFN(BotorchTestCase):
                 X=X,
                 train_X=torch.zeros(3, 4, 5),
                 train_Y=torch.zeros(3, 4, 1),
+                styles={"style": torch.zeros(3, 7)},
                 marginals=marginals,
             )
         res = mock_pfn_predict.call_args[1]
@@ -374,6 +475,9 @@ class TestMultivariatePFN(BotorchTestCase):
         self.assertTrue(
             torch.equal(torch.round(res["train_Y"], decimals=2), torch.cat(a, dim=0))
         )
+        # Verify style and y_style are passed correctly
+        self.assertTrue(torch.equal(res["style"], torch.zeros(6, 7)))
+        self.assertNotIn("y_style", res)
 
     def test_estimate_correlations(self):
         probabilities = torch.ones(2, 3, 1000)
@@ -392,6 +496,7 @@ class TestMultivariatePFN(BotorchTestCase):
                 X=torch.ones(2, 3, 5),
                 train_X=torch.zeros(2, 4, 5),
                 train_Y=torch.zeros(2, 4, 1),
+                styles={"style": torch.zeros(2, 4), "y_style": torch.ones(2, 4)},
                 marginals=marginals,
             )
         self.assertAllClose(torch.diagonal(R, dim1=-2, dim2=-1), torch.ones(2, 3))
@@ -410,7 +515,94 @@ class TestMultivariatePFN(BotorchTestCase):
                 X=torch.ones(1, 3, 5),
                 train_X=torch.zeros(1, 4, 5),
                 train_Y=torch.zeros(1, 4, 1),
+                styles={"style": torch.zeros(1, 4), "y_style": torch.ones(1, 4)},
                 marginals=marginals,
             )
         self.assertEqual(R.shape, torch.Size([1, 3, 3]))
         self.assertAllClose(torch.diagonal(R, dim1=-2, dim2=-1), torch.ones(1, 3))
+
+
+class TestPFNModelWithPendingPoints(BotorchTestCase):
+    def setUp(self):
+        self.train_X = torch.rand(10, 3)
+        self.train_Y = torch.rand(10, 1)
+        self.pfn = PFNModelWithPendingPoints(
+            self.train_X, self.train_Y, DummyPFN(n_buckets=100)
+        )
+
+    def test_posterior_without_pending_X(self):
+        """Test that posterior works the same as PFNModel when pending_X is None."""
+        test_X = torch.rand(5, 3)
+        posterior = self.pfn.posterior(test_X)
+        self.assertIsInstance(posterior, BoundedRiemannPosterior)
+        self.assertEqual(posterior.probabilities.shape, torch.Size([5, 100]))
+        self.assertEqual(posterior.mean.shape, torch.Size([5, 1]))
+
+    def test_posterior_with_pending_X(self):
+        """Test that posterior correctly handles pending_X."""
+        test_X = torch.rand(5, 3)
+        pending_X = torch.rand(3, 3)  # 3 pending points
+
+        posterior = self.pfn.posterior(test_X, pending_X=pending_X)
+        self.assertIsInstance(posterior, BoundedRiemannPosterior)
+        self.assertEqual(posterior.probabilities.shape, torch.Size([5, 100]))
+        self.assertEqual(posterior.mean.shape, torch.Size([5, 1]))
+
+    def test_posterior_with_pending_X_batched(self):
+        """Test that posterior correctly handles pending_X with batched input."""
+        test_X = torch.rand(2, 5, 3)  # batched input (b=2, q=5)
+        pending_X = torch.rand(3, 3)  # 3 pending points
+
+        posterior = self.pfn.posterior(test_X, pending_X=pending_X)
+        self.assertIsInstance(posterior, BoundedRiemannPosterior)
+        self.assertEqual(posterior.probabilities.shape, torch.Size([2, 5, 100]))
+        self.assertEqual(posterior.mean.shape, torch.Size([2, 5, 1]))
+
+    def test_pending_X_concatenation(self):
+        """Test that pending_X is correctly concatenated to train_X."""
+        test_X = torch.rand(5, 3)
+        pending_X = torch.rand(3, 3)  # 3 pending points
+
+        # Capture the inputs to pfn_predict
+        captured = {}
+        orig_pfn_predict = self.pfn.pfn_predict
+
+        def capture_pfn_predict(X, train_X, train_Y, **kwargs):
+            captured["train_X"] = train_X
+            captured["train_Y"] = train_Y
+            return orig_pfn_predict(X, train_X, train_Y, **kwargs)
+
+        self.pfn.pfn_predict = capture_pfn_predict
+        self.pfn.posterior(test_X, pending_X=pending_X)
+
+        # train_X should have shape (1, n + n', d) where n=10, n'=3
+        self.assertEqual(captured["train_X"].shape, torch.Size([1, 13, 3]))
+        # train_Y should have shape (1, n + n', 1) with NaN for pending points
+        self.assertEqual(captured["train_Y"].shape, torch.Size([1, 13, 1]))
+        # Last 3 entries of train_Y should be NaN
+        self.assertTrue(torch.isnan(captured["train_Y"][:, -3:, :]).all())
+        # First 10 entries should not be NaN
+        self.assertFalse(torch.isnan(captured["train_Y"][:, :10, :]).any())
+
+    def test_pending_X_must_be_2d(self):
+        """Test that pending_X must be 2-dimensional."""
+        test_X = torch.rand(5, 3)
+        pending_X_3d = torch.rand(2, 3, 3)  # 3D tensor
+
+        with self.assertRaises(AssertionError):
+            self.pfn.posterior(test_X, pending_X=pending_X_3d)
+
+    def test_pending_X_with_negate_train_ys(self):
+        """Test that pending_X works with negate_train_ys=True."""
+        # Create zero-centered train_Y for negate_train_ys
+        train_Y_centered = self.train_Y - self.train_Y.mean()
+        pfn = PFNModelWithPendingPoints(
+            self.train_X, train_Y_centered, DummyPFN(n_buckets=100)
+        )
+
+        test_X = torch.rand(5, 3)
+        pending_X = torch.rand(3, 3)
+
+        posterior = pfn.posterior(test_X, pending_X=pending_X, negate_train_ys=True)
+        self.assertIsInstance(posterior, BoundedRiemannPosterior)
+        self.assertEqual(posterior.probabilities.shape, torch.Size([5, 100]))

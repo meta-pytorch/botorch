@@ -85,15 +85,15 @@ class qHEntropySearch(MCAcquisitionFunction, OneShotAcquisitionFunction):
             loss_function_hyperparameters: The hyperparameters for the loss
                 function class.
             n_fantasy_at_design_pts: Number of fantasized outcomes for each
-                design point. Must match the sample shape of `design_sampler`
+                design point. Must match the sample shape of ``design_sampler``
                 if specified.
             n_fantasy_at_action_pts: Number of fantasized outcomes for each
-                action point. Must match the sample shape of `action_sampler`
+                action point. Must match the sample shape of ``action_sampler``
                 if specified.
             design_sampler: The sampler used to sample fantasized outcomes at each
-                design point. Optional if `n_fantasy_at_design_pts` is specified.
+                design point. Optional if ``n_fantasy_at_design_pts`` is specified.
             action_sampler: The sampler used to sample fantasized outcomes at each
-                action point. Optional if `n_fantasy_at_design_pts` is specified.
+                action point. Optional if ``n_fantasy_at_design_pts`` is specified.
         """
 
         super(MCAcquisitionFunction, self).__init__(model=model)
@@ -112,18 +112,18 @@ class qHEntropySearch(MCAcquisitionFunction, OneShotAcquisitionFunction):
     @t_batch_mode_transform()
     @average_over_ensemble_models
     def forward(self, X: Tensor, A: Tensor) -> Tensor:
-        r"""Evaluate qHEntropySearch objective (q-HES) on the candidate set `X`.
+        r"""Evaluate qHEntropySearch objective (q-HES) on the candidate set ``X``.
 
         Args:
-            X: Design tensor of shape `(batch) x q x design_dim`.
+            X: Design tensor of shape ``(batch) x q x design_dim``.
             A: Action tensor of shape `(batch) x n_fantasy_at_design_pts
                 x num_actions x action_dim`.
 
         Returns:
-            A Tensor of shape `(batch)`.
+            A Tensor of shape ``(batch)``.
         """
 
-        # construct the fantasy model of shape `n_fantasy_at_design_pts x b`
+        # construct the fantasy model of shape ``n_fantasy_at_design_pts x b``
         fantasy_model = self.model.fantasize(X=X, sampler=self.design_sampler)
 
         # Permute shape of A to work with self.model.posterior correctly
@@ -159,11 +159,11 @@ class qHEntropySearch(MCAcquisitionFunction, OneShotAcquisitionFunction):
         r"""We only return X as the set of candidates post-optimization.
 
         Args:
-            X_full: A `b x (q + num_fantasies) x d`-dim Tensor with `b`
-                t-batches of `q + num_fantasies` design points each.
+            X_full: A ``b x (q + num_fantasies) x d``-dim Tensor with ``b``
+                t-batches of ``q + num_fantasies`` design points each.
 
         Returns:
-            A `b x q x d`-dim Tensor with `b` t-batches of `q` design points each.
+            A ``b x q x d``-dim Tensor with ``b`` t-batches of ``q`` design points each.
         """
         return X_full[..., : -self.n_fantasy_at_design_pts, :]
 
@@ -196,7 +196,7 @@ class qLossFunctionTopK(nn.Module):
                 n_fantasy_at_design_pts x batch_size x num_actions`.
 
         Returns:
-            A Tensor of shape `n_fantasy_at_action_pts x batch_size`.
+            A Tensor of shape ``n_fantasy_at_action_pts x batch_size``.
         """
 
         Y = Y.sum(dim=-1).mean(dim=0)
@@ -249,7 +249,7 @@ class qLossFunctionMinMax(nn.Module):
                 n_fantasy_at_design_pts x batch_size x num_actions`.
 
         Returns:
-            A Tensor of shape `n_fantasy_at_action_pts x batch`.
+            A Tensor of shape ``n_fantasy_at_action_pts x batch``.
         """
 
         if A.shape[-2] != 2:  # pragma: no cover

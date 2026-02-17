@@ -25,28 +25,29 @@ from torch import Tensor
 class MOMFBraninCurrin(MultiObjectiveTestProblem):
     r"""Branin-Currin problem for multi-objective-multi-fidelity optimization.
 
-    (2+1)-dimensional function with domain `[0,1]^3` where the last dimension
-    is the fidelity parameter `s`.
+    (2+1)-dimensional function with domain ``[0,1]^3`` where the last dimension
+    is the fidelity parameter ``s``.
     Both functions assume minimization. See [Irshad2021]_ for more details.
 
-    Modified Branin function:
+    Modified Branin function::
 
         B(x,s) = 21-((
         15*x_2 - b(s) * (15 * x_1 - 5) ** 2 + c(s) * (15 * x_1 - 5) - 6 ) ** 2
         + 10 * (1 - t(s)) * cos(15 * x_1 - 5)+10)/22
 
-    Here `b`, `c`, `r` and `t` are constants and `s` is the fidelity parameter:
-        where `b = 5.1 / (4 * math.pi ** 2) - 0.01(1-s)`,
-        `c = 5 / math.pi - 0.1*(1 - s)`,
-        `r = 6`,
-        `t = 1 / (8 * math.pi) + 0.05*(1-s)`
+    Here ``b``, ``c``, ``r`` and ``t`` are constants and ``s`` is the fidelity
+    parameter, where:
 
-    Modified Currin function:
+        - ``b = 5.1 / (4 * math.pi ** 2) - 0.01(1-s)``
+        - ``c = 5 / math.pi - 0.1*(1 - s)``
+        - ``r = 6``
+        - ``t = 1 / (8 * math.pi) + 0.05*(1-s)``
+
+    Modified Currin function::
 
         C(x) = 14-((1 - 0.1(1-s)exp(-1 / (2 * x_2))) * (
         2300 * x_1 ** 3 + 1900 * x_1 ** 2 + 2092 * x_1 + 60
         ) / 100 * x_1 ** 3 + 500 * x_1 ** 2 + 4 * x_2 + 20)/15
-
     """
 
     dim = 3
@@ -90,8 +91,8 @@ class MOMFBraninCurrin(MultiObjectiveTestProblem):
 class MOMFPark(MultiObjectiveTestProblem):
     r"""Modified Park test functions for multi-objective multi-fidelity optimization.
 
-    (4+1)-dimensional function with domain `[0,1]^5` where the last dimension
-    is the fidelity parameter `s`. See [Irshad2021]_ for more details.
+    (4+1)-dimensional function with domain ``[0,1]^5`` where the last dimension
+    is the fidelity parameter ``s``. See [Irshad2021]_ for more details.
 
     The first modified Park function is
 
@@ -107,7 +108,7 @@ class MOMFPark(MultiObjectiveTestProblem):
 
         T_2(x, s) = (x1+3*x4)*exp(1+sin(x3))
 
-    and `A(s)=(0.9+0.1*s)`, `B(s)=0.1*(1-s)`.
+    and ``A(s)=(0.9+0.1*s)``, ``B(s)=0.1*(1-s)``.
     """
 
     dim = 5

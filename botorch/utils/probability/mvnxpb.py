@@ -36,7 +36,6 @@ from botorch.utils.probability.linalg import (
 )
 from botorch.utils.probability.utils import (
     case_dispatcher,
-    get_constants_like,
     ndtr as Phi,
     phi,
     STANDARDIZED_RANGE,
@@ -60,16 +59,16 @@ class mvnxpbState(TypedDict):
 
 
 class MVNXPB:
-    r"""An algorithm for approximating Gaussian probabilities `P(X \in bounds)`, where
-    `X ~ N(0, covariance_matrix)`.
+    r"""An algorithm for approximating Gaussian probabilities ``P(X \in bounds)``, where
+    ``X ~ N(0, covariance_matrix)``.
     """
 
     def __init__(self, covariance_matrix: Tensor, bounds: Tensor) -> None:
         r"""Initializes an MVNXPB instance.
 
         Args:
-            covariance_matrix: Covariance matrices of shape `batch_shape x [n, n]`.
-            bounds: Tensor of lower and upper bounds, `batch_shape x [n, 2]`. These
+            covariance_matrix: Covariance matrices of shape ``batch_shape x [n, n]``.
+            bounds: Tensor of lower and upper bounds, ``batch_shape x [n, 2]``. These
                 bounds are standardized internally and clipped to STANDARDIZED_RANGE.
         """
         *batch_shape, _, n = covariance_matrix.shape
@@ -83,7 +82,7 @@ class MVNXPB:
         istd = var.rsqrt()
         matrix = istd * covariance_matrix * istd.transpose(-1, -2)
 
-        # Clip first to avoid differentiating through `istd * inf`
+        # Clip first to avoid differentiating through ``istd * inf``
         bounds = istd * bounds.clip(*(std * lim for lim in STANDARDIZED_RANGE))
 
         # Initialize partial pivoted Cholesky
@@ -119,7 +118,7 @@ class MVNXPB:
 
         Args:
             step: Integer used to track the solver's progress.
-            bounds: Tensor of lower and upper bounds, `batch_shape x [n, 2]`.
+            bounds: Tensor of lower and upper bounds, ``batch_shape x [n, 2]``.
             piv_chol: A PivotedCholesky instance for the system.
             plug_ins: Tensor of plug-in estimators used to update lower and upper bounds
                 on random variables that have yet to be integrated out.
@@ -161,7 +160,6 @@ class MVNXPB:
             self.log_prob_extra = None
 
         # Iteratively compute bivariate conditional approximation
-        zero = get_constants_like(0, L)  # needed when calling `torch.where` below
         num_steps = num_steps or ndim - start
         for i in range(start, start + num_steps):
             should_update_chol = self.step == piv_chol.step
@@ -188,15 +186,24 @@ class MVNXPB:
                 )
             lb, ub = (inv_Lii.unsqueeze(-1) * bounds_i).unbind(dim=-1)
 
-            # Initialize `i`-th plug-in value as univariate conditional expectation
+            # Initialize ``i``-th plug-in value as univariate conditional expectation
             Phi_i = Phi(ub) - Phi(lb)
             small = Phi_i <= i * eps
             y[..., i] = case_dispatcher(  # used to select next pivot
                 out=(phi(lb) - phi(ub)) / Phi_i,
                 cases=(  # fallback cases for enhanced numerical stability
-                    (lambda: small & (lb < -9), lambda m: ub[m]),
-                    (lambda: small & (lb > 9), lambda m: lb[m]),
-                    (lambda: small, lambda m: 0.5 * (lb[m] + ub[m])),
+                    (
+                        lambda small=small, lb=lb: small & (lb < -9),
+                        lambda m, ub=ub: ub[m],
+                    ),
+                    (
+                        lambda small=small, lb=lb: small & (lb > 9),
+                        lambda m, lb=lb: lb[m],
+                    ),
+                    (
+                        lambda small=small: small,
+                        lambda m, lb=lb, ub=ub: 0.5 * (lb[m] + ub[m]),
+                    ),
                 ),
             )
 
@@ -216,17 +223,17 @@ class MVNXPB:
                     )
 
                 blk_lower, blk_upper = (
-                    pair.unbind(-1)  # pair of bounds for `yh` and `yi`
+                    pair.unbind(-1)  # pair of bounds for ``yh`` and ``yi``
                     for pair in safe_mul(istds.unsqueeze(-1), blk_bounds).unbind(-1)
                 )
                 blk_corr = Lhh * Lih * istds.prod(-1)
                 blk_prob = bvn(blk_corr, *blk_lower, *blk_upper)
                 zh, zi = bvnmom(blk_corr, *blk_lower, *blk_upper, p=blk_prob)
 
-                # Replace 1D expectations with 2D ones `L[blk, blk]^{-1} y[..., blk]`
-                mask = blk_prob > zero
-                y[..., h] = torch.where(mask, zh, zero)
-                y[..., i] = torch.where(mask, inv_Lii * (std_i * zi - Lih * zh), zero)
+                # Replace 1D expectations with 2D ones ``L[blk, blk]^{-1} y[..., blk]``
+                mask = blk_prob > 0
+                y[..., h] = torch.where(mask, zh, 0)
+                y[..., i] = torch.where(mask, inv_Lii * (std_i * zi - Lih * zh), 0)
 
                 # Update running approximation to log probability
                 self.log_prob = self.log_prob + safe_log(blk_prob)
@@ -246,12 +253,12 @@ class MVNXPB:
         r"""GGE variable prioritization strategy from [Gibson1994monte]_.
 
         Returns the index of the random variable least likely to satisfy its bounds
-        when conditioning on the previously integrated random variables `X[:t - 1]`
-        attaining the values of plug-in estimators `y[:t - 1]`. Equivalently,
+        when conditioning on the previously integrated random variables ``X[:t - 1]``
+        attaining the values of plug-in estimators ``y[:t - 1]``. Equivalently,
         ```
         argmin_{i = t, ..., n} P(X[i] \in bounds[i] | X[:t-1] = y[:t -1]),
         ```
-        where `t` denotes the current step."""
+        where ``t`` denotes the current step."""
         i = self.piv_chol.step
         L = self.piv_chol.tril
         bounds = self.bounds
@@ -263,7 +270,7 @@ class MVNXPB:
         return i + torch.argmin(probs_1d, dim=-1)
 
     def pivot_(self, pivot: LongTensor) -> None:
-        r"""Swap random variables at `pivot` and `step` positions."""
+        r"""Swap random variables at ``pivot`` and ``step`` positions."""
         step = self.step
         if self.piv_chol.step == step:
             self.piv_chol.pivot_(pivot)
@@ -345,8 +352,8 @@ class MVNXPB:
         jitter: float | None = None,
         max_tries: int | None = None,
     ) -> MVNXPB:
-        r"""Augment an `n`-dimensional MVNXPB instance to include `m` additional random
-        variables.
+        r"""Augment an ``n``-dimensional MVNXPB instance to include ``m``
+        additional random variables.
         """
         n = self.perm.shape[-1]
         m = covariance_matrix.shape[-1]

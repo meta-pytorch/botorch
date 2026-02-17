@@ -14,7 +14,6 @@ from gpytorch.distributions.multitask_multivariate_normal import (
     MultitaskMultivariateNormal,
 )
 from linear_operator.operators import BlockDiagLinearOperator, LinearOperator
-
 from linear_operator.utils.cholesky import psd_safe_cholesky
 from linear_operator.utils.errors import NanError
 from torch import Tensor
@@ -43,7 +42,7 @@ def extract_batch_covar(mt_mvn: MultitaskMultivariateNormal) -> LinearOperator:
 def _reshape_base_samples(
     base_samples: Tensor, sample_shape: torch.Size, posterior: GPyTorchPosterior
 ) -> Tensor:
-    r"""Manipulate shape of base_samples to match `MultivariateNormal.rsample`.
+    r"""Manipulate shape of base_samples to match ``MultivariateNormal.rsample``.
 
     This ensure that base_samples are used in the same way as in
     gpytorch.distributions.MultivariateNormal. For CBD, it is important to ensure
@@ -90,7 +89,7 @@ def sample_cached_cholesky(
     sample_shape: torch.Size,
     max_tries: int = 6,
 ) -> Tensor:
-    r"""Get posterior samples at the `q` new points from the joint multi-output
+    r"""Get posterior samples at the ``q`` new points from the joint multi-output
     posterior.
 
     Args:
@@ -104,7 +103,7 @@ def sample_cached_cholesky(
 
 
     Returns:
-        A `sample_shape x batch_shape x q x m`-dim tensor of posterior
+        A ``sample_shape x batch_shape x q x m``-dim tensor of posterior
             samples at the new points.
     """
     # compute bottom left covariance block
@@ -114,7 +113,7 @@ def sample_cached_cholesky(
         if isinstance(mvn, MultitaskMultivariateNormal)
         else mvn.lazy_covariance_matrix
     )
-    # Get the `q` new rows of the batched covariance matrix
+    # Get the ``q`` new rows of the batched covariance matrix
     bottom_rows = lazy_covar[..., -q:, :].to_dense()
     # The covariance in block form is:
     # [K(X_baseline, X_baseline), K(X_baseline, X)]
@@ -126,7 +125,7 @@ def sample_cached_cholesky(
     # Solve Ax = b
     # where A = K(X_baseline, X_baseline) and b = K(X, X_baseline)^T
     # and bl_chol := x^T
-    # bl_chol is the new `(batch_shape) x q x n`-dim bottom left block
+    # bl_chol is the new ``(batch_shape) x q x n``-dim bottom left block
     # of the cholesky decomposition
     bl_chol = torch.linalg.solve_triangular(
         baseline_L, bl.transpose(-2, -1), upper=False
@@ -139,8 +138,8 @@ def sample_cached_cholesky(
     # TODO: technically we should make sure that we add a
     # consistent nugget to the cached covariance and the new block
     br_chol = psd_safe_cholesky(br_to_chol, max_tries=max_tries)
-    # Create a `(batch_shape) x q x (n+q)`-dim tensor containing the
-    # `q` new bottom rows of the Cholesky decomposition
+    # Create a ``(batch_shape) x q x (n+q)``-dim tensor containing the
+    # ``q`` new bottom rows of the Cholesky decomposition
     new_Lq = torch.cat([bl_chol, br_chol], dim=-1)
     mean = posterior.distribution.mean
     base_samples = _reshape_base_samples(

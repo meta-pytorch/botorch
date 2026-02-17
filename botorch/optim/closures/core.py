@@ -9,13 +9,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-
 from typing import Any
 
 import numpy as np
 import numpy.typing as npt
 import torch
-
 from botorch.optim.utils import _handle_numerical_errors
 from botorch.optim.utils.numpy_utils import as_ndarray
 from botorch.utils.context_managers import zero_grad_ctx
@@ -35,7 +33,8 @@ class ForwardBackwardClosure:
 
         Args:
             forward: Callable that returns a tensor.
-            parameters: A dictionary of tensors whose `grad` fields are to be returned.
+            parameters: A dictionary of tensors whose ``grad`` fields are to
+                be returned.
         """
         self.forward = forward
         self.parameters = parameters
@@ -65,8 +64,8 @@ class NdarrayOptimizationClosure:
         Args:
             closure: A ForwardBackwardClosure instance.
             parameters: A dictionary of tensors representing the closure's state.
-                Expected to correspond with the first `len(parameters)` optional
-                gradient tensors returned by `closure`.
+                Expected to correspond with the first ``len(parameters)`` optional
+                gradient tensors returned by ``closure``.
         """
 
         self.closure = closure

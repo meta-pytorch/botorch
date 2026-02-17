@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-
 from typing import Any
 
 from botorch.models.approximate_gp import ApproximateGPyTorchModel
@@ -40,10 +39,10 @@ def draw_kernel_feature_paths(
 ) -> GeneralizedLinearPath:
     r"""Draws functions from a Bayesian-linear-model-based approximation to a GP prior.
 
-    When evaluted, sample paths produced by this method return Tensors with dimensions
-    `sample_dims x batch_dims x [joint_dim]`, where `joint_dim` denotes the penultimate
-    dimension of the input tensor. For multioutput models, outputs are returned as the
-    final batch dimension.
+    When evaluated, sample paths produced by this method return Tensors with dimensions
+    ``sample_dims x batch_dims x [joint_dim]``, where ``joint_dim`` denotes the
+    penultimate dimension of the input tensor. For multioutput models, outputs are
+    returned as the final batch dimension.
 
     Args:
         model: The prior over functions.

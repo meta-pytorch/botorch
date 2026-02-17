@@ -54,7 +54,7 @@ Optimization simply use Ax.
 ## Installation
 
 **Installation Requirements**
-- Python >= 3.10
+- Python >= 3.11
 - PyTorch >= 2.0.1
 - gpytorch >= 1.14
 - linear_operator >= 0.6

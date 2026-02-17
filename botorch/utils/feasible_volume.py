@@ -26,11 +26,11 @@ def get_feasible_samples(
     Checks which of the samples satisfy all of the inequality constraints.
 
     Args:
-        samples: A `sample size x d` size tensor of feature samples,
+        samples: A ``sample size x d`` size tensor of feature samples,
             where d is a feature dimension.
         inequality constraints: A list of tuples (indices, coefficients, rhs),
             with each tuple encoding an inequality constraint of the form
-            `\sum_i (X[indices[i]] * coefficients[i]) >= rhs`.
+            ``\sum_i (X[indices[i]] * coefficients[i]) >= rhs``.
     Returns:
         2-element tuple containing
 
@@ -69,10 +69,10 @@ def get_outcome_feasibility_probability(
 
     Args:
         model: The model used for sampling the posterior.
-        X: A tensor of dimension `batch-shape x 1 x d`, where d is feature dimension.
+        X: A tensor of dimension ``batch-shape x 1 x d``, where d is feature dimension.
         outcome_constraints: A list of callables, each mapping a Tensor of dimension
-            `sample_shape x batch-shape x q x m` to a Tensor of dimension
-            `sample_shape x batch-shape x q`, where negative values imply feasibility.
+            ``sample_shape x batch-shape x q x m`` to a Tensor of dimension
+            ``sample_shape x batch-shape x q``, where negative values imply feasibility.
         threshold: A lower limit for the probability of posterior samples feasibility.
         nsample_outcome: The number of samples from the model posterior.
         seed: The seed for the posterior sampler. If omitted, use a random seed.
@@ -134,16 +134,16 @@ def estimate_feasible_volume(
     to feature constraints and outcome constraints.
 
     Args:
-        bounds: A `2 x d` tensor of lower and upper bounds
-            for each column of `X`.
+        bounds: A ``2 x d`` tensor of lower and upper bounds
+            for each column of ``X``.
         model: The model used for sampling the outcomes.
         outcome_constraints: A list of callables, each mapping a Tensor of dimension
-            `sample_shape x batch-shape x q x m` to a Tensor of dimension
-            `sample_shape x batch-shape x q`, where negative values imply
+            ``sample_shape x batch-shape x q x m`` to a Tensor of dimension
+            ``sample_shape x batch-shape x q``, where negative values imply
             feasibility.
         inequality constraints: A list of tuples (indices, coefficients, rhs),
             with each tuple encoding an inequality constraint of the form
-            `\sum_i (X[indices[i]] * coefficients[i]) >= rhs`.
+            ``\sum_i (X[indices[i]] * coefficients[i]) >= rhs``.
         nsample_feature: The number of feature samples satisfying the bounds.
         nsample_outcome: The number of outcome samples from the model posterior.
         threshold: A lower limit for the probability of outcome feasibility

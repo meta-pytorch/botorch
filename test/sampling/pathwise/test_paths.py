@@ -105,7 +105,7 @@ class TestGenericPaths(BotorchTestCase):
         self.assertEqual(output.shape, (2,) + x.shape)
         self.assertTrue(output.eq(x).all())
 
-        # Test `list` methods
+        # Test ``list`` methods
         self.assertEqual(len(path_list), 2)
         for key, (path, path_0) in enumerate(zip(path_list, path_list.paths)):
             self.assertEqual(1, len({path, path_0, path_list[key]}))

@@ -21,22 +21,22 @@ class BufferDict(Module):
     BufferDict can be indexed like a regular Python dictionary, but buffers it
     contains are properly registered, and will be visible by all Module methods.
 
-    :class:`~torch.nn.BufferDict` is an **ordered** dictionary that respects
+    :class:``~torch.nn.BufferDict`` is an **ordered** dictionary that respects
 
     * the order of insertion, and
 
-    * in :meth:`~torch.nn.BufferDict.update`, the order of the merged ``OrderedDict``
-      or another :class:`~torch.nn.BufferDict` (the argument to
-      :meth:`~torch.nn.BufferDict.update`).
+    * in :meth:``~torch.nn.BufferDict.update``, the order of the merged ``OrderedDict``
+      or another :class:``~torch.nn.BufferDict`` (the argument to
+      :meth:``~torch.nn.BufferDict.update``).
 
-    Note that :meth:`~torch.nn.BufferDict.update` with other unordered mapping
+    Note that :meth:``~torch.nn.BufferDict.update`` with other unordered mapping
     types (e.g., Python's plain ``dict``) does not preserve the order of the
     merged mapping.
 
     Args:
         buffers (iterable, optional): a mapping (dictionary) of
-            (string : :class:`~torch.Tensor`) or an iterable of key-value pairs
-            of type (string, :class:`~torch.Tensor`)
+            (string : :class:``~torch.Tensor``) or an iterable of key-value pairs
+            of type (string, :class:``~torch.Tensor``)
 
     Example::
 
@@ -56,8 +56,9 @@ class BufferDict(Module):
     def __init__(self, buffers=None):
         r"""
         Args:
-            buffers: A mapping (dictionary) from string to :class:`~torch.Tensor`, or
-                an iterable of key-value pairs of type (string, :class:`~torch.Tensor`).
+            buffers: A mapping (dictionary) from string to
+                :class:``~torch.Tensor``, or an iterable of key-value pairs
+                of type (string, :class:``~torch.Tensor``).
         """
         super().__init__()
         if buffers is not None:
@@ -108,18 +109,18 @@ class BufferDict(Module):
         return self._buffers.values()
 
     def update(self, buffers):
-        r"""Update the :class:`~torch.nn.BufferDict` with the key-value pairs from a
-        mapping or an iterable, overwriting existing keys.
+        r"""Update the :class:``~torch.nn.BufferDict`` with the key-value pairs
+        from a mapping or an iterable, overwriting existing keys.
 
         .. note::
-            If :attr:`buffers` is an ``OrderedDict``, a :class:`~torch.nn.BufferDict`,
-            or an iterable of key-value pairs, the order of new elements in it is
-            preserved.
+            If :attr:``buffers`` is an ``OrderedDict``, a
+            :class:``~torch.nn.BufferDict``, or an iterable of key-value pairs,
+            the order of new elements in it is preserved.
 
         Args:
             buffers (iterable): a mapping (dictionary) from string to
-                :class:`~torch.Tensor`, or an iterable of
-                key-value pairs of type (string, :class:`~torch.Tensor`)
+                :class:``~torch.Tensor``, or an iterable of
+                key-value pairs of type (string, :class:``~torch.Tensor``)
         """
         if not isinstance(buffers, collections.abc.Iterable):
             raise TypeError(

@@ -350,7 +350,7 @@ class TestGetHypervolumeMaximizingSubset(BotorchTestCase):
                     idcs, torch.tensor([3, 4, 1], dtype=torch.long, device=self.device)
                 )
             )
-            # test without `n` pareto optimal points
+            # test without ``n`` pareto optimal points
             Y = torch.tensor(
                 [[-5.0, -5.0], [-10.0, -10.0]],
                 dtype=dtype,

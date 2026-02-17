@@ -27,9 +27,6 @@ from botorch.models.kernels.heterogeneous_multitask import MultiTaskConditionalK
 from botorch.models.multitask import MultiTaskGP
 from botorch.models.transforms.input import InputTransform
 from botorch.models.transforms.outcome import OutcomeTransform
-from botorch.models.utils.gpytorch_modules import (
-    get_gaussian_likelihood_with_gamma_prior,
-)
 from botorch.posteriors.gpytorch import GPyTorchPosterior
 from botorch.posteriors.transformed import TransformedPosterior
 from botorch.utils.datasets import MultiTaskDataset
@@ -38,21 +35,21 @@ from torch import Tensor
 
 class HeterogeneousMTGP(MultiTaskGP):
     """A multi-task GP model designed to operate on tasks from
-    different search spaces. This model uses `MultiTaskConditionalKernel`.
+    different search spaces. This model uses ``MultiTaskConditionalKernel``.
 
     This model was introduced in [Deshwal2024Heterogeneous]_.
 
-    * The model is designed to work with a `MultiTaskDataset` that contains
+    * The model is designed to work with a ``MultiTaskDataset`` that contains
         datasets with different features.
-    * It uses a helper to embed the `X` coming from the sub-spaces into the
+    * It uses a helper to embed the ``X`` coming from the sub-spaces into the
         full-feature space (+ task feature) before passing them down to the
-        base `MultiTaskGP`.
-    * The same helper is used in the `posterior` method to embed the `X` from
+        base ``MultiTaskGP``.
+    * The same helper is used in the ``posterior`` method to embed the ``X`` from
         the target task into the full dimensional space before evaluating the
-        `posterior` method of the base class.
-    * This model also overwrites the `_split_inputs` method. Instead of
-        `x_basic`, we return the `X` with task feature included since this is
-        used by the  `MultiTaskConditionalKernel` to identify the active
+        ``posterior`` method of the base class.
+    * This model also overwrites the ``_split_inputs`` method. Instead of
+        ``x_basic``, we return the ``X`` with task feature included since this is
+        used by the  ``MultiTaskConditionalKernel`` to identify the active
         dimensions of / the kernels to evaluate for the given input.
     """
 
@@ -78,25 +75,25 @@ class HeterogeneousMTGP(MultiTaskGP):
         It will only produce predictions for task 0.
 
         Args:
-            train_Xs: A list of tensors of shape `(n_i x d_i)` where `d_i` is the
+            train_Xs: A list of tensors of shape ``(n_i x d_i)`` where ``d_i`` is the
                 dimensionality of the input features for task i.
                 NOTE: These should not include the task feature!
-            train_Ys: A list of tensors of shape `(n_i x 1)` containing the
+            train_Ys: A list of tensors of shape ``(n_i x 1)`` containing the
                 observations for the corresponding task.
-            train_Yvars: An optional list of tensors of shape `(n_i x 1)` containing
+            train_Yvars: An optional list of tensors of shape ``(n_i x 1)`` containing
                 the observation variances for the corresponding task.
             feature_indices: A list of lists of integers specifying the indices
                 mapping the features from a given task to the full tensor of features.
-                The `i`th element of the list should contain `d_i` integers.
+                The ``i``th element of the list should contain ``d_i`` integers.
             full_feature_dim: The total number of features across all tasks. This
                 does not include the task feature dimension.
             rank: The rank of the cross-task covariance matrix.
             use_saas_prior: Whether to use the SAAS prior for base kernels of the
-                `MultiTaskConditionalKernel`.
+                ``MultiTaskConditionalKernel``.
             use_combinatorial_kernel: Whether to use a combinatorial kernel over the
-                binary embedding of task features in `MultiTaskConditionalKernel`.
+                binary embedding of task features in ``MultiTaskConditionalKernel``.
             all_tasks: By default, multi-task GPs infer the list of all tasks from
-                the task features in `train_X`. This is an experimental feature that
+                the task features in ``train_X``. This is an experimental feature that
                 enables creation of multi-task GPs with tasks that don't appear in the
                 training data. Note that when a task is not observed, the corresponding
                 task covariance will heavily depend on random initialization and may
@@ -106,8 +103,8 @@ class HeterogeneousMTGP(MultiTaskGP):
                 from the full feature space with the task feature appended.
             outcome_transform: An outcome transform that is applied to the
                 training data during instantiation and to the posterior during
-                inference (that is, the `Posterior` obtained by calling
-                `.posterior` on the model will be on the original scale).
+                inference (that is, the ``Posterior`` obtained by calling
+                ``.posterior`` on the model will be on the original scale).
             validate_task_values: If True, validate that the task values supplied in the
                 input are expected tasks values. If false, unexpected task values
                 will be mapped to the first output_task if supplied.
@@ -127,11 +124,7 @@ class HeterogeneousMTGP(MultiTaskGP):
         # The features that are forward passed through the kernel should include
         # the task dim
         covar_module.active_dims = torch.arange(full_feature_dim + 1)
-        likelihood = (
-            None  # Constructed in MultiTaskGP.
-            if full_Yvar is not None
-            else get_gaussian_likelihood_with_gamma_prior()
-        )
+        likelihood = None  # Constructed in MultiTaskGP.
         super().__init__(
             train_X=full_X,
             train_Y=full_Y,
@@ -174,12 +167,12 @@ class HeterogeneousMTGP(MultiTaskGP):
         filled with zeros.
 
         Args:
-            X: A tensor of shape `(n x d_i)` where `d_i` is the number of features
+            X: A tensor of shape ``(n x d_i)`` where ``d_i`` is the number of features
                 in the original task dataset.
             task_index: The index of the task whose features are being mapped.
 
         Returns:
-            A tensor of shape `(n x (self.full_feature_dim + 1))` containing the
+            A tensor of shape ``(n x (self.full_feature_dim + 1))`` containing the
             mapped features.
 
         Example:
@@ -207,20 +200,20 @@ class HeterogeneousMTGP(MultiTaskGP):
         r"""Computes the posterior for the target task at the provided points.
 
         Args:
-            X: A tensor of shape `batch_shape x q x d_0(+1)`, where `d_0` is the
+            X: A tensor of shape ``batch_shape x q x d_0(+1)``, where ``d_0`` is the
                 dimension of the feature space for task 0 (not including task indices)
-                and `q` is the number of points considered jointly.
-            output_indices: Not supported. Must be `None` or `[0]`. The model will
+                and ``q`` is the number of points considered jointly.
+            output_indices: Not supported. Must be ``None`` or ``[0]``. The model will
                 only produce predictions for the target task regardless of
-                the value of `output_indices`.
+                the value of ``output_indices``.
             observation_noise: If True, add observation noise from the respective
                 likelihoods. If a Tensor, specifies the observation noise levels
                 to add.
             posterior_transform: An optional PosteriorTransform.
 
         Returns:
-            A `GPyTorchPosterior` object, representing `batch_shape` joint
-            distributions over `q` points.
+            A ``GPyTorchPosterior`` object, representing ``batch_shape`` joint
+            distributions over ``q`` points.
         """
         if output_indices is not None and output_indices != [0]:
             raise UnsupportedError(
@@ -245,16 +238,16 @@ class HeterogeneousMTGP(MultiTaskGP):
         r"""Returns x itself along with a tensor containing the task indices only.
 
         NOTE: This differs from the base class implementation because it returns
-        the full tensor in place of `x_basic`. This is because the multi-task
+        the full tensor in place of ``x_basic``. This is because the multi-task
         conditional kernel utilized the task feature for conditioning.
 
         Args:
             x: The full input tensor with trailing dimension of size
-                `self.full_feature_dim + 1 + 1`.
+                ``self.full_feature_dim + 1 + 1``.
 
         Returns:
             3-element tuple containing
-            - The original tensor `x`.
+            - The original tensor ``x``.
             - A tensor of long data type containing the task indices.
             - A tensor with d=0. split_inputs by default returns X_before_index,
                 task_indices, X_after_index, and so thus has to return a 3-tuple.
@@ -275,19 +268,19 @@ class HeterogeneousMTGP(MultiTaskGP):
         use_saas_prior: bool = True,
         use_combinatorial_kernel: bool = True,
     ) -> dict[str, Any]:
-        r"""Construct `Model` keyword arguments from a given `MultiTaskDataset`.
+        r"""Construct ``Model`` keyword arguments from a given ``MultiTaskDataset``.
 
         Args:
-            training_data: A `MultiTaskDataset`.
+            training_data: A ``MultiTaskDataset``.
             task_feature: Column index of embedded task indicator features.
-                Only supported value is `-1`.
+                Only supported value is ``-1``.
             output_tasks: A list of task indices for which to compute model
-                outputs for. Only supported value is `[0]`.
+                outputs for. Only supported value is ``[0]``.
             rank: The rank of the cross-task covariance matrix.
             use_saas_prior: Whether to use the SAAS prior for base kernels of the
-                `MultiTaskConditionalKernel`.
+                ``MultiTaskConditionalKernel``.
             use_combinatorial_kernel: Whether to use a combinatorial kernel over the
-                binary embedding of task features in `MultiTaskConditionalKernel`.
+                binary embedding of task features in ``MultiTaskConditionalKernel``.
         """
         if training_data.task_feature_index != -1:
             raise NotImplementedError(

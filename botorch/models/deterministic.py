@@ -14,14 +14,14 @@ optimization with known objective functions (e.g. the number of parameters of a
 Neural Network in the context of Neural Architecture Search is usually a known
 function of the architecture configuration), or to encode cost functions for
 cost-aware acquisition utilities. Cost-aware optimization is desirable when
-evaluations have a cost that is heterogeneous, either in the inputs `X` or in a
+evaluations have a cost that is heterogeneous, either in the inputs ``X`` or in a
 particular fidelity parameter that directly encodes the fidelity of the
-observation. `GenericDeterministicModel` supports arbitrary deterministic
-functions, while `AffineFidelityCostModel` is a particular cost model for
+observation. ``GenericDeterministicModel`` supports arbitrary deterministic
+functions, while ``AffineFidelityCostModel`` is a particular cost model for
 multi-fidelity optimization. Other use cases of deterministic models include
 representing approximate GP sample paths, e.g. Matheron paths obtained
-with `get_matheron_path_model`, which allows them to be substituted in acquisition
-functions or in other places where a `Model` is expected.
+with ``get_matheron_path_model``, which allows them to be substituted in acquisition
+functions or in other places where a ``Model`` is expected.
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ class DeterministicModel(EnsembleModel):
 
     def _set_transformed_inputs(self):
         """Overwrites the parent method to prevent raise of
-        warning "Could not update `train_inputs` with transformed inputs."
+        warning "Could not update ``train_inputs`` with transformed inputs."
         """
         return None
 
@@ -51,16 +51,16 @@ class DeterministicModel(EnsembleModel):
         r"""Compute the (deterministic) model output at X.
 
         Args:
-            X: A `batch_shape x n x d`-dim input tensor `X`.
+            X: A ``batch_shape x n x d``-dim input tensor ``X``.
 
         Returns:
-            A `batch_shape x n x m`-dimensional output tensor (the outcome
-            dimension `m` must be explicit if `m=1`).
+            A ``batch_shape x n x m``-dimensional output tensor (the outcome
+            dimension ``m`` must be explicit if ``m=1``).
         """
         pass  # pragma: no cover
 
     def _forward(self, X: Tensor) -> Tensor:
-        r"""Compatibilizes the `DeterministicModel` with `EnsemblePosterior`"""
+        r"""Compatibilizes the ``DeterministicModel`` with ``EnsemblePosterior``"""
         return self.forward(X=X).unsqueeze(-3)
 
 
@@ -80,10 +80,10 @@ class GenericDeterministicModel(DeterministicModel):
     ) -> None:
         r"""
         Args:
-            f: A callable mapping a `batch_shape x n x d`-dim input tensor `X`
-                to a `batch_shape x n x m`-dimensional output tensor (the
-                outcome dimension `m` must be explicit, even if `m=1`).
-            num_outputs: The number of outputs `m`.
+            f: A callable mapping a ``batch_shape x n x d``-dim input tensor ``X``
+                to a ``batch_shape x n x m``-dimensional output tensor (the
+                outcome dimension ``m`` must be explicit, even if ``m=1``).
+            num_outputs: The number of outputs ``m``.
         """
         super().__init__()
         self._f = f
@@ -114,10 +114,10 @@ class GenericDeterministicModel(DeterministicModel):
         r"""Compute the (deterministic) model output at X.
 
         Args:
-            X: A `batch_shape x n x d`-dim input tensor `X`.
+            X: A ``batch_shape x n x d``-dim input tensor ``X``.
 
         Returns:
-            A `batch_shape x n x m`-dimensional output tensor.
+            A ``batch_shape x n x m``-dimensional output tensor.
         """
         Y = self._f(X)
         batch_shape = Y.shape[:-2]
@@ -145,18 +145,18 @@ class AffineDeterministicModel(DeterministicModel):
             y[..., m] = b[m] + sum_{i=1}^d a[i, m] * X[..., i]
 
         Args:
-            a: A `d x m`-dim tensor of linear weights, where `m` is the number
-                of outputs (must be explicit if `m=1`)
+            a: A ``d x m``-dim tensor of linear weights, where ``m`` is the number
+                of outputs (must be explicit if ``m=1``)
             b: The affine (offset) term. Either a float (for single-output
-                models or if the offset is shared), or a `m`-dim tensor (with
-                different offset values for for the `m` different outputs).
+                models or if the offset is shared), or a ``m``-dim tensor (with
+                different offset values for the ``m`` different outputs).
         """
         if not a.ndim == 2:
             raise ValueError("a must be two-dimensional")
         if not torch.is_tensor(b):
             b = torch.tensor([b])
         if not b.ndim == 1:
-            raise ValueError("b nust be one-dimensional")
+            raise ValueError("b must be one-dimensional")
         super().__init__()
         self.register_buffer("a", a)
         self.register_buffer("b", b.expand(a.size(-1)))
@@ -206,9 +206,9 @@ class PosteriorMeanModel(DeterministicModel):
 
 class FixedSingleSampleModel(DeterministicModel):
     r"""
-    A deterministic model defined by a single sample `w`.
+    A deterministic model defined by a single sample ``w``.
 
-    Given a base model `f` and a fixed sample `w`, the model always outputs
+    Given a base model ``f`` and a fixed sample ``w``, the model always outputs
 
         y = f_mean(x) + f_stddev(x) * w
 
@@ -278,8 +278,8 @@ class MatheronPathModel(DeterministicModel):
             model: The base model.
             sample_shape: The shape of the sample paths to be drawn, if an ensemble
                 of sample paths is desired. If this is specified, the resulting
-                deterministic model will behave as if the `sample_shape` is
-                prepended to the model's `batch_shape`.
+                deterministic model will behave as if the ``sample_shape`` is
+                prepended to the model's ``batch_shape``.
             ensemble_as_batch: If True, and model is an ensemble model, the resulting
                 model will treat the ensemble dimension as a batch dimension.
             seed: Random seed for reproducible path generation. If None,
@@ -318,10 +318,10 @@ class MatheronPathModel(DeterministicModel):
         r"""Evaluate the Matheron path at X.
 
         Args:
-            X: A `batch_shape x n x d`-dim input tensor `X`.
+            X: A ``batch_shape x n x d``-dim input tensor ``X``.
 
         Returns:
-            A `[sample_shape x] batch_shape x n x m`-dimensional output tensor.
+            A ``[sample_shape x] batch_shape x n x m``-dimensional output tensor.
         """
         if self.model.num_outputs == 1:
             # For single-output, add the output dimension

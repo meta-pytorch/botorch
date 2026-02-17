@@ -55,7 +55,7 @@ def load_tutorial_metadata() -> list[dict[str, str]]:
 
     Returns:
         list[dict[str, str]]: A list of metadata needed to convert notebooks
-            to MDX. Only those notebooks that are listed in the `tutorials.json` file
+            to MDX. Only those notebooks that are listed in the ``tutorials.json`` file
             will be included in the Docusaurus MDX output.
     """
     tutorials_json_path = WEBSITE_DIR.joinpath("tutorials.json")
@@ -78,7 +78,7 @@ def load_notebooks_community_metadata() -> list[dict[str, str]]:
     Returns:
         list[dict[str, str]]: A list of metadata needed to convert notebooks
             to MDX. Only those notebooks that are listed in the
-            `notebooks_community.json` file will be included in the
+            ``notebooks_community.json`` file will be included in the
             Docusaurus MDX output.
     """
     json_path = WEBSITE_DIR.joinpath("notebooks_community.json")
@@ -95,7 +95,7 @@ def load_notebook(path: Path) -> NotebookNode:
         path (Path): Path to the Jupyter notebook.
 
     Returns:
-        NotebookNode: `nbformat` object, which contains all the notebook cells in it.
+        NotebookNode: ``nbformat`` object, which contains all the notebook cells in it.
     """
     with path.open("r") as f:
         nb_str = f.read()
@@ -135,17 +135,17 @@ def create_frontmatter(path: Path, nb_metadata: dict[str, dict[str, str]]) -> st
     """
     Create frontmatter for the resulting MDX file.
 
-    The frontmatter is the data between the `---` lines in an MDX file.
+    The frontmatter is the data between the ``---`` lines in an MDX file.
 
     Args:
         path (Path): Path to the Jupyter notebook.
         nb_metadata (Dict[str, Dict[str, str]]): The metadata associated with the given
-            notebook. Metadata is defined in the `tutorials.json` file.
+            notebook. Metadata is defined in the ``tutorials.json`` file.
 
     Returns:
         str: MDX formatted frontmatter.
     """
-    # Add the frontmatter to the MDX string. This is the part between the `---` lines
+    # Add the frontmatter to the MDX string. This is the part between the ``---`` lines
     # that define the tutorial sidebar_label information.
     frontmatter_delimiter = ["---"]
     frontmatter = [
@@ -228,14 +228,14 @@ def handle_image_attachments(
     attachment name.
 
     The pattern we search for in the Markdown is
-    `![alt_text](attachment:attachment_name title)` with three groups:
+    ``![alt_text](attachment:attachment_name title)`` with three groups:
 
     - group 1 = alt_text (optional)
     - group 2 = attachment_name
     - group 3 = title (optional)
 
     To represent this in MD we replace the attachment reference with the base64 encoded
-    string as `![{alt_text}](data:{mime_type};base64,{img_as_base64})`
+    string as ``![{alt_text}](data:{mime_type};base64,{img_as_base64})``
 
     Args:
         markdown (str): The markdown content containing image attachments.
@@ -277,12 +277,12 @@ def handle_image_paths_found_in_markdown(
     - group 1 = path/to/image.png
     - group 2 = "title"
 
-    We explicitly exclude matching if the path starts with `attachment:` as this
+    We explicitly exclude matching if the path starts with ``attachment:`` as this
     indicates that the image is embedded as a base64 attachment not a file path.
 
     The first group (the path to the image from the original notebook) will be replaced
-    with ``assets/img/{name}`` where the name is `image.png` from the example above. The
-    original image will also be copied to the new location
+    with ``assets/img/{name}`` where the name is ``image.png`` from the example above.
+    The original image will also be copied to the new location
     ``{new_img_dir}/assets/img/{name}``, which can be directly read into the MDX file.
 
     Args:
@@ -342,9 +342,9 @@ def transform_style_attributes(markdown: str) -> str:
     Returns:
         str: The original Markdown with new React style attributes.
     """
-    # Finds all instances of `style="attr: value; ..."`.
+    # Finds all instances of ``style="attr: value; ..."``.
     token = "style="
-    pattern = re.compile(f"""{token}["'`]([^"]*)["'`]""")
+    pattern = re.compile(f"""{token}["'``]([^"]*)["'``]""")
     found_patterns = re.findall(pattern, markdown)
     if not found_patterns:
         return markdown
@@ -557,7 +557,7 @@ def handle_pandas(
     Handle how to display pandas DataFrames.
 
     There is a scoped style tag in the DataFrame output that uses the class name
-    `dataframe` to style the output. We will use this token to determine if a pandas
+    ``dataframe`` to style the output. We will use this token to determine if a pandas
     DataFrame is being displayed.
 
     Args:
@@ -726,7 +726,7 @@ def aggregate_mdx(
     plot_data_folder: Path,
 ) -> str:
     """
-    Aggregate the `cell_outputs_to_process` into MDX.
+    Aggregate the ``cell_outputs_to_process`` into MDX.
 
     Args:
         cell_outputs_to_process (CELL_OUTPUTS_TO_PROCESS): A dictionary of cell outputs
@@ -794,8 +794,7 @@ def prioritize_dtypes(
         [str(item) for item in items] for items in prioritized_cell_output_dtypes
     ]
     plotly_flags = [
-        any(["plotly" in output for output in outputs])
-        for outputs in cell_output_dtypes
+        any("plotly" in output for output in outputs) for outputs in cell_output_dtypes
     ]
     return prioritized_cell_output_dtypes, plotly_flags
 
@@ -892,9 +891,9 @@ def aggregate_output_types(cell_outputs: list[NotebookNode]) -> CELL_OUTPUTS_TO_
     for i, cell_output in enumerate(cell_outputs):
         prioritized_data_dtype = prioritized_cell_output_dtypes[i][0]
 
-        # If there is no `data` key in the cell_output, then it may be an error that
+        # If there is no ``data`` key in the cell_output, then it may be an error that
         # needs to be handled. Even if it is not an error, the data is stored in a
-        # different key if no `data` key is found.
+        # different key if no ``data`` key is found.
         data = (
             cell_output["data"][prioritized_data_dtype]
             if "data" in cell_output
@@ -1033,7 +1032,7 @@ def clean_up_directories() -> None:
     """
     for dir_ in [TUTORIALS_DIR, NOTEBOOKS_COMMUNITY_DIR]:
         if dir_.exists():
-            # We intentionally leave the static `index.mdx` file in place since
+            # We intentionally leave the static ``index.mdx`` file in place since
             # that is not autogenerated.
             for item in os.scandir(dir_):
                 if item.is_dir():

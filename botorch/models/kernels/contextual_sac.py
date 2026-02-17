@@ -35,8 +35,8 @@ class SACKernel(Kernel):
 
     where
     * :math: M is the number of partitions of parameter space. Each partition contains
-    same number of parameters d. Each kernel `k_i` acts only on d parameters of ith
-    partition i.e. `\mathbf{x}_(i)`. Each kernel `k_i` is a scaled RBF kernel
+    same number of parameters d. Each kernel ``k_i`` acts only on d parameters of ith
+    partition i.e. ``\mathbf{x}_(i)``. Each kernel ``k_i`` is a scaled RBF kernel
     with same lengthscales but different outputscales.
     """
 

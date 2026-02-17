@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Callable
-from typing import Optional, Union
 
 import torch
 from botorch.acquisition import analytic, monte_carlo, multi_objective
@@ -55,18 +54,17 @@ from torch.quasirandom import SobolEngine
 
 TGenInitialConditions = Callable[
     [
-        # reasoning behind this annotation: contravariance
         qKnowledgeGradient,
         Tensor,
         int,
         int,
         int,
-        Optional[dict[int, float]],
-        Optional[dict[str, Union[bool, float, int]]],
-        Optional[list[tuple[Tensor, Tensor, float]]],
-        Optional[list[tuple[Tensor, Tensor, float]]],
+        dict[int, float] | None,
+        dict[str, bool | float | int] | None,
+        list[tuple[Tensor, Tensor, float]] | None,
+        list[tuple[Tensor, Tensor, float]] | None,
     ],
-    Optional[Tensor],
+    Tensor | None,
 ]
 
 
@@ -82,16 +80,16 @@ def transform_constraints(
     Args:
         constraints: A list of tuples (indices, coefficients, rhs), with each tuple
             encoding an (in-)equality constraint of the form
-            `\sum_i (X[indices[i]] * coefficients[i]) (>)= rhs`.
-            If `indices` is a 2-d Tensor, this supports specifying constraints across
-            the points in the `q`-batch (inter-point constraints). If `None`, this
-            function is a nullop and simply returns `None`.
-        q: Size of the `q`-batch.
+            ``\sum_i (X[indices[i]] * coefficients[i]) (>)= rhs``.
+            If ``indices`` is a 2-d Tensor, this supports specifying constraints across
+            the points in the ``q``-batch (inter-point constraints). If ``None``, this
+            function is a nullop and simply returns ``None``.
+        q: Size of the ``q``-batch.
         d: Dimensionality of the problem.
 
     Returns:
         List[Tuple[Tensor, Tensor, float]]: List of transformed constraints, if
-        there are constraints. Returns `None` otherwise.
+        there are constraints. Returns ``None`` otherwise.
     """
     if constraints is None:
         return None
@@ -113,9 +111,9 @@ def transform_intra_point_constraint(
     Args:
         constraints: A list of tuples (indices, coefficients, rhs), with each tuple
             encoding an (in-)equality constraint of the form
-            `\sum_i (X[indices[i]] * coefficients[i]) (>)= rhs`. Here `indices` must
+            ``\sum_i (X[indices[i]] * coefficients[i]) (>)= rhs``. Here ``indices`` must
             be one-dimensional, and the constraint is applied to all points within the
-            `q`-batch.
+            ``q``-batch.
         d: Dimensionality of the problem.
 
     Raises:
@@ -151,10 +149,10 @@ def transform_inter_point_constraint(
     Args:
         constraints: A list of tuples (indices, coefficients, rhs), with each tuple
             encoding an (in-)equality constraint of the form
-            `\sum_i (X[indices[i]] * coefficients[i]) (>)= rhs`. `indices` must be a
-            2-d Tensor, where in each row `indices[i] = (k_i, l_i)` the first index
-            `k_i` corresponds to the `k_i`-th element of the `q`-batch and the second
-            index `l_i` corresponds to the `l_i`-th feature of that element.
+            ``\sum_i (X[indices[i]] * coefficients[i]) (>)= rhs``. ``indices`` must be a
+            2-d Tensor, where in each row ``indices[i] = (k_i, l_i)`` the first index
+            ``k_i`` corresponds to the ``k_i``-th element of the ``q``-batch and the
+            second index ``l_i`` corresponds to the ``l_i``-th feature of that element.
 
     Raises:
         ValueError: If indices in the constraints are larger than the
@@ -187,25 +185,25 @@ def sample_q_batches_from_polytope(
     inequality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
     equality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
 ) -> Tensor:
-    r"""Samples `n` q-baches from a polytope of dimension `d`.
+    r"""Samples ``n`` q-baches from a polytope of dimension ``d``.
 
     Args:
         n: Number of q-batches to sample.
         q: Number of samples per q-batch
-        bounds: A `2 x d` tensor of lower and upper bounds for each column of `X`.
+        bounds: A ``2 x d`` tensor of lower and upper bounds for each column of ``X``.
         n_burnin: The number of burn-in samples for the Markov chain sampler.
         n_thinning: The amount of thinning. The sampler will return every
-            `n_thinning` sample (after burn-in).
+            ``n_thinning`` sample (after burn-in).
         seed: The random seed.
         inequality_constraints: A list of tuples (indices, coefficients, rhs),
             with each tuple encoding an inequality constraint of the form
-            `\sum_i (X[indices[i]] * coefficients[i]) >= rhs`.
+            ``\sum_i (X[indices[i]] * coefficients[i]) >= rhs``.
         equality_constraints: A list of tuples (indices, coefficients, rhs),
             with each tuple encoding an inequality constraint of the form
-            `\sum_i (X[indices[i]] * coefficients[i]) = rhs`.
+            ``\sum_i (X[indices[i]] * coefficients[i]) = rhs``.
 
     Returns:
-        A `n x q x d`-dim tensor of samples.
+        A ``n x q x d``-dim tensor of samples.
     """
 
     # check if inter-point constraints are present
@@ -261,42 +259,42 @@ def gen_batch_initial_conditions(
 
     Args:
         acq_function: The acquisition function to be optimized.
-        bounds: A `2 x d` tensor of lower and upper bounds for each column of `X`.
+        bounds: A ``2 x d`` tensor of lower and upper bounds for each column of ``X``.
         q: The number of candidates to consider.
         num_restarts: The number of starting points for multistart acquisition
             function optimization.
         raw_samples: The number of raw samples to consider in the initialization
-            heuristic. Note: if `sample_around_best` is True (the default is False),
-            then `2 * raw_samples` samples are used.
-        fixed_features: A map `{feature_index: value}` for features that
+            heuristic. Note: if ``sample_around_best`` is True (the default is False),
+            then ``2 * raw_samples`` samples are used.
+        fixed_features: A map ``{feature_index: value}`` for features that
             should be fixed to a particular value during generation.
         options: Options for initial condition generation. For valid options see
-            `initialize_q_batch_topn`, `initialize_q_batch_nonneg`, and
-            `initialize_q_batch`. If `options` contains a `topn=True` then
-            `initialize_q_batch_topn` will be used. Else if `options` contains a
-            `nonnegative=True` entry, then `acq_function` is assumed to be
+            ``initialize_q_batch_topn``, ``initialize_q_batch_nonneg``, and
+            ``initialize_q_batch``. If ``options`` contains a ``topn=True`` then
+            ``initialize_q_batch_topn`` will be used. Else if ``options`` contains a
+            ``nonnegative=True`` entry, then ``acq_function`` is assumed to be
             non-negative (useful when using custom acquisition functions).
-            `initialize_q_batch` will be used otherwise. In addition, an
+            ``initialize_q_batch`` will be used otherwise. In addition, an
             "init_batch_limit" option can be passed to specify the batch limit
             for the initialization. This is useful for avoiding memory limits
             when computing the batch posterior over raw samples.
         inequality constraints: A list of tuples (indices, coefficients, rhs),
             with each tuple encoding an inequality constraint of the form
-            `\sum_i (X[indices[i]] * coefficients[i]) >= rhs`.
+            ``\sum_i (X[indices[i]] * coefficients[i]) >= rhs``.
         equality constraints: A list of tuples (indices, coefficients, rhs),
             with each tuple encoding an inequality constraint of the form
-            `\sum_i (X[indices[i]] * coefficients[i]) = rhs`.
+            ``\sum_i (X[indices[i]] * coefficients[i]) = rhs``.
         generator: Callable for generating samples that are then further
-            processed. It receives `n`, `q` and `seed` as arguments
-            and returns a tensor of shape `n x q x d`.
+            processed. It receives ``n``, ``q`` and ``seed`` as arguments
+            and returns a tensor of shape ``n x q x d``.
         fixed_X_fantasies: A fixed set of fantasy points to concatenate to
-            the `q` candidates being initialized along the `-2` dimension. The
-            shape should be `num_pseudo_points x d`. E.g., this should be
-            `num_fantasies x d` for KG and `num_fantasies*num_pareto x d`
+            the ``q`` candidates being initialized along the ``-2`` dimension. The
+            shape should be ``num_pseudo_points x d``. E.g., this should be
+            ``num_fantasies x d`` for KG and ``num_fantasies*num_pareto x d``
             for HVKG.
 
     Returns:
-        A `num_restarts x q x d` tensor of initial conditions.
+        A ``num_restarts x q x d`` tensor of initial conditions.
 
     Example:
         >>> qEI = qExpectedImprovement(model, best_f=0.2)
@@ -431,12 +429,12 @@ def gen_batch_initial_conditions(
                     dim=-2,
                 )
 
-            # Evaluate the acquisition function on `X_rnd` using `batch_limit`
+            # Evaluate the acquisition function on ``X_rnd`` using ``batch_limit``
             # sized chunks.
             with torch.no_grad():
                 if batch_limit is None:
                     batch_limit = X_rnd.shape[0]
-                # Evaluate the acquisition function on `X_rnd` using `batch_limit`
+                # Evaluate the acquisition function on ``X_rnd`` using ``batch_limit``
                 # sized chunks.
                 acq_vals = torch.cat(
                     [
@@ -487,44 +485,44 @@ def gen_one_shot_kg_initial_conditions(
     the maximizer of the posterior objective. Intutively, the maximizer of the
     fantasized posterior will often be close to a maximizer of the current
     posterior. This function uses that fact to generate the initial conditions
-    for the fantasy points. Specifically, a fraction of `1 - frac_random` (see
+    for the fantasy points. Specifically, a fraction of ``1 - frac_random`` (see
     options) is generated by sampling from the set of maximizers of the
     posterior objective (obtained via random restart optimization) according to
     a softmax transformation of their respective values. This means that this
     initialization strategy internally solves an acquisition function
-    maximization problem. The remaining `frac_random` fantasy points as well as
-    all `q` candidate points are chosen according to the standard initialization
-    strategy in `gen_batch_initial_conditions`.
+    maximization problem. The remaining ``frac_random`` fantasy points as well as
+    all ``q`` candidate points are chosen according to the standard initialization
+    strategy in ``gen_batch_initial_conditions``.
 
     Args:
         acq_function: The qHypervolumeKnowledgeGradient instance to be optimized.
-        bounds: A `2 x d` tensor of lower and upper bounds for each column of
+        bounds: A ``2 x d`` tensor of lower and upper bounds for each column of
             task features.
         q: The number of candidates to consider.
         num_restarts: The number of starting points for multistart acquisition
             function optimization.
         raw_samples: The number of raw samples to consider in the initialization
             heuristic.
-        fixed_features: A map `{feature_index: value}` for features that
+        fixed_features: A map ``{feature_index: value}`` for features that
             should be fixed to a particular value during generation.
         options: Options for initial condition generation. These contain all
             settings for the standard heuristic initialization from
-            `gen_batch_initial_conditions`. In addition, they contain
-            `frac_random` (the fraction of fully random fantasy points),
-            `num_inner_restarts` and `raw_inner_samples` (the number of random
+            ``gen_batch_initial_conditions``. In addition, they contain
+            ``frac_random`` (the fraction of fully random fantasy points),
+            ``num_inner_restarts`` and ``raw_inner_samples`` (the number of random
             restarts and raw samples for solving the posterior objective
-            maximization problem, respectively) and `eta` (temperature parameter
+            maximization problem, respectively) and ``eta`` (temperature parameter
             for sampling heuristic from posterior objective maximizers).
         inequality constraints: A list of tuples (indices, coefficients, rhs),
             with each tuple encoding an inequality constraint of the form
-            `\sum_i (X[indices[i]] * coefficients[i]) >= rhs`.
+            ``\sum_i (X[indices[i]] * coefficients[i]) >= rhs``.
         equality constraints: A list of tuples (indices, coefficients, rhs),
             with each tuple encoding an inequality constraint of the form
-            `\sum_i (X[indices[i]] * coefficients[i]) = rhs`.
+            ``\sum_i (X[indices[i]] * coefficients[i]) = rhs``.
 
     Returns:
-        A `num_restarts x q' x d` tensor that can be used as initial conditions
-        for `optimize_acqf()`. Here `q' = q + num_fantasies` is the total number
+        A ``num_restarts x q' x d`` tensor that can be used as initial conditions
+        for ``optimize_acqf()``. Here ``q' = q + num_fantasies`` is the total number
         of points (candidate points plus fantasy points).
 
     Example:
@@ -624,47 +622,47 @@ def gen_one_shot_hvkg_initial_conditions(
     Intutively, the hypervolume maximizing set of the fantasized posterior mean
     will often be close to a hypervolume maximizing set under the current posterior
     mean. This function uses that fact to generate the initial conditions
-    for the fantasy points. Specifically, a fraction of `1 - frac_random` (see
+    for the fantasy points. Specifically, a fraction of ``1 - frac_random`` (see
     options) of the restarts are generated by learning the hypervolume maximizing sets
     under the current posterior mean, where each hypervolume maximizing set is
     obtained from maximizing the hypervolume from a different starting point. Given
-    a hypervolume maximizing set, the `q` candidate points are selected using to the
-    standard initialization strategy in `gen_batch_initial_conditions`, with the fixed
-    hypervolume maximizing set. The remaining `frac_random` restarts fantasy points
-    as well as all `q` candidate points are chosen according to the standard
-    initialization strategy in `gen_batch_initial_conditions`.
+    a hypervolume maximizing set, the ``q`` candidate points are selected using to the
+    standard initialization strategy in ``gen_batch_initial_conditions``, with the fixed
+    hypervolume maximizing set. The remaining ``frac_random`` restarts fantasy points
+    as well as all ``q`` candidate points are chosen according to the standard
+    initialization strategy in ``gen_batch_initial_conditions``.
 
     Args:
         acq_function: The qKnowledgeGradient instance to be optimized.
-        bounds: A `2 x d` tensor of lower and upper bounds for each column of
+        bounds: A ``2 x d`` tensor of lower and upper bounds for each column of
             task features.
         q: The number of candidates to consider.
         num_restarts: The number of starting points for multistart acquisition
             function optimization.
         raw_samples: The number of raw samples to consider in the initialization
             heuristic.
-        fixed_features: A map `{feature_index: value}` for features that
+        fixed_features: A map ``{feature_index: value}`` for features that
             should be fixed to a particular value during generation.
         options: Options for initial condition generation. These contain all
             settings for the standard heuristic initialization from
-            `gen_batch_initial_conditions`. In addition, they contain
-            `frac_random` (the fraction of fully random fantasy points),
-            `num_inner_restarts` and `raw_inner_samples` (the number of random
+            ``gen_batch_initial_conditions``. In addition, they contain
+            ``frac_random`` (the fraction of fully random fantasy points),
+            ``num_inner_restarts`` and ``raw_inner_samples`` (the number of random
             restarts and raw samples for solving the posterior objective
-            maximization problem, respectively) and `eta` (temperature parameter
+            maximization problem, respectively) and ``eta`` (temperature parameter
             for sampling heuristic from posterior objective maximizers).
         inequality constraints: Optionally, list of tuples (indices, coefficients, rhs),
             with each tuple encoding an inequality constraint of the form
-            `\sum_i (X[indices[i]] * coefficients[i]) >= rhs`. Each
+            ``\sum_i (X[indices[i]] * coefficients[i]) >= rhs``. Each
             tensor of indices must be one-dimensional, since inter-point
             constraints are not supported here.
         equality constraints: Optionally, a list of tuples (indices, coefficients, rhs),
             with each tuple encoding an inequality constraint of the form
-            `\sum_i (X[indices[i]] * coefficients[i]) = rhs`.
+            ``\sum_i (X[indices[i]] * coefficients[i]) = rhs``.
 
     Returns:
-        A `num_restarts x q' x d` tensor that can be used as initial conditions
-        for `optimize_acqf()`. Here `q' = q + num_fantasies` is the total number
+        A ``num_restarts x q' x d`` tensor that can be used as initial conditions
+        for ``optimize_acqf()``. Here ``q' = q + num_fantasies`` is the total number
         of points (candidate points plus fantasy points).
 
     Example:
@@ -828,13 +826,13 @@ def gen_value_function_initial_conditions(
     according to a softmax transformation of their respective values. This means that
     this initialization strategy internally solves an acquisition function
     maximization problem. The remaining raw samples are generated using
-    `draw_sobol_samples`. All raw samples are then evaluated, and the initial
+    ``draw_sobol_samples``. All raw samples are then evaluated, and the initial
     conditions are selected according to the standard initialization strategy in
     'initialize_q_batch' individually for each inner problem.
 
     Args:
         acq_function: The value function instance to be optimized.
-        bounds: A `2 x d` tensor of lower and upper bounds for each column of
+        bounds: A ``2 x d`` tensor of lower and upper bounds for each column of
             task features.
         num_restarts: The number of starting points for multistart acquisition
             function optimization.
@@ -842,20 +840,20 @@ def gen_value_function_initial_conditions(
             heuristic.
         current_model: The model of the KG acquisition function that was used to
             generate the fantasy model of the value function.
-        fixed_features: A map `{feature_index: value}` for features that
+        fixed_features: A map ``{feature_index: value}`` for features that
             should be fixed to a particular value during generation.
         options: Options for initial condition generation. These contain all
             settings for the standard heuristic initialization from
-            `gen_batch_initial_conditions`. In addition, they contain
-            `frac_random` (the fraction of fully random fantasy points),
-            `num_inner_restarts` and `raw_inner_samples` (the number of random
+            ``gen_batch_initial_conditions``. In addition, they contain
+            ``frac_random`` (the fraction of fully random fantasy points),
+            ``num_inner_restarts`` and ``raw_inner_samples`` (the number of random
             restarts and raw samples for solving the posterior objective
-            maximization problem, respectively) and `eta` (temperature parameter
+            maximization problem, respectively) and ``eta`` (temperature parameter
             for sampling heuristic from posterior objective maximizers).
 
     Returns:
-        A `num_restarts x batch_shape x q x d` tensor that can be used as initial
-        conditions for `optimize_acqf()`. Here `batch_shape` is the batch shape
+        A ``num_restarts x batch_shape x q x d`` tensor that can be used as initial
+        conditions for ``optimize_acqf()``. Here ``batch_shape`` is the batch shape
         of value function model.
 
     Example:
@@ -948,33 +946,34 @@ def initialize_q_batch(
 ) -> tuple[Tensor, Tensor]:
     r"""Heuristic for selecting initial conditions for candidate generation.
 
-    This heuristic selects points from `X` (without replacement) with probability
-    proportional to `exp(eta * Z)`, where
-    `Z = (acq_vals - mean(acq_vals)) / std(acq_vals)`
-    and `eta` is a temperature parameter.
+    This heuristic selects points from ``X`` (without replacement) with probability
+    proportional to ``exp(eta * Z)``, where
+    ``Z = (acq_vals - mean(acq_vals)) / std(acq_vals)``
+    and ``eta`` is a temperature parameter.
 
     When using an acquisiton function that is non-negative and possibly zero
     over large areas of the feature space (e.g. qEI), you should use
-    `initialize_q_batch_nonneg` instead.
+    ``initialize_q_batch_nonneg`` instead.
 
     Args:
-        X: A `b x batch_shape x q x d` tensor of `b` - `batch_shape` samples of
-            `q`-batches from a d`-dim feature space. Typically, these are generated
+        X: A ``b x batch_shape x q x d`` tensor of ``b`` - ``batch_shape`` samples of
+            ``q``-batches from a d`-dim feature space. Typically, these are generated
             using qMC sampling.
-        acq_vals: A tensor of `b x batch_shape` outcomes associated with the samples.
+        acq_vals: A tensor of ``b x batch_shape`` outcomes associated with the samples.
             Typically, this is the value of the batch acquisition function to be
             maximized.
-        n: The number of initial condition to be generated. Must be less than `b`.
+        n: The number of initial condition to be generated. Must be less than ``b``.
         eta: Temperature parameter for weighting samples.
 
     Returns:
-        - An `n x batch_shape x q x d` tensor of `n` - `batch_shape` `q`-batch initial
-          conditions, where each batch of `n x q x d` samples is selected independently.
-        - An `n x batch_shape` tensor of the corresponding acquisition values.
+        - An ``n x batch_shape x q x d`` tensor of ``n`` - ``batch_shape``
+          ``q``-batch initial conditions, where each batch of ``n x q x d``
+          samples is selected independently.
+        - An ``n x batch_shape`` tensor of the corresponding acquisition values.
 
     Example:
-        >>> # To get `n=10` starting points of q-batch size `q=3`
-        >>> # for model with `d=6`:
+        >>> # To get ``n=10`` starting points of q-batch size ``q=3``
+        >>> # for model with ``d=6``:
         >>> qUCB = qUpperConfidenceBound(model, beta=0.1)
         >>> X_rnd = torch.rand(500, 3, 6)
         >>> X_init, acq_init = initialize_q_batch(X=X_rnd, acq_vals=qUCB(X_rnd), n=10)
@@ -1030,30 +1029,30 @@ def initialize_q_batch_nonneg(
 ) -> tuple[Tensor, Tensor]:
     r"""Heuristic for selecting initial conditions for non-neg. acquisition functions.
 
-    This function is similar to `initialize_q_batch`, but designed specifically
+    This function is similar to ``initialize_q_batch``, but designed specifically
     for acquisition functions that are non-negative and possibly zero over
     large areas of the feature space (e.g. qEI). All samples for which
-    `acq_vals < alpha * max(acq_vals)` will be ignored (assuming that `acq_vals`
+    ``acq_vals < alpha * max(acq_vals)`` will be ignored (assuming that ``acq_vals``
     contains at least one positive value).
 
     Args:
-        X: A `b x q x d` tensor of `b` samples of `q`-batches from a `d`-dim.
+        X: A ``b x q x d`` tensor of ``b`` samples of ``q``-batches from a ``d``-dim.
             feature space. Typically, these are generated using qMC.
-        acq_vals: A tensor of `b` outcomes associated with the samples. Typically, this
-            is the value of the batch acquisition function to be maximized.
-        n: The number of initial condition to be generated. Must be less than `b`.
+        acq_vals: A tensor of ``b`` outcomes associated with the samples. Typically,
+            this is the value of the batch acquisition function to be maximized.
+        n: The number of initial condition to be generated. Must be less than ``b``.
         eta: Temperature parameter for weighting samples.
         alpha: The threshold (as a fraction of the maximum observed value) under
             which to ignore samples. All input samples for which
-            `Y < alpha * max(Y)` will be ignored.
+            ``Y < alpha * max(Y)`` will be ignored.
 
     Returns:
-        - An `n x q x d` tensor of `n` `q`-batch initial conditions.
-        - An `n` tensor of the corresponding acquisition values.
+        - An ``n x q x d`` tensor of ``n`` ``q``-batch initial conditions.
+        - An ``n`` tensor of the corresponding acquisition values.
 
     Example:
-        >>> # To get `n=10` starting points of q-batch size `q=3`
-        >>> # for model with `d=6`:
+        >>> # To get ``n=10`` starting points of q-batch size ``q=3``
+        >>> # for model with ``d=6``:
         >>> qEI = qExpectedImprovement(model, best_f=0.2)
         >>> X_rnd = torch.rand(500, 3, 6)
         >>> X_init, acq_init = initialize_q_batch_nonneg(
@@ -1077,7 +1076,7 @@ def initialize_q_batch_nonneg(
         idcs = torch.randperm(n=n_samples, device=X.device)[:n]
         return X[idcs], acq_vals[idcs]
 
-    # make sure there are at least `n` points with positive acquisition values
+    # make sure there are at least ``n`` points with positive acquisition values
     pos = acq_vals > 0
     num_pos = pos.sum().item()
     if num_pos < n:
@@ -1107,22 +1106,23 @@ def initialize_q_batch_nonneg(
 def initialize_q_batch_topn(
     X: Tensor, acq_vals: Tensor, n: int, largest: bool = True, sorted: bool = True
 ) -> tuple[Tensor, Tensor]:
-    r"""Take the top `n` initial conditions for candidate generation.
+    r"""Take the top ``n`` initial conditions for candidate generation.
 
     Args:
-        X: A `b x q x d` tensor of `b` samples of `q`-batches from a `d`-dim.
+        X: A ``b x q x d`` tensor of ``b`` samples of ``q``-batches from a ``d``-dim.
             feature space. Typically, these are generated using qMC.
-        acq_vals: A tensor of `b` outcomes associated with the samples. Typically, this
-            is the value of the batch acquisition function to be maximized.
-        n: The number of initial condition to be generated. Must be less than `b`.
+        acq_vals: A tensor of ``b`` outcomes associated with the samples.
+            Typically, this is the value of the batch acquisition function to be
+            maximized.
+        n: The number of initial condition to be generated. Must be less than ``b``.
 
     Returns:
-        - An `n x q x d` tensor of `n` `q`-batch initial conditions.
-        - An `n` tensor of the corresponding acquisition values.
+        - An ``n x q x d`` tensor of ``n`` ``q``-batch initial conditions.
+        - An ``n`` tensor of the corresponding acquisition values.
 
     Example:
-        >>> # To get `n=10` starting points of q-batch size `q=3`
-        >>> # for model with `d=6`:
+        >>> # To get ``n=10`` starting points of q-batch size ``q=3``
+        >>> # for model with ``d=6``:
         >>> qUCB = qUpperConfidenceBound(model, beta=0.1)
         >>> X_rnd = torch.rand(500, 3, 6)
         >>> X_init, acq_init = initialize_q_batch_topn(
@@ -1170,14 +1170,14 @@ def sample_points_around_best(
         n_discrete_points: The number of points to sample.
         sigma: The standard deviation of the additive gaussian noise for
             perturbing the best points.
-        bounds: A `2 x d`-dim tensor containing the bounds.
+        bounds: A ``2 x d``-dim tensor containing the bounds.
         best_pct: The percentage of best points to perturb.
         subset_sigma: The standard deviation of the additive gaussian
             noise for perturbing a subset of dimensions of the best points.
         prob_perturb: The probability of perturbing each dimension.
 
     Returns:
-        An optional `n_discrete_points x d`-dim tensor containing the
+        An optional ``n_discrete_points x d``-dim tensor containing the
             sampled points. This is None if no baseline points are found.
     """
     X = get_X_baseline(acq_function=acq_function)
@@ -1264,10 +1264,10 @@ def is_nonnegative(acq_function: AcquisitionFunction) -> bool:
     r"""Determine whether a given acquisition function is non-negative.
 
     Args:
-        acq_function: The `AcquisitionFunction` instance.
+        acq_function: The ``AcquisitionFunction`` instance.
 
     Returns:
-        True if `acq_function` is non-negative, False if not, or if the behavior
+        True if ``acq_function`` is non-negative, False if not, or if the behavior
         is unknown (for custom acquisition functions).
 
     Example:

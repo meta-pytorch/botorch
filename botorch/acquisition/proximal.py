@@ -28,12 +28,12 @@ class ProximalAcquisitionFunction(AcquisitionFunction):
     """A wrapper around AcquisitionFunctions to add proximal weighting of the
     acquisition function. The acquisition function is
     weighted via a squared exponential centered at the last training point,
-    with varying lengthscales corresponding to `proximal_weights`. Can only be used
+    with varying lengthscales corresponding to ``proximal_weights``. Can only be used
     with acquisition functions based on single batch models. Acquisition functions
-    must be positive or `beta` must be specified to apply a SoftPlus transform before
+    must be positive or ``beta`` must be specified to apply a SoftPlus transform before
     proximal weighting.
 
-    Small values of `proximal_weights` corresponds to strong biasing towards recently
+    Small values of ``proximal_weights`` corresponds to strong biasing towards recently
     observed points, which smoothes optimization with a small potential decrese in
     convergence rate.
 
@@ -59,12 +59,12 @@ class ProximalAcquisitionFunction(AcquisitionFunction):
 
         Args:
             acq_function: The base acquisition function, operating on input tensors
-                of feature dimension `d`.
-            proximal_weights: A `d` dim tensor used to bias locality
+                of feature dimension ``d``.
+            proximal_weights: A ``d`` dim tensor used to bias locality
                 along each axis.
             transformed_weighting: If True, the proximal weights are applied in
                 the transformed input space given by
-                `acq_function.model.input_transform` (if available), otherwise
+                ``acq_function.model.input_transform`` (if available), otherwise
                 proximal weights are applied in real input space.
             beta: If not None, apply a softplus transform to the base acquisition
                 function, allows negative base acquisition function values.
@@ -96,10 +96,10 @@ class ProximalAcquisitionFunction(AcquisitionFunction):
         r"""Evaluate base acquisition function with proximal weighting.
 
         Args:
-            X: Input tensor of feature dimension `d` .
+            X: Input tensor of feature dimension ``d`` .
 
         Returns:
-            Base acquisition function evaluated on tensor `X` multiplied by proximal
+            Base acquisition function evaluated on tensor ``X`` multiplied by proximal
             weighting.
         """
         model = self.acq_func.model
@@ -161,7 +161,7 @@ def _validate_model(model: Model, proximal_weights: Tensor) -> None:
 
     Args:
         model: Model associated with base acquisition function to be validated.
-        proximal_weights: A `d` dim tensor used to bias locality
+        proximal_weights: A ``d`` dim tensor used to bias locality
                 along each axis.
     """
 

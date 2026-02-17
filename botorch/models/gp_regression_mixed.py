@@ -7,7 +7,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-
 from typing import Any
 
 import torch
@@ -29,7 +28,7 @@ from torch import Tensor
 class MixedSingleTaskGP(SingleTaskGP):
     r"""A single-task exact GP model for mixed search spaces.
 
-    This model is similar to `SingleTaskGP`, but supports mixed search spaces,
+    This model is similar to ``SingleTaskGP``, but supports mixed search spaces,
     which combine discrete and continuous features, as well as solely discrete
     spaces. It uses a kernel that combines a CategoricalKernel (based on
     Hamming distances) and a regular kernel into a kernel of the form
@@ -38,14 +37,14 @@ class MixedSingleTaskGP(SingleTaskGP):
             K_cont_1(x1, x2) + K_cat_1(c1, c2) +
             K_cont_2(x1, x2) * K_cat_2(c1, c2)
 
-    where `xi` and `ci` are the continuous and categorical features of the
-    input, respectively. The suffix `_i` indicates that we fit different
+    where ``xi`` and ``ci`` are the continuous and categorical features of the
+    input, respectively. The suffix ``_i`` indicates that we fit different
     lengthscales for the kernels in the sum and product terms.
 
     Since this model does not provide gradients for the categorical features,
     optimization of the acquisition function will need to be performed in
     a mixed fashion, i.e., treating the categorical features properly as
-    discrete optimization variables. We recommend using `optimize_acqf_mixed.`
+    discrete optimization variables. We recommend using ``optimize_acqf_mixed.``
 
     Example:
         >>> train_X = torch.cat(
@@ -73,31 +72,32 @@ class MixedSingleTaskGP(SingleTaskGP):
         r"""A single-task exact GP model supporting categorical parameters.
 
         Args:
-            train_X: A `batch_shape x n x d` tensor of training features.
-            train_Y: A `batch_shape x n x m` tensor of training observations.
+            train_X: A ``batch_shape x n x d`` tensor of training features.
+            train_Y: A ``batch_shape x n x m`` tensor of training observations.
             cat_dims: A list of indices corresponding to the columns of
-                the input `X` that should be considered categorical features.
-            train_Yvar: An optional `batch_shape x n x m` tensor of observed
+                the input ``X`` that should be considered categorical features.
+            train_Yvar: An optional ``batch_shape x n x m`` tensor of observed
                 measurement noise.
-            cont_kernel_factory: A method that accepts  `batch_shape`, `ard_num_dims`,
-                and `active_dims` arguments and returns an instantiated GPyTorch
-                `Kernel` object to be used as the base kernel for the continuous
-                dimensions. If omitted, this model uses an `RBFKernel` as
-                the kernel for the ordinal parameters.
+            cont_kernel_factory: A method that accepts  ``batch_shape``,
+                ``ard_num_dims``, and ``active_dims`` arguments and returns an
+                instantiated GPyTorch ``Kernel`` object to be used as the base
+                kernel for the continuous dimensions. If omitted, this model uses
+                an ``RBFKernel`` as the kernel for the ordinal parameters.
             likelihood: A likelihood. If omitted, use a standard
                 GaussianLikelihood with inferred noise level.
             outcome_transform: An outcome transform that is applied to the
                 training data during instantiation and to the posterior during
-                inference (that is, the `Posterior` obtained by calling
-                `.posterior` on the model will be on the original scale). We use a
-                `Standardize` transform if no `outcome_transform` is specified.
-                Pass down `None` to use no outcome transform.
+                inference (that is, the ``Posterior`` obtained by calling
+                ``.posterior`` on the model will be on the original scale). We use a
+                ``Standardize`` transform if no ``outcome_transform`` is specified.
+                Pass down ``None`` to use no outcome transform.
             input_transform: An input transform that is applied in the model's
                 forward pass. Only input transforms are allowed which do not
                 transform the categorical dimensions. If you want to use it
-                for example in combination with a `OneHotToNumeric` input transform
-                one has to instantiate the transform with `transform_on_train` == False
-                and pass in the already transformed input.
+                for example in combination with a ``OneHotToNumeric`` input
+                transform one has to instantiate the transform with
+                ``transform_on_train`` == False and pass in the already
+                transformed input.
         """
         if len(cat_dims) == 0:
             raise ValueError(
@@ -167,10 +167,10 @@ class MixedSingleTaskGP(SingleTaskGP):
         categorical_features: list[int],
         likelihood: Likelihood | None = None,
     ) -> dict[str, Any]:
-        r"""Construct `Model` keyword arguments from a dict of `SupervisedDataset`.
+        r"""Construct ``Model`` keyword arguments from a dict of ``SupervisedDataset``.
 
         Args:
-            training_data: A `SupervisedDataset` containing the training data.
+            training_data: A ``SupervisedDataset`` containing the training data.
             categorical_features: Column indices of categorical features.
             likelihood: Optional likelihood used to constuct the model.
         """

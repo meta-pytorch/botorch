@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
+  - name: 🌱 Optimization Help - Export Your Data
+    url: https://github.com/meta-pytorch/botorch/blob/main/tutorials/optimization_issue_diagnostics/optimization_issue_diagnostics.ipynb
+    about: Use this notebook to export optimization_help_data.json before filing an Optimization Help issue.
   - name: General Support & Discussions
     url: https://github.com/meta-pytorch/botorch/discussions
     about: Please use discussions for general support requests and to ask broader questions related to BoTorch. This includes any support request that does not require changes to BoTorch source code.
