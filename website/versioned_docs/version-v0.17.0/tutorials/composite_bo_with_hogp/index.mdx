@@ -1,0 +1,516 @@
+---
+title: Composite Bayesian optimization with the High Order Gaussian Process
+sidebar_label: Composite Bayesian optimization with the High Order Gaussian Process
+---
+
+import LinkButtons from "@site/src/components/LinkButtons.jsx";
+import CellOutput from "@site/src/components/CellOutput.jsx";
+import {PlotlyFigure} from "@site/src/components/Plotting.jsx";
+
+<LinkButtons
+  githubUrl="https://github.com/pytorch/botorch/blob/main/tutorials/composite_bo_with_hogp/composite_bo_with_hogp.ipynb"
+  colabUrl="https://colab.research.google.com/github/pytorch/botorch/blob/main/tutorials/composite_bo_with_hogp/composite_bo_with_hogp.ipynb"
+/>
+
+## Composite Bayesian Optimization with the High Order Gaussian Process
+
+In this tutorial, we're going to explore composite Bayesian optimization
+[Astudillo & Frazier, ICML, '19](https://proceedings.mlr.press/v97/astudillo19a.html)
+with the High Order Gaussian Process (HOGP) model of
+[Zhe et al, AISTATS, '19](http://proceedings.mlr.press/v89/zhe19a.html). The setup for
+composite Bayesian optimization is that we have an unknown (black box) function mapping
+input parameters to several outputs, and a second, known function describing the quality
+of the functional output. We wish to find input parameters that maximize the output
+metric function. We wish to find input parameters that maximize the output metric
+function in a black-box manner.
+
+Specifically, this can be described as $\max_{x \in \mathcal{X}} g(f(x)),$ where $f$ is
+unknown and $g$ is known. As in traditional Bayesian optimization, we are going to
+construct a Gaussian process surrogate model over the expensive to evaluate function
+$f(.),$ and will use a HOGP to model this function.
+
+### HOGP model description
+
+The
+[High Order Gaussian Process (HOGP) model](https://proceedings.mlr.press/v89/zhe19a.html)
+is a Gaussian process model designed specifically to operate over tensors or
+multi-dimensional arrays and exploits structure in the tensor to be able to operate
+efficiently. Specifically, the HOGP takes as inputs
+$y \in \mathbb{R}^{N \times d_2 \times \cdots \times d_M}$ and assumes that
+$\text{vec}(y) \sim \mathcal{N}(0, \otimes_{i=1}^M K_i + \sigma^2 I),$ where
+$K_1 = K_{XX}.$ Each dimension of the tensor has its own kernel function, $K_i,$ as well
+as a set of $d_i$ latent parameters that can be optimized over.
+
+Recently, [Maddox et al, '21](https://arxiv.org/abs/2106.12997) proposed a method for
+computing posterior samples from the HOGP by exploiting structure in the posterior
+distribution, thereby enabling its usage in BO settings. While they show that this
+approach allows to use composite BO on problems with tens or thousands of outputs, for
+scalability we consider a much smaller example here (that does not require GPU
+acceleration).
+
+```python
+# Install dependencies if we are running in colab
+import sys
+if 'google.colab' in sys.modules:
+    %pip install botorch
+```
+
+```python
+import math
+import os
+import time
+from functools import partial
+
+import gpytorch.settings as gpt_settings
+import matplotlib.pyplot as plt
+import torch
+from botorch.acquisition import qExpectedImprovement
+from botorch.acquisition.objective import GenericMCObjective
+from botorch.models import HigherOrderGP, SingleTaskGP
+from botorch.models.higher_order_gp import FlattenedStandardize
+from botorch.models.transforms import Normalize
+from botorch.optim import optimize_acqf
+from botorch.optim.fit import fit_gpytorch_mll_torch
+from botorch.sampling.normal import IIDNormalSampler
+from gpytorch.mlls import ExactMarginalLogLikelihood
+from linear_operator.settings import _fast_solves
+from torch.optim import Adam
+
+%matplotlib inline
+
+SMOKE_TEST = os.environ.get("SMOKE_TEST")
+```
+
+<CellOutput>
+{
+`[KeOps] Warning : There were warnings or errors :
+/bin/sh: brew: command not found
+[KeOps] Warning : CUDA libraries not found or could not be loaded; Switching to CPU only.
+[KeOps] Warning : There were warnings or errors :
+/bin/sh: brew: command not found
+[KeOps] Warning : OpenMP library not found, it must be downloaded through Homebrew for apple Silicon chips
+[KeOps] Warning : OpenMP support is not available. Disabling OpenMP.`
+}
+</CellOutput>
+
+#### Set Device and dtype
+
+```python
+torch.manual_seed(0)
+device = (
+    torch.device("cpu") if not torch.cuda.is_available() else torch.device("cuda")
+)
+dtype = torch.float
+
+print("Using ", device)
+```
+
+<CellOutput>
+{
+`Using  cpu`
+}
+</CellOutput>
+
+```python
+models_used = (
+    "rnd",
+    "ei",
+    "ei_hogp_cf",
+)
+```
+
+### Problem Description
+
+We use a simple test problem describing the concentration of pollutants after a chemical
+spill from
+[Astudillo & Frazier, ICML, '19](https://proceedings.mlr.press/v97/astudillo19a.html)
+defined over a $3 \times 4$ grid of values $s,t$ and we wish to optimize the parameters
+w.r.t. their true values, to estimate the true value of parameters,
+$x = [M, D, L, \tau].$ The function is given by
+
+$$
+ f(s,t | M, D, L, \tau) := \frac{M}{\sqrt{4 \pi D t}}  \exp{-\frac{s^2}{4Dt}} + \frac{1_{t > \tau} M}{\sqrt{4 \pi D(t - \tau)}} \exp{- \frac{(s - L)^2}{4 D (t - \tau)}}, 
+$$
+
+with the cheap to evaluate, differentiable function given by
+$g(y):= \sum_{(s,t) \in S \times T} \left(c(s, t|x_{\text{true}}) - y\right)^2.$ As the
+objective function itself is going to be implemented in Pytorch, we will be able to
+differentiate through it, enabling the usage of gradient-based optimization to optimize
+the objectives with respect to the inputs.
+
+```python
+def env_cfun(s, t, M, D, L, tau):
+    c1 = M / torch.sqrt(4 * math.pi * D * t)
+    exp1 = torch.exp(-(s**2) / 4 / D / t)
+    term1 = c1 * exp1
+    c2 = M / torch.sqrt(4 * math.pi * D * (t - tau))
+    exp2 = torch.exp(-((s - L) ** 2) / 4 / D / (t - tau))
+    term2 = c2 * exp2
+    term2[torch.isnan(term2)] = 0.0
+    return term1 + term2
+```
+
+#### Helper Functions
+
+These are helper functions for us to maximize the acquisition function and to get random
+points.
+
+```python
+def gen_rand_points(bounds, num_samples):
+    points_nlzd = torch.rand(num_samples, bounds.shape[-1]).to(bounds)
+    return bounds[0] + (bounds[1] - bounds[0]) * points_nlzd
+
+
+def optimize_ei(qEI, bounds, **options):
+    cands_nlzd, _ = optimize_acqf(qEI, bounds, **options)
+    return cands_nlzd
+```
+
+Below is a wrapped function to help us define bounds on the parameter space, we can also
+vary the size of the grid if we'd like to.
+
+```python
+def prepare_data(s_size=3, t_size=4, device=device, dtype=dtype):
+    print("---- Running the environmental problem with ", s_size, t_size, " ----")
+    # X = [M, D, L, tau]
+    bounds = torch.tensor(
+        [[7.0, 0.02, 0.01, 30.010], [13.0, 0.12, 3.00, 30.295]],
+        device=device,
+        dtype=dtype,
+    )
+
+    M0 = torch.tensor(10.0, device=device, dtype=dtype)
+    D0 = torch.tensor(0.07, device=device, dtype=dtype)
+    L0 = torch.tensor(1.505, device=device, dtype=dtype)
+    tau0 = torch.tensor(30.1525, device=device, dtype=dtype)
+
+    # we can vectorize everything, no need for loops
+    if s_size == 3:
+        S = torch.tensor([0.0, 1.0, 2.5], device=device, dtype=dtype)
+    else:
+        S = torch.linspace(0.0, 2.5, s_size, device=device, dtype=dtype)
+    if t_size == 4:
+        T = torch.tensor([15.0, 30.0, 45.0, 60.0], device=device, dtype=dtype)
+    else:
+        T = torch.linspace(15.0, 60.0, t_size, device=device, dtype=dtype)
+
+    Sgrid, Tgrid = torch.meshgrid(S, T)
+
+    # X = [M, D, L, tau]
+    def c_batched(X, k=None):
+        return torch.stack([env_cfun(Sgrid, Tgrid, *x) for x in X])
+
+    c_true = env_cfun(Sgrid, Tgrid, M0, D0, L0, tau0)
+
+    def neq_sum_quared_diff(samples, X=None):
+        # unsqueeze
+        if samples.shape[-1] == (s_size * t_size):
+            samples = samples.unsqueeze(-1).reshape(*samples.shape[:-1], s_size, t_size)
+
+        sq_diffs = (samples - c_true).pow(2)
+        return sq_diffs.sum(dim=(-1, -2)).mul(-1.0)
+
+    objective = GenericMCObjective(neq_sum_quared_diff)
+    num_samples = 32
+
+    return c_batched, objective, bounds, num_samples
+```
+
+In the above, we construct a `GenericMCObjective` instance to codify the objective
+function (which is minimizing the MSE of the output tensors and the outputs
+corresponding to the "true" parameter values). Note that the objective function is
+encoded in PyTorch and is differentiable (although it technically doesn't have to be).
+Ultimately, we backpropagate through the objective with respect to the input parameters
+(and through the HOGP as well).
+
+## BO Loop
+
+Finally, we run the BO loop for 10 iterations, generating 3 candidates in each
+iteration. This loop might take a while.
+
+We will be comparing to both random selection and batch expected improvement on the
+aggregated metric.
+
+```python
+n_init = 20
+
+if SMOKE_TEST:
+    n_batches = 1
+    batch_size = 2
+else:
+    n_batches = 10
+    batch_size = 3
+```
+
+As a word of caution, we've found that when fitting the HOGP model, using first-order
+optimizers (e.g. Adam) as is used in `fit_gpytorch_torch` tends to outperform
+second-order optimizers such as L-BFGS-B due to the large number of free parameters in
+the HOGP. L-BFGS-B tends to overfit in practice here.
+
+```python
+with gpt_settings.cholesky_jitter(1e-4):
+    c_batched, objective, bounds, num_samples = prepare_data(device=device, dtype=dtype)
+
+    train_X_init = gen_rand_points(bounds, n_init)
+    train_Y_init = c_batched(train_X_init)
+
+    # these will keep track of the points explored
+    train_X = {k: train_X_init.clone() for k in models_used}
+    train_Y = {k: train_Y_init.clone() for k in train_X}
+
+    # run the BO loop
+    for i in range(n_batches):
+        tic = time.monotonic()
+
+        # get best observations, log status
+        best_f = {k: objective(v).max().detach() for k, v in train_Y.items()}
+
+        print(
+            f"It {i+1:>2}/{n_batches}, best obs.: "
+            ", ".join([f"{k}: {v:.3f}" for k, v in best_f.items()])
+        )
+
+        # generate random candidates
+        cands = {}
+        cands["rnd"] = gen_rand_points(bounds, batch_size)
+
+        optimize_acqf_kwargs = {
+            "q": batch_size,
+            "num_restarts": 10,
+            "raw_samples": 512,
+        }
+        sampler = IIDNormalSampler(sample_shape=torch.Size([128]))
+
+        train_Y_ei = objective(train_Y["ei"]).unsqueeze(-1)
+        model_ei = SingleTaskGP(
+            train_X["ei"],
+            train_Y_ei,
+            input_transform=Normalize(train_X["ei"].shape[-1]),
+        )
+
+        mll = ExactMarginalLogLikelihood(model_ei.likelihood, model_ei)
+        fit_gpytorch_mll_torch(mll, step_limit=1000, optimizer=partial(Adam, lr=0.01))
+
+        # generate qEI candidate (single output modeling)
+        qEI = qExpectedImprovement(model_ei, best_f=best_f["ei"], sampler=sampler)
+        cands["ei"] = optimize_ei(qEI, bounds, **optimize_acqf_kwargs)
+
+        model_ei_hogp_cf = HigherOrderGP(
+            train_X["ei_hogp_cf"],
+            train_Y["ei_hogp_cf"],
+            outcome_transform=FlattenedStandardize(train_Y["ei_hogp_cf"].shape[1:]),
+            input_transform=Normalize(train_X["ei_hogp_cf"].shape[-1]),
+            latent_init="gp",
+        )
+
+        mll = ExactMarginalLogLikelihood(model_ei_hogp_cf.likelihood, model_ei_hogp_cf)
+        with _fast_solves(True):
+            fit_gpytorch_mll_torch(
+                mll, step_limit=1000, optimizer=partial(Adam, lr=0.01)
+            )
+
+        # generate qEI candidate (multi-output modeling)
+        qEI_hogp_cf = qExpectedImprovement(
+            model_ei_hogp_cf,
+            best_f=best_f["ei_hogp_cf"],
+            sampler=sampler,
+            objective=objective,
+        )
+        cands["ei_hogp_cf"] = optimize_ei(qEI_hogp_cf, bounds, **optimize_acqf_kwargs)
+
+        # make observations and update data
+        for k, Xold in train_X.items():
+            Xnew = cands[k]
+            if Xnew.shape[0] > 0:
+                train_X[k] = torch.cat([Xold, Xnew])
+                train_Y[k] = torch.cat([train_Y[k], c_batched(Xnew)])
+
+        print(f"Wall time: {time.monotonic() - tic:1f}")
+
+    objective_dict = {k: objective(train_Y[k]) for k in train_Y}
+```
+
+<CellOutput>
+{
+`---- Running the environmental problem with  3 4  ----
+rnd: -0.666It  1/10, best obs.: , ei: -0.666It  1/10, best obs.: , ei_hogp_cf: -0.666
+/opt/anaconda3/envs/botorch/lib/python3.10/site-packages/torch/functional.py:554: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at /Users/runner/work/pytorch/pytorch/pytorch/aten/src/ATen/native/TensorShape.cpp:4316.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+/var/folders/qq/w_95_j090j74hmlhqzqsgvyh0000gn/T/ipykernel_19875/323714716.py:35: InputDataWarning: The model inputs are of type torch.float32. It is strongly recommended to use double precision in BoTorch, as this improves both precision and stability and can help avoid numerical errors. See https://github.com/meta-pytorch/botorch/discussions/1444
+  model_ei = SingleTaskGP(
+/Users/saitcakmak/botorch/botorch/acquisition/monte_carlo.py:400: NumericsWarning: qExpectedImprovement has known numerical issues that lead to suboptimal optimization performance. It is strongly recommended to simply replace
+	 qExpectedImprovement 	 --> 	 qLogExpectedImprovement 
+instead, which fixes the issues and has the same API. See https://arxiv.org/abs/2310.20708 for details.
+  legacy_ei_numerics_warning(legacy_name=type(self).__name__)
+/Users/saitcakmak/botorch/botorch/acquisition/monte_carlo.py:400: NumericsWarning: qExpectedImprovement has known numerical issues that lead to suboptimal optimization performance. It is strongly recommended to simply replace
+	 qExpectedImprovement 	 --> 	 qLogExpectedImprovement 
+instead, which fixes the issues and has the same API. See https://arxiv.org/abs/2310.20708 for details.
+  legacy_ei_numerics_warning(legacy_name=type(self).__name__)
+Wall time: 4.316531
+rnd: -0.666It  2/10, best obs.: , ei: -0.311It  2/10, best obs.: , ei_hogp_cf: -0.036
+/var/folders/qq/w_95_j090j74hmlhqzqsgvyh0000gn/T/ipykernel_19875/323714716.py:35: InputDataWarning: The model inputs are of type torch.float32. It is strongly recommended to use double precision in BoTorch, as this improves both precision and stability and can help avoid numerical errors. See https://github.com/meta-pytorch/botorch/discussions/1444
+  model_ei = SingleTaskGP(
+/Users/saitcakmak/botorch/botorch/acquisition/monte_carlo.py:400: NumericsWarning: qExpectedImprovement has known numerical issues that lead to suboptimal optimization performance. It is strongly recommended to simply replace
+	 qExpectedImprovement 	 --> 	 qLogExpectedImprovement 
+instead, which fixes the issues and has the same API. See https://arxiv.org/abs/2310.20708 for details.
+  legacy_ei_numerics_warning(legacy_name=type(self).__name__)
+/Users/saitcakmak/botorch/botorch/acquisition/monte_carlo.py:400: NumericsWarning: qExpectedImprovement has known numerical issues that lead to suboptimal optimization performance. It is strongly recommended to simply replace
+	 qExpectedImprovement 	 --> 	 qLogExpectedImprovement 
+instead, which fixes the issues and has the same API. See https://arxiv.org/abs/2310.20708 for details.
+  legacy_ei_numerics_warning(legacy_name=type(self).__name__)
+Wall time: 3.174134
+rnd: -0.580It  3/10, best obs.: , ei: -0.171It  3/10, best obs.: , ei_hogp_cf: -0.035
+/var/folders/qq/w_95_j090j74hmlhqzqsgvyh0000gn/T/ipykernel_19875/323714716.py:35: InputDataWarning: The model inputs are of type torch.float32. It is strongly recommended to use double precision in BoTorch, as this improves both precision and stability and can help avoid numerical errors. See https://github.com/meta-pytorch/botorch/discussions/1444
+  model_ei = SingleTaskGP(
+/Users/saitcakmak/botorch/botorch/acquisition/monte_carlo.py:400: NumericsWarning: qExpectedImprovement has known numerical issues that lead to suboptimal optimization performance. It is strongly recommended to simply replace
+	 qExpectedImprovement 	 --> 	 qLogExpectedImprovement 
+instead, which fixes the issues and has the same API. See https://arxiv.org/abs/2310.20708 for details.
+  legacy_ei_numerics_warning(legacy_name=type(self).__name__)
+/Users/saitcakmak/botorch/botorch/acquisition/monte_carlo.py:400: NumericsWarning: qExpectedImprovement has known numerical issues that lead to suboptimal optimization performance. It is strongly recommended to simply replace
+	 qExpectedImprovement 	 --> 	 qLogExpectedImprovement 
+instead, which fixes the issues and has the same API. See https://arxiv.org/abs/2310.20708 for details.
+  legacy_ei_numerics_warning(legacy_name=type(self).__name__)
+Wall time: 5.472840
+rnd: -0.580It  4/10, best obs.: , ei: -0.171It  4/10, best obs.: , ei_hogp_cf: -0.002
+/var/folders/qq/w_95_j090j74hmlhqzqsgvyh0000gn/T/ipykernel_19875/323714716.py:35: InputDataWarning: The model inputs are of type torch.float32. It is strongly recommended to use double precision in BoTorch, as this improves both precision and stability and can help avoid numerical errors. See https://github.com/meta-pytorch/botorch/discussions/1444
+  model_ei = SingleTaskGP(
+/Users/saitcakmak/botorch/botorch/acquisition/monte_carlo.py:400: NumericsWarning: qExpectedImprovement has known numerical issues that lead to suboptimal optimization performance. It is strongly recommended to simply replace
+	 qExpectedImprovement 	 --> 	 qLogExpectedImprovement 
+instead, which fixes the issues and has the same API. See https://arxiv.org/abs/2310.20708 for details.
+  legacy_ei_numerics_warning(legacy_name=type(self).__name__)
+/Users/saitcakmak/botorch/botorch/acquisition/monte_carlo.py:400: NumericsWarning: qExpectedImprovement has known numerical issues that lead to suboptimal optimization performance. It is strongly recommended to simply replace
+	 qExpectedImprovement 	 --> 	 qLogExpectedImprovement 
+instead, which fixes the issues and has the same API. See https://arxiv.org/abs/2310.20708 for details.
+  legacy_ei_numerics_warning(legacy_name=type(self).__name__)
+/Users/saitcakmak/botorch/botorch/optim/optimize.py:362: BadInitialCandidatesWarning: Unable to find non-zero acquisition function values - initial conditions are being selected randomly.
+  generated_initial_conditions = opt_inputs.get_ic_generator()(
+/var/folders/qq/w_95_j090j74hmlhqzqsgvyh0000gn/T/ipykernel_19875/323714716.py:35: InputDataWarning: The model inputs are of type torch.float32. It is strongly recommended to use double precision in BoTorch, as this improves both precision and stability and can help avoid numerical errors. See https://github.com/meta-pytorch/botorch/discussions/1444
+  model_ei = SingleTaskGP(
+Wall time: 7.275060
+rnd: -0.580It  5/10, best obs.: , ei: -0.149It  5/10, best obs.: , ei_hogp_cf: -0.002
+/Users/saitcakmak/botorch/botorch/acquisition/monte_carlo.py:400: NumericsWarning: qExpectedImprovement has known numerical issues that lead to suboptimal optimization performance. It is strongly recommended to simply replace
+	 qExpectedImprovement 	 --> 	 qLogExpectedImprovement 
+instead, which fixes the issues and has the same API. See https://arxiv.org/abs/2310.20708 for details.
+  legacy_ei_numerics_warning(legacy_name=type(self).__name__)
+/Users/saitcakmak/botorch/botorch/acquisition/monte_carlo.py:400: NumericsWarning: qExpectedImprovement has known numerical issues that lead to suboptimal optimization performance. It is strongly recommended to simply replace
+	 qExpectedImprovement 	 --> 	 qLogExpectedImprovement 
+instead, which fixes the issues and has the same API. See https://arxiv.org/abs/2310.20708 for details.
+  legacy_ei_numerics_warning(legacy_name=type(self).__name__)
+/Users/saitcakmak/botorch/botorch/optim/optimize.py:362: BadInitialCandidatesWarning: Unable to find non-zero acquisition function values - initial conditions are being selected randomly.
+  generated_initial_conditions = opt_inputs.get_ic_generator()(
+/var/folders/qq/w_95_j090j74hmlhqzqsgvyh0000gn/T/ipykernel_19875/323714716.py:35: InputDataWarning: The model inputs are of type torch.float32. It is strongly recommended to use double precision in BoTorch, as this improves both precision and stability and can help avoid numerical errors. See https://github.com/meta-pytorch/botorch/discussions/1444
+  model_ei = SingleTaskGP(
+Wall time: 3.736265
+rnd: -0.580It  6/10, best obs.: , ei: -0.036It  6/10, best obs.: , ei_hogp_cf: -0.002
+/Users/saitcakmak/botorch/botorch/acquisition/monte_carlo.py:400: NumericsWarning: qExpectedImprovement has known numerical issues that lead to suboptimal optimization performance. It is strongly recommended to simply replace
+	 qExpectedImprovement 	 --> 	 qLogExpectedImprovement 
+instead, which fixes the issues and has the same API. See https://arxiv.org/abs/2310.20708 for details.
+  legacy_ei_numerics_warning(legacy_name=type(self).__name__)
+/Users/saitcakmak/botorch/botorch/acquisition/monte_carlo.py:400: NumericsWarning: qExpectedImprovement has known numerical issues that lead to suboptimal optimization performance. It is strongly recommended to simply replace
+	 qExpectedImprovement 	 --> 	 qLogExpectedImprovement 
+instead, which fixes the issues and has the same API. See https://arxiv.org/abs/2310.20708 for details.
+  legacy_ei_numerics_warning(legacy_name=type(self).__name__)
+/Users/saitcakmak/botorch/botorch/optim/optimize.py:362: BadInitialCandidatesWarning: Unable to find non-zero acquisition function values - initial conditions are being selected randomly.
+  generated_initial_conditions = opt_inputs.get_ic_generator()(
+/var/folders/qq/w_95_j090j74hmlhqzqsgvyh0000gn/T/ipykernel_19875/323714716.py:35: InputDataWarning: The model inputs are of type torch.float32. It is strongly recommended to use double precision in BoTorch, as this improves both precision and stability and can help avoid numerical errors. See https://github.com/meta-pytorch/botorch/discussions/1444
+  model_ei = SingleTaskGP(
+/Users/saitcakmak/botorch/botorch/acquisition/monte_carlo.py:400: NumericsWarning: qExpectedImprovement has known numerical issues that lead to suboptimal optimization performance. It is strongly recommended to simply replace
+	 qExpectedImprovement 	 --> 	 qLogExpectedImprovement 
+instead, which fixes the issues and has the same API. See https://arxiv.org/abs/2310.20708 for details.
+  legacy_ei_numerics_warning(legacy_name=type(self).__name__)
+Wall time: 8.916439
+rnd: -0.580It  7/10, best obs.: , ei: -0.036It  7/10, best obs.: , ei_hogp_cf: -0.002
+/Users/saitcakmak/botorch/botorch/optim/optimize.py:789: RuntimeWarning: Optimization failed in gen_candidates_scipy with the following warning(s):
+[NumericalWarning('A not p.d., added jitter of 1.0e-04 to the diagonal'), OptimizationWarning('Optimization failed within scipy.optimize.minimize with status 2 and message ABNORMAL: .')]
+Trying again with a new set of initial conditions.
+  return _optimize_acqf_batch(opt_inputs=opt_inputs)
+/Users/saitcakmak/botorch/botorch/acquisition/monte_carlo.py:400: NumericsWarning: qExpectedImprovement has known numerical issues that lead to suboptimal optimization performance. It is strongly recommended to simply replace
+	 qExpectedImprovement 	 --> 	 qLogExpectedImprovement 
+instead, which fixes the issues and has the same API. See https://arxiv.org/abs/2310.20708 for details.
+  legacy_ei_numerics_warning(legacy_name=type(self).__name__)
+/Users/saitcakmak/botorch/botorch/optim/optimize.py:362: BadInitialCandidatesWarning: Unable to find non-zero acquisition function values - initial conditions are being selected randomly.
+  generated_initial_conditions = opt_inputs.get_ic_generator()(
+/var/folders/qq/w_95_j090j74hmlhqzqsgvyh0000gn/T/ipykernel_19875/323714716.py:35: InputDataWarning: The model inputs are of type torch.float32. It is strongly recommended to use double precision in BoTorch, as this improves both precision and stability and can help avoid numerical errors. See https://github.com/meta-pytorch/botorch/discussions/1444
+  model_ei = SingleTaskGP(
+/Users/saitcakmak/botorch/botorch/acquisition/monte_carlo.py:400: NumericsWarning: qExpectedImprovement has known numerical issues that lead to suboptimal optimization performance. It is strongly recommended to simply replace
+	 qExpectedImprovement 	 --> 	 qLogExpectedImprovement 
+instead, which fixes the issues and has the same API. See https://arxiv.org/abs/2310.20708 for details.
+  legacy_ei_numerics_warning(legacy_name=type(self).__name__)
+Wall time: 9.564250
+rnd: -0.580It  8/10, best obs.: , ei: -0.036It  8/10, best obs.: , ei_hogp_cf: -0.002
+/Users/saitcakmak/botorch/botorch/acquisition/monte_carlo.py:400: NumericsWarning: qExpectedImprovement has known numerical issues that lead to suboptimal optimization performance. It is strongly recommended to simply replace
+	 qExpectedImprovement 	 --> 	 qLogExpectedImprovement 
+instead, which fixes the issues and has the same API. See https://arxiv.org/abs/2310.20708 for details.
+  legacy_ei_numerics_warning(legacy_name=type(self).__name__)
+/Users/saitcakmak/botorch/botorch/optim/optimize.py:362: BadInitialCandidatesWarning: Unable to find non-zero acquisition function values - initial conditions are being selected randomly.
+  generated_initial_conditions = opt_inputs.get_ic_generator()(
+/var/folders/qq/w_95_j090j74hmlhqzqsgvyh0000gn/T/ipykernel_19875/323714716.py:35: InputDataWarning: The model inputs are of type torch.float32. It is strongly recommended to use double precision in BoTorch, as this improves both precision and stability and can help avoid numerical errors. See https://github.com/meta-pytorch/botorch/discussions/1444
+  model_ei = SingleTaskGP(
+Wall time: 4.323060
+rnd: -0.580It  9/10, best obs.: , ei: -0.036It  9/10, best obs.: , ei_hogp_cf: -0.002
+/Users/saitcakmak/botorch/botorch/acquisition/monte_carlo.py:400: NumericsWarning: qExpectedImprovement has known numerical issues that lead to suboptimal optimization performance. It is strongly recommended to simply replace
+	 qExpectedImprovement 	 --> 	 qLogExpectedImprovement 
+instead, which fixes the issues and has the same API. See https://arxiv.org/abs/2310.20708 for details.
+  legacy_ei_numerics_warning(legacy_name=type(self).__name__)
+/Users/saitcakmak/botorch/botorch/optim/optimize.py:789: RuntimeWarning: Optimization failed in gen_candidates_scipy with the following warning(s):
+[OptimizationWarning('Optimization failed within scipy.optimize.minimize with status 2 and message ABNORMAL: .')]
+Trying again with a new set of initial conditions.
+  return _optimize_acqf_batch(opt_inputs=opt_inputs)
+/Users/saitcakmak/botorch/botorch/optim/optimize.py:789: RuntimeWarning: Optimization failed on the second try, after generating a new set of initial conditions.
+  return _optimize_acqf_batch(opt_inputs=opt_inputs)
+/Users/saitcakmak/botorch/botorch/acquisition/monte_carlo.py:400: NumericsWarning: qExpectedImprovement has known numerical issues that lead to suboptimal optimization performance. It is strongly recommended to simply replace
+	 qExpectedImprovement 	 --> 	 qLogExpectedImprovement 
+instead, which fixes the issues and has the same API. See https://arxiv.org/abs/2310.20708 for details.
+  legacy_ei_numerics_warning(legacy_name=type(self).__name__)
+/Users/saitcakmak/botorch/botorch/optim/optimize.py:362: BadInitialCandidatesWarning: Unable to find non-zero acquisition function values - initial conditions are being selected randomly.
+  generated_initial_conditions = opt_inputs.get_ic_generator()(
+/var/folders/qq/w_95_j090j74hmlhqzqsgvyh0000gn/T/ipykernel_19875/323714716.py:35: InputDataWarning: The model inputs are of type torch.float32. It is strongly recommended to use double precision in BoTorch, as this improves both precision and stability and can help avoid numerical errors. See https://github.com/meta-pytorch/botorch/discussions/1444
+  model_ei = SingleTaskGP(
+/Users/saitcakmak/botorch/botorch/acquisition/monte_carlo.py:400: NumericsWarning: qExpectedImprovement has known numerical issues that lead to suboptimal optimization performance. It is strongly recommended to simply replace
+	 qExpectedImprovement 	 --> 	 qLogExpectedImprovement 
+instead, which fixes the issues and has the same API. See https://arxiv.org/abs/2310.20708 for details.
+  legacy_ei_numerics_warning(legacy_name=type(self).__name__)
+Wall time: 10.277484
+rnd: -0.580It 10/10, best obs.: , ei: -0.036It 10/10, best obs.: , ei_hogp_cf: -0.002
+/Users/saitcakmak/botorch/botorch/acquisition/monte_carlo.py:400: NumericsWarning: qExpectedImprovement has known numerical issues that lead to suboptimal optimization performance. It is strongly recommended to simply replace
+	 qExpectedImprovement 	 --> 	 qLogExpectedImprovement 
+instead, which fixes the issues and has the same API. See https://arxiv.org/abs/2310.20708 for details.
+  legacy_ei_numerics_warning(legacy_name=type(self).__name__)
+Wall time: 10.783608
+/Users/saitcakmak/botorch/botorch/optim/optimize.py:362: BadInitialCandidatesWarning: Unable to find non-zero acquisition function values - initial conditions are being selected randomly.
+  generated_initial_conditions = opt_inputs.get_ic_generator()(`
+}
+</CellOutput>
+
+```python
+methods_dict = {k: objective_dict[k].cpu().cummax(0)[0] for k in models_used}
+mean_results = {k: -methods_dict[k][n_init:] for k in models_used}
+```
+
+Finally, we plot the results, showing that the HOGP performs well on this task, and
+converges to a closer parameter value than a batch GP on the composite metric itself.
+
+```python
+plt.figure(figsize=(8, 6))
+labels_dict = {"rnd": "Random", "ei": "EI", "ei_hogp_cf": "Composite EI"}
+for k in models_used:
+    plt.plot(
+        torch.arange(n_batches * batch_size),
+        mean_results[k],
+        label=labels_dict[k],
+    )
+plt.legend(fontsize=20)
+plt.semilogy()
+plt.xlabel("Number of Function Queries")
+plt.ylabel("Difference from True Parameter")
+```
+
+<CellOutput>
+{
+`Text(0, 0.5, 'Difference from True Parameter')`
+}
+</CellOutput>
+
+
+![](data:image/png;base64,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4wNiEiPNAACIgsS3UaNGOvbYYyMTDRAnGGkGAEAUJL6jRo2KTCRAHKHiCwBA7dumAaKFhYX64osv9J///EcbNmxw5y1fvlwbN24Md3xATKLiCwBAFFR8Fy1apMMOO0yLFy/W5s2bdcghh6hBgwa677773Omnn346MpECMYSKLwAAUVDxtQ0s9thjD61du1Z169YNnW99v7abG4Cto+ILAEAUVHy//fZbfffdd26eb2kdO3bUsmXLwhkbEPMV36xNWW40IDsgAgDgw4pvcXGxioqKyp2/dOlS1/IAoPrbFhcWFyo7P9vrcAAAiAs1TnwHDRqkRx55JHTaKlW2qG3EiBFsYwxUU1pSmhqklPyhSLsDAAA+TXwffPBBTZo0Sd27d9emTZt06qmnhtocbIEbgOph9zYAAHze49uuXTvNmDFDY8aMcV+t2nvOOefotNNOK7PYDUDVmtRpooXZC6n4AgDgx8S3oKBA3bp10wcffOASXTsA2DZUfAEA8HGrQ0pKimtviCZLlizR/vvv71ozevfurTfffNPrkACHWb4AAPi8x3f48OGul9d2b4sGycnJbjHe7Nmz9dlnn+mKK65QTk6O12EBoYqvjTQDAAA+7PGdOnWq26jCkshevXqpXr16ZS4fO3as/KR169buYFq1aqVmzZopKyurXNxAbaPVAQAAn1d8GzVqpH/+85869NBD1aZNG2VkZJQ51NQ333yjo446yt2XjUZ75513yl1n5MiRbnJEnTp11L9/f/3www/aFtOmTXMziG2BHuCbVgcWtwEA4M+K76hRo8IagLUd9OnTR2effbaOO+64cpfb9IirrrpKTz/9tEt6rW3Bku65c+eqRYsW7jq77rprha0XVpW2hNpYlXfo0KF69tlnwxo/sK2o+AIAULsSArZfag1Zkvn1119r/vz5bo6v7di2fPlyNWzYUPXr19/2YBISNG7cOB1zzDGh8yzZ7devn5544onQznFWsb300kt1/fXXV+t+N2/erEMOOUTnnXeezjjjjCqvZ4eg7Oxs91jr1693zw0Ip6UblurwsYe7zSymnjaVbYsBANgGlq9Z10F18rUatzosWrTI9fYOGTLELXRbvXq1O98WvF1zzTUKp/z8fNeecPDBB/8v4MREd3ry5MnVug/L688880wdeOCBVSa95p577inTtkFLBCI9x9dsLtqsnAIW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etBBB2n58uXuMawC++mnn7r7efHFF92INzN27NitzgC2+zjxxBPVqFEjPf7445oyZYqL74orrnD3ba+H/X6w12vo0KHq3LmznnvuOf3www8aP368zjjjDHc/9jvjqquuqvKxAACIiOpm0//9739dpeerr74qd9mXX37pLrPKbyyh4htbFd/CwsLAbrvtFrret99+W+468+bNq/LTi19++SVQv359d/t//etfVVZ87dC3b98Kv39efvnl0HUeeuihwG+Zv7mKb25+rrv8gw8+CF0+ePDgQEFBQbn7uO2228pUUiuq+B5//PGhy5977rlyl2/atClwwAEHhK7z0UcfVVrxtUPXrl0Dq1atKneda665JnSd5s2bB/7xj38EcnJyyl3vhBNOcNdJTk6u8H5QM/yuAYBAZCq+Vm268cYbK9wkwFbMX3/99XrllVcUC2zXtu7du7sez0iyKnpufmFcHOy5emX16tX66quvNHDgQDfCzFhvq23BvSWrUgarrxWxTzqsqmneeeedrT72f//7X9ebuyWrBLdp08Ydt6rplru3WV+vsV7cZ599tsKdEm2h3pbTK7as0NrkCnPYYYe5Ptwt2f1bjMH7t8p0VR577DE1b9683Pmlx8dZD7RVetPT08tdz3p83fMsLHTVbwAAfDfOzPzyyy+6//77K73c5vzaf4qxoLZ2bssrKFL3Wz5VPJh9+6FKT632t9t2ue2229yhIpaMWcuCLfSqjrVr1yorK0ubNm0KJe/2Ub+ZPXu2CgoK3OK3ypJkG59WEUuud9ttN5ec/vnnn2UmO1gLhO1EZwYNGhRKkLdkuygOGzZM1157bYWX230EJ61UlPSWbvk45JBD3FbkwdtUNN/Ynvehhx5a4X3Ytsk2NWPDhg3uOe+yyy4VXi/YWmHseQMAUJuqnYnYf/7Wq1gZu8ySBMDPdt11V1122WWVJqvB3tyHH37YJYI2v7oyNsLPvucr28mwW7duVcZi0xWMJYulE9/58+crNzfXnd7apw7W+1sZm6oQZFMhqmKX2/O1x7WEtGvXruWuY+dVVQ23xNiey0477VTldYLsugAA+DLxtSpQRR+3BlmFyD6+RPXVTUlyldB4ea5e7Nxm35O2W5stTnvppZf03XffubFctuCqoo/sn3/+eVcRru73sm2HXJmKPurfsmIb+tkKjjQLFLo/MoO2tj14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eCOQmppa5e3t8Ouvv5a7bfCyESNGVPjcqjrY8y7Nfu5OPvnkKm9j3yvvvfdeYFvZY1b2+DUxcODA0P1sC37XAECgRvkaFV9EtVmzZmnNmjXu+L777uuqjNvr+uuv18iRI93xTp06uSrsDz/84CqI1hdso9HWr1+vI488UjNmzKjyvm6++Wa3mO60005zEySmTZvmRq3Z5Anz2GOPudFqZ555pr777js3au2zzz5z17MqsVVLzcj7RrrnWhWr1P73v/911WR7jB9//FEfffSRTjzxRHe5VTkPPfRQbdiwodxtN27cqIMOOki//fabO33MMcfovffec/dhFeRgv7RVwY866igVFRWVuf1ff/2ls846y1WMrdJslXd7HjZFY9KkSXrhhRdcxdcq2TXpnf3111/dcwqy43Ze6YPFGmQ59PHHH6/XX3/dnbZYrbJuMUyePFmPPvqo2rdvr5ycHHc9e34AgDhSK6l4lKLi638vv/xyqGJ20003bff9/fLLL4HExER3fz179gysXbu23HU+/vjj0HX23HPPKiu+dnjkkUfKXWfFihWBBg0auMubN28eSEhICIwbN67c9WbMmBF6rDMvOLPc5VtWRQcPHhwoKCgod73bb789dJ1rr7223OXXXHNN6PJ//etfFVbWTzvttNB1nnzyyTKXP//881VWdINyc3PdoToV34peTztelWeeecZdLyUlxb1PFbHqeo8ePdz19tlnn8D2VnzvvPNO95y3dqgIFV8AqN18jcTXw8TXkomc/Jy4ONhzjYRHH300lDjY8e110UUXhe7v+++/r/R65557buh6P/zwQ6WJWv/+/Su9j6FDh4aud9JJJ1V6vX323cddp3vv7lUmvmlpaYFly5ZV2r5hibxdr0mTJoHNmzeHLtu0aVOgUaNG7jJLCAsLCyu8D/s5aNq0aUks3cvGctddd7nzGzduHNgW4Uh87Xusc+fO7npXX311lY/30Ucfhe7z999/367Et7qHipD4AkDt5mtMdfBQXmGe+r/aX/FgyqlTlJ6SHvb7Lf2xvU102F7WdmB69Oih/v0rf2/OO+88Pffcc6Hb9OvXr8LrnXzyyZXeR58+fap1vd69e2vSt5O0ZOGSKmMfNGhQqDWiooV8ttDLFnbZPGNrQbBFdMbaKoIL36zlIimp4mHBtjjM2iaeeuopzZ49WytWrAjNpg1+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LeGyj3W/+uor971fmv3/kJKSUuZnwT5itzUI/CzUzntQEatMGn4WIsdyoc2bN4f1Z4BWB5+wUWZW0t9jjz2055576pFHHnFN3WeddZbXocWNa665xs0ztfYGG5Nio+WsEn/KKad4HVpM/3FRulpiC9rsPxNbUGKLFqzP7s4771TXrl3df0Q333yz66+zGZuI/HtgB+t1t3mZ9keI/SF43XXXuYqMjZVD+D5af/XVV/Xuu++69QTBnkVbzGnzq+2rtVvZ/xP2ntiM00svvdT9h7/XXnt5HX5cvAf2vW+XDx482M2RtR5fG6+13377ufYfbD9bLGgth/a7f8OGDe71tpaqTz/9NLw/AxGYPoFt9Pjjjwfat28fSE1NdePNvv/+e69DiisnnXRSoHXr1u7132GHHdzpefPmeR1WTBs/frwbR7PlwUZoBUea3XzzzYGWLVu6MWYHHXRQYO7cuV6HHTfvQW5ubmDQoEGB5s2bu1FCHTp0CJx33nmBlStXeh12TKno9bfDqFGjQtfJy8sLXHzxxW68U3p6euDYY48NrFixwtO44+k9WLx4cWC//fYLNGnSxP0u6tKlS+Daa68NrF+/3uvQY8bZZ5/tfsfY/8H2O8d+33/22Wdh/xlIsH/CkKgDAAAAvkaPLwAAAOICiS8AAADiAokvAAAA4gKJLwAAAOICiS8AAADiAokvAAAA4gKJLwAAAOICiS8AAADiAokvgLizcOFCJSQkuK15/eK3335zW2/WqVNHu+66q6JJx44d3Tbr8eDWW2+NuvcHwP+Q+AKodWeeeaZLPO+9994y57/zzjvu/Hg0YsQI1atXT3PnztWXX35Z5eu25WHevHm1EuPo0aPVqFGjcudPnTpV559/fsQfv6ioSA8//LB69erl/kBo3LixDj/8cE2aNEm15Zprrqn0/QHgfyS+ADxhict9992ntWvXKlbk5+dv823nz5+vAQMGqEOHDmratGml1zvssMO0YsWKModOnTrJS82bN1d6enpEHyMQCOjkk0/W7bffrssvv1xz5szR119/rXbt2mn//fd3fzRF+vELCwtVv379Kt8fAP5G4gvAEwcffLBatWqle+65p0YfK9tH6vbReukq6DHHHKO7775bLVu2dBVJS44sSbn22mvVpEkTtW3bVqNGjaqwveAf//iHS8J79uypCRMmlLl85syZrqJoyY7d9xlnnKE1a9aELreE65JLLtEVV1yhZs2a6dBDD63weRQXF7uYLI60tDT3nD755JPQ5Va1nTZtmruOHbfnXRm7vb1upQ9JSUmh16E0i8tiLB3vZZddpuuuu869LnbbLR9r3bp1uuCCC9zzDb4uH3zwgUsyzzrrLK1fvz5UaQ7edstWh8WLF2vIkCHudWvYsKFOPPFE/fXXX+Xe15deesndNiMjwyW1GzZsqPR5v/HGG3rrrbf04osv6txzz3XJfp8+ffTMM8/o6KOPdufl5OS461bntbD3xL737H7q1q3r7svuP8ierz3Hjz/+WH379nWv+8SJEyv8nnzuuee0yy67uNerW7duevLJJ8v8MWTfI61bt3aX2x82VX3PA4gsEl8AnrBkzZLVxx9/XEuXLt2u+/rqq6+0fPlyffPNN3rooYdc28CRRx7pPgqfMmWKLrzwQpfMbfk4lhhfffXV+umnn7T33nvrqKOOUmZmZigBPPDAA7Xbbrvpxx9/dImqJW+WxJX2wgsvKDU11X3c/vTTT1cY36OPPqp///vfevDBB/XLL7+4BNmStT/++MNdblXbHj16uFjsuH2cHikWr7VU2Oty//33u2T7888/DyWDwdaBl19+WbNnz3btKPZe2R8IltxaIhusNFcUp92HJb1ZWVnuDwm77z///FMnnXRSuQq3VWktqbaDXXfL1pfSXn31Ve20007uPdqSvW72vgWfR3VY8mlJtL1ns2bN0pVXXqnTTz+93B8/119/vYvLKsy9e/cudz+vvPKKbrnlFt11113uOvY9ffPNN7vX2Tz22GN67733XOJubSx2/dJ/uAGoZQEAqGXDhg0LDBkyxB3fa6+9AmeffbY7Pm7cuEDpX0sjRowI9OnTp8xtH3744UCHDh3K3JedLioqCp238847B/bdd9/Q6cLCwkC9evUCr732mju9YMEC9zj33ntv6DoFBQWBtm3bBu677z53+o477ggMGjSozGMvWbLE3W7u3Lnu9MCBAwO77bbbVp9vmzZtAnfddVeZ8/r16xe4+OKLQ6ftedrzrYo916SkJPdcgofjjz++3GsadPnll7sYg+z4gAEDysXxf//3f+74p59+GkhMTAw9vy2NGjUqkJGRUe58e/3tfTGfffaZi3Hx4sWhy2fNmuVetx9++MGdtueZnp4eyM7ODl3n2muvDfTv37/S596tW7dyzy8oKyvL3X/wvdvaa7Fp0yb3+N99912Z65xzzjmBU045xR0fP368u8933nmnzHW2/J7s3Llz4NVXXy1zHfve2Xvvvd3xSy+9NHDggQcGiouLK31uAGpPcm0n2gBQmvX5WmV1e6qcVi1NTPzfB1j2Mb19RB9kFUvry1y1alWZ21mVNyg5OVl77LGHq9qZGTNmaPz48e7j+i1ZtdKqj8Y+Bq9Kdna2q0bvs88+Zc630/YYNXXAAQfoqaeeCp226m1NbFm1tI/gg6+LTbmwdozgc9sW9vpZ360dgrp37+5aUOyyfv36ufOs6tmgQYMK46iqz7YqVnmvDlsMmJubq0MOOaTM+daWYBX+0ux7ojLWWmHfC+ecc47OO++80PnWZmPtG8G2C3ucnXfe2fVn2ycRgwYNqlacAMKPxBeAp/bbbz/30f8NN9zgkoTSLJndMtkpKCgodx8pKSllTltvZkXn2cfw1bVx40b3sbol5luyJG1bE8/tZY/XpUuXcudvz2sVfF2s17W21PT96dq1a+iPki0Fzw8m7Ft7Ley9NR9++KF22GGHMtezXt7Sqnp/g/fz7LPPqn///mUusz+2zO67764FCxa4XuEvvvjCtcpYf3vpfmIAtYceXwCesx7K999/X5MnTy43LWDlypVlkphwzt79/vvvy1TpbIGZLVIKJizW+2mVSUs0Sx9qkuxaT2ybNm3Kjdyy01YJDRd7razvtrSavlZWDbY+6N9//73SiqqNFKuKvX5LlixxhyDrFbae6e15vqeccorribbvky1Z/7S9xsEK7tZeC4vDElxbhLfle1u6Ur019smCPa71MG95P6Unbdj3gPU4W4I8ZswYvf32264HGkDtI/EF4Dmby3raaae5hUCl2Sr81atXu0VY9pHyyJEjXeUsXOz+xo0b56Y7DB8+3I1WO/vss91ldtqSE0u4bE6tPf6nn37qJhtsLfnbki2is8qxJT22wMkWTFkiZmO5wsXaRWwRni3YsgTRFvjZVIqaGDhwoKvA//Of/3QLxYKVyuAECvsjwKqcNsfWpltYu8CWrJoZfD+nT5+uH374QUOHDnX3XVXbwNbY1Aeb1DBs2DA9//zzbhMSWyhoixZtcZwtxgtWkbf2WliLhbXW2II2W4Rm763Fagstg4vSquu2225zC+Xse9f+YPj111/dBBFbZGns62uvvea+x+zyN998003TqGgeMoDII/EF4As2XWDLj7qtemijoSxBtXFTlkSFc+KBVZrtYPdto6ps9b2NJTPBKq0ludaTacmcjcSyhKV0P3F12Aixq666yk0fsPuxRNIeyz6+DxdrF7FpAjaqzPpobTSYJZw1ZdVIu70l/FYZtfsLJvo22cEmZFj10qqq9gfJlqxl4d1333UTNSyJtkR4xx13dEn/9rD7taTxxhtvdJtYWM9scASZTeWw3ueavBZ33HGHu44lrfZ9Zv231vpQ05nINkbNxplZsmvvrSX4ttFH8H4sybbXyZJ+i8US9o8++qjG30MAwiPBVriF6b4AAKg1VqW1xNoWlz3wwANehwMgCvAnJwAgKlkftrVdWM+1tSsAwNZQ8QUAAEBcoOILAACAuEDiCwAAgLhA4gsAAIC4QOILAACAuEDiCwAAgLhA4gsAAIC4QOILAACAuEDiCwAAgLhA4gsAAIC48P++a2O+Pml1wwAAAABJRU5ErkJggg==)
+

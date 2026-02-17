@@ -1,0 +1,535 @@
+---
+title: Multi-fidelity Bayesian optimization using KG
+sidebar_label: Multi-fidelity Bayesian optimization using KG
+---
+
+import LinkButtons from "@site/src/components/LinkButtons.jsx";
+import CellOutput from "@site/src/components/CellOutput.jsx";
+import {PlotlyFigure} from "@site/src/components/Plotting.jsx";
+
+<LinkButtons
+  githubUrl="https://github.com/pytorch/botorch/blob/main/tutorials/multi_fidelity_bo/multi_fidelity_bo.ipynb"
+  colabUrl="https://colab.research.google.com/github/pytorch/botorch/blob/main/tutorials/multi_fidelity_bo/multi_fidelity_bo.ipynb"
+/>
+
+## Continuous Multi-Fidelity BO in BoTorch with Knowledge Gradient
+
+In this tutorial, we show how to perform continuous multi-fidelity Bayesian optimization
+(BO) in BoTorch using the multi-fidelity Knowledge Gradient (qMFKG) acquisition function
+[1, 2].
+
+[1]
+[J. Wu, P.I. Frazier. Continuous-Fidelity Bayesian Optimization with Knowledge Gradient. NIPS Workshop on Bayesian Optimization, 2017.](https://bayesopt.github.io/papers/2017/20.pdf)
+
+[2]
+[J. Wu, S. Toscano-Palmerin, P.I. Frazier, A.G. Wilson. Practical Multi-fidelity Bayesian Optimization for Hyperparameter Tuning. Conference on Uncertainty in Artificial Intelligence (UAI), 2019](https://arxiv.org/pdf/1903.04703.pdf)
+
+### Set dtype and device
+
+```python
+# Install dependencies if we are running in colab
+import sys
+if 'google.colab' in sys.modules:
+    %pip install botorch
+```
+
+```python
+import os
+import torch
+
+
+tkwargs = {
+    "dtype": torch.double,
+    "device": torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+}
+SMOKE_TEST = os.environ.get("SMOKE_TEST")
+```
+
+### Problem setup
+
+We'll consider the Augmented Hartmann multi-fidelity synthetic test problem. This
+function is a version of the Hartmann6 test function with an additional dimension
+representing the fidelity parameter; details are in [2]. The function takes the form
+$f(x,s)$ where $x \in [0,1]^6$ and $s \in [0,1]$. The target fidelity is 1.0, which
+means that our goal is to solve $\max_x f(x,1.0)$ by making use of cheaper evaluations
+$f(x,s)$ for $s < 1.0$. In this example, we'll assume that the cost function takes the
+form $5.0 + s$, illustrating a situation where the fixed cost is $5.0$.
+
+```python
+from botorch.test_functions.multi_fidelity import AugmentedHartmann
+
+
+problem = AugmentedHartmann(negate=True).to(**tkwargs)
+```
+
+<CellOutput>
+{
+`[KeOps] Warning : There were warnings or errors :
+/bin/sh: brew: command not found
+[KeOps] Warning : CUDA libraries not found or could not be loaded; Switching to CPU only.
+[KeOps] Warning : There were warnings or errors :
+/bin/sh: brew: command not found
+[KeOps] Warning : OpenMP library not found, it must be downloaded through Homebrew for apple Silicon chips
+[KeOps] Warning : OpenMP support is not available. Disabling OpenMP.`
+}
+</CellOutput>
+
+#### Model initialization
+
+We use a `SingleTaskMultiFidelityGP` as the surrogate model, which uses a kernel from
+[2] that is well-suited for multi-fidelity applications.
+
+```python
+from botorch.models.gp_regression_fidelity import SingleTaskMultiFidelityGP
+from botorch.models.transforms.outcome import Standardize
+from gpytorch.mlls.exact_marginal_log_likelihood import ExactMarginalLogLikelihood
+from botorch.utils.transforms import unnormalize
+from botorch.utils.sampling import draw_sobol_samples
+
+
+def generate_initial_data(n=16):
+    # generate training data
+    train_x = torch.rand(n, 7, **tkwargs)
+    train_obj = problem(train_x).unsqueeze(-1)  # add output dimension
+    return train_x, train_obj
+
+
+def initialize_model(train_x, train_obj):
+    # define a surrogate model suited for a "training data"-like fidelity parameter
+    # in dimension 6, as in [2]
+    model = SingleTaskMultiFidelityGP(
+        train_x, train_obj, outcome_transform=Standardize(m=1), data_fidelities=[6]
+    )
+    mll = ExactMarginalLogLikelihood(model.likelihood, model)
+    return mll, model
+```
+
+#### Define a helper function to construct the MFKG acquisition function
+
+The helper function illustrates how one can initialize a $q$MFKG acquisition function.
+In this example, we assume that the affine cost is known. We then use the notion of a
+`CostAwareUtility` in BoTorch to scalarize the competing objectives of information gain
+and cost. The MFKG acquisition function optimizes the ratio of information gain to cost,
+which is captured by the `InverseCostWeightedUtility`.
+
+In order for MFKG to evaluate the information gain, it uses the model to predict the
+function value at the highest fidelity after conditioning on the observation. This is
+handled by the `project` argument, which specifies how to transform a tensor `X` to its
+target fidelity. We use a default helper function called `project_to_target_fidelity` to
+achieve this.
+
+An important point to keep in mind: in the case of standard KG, one can ignore the
+current value and simply optimize the expected maximum posterior mean of the next stage.
+However, for MFKG, since the goal is optimize information *gain* per cost, it is
+important to first compute the current value (i.e., maximum of the posterior mean at the
+target fidelity). To accomplish this, we use a `FixedFeatureAcquisitionFunction` on top
+of a `PosteriorMean`.
+
+```python
+from botorch import fit_gpytorch_mll
+from botorch.models.cost import AffineFidelityCostModel
+from botorch.acquisition.cost_aware import InverseCostWeightedUtility
+from botorch.acquisition import PosteriorMean
+from botorch.acquisition.knowledge_gradient import qMultiFidelityKnowledgeGradient
+from botorch.acquisition.fixed_feature import FixedFeatureAcquisitionFunction
+from botorch.optim.optimize import optimize_acqf
+from botorch.acquisition.utils import project_to_target_fidelity
+
+
+bounds = torch.tensor([[0.0] * problem.dim, [1.0] * problem.dim], **tkwargs)
+target_fidelities = {6: 1.0}
+
+cost_model = AffineFidelityCostModel(fidelity_weights={6: 1.0}, fixed_cost=5.0)
+cost_aware_utility = InverseCostWeightedUtility(cost_model=cost_model)
+
+
+def project(X):
+    return project_to_target_fidelity(X=X, target_fidelities=target_fidelities)
+
+
+def get_mfkg(model):
+
+    curr_val_acqf = FixedFeatureAcquisitionFunction(
+        acq_function=PosteriorMean(model),
+        d=7,
+        columns=[6],
+        values=[1],
+    )
+
+    _, current_value = optimize_acqf(
+        acq_function=curr_val_acqf,
+        bounds=bounds[:, :-1],
+        q=1,
+        num_restarts=10 if not SMOKE_TEST else 2,
+        raw_samples=1024 if not SMOKE_TEST else 4,
+        options={"batch_limit": 10, "maxiter": 200},
+    )
+
+    return qMultiFidelityKnowledgeGradient(
+        model=model,
+        num_fantasies=128 if not SMOKE_TEST else 2,
+        current_value=current_value,
+        cost_aware_utility=cost_aware_utility,
+        project=project,
+    )
+```
+
+#### Define a helper function that performs the essential BO step
+
+This helper function optimizes the acquisition function and returns the batch
+${x_1, x_2, \ldots x_q}$ along with the observed function values.
+
+```python
+from botorch.optim.initializers import gen_one_shot_kg_initial_conditions
+
+torch.set_printoptions(precision=3, sci_mode=False)
+
+NUM_RESTARTS = 10 if not SMOKE_TEST else 2
+RAW_SAMPLES = 512 if not SMOKE_TEST else 4
+
+
+def optimize_mfkg_and_get_observation(mfkg_acqf):
+    """Optimizes MFKG and returns a new candidate, observation, and cost."""
+
+    X_init = gen_one_shot_kg_initial_conditions(
+        acq_function=mfkg_acqf,
+        bounds=bounds,
+        q=4,
+        num_restarts=NUM_RESTARTS,
+        raw_samples=RAW_SAMPLES,
+    )
+    candidates, _ = optimize_acqf(
+        acq_function=mfkg_acqf,
+        bounds=bounds,
+        q=4,
+        num_restarts=NUM_RESTARTS,
+        raw_samples=RAW_SAMPLES,
+        batch_initial_conditions=X_init,
+        options={"batch_limit": 5, "maxiter": 200},
+    )
+    # observe new values
+    cost = cost_model(candidates).sum()
+    new_x = candidates.detach()
+    new_obj = problem(new_x).unsqueeze(-1)
+    print(f"candidates:\n{new_x}\n")
+    print(f"observations:\n{new_obj}\n\n")
+    return new_x, new_obj, cost
+```
+
+### Perform a few steps of multi-fidelity BO
+
+First, let's generate some initial random data and fit a surrogate model.
+
+```python
+train_x, train_obj = generate_initial_data(n=16)
+```
+
+We can now use the helper functions above to run a few iterations of BO.
+
+```python
+cumulative_cost = 0.0
+N_ITER = 6 if not SMOKE_TEST else 2
+
+
+for _ in range(N_ITER):
+    mll, model = initialize_model(train_x, train_obj)
+    fit_gpytorch_mll(mll)
+    mfkg_acqf = get_mfkg(model)
+    new_x, new_obj, cost = optimize_mfkg_and_get_observation(mfkg_acqf)
+    train_x = torch.cat([train_x, new_x])
+    train_obj = torch.cat([train_obj, new_obj])
+    cumulative_cost += cost
+```
+
+<CellOutput>
+{
+`candidates:
+tensor([[0.648, 0.779, 0.075, 0.433, 0.443, 0.968, 0.348],
+        [0.234, 0.676, 0.819, 0.582, 0.200, 0.059, 0.932],
+        [0.396, 0.724, 0.451, 0.633, 0.346, 0.418, 0.562],
+        [0.331, 0.690, 0.701, 0.660, 0.267, 0.159, 0.846]],
+       dtype=torch.float64)
+observations:
+tensor([[0.109],
+        [1.390],
+        [0.506],
+        [1.665]], dtype=torch.float64)
+candidates:
+tensor([[0.960, 0.130, 0.100, 0.734, 0.215, 0.523, 0.000],
+        [0.478, 0.347, 0.654, 0.131, 0.302, 0.696, 0.150],
+        [0.626, 0.836, 0.082, 0.519, 0.467, 0.875, 0.091],
+        [0.483, 0.320, 0.570, 0.013, 0.318, 0.802, 0.135]],
+       dtype=torch.float64)
+observations:
+tensor([[0.057],
+        [1.695],
+        [0.083],
+        [1.078]], dtype=torch.float64)
+candidates:
+tensor([[0.195, 0.217, 0.665, 0.365, 0.349, 0.590, 0.295],
+        [0.611, 0.801, 0.127, 0.581, 0.481, 0.791, 0.050],
+        [0.418, 0.167, 0.709, 0.195, 0.395, 0.746, 0.052],
+        [0.405, 0.454, 0.707, 0.073, 0.444, 0.603, 0.143]],
+       dtype=torch.float64)
+observations:
+tensor([[2.511],
+        [0.089],
+        [1.897],
+        [0.915]], dtype=torch.float64)
+candidates:
+tensor([[0.268, 0.428, 0.682, 0.316, 0.206, 0.444, 0.006],
+        [0.579, 0.150, 0.595, 0.399, 0.231, 0.452, 0.222],
+        [0.235, 0.278, 0.741, 0.452, 0.278, 0.589, 0.071],
+        [0.332, 0.349, 0.667, 0.394, 0.385, 0.587, 0.066]],
+       dtype=torch.float64)
+observations:
+tensor([[1.250],
+        [1.109],
+        [1.774],
+        [1.856]], dtype=torch.float64)
+candidates:
+tensor([[0.498, 0.847, 0.741, 0.558, 0.214, 0.181, 0.866],
+        [0.288, 0.588, 0.720, 0.526, 0.361, 0.250, 0.717],
+        [0.136, 0.098, 0.579, 0.268, 0.495, 0.619, 0.003],
+        [0.512, 0.275, 0.190, 0.756, 0.445, 0.547, 0.000]],
+       dtype=torch.float64)
+observations:
+tensor([[2.065],
+        [0.848],
+        [1.983],
+        [0.159]], dtype=torch.float64)
+candidates:
+tensor([[0.231, 0.194, 0.677, 0.304, 0.352, 0.536, 0.000],
+        [0.687, 0.257, 0.301, 0.791, 0.240, 0.379, 0.000],
+        [0.160, 0.158, 0.573, 0.368, 0.256, 0.598, 0.000],
+        [0.494, 0.175, 0.579, 0.405, 0.252, 0.493, 0.000]],
+       dtype=torch.float64)
+observations:
+tensor([[2.417],
+        [0.065],
+        [2.704],
+        [1.553]], dtype=torch.float64)`
+}
+</CellOutput>
+
+### Make a final recommendation
+
+In multi-fidelity BO, there are usually fewer observations of the function at the target
+fidelity, so it is important to use a recommendation function that uses the correct
+fidelity. Here, we maximize the posterior mean with the fidelity dimension fixed to the
+target fidelity of 1.0.
+
+```python
+def get_recommendation(model):
+    rec_acqf = FixedFeatureAcquisitionFunction(
+        acq_function=PosteriorMean(model),
+        d=7,
+        columns=[6],
+        values=[1],
+    )
+
+    final_rec, _ = optimize_acqf(
+        acq_function=rec_acqf,
+        bounds=bounds[:, :-1],
+        q=1,
+        num_restarts=NUM_RESTARTS,
+        raw_samples=RAW_SAMPLES,
+        options={"batch_limit": 5, "maxiter": 200},
+    )
+
+    final_rec = rec_acqf._construct_X_full(final_rec)
+
+    objective_value = problem(final_rec)
+    print(f"recommended point:\n{final_rec}\n\nobjective value:\n{objective_value}")
+    return final_rec
+```
+
+```python
+final_rec = get_recommendation(model)
+print(f"\ntotal cost: {cumulative_cost}\n")
+```
+
+<CellOutput>
+{
+`recommended point:
+tensor([[0.211, 0.201, 0.649, 0.319, 0.355, 0.624, 1.000]],
+       dtype=torch.float64)
+objective value:
+tensor([2.821], dtype=torch.float64)
+total cost: 125.55426863979136`
+}
+</CellOutput>
+
+### Comparison to standard EI (always use target fidelity)
+
+Let's now repeat the same steps using a standard EI acquisition function (note that this
+is not a rigorous comparison as we are only looking at one trial in order to keep
+computational requirements low).
+
+```python
+from botorch.acquisition import qExpectedImprovement
+
+
+def get_ei(model, best_f):
+
+    return FixedFeatureAcquisitionFunction(
+        acq_function=qExpectedImprovement(model=model, best_f=best_f),
+        d=7,
+        columns=[6],
+        values=[1],
+    )
+
+
+def optimize_ei_and_get_observation(ei_acqf):
+    """Optimizes EI and returns a new candidate, observation, and cost."""
+
+    candidates, _ = optimize_acqf(
+        acq_function=ei_acqf,
+        bounds=bounds[:, :-1],
+        q=4,
+        num_restarts=NUM_RESTARTS,
+        raw_samples=RAW_SAMPLES,
+        options={"batch_limit": 5, "maxiter": 200},
+    )
+
+    # add the fidelity parameter
+    candidates = ei_acqf._construct_X_full(candidates)
+
+    # observe new values
+    cost = cost_model(candidates).sum()
+    new_x = candidates.detach()
+    new_obj = problem(new_x).unsqueeze(-1)
+    print(f"candidates:\n{new_x}\n")
+    print(f"observations:\n{new_obj}\n\n")
+    return new_x, new_obj, cost
+```
+
+```python
+cumulative_cost = 0.0
+
+train_x, train_obj = generate_initial_data(n=16)
+
+for _ in range(N_ITER):
+    mll, model = initialize_model(train_x, train_obj)
+    fit_gpytorch_mll(mll)
+    ei_acqf = get_ei(model, best_f=train_obj.max())
+    new_x, new_obj, cost = optimize_ei_and_get_observation(ei_acqf)
+    train_x = torch.cat([train_x, new_x])
+    train_obj = torch.cat([train_obj, new_obj])
+    cumulative_cost += cost
+```
+
+<CellOutput>
+{
+`/Users/saitcakmak/botorch/botorch/acquisition/monte_carlo.py:400: NumericsWarning: qExpectedImprovement has known numerical issues that lead to suboptimal optimization performance. It is strongly recommended to simply replace
+	 qExpectedImprovement 	 --> 	 qLogExpectedImprovement 
+instead, which fixes the issues and has the same API. See https://arxiv.org/abs/2310.20708 for details.
+  legacy_ei_numerics_warning(legacy_name=type(self).__name__)
+candidates:
+tensor([[0.005, 0.000, 0.156, 0.425, 0.945, 0.716, 1.000],
+        [0.381, 0.156, 0.483, 0.393, 0.278, 0.741, 1.000],
+        [0.369, 0.039, 0.424, 0.391, 0.270, 0.682, 1.000],
+        [0.279, 0.984, 0.383, 0.090, 0.632, 0.653, 1.000]],
+       dtype=torch.float64)
+observations:
+tensor([[0.026],
+        [2.477],
+        [2.517],
+        [0.087]], dtype=torch.float64)
+/Users/saitcakmak/botorch/botorch/acquisition/monte_carlo.py:400: NumericsWarning: qExpectedImprovement has known numerical issues that lead to suboptimal optimization performance. It is strongly recommended to simply replace
+	 qExpectedImprovement 	 --> 	 qLogExpectedImprovement 
+instead, which fixes the issues and has the same API. See https://arxiv.org/abs/2310.20708 for details.
+  legacy_ei_numerics_warning(legacy_name=type(self).__name__)
+candidates:
+tensor([[    0.334,     0.539,     0.912,     0.000,     0.521,     0.464,
+             1.000],
+        [    0.348,     0.083,     0.495,     0.417,     0.274,     0.676,
+             1.000],
+        [    0.400,     0.138,     0.397,     0.382,     0.267,     0.691,
+             1.000],
+        [    0.396,     0.032,     0.483,     0.369,     0.277,     0.735,
+             1.000]], dtype=torch.float64)
+observations:
+tensor([[0.188],
+        [2.479],
+        [2.556],
+        [2.441]], dtype=torch.float64)
+/Users/saitcakmak/botorch/botorch/acquisition/monte_carlo.py:400: NumericsWarning: qExpectedImprovement has known numerical issues that lead to suboptimal optimization performance. It is strongly recommended to simply replace
+	 qExpectedImprovement 	 --> 	 qLogExpectedImprovement 
+instead, which fixes the issues and has the same API. See https://arxiv.org/abs/2310.20708 for details.
+  legacy_ei_numerics_warning(legacy_name=type(self).__name__)
+candidates:
+tensor([[0.172, 0.916, 0.049, 0.544, 0.169, 0.516, 1.000],
+        [0.499, 0.556, 0.268, 0.773, 0.836, 0.171, 1.000],
+        [0.400, 0.124, 0.459, 0.379, 0.306, 0.662, 1.000],
+        [0.446, 0.153, 0.419, 0.153, 0.336, 0.662, 1.000]],
+       dtype=torch.float64)
+observations:
+tensor([[0.151],
+        [0.573],
+        [2.657],
+        [2.295]], dtype=torch.float64)
+/Users/saitcakmak/botorch/botorch/acquisition/monte_carlo.py:400: NumericsWarning: qExpectedImprovement has known numerical issues that lead to suboptimal optimization performance. It is strongly recommended to simply replace
+	 qExpectedImprovement 	 --> 	 qLogExpectedImprovement 
+instead, which fixes the issues and has the same API. See https://arxiv.org/abs/2310.20708 for details.
+  legacy_ei_numerics_warning(legacy_name=type(self).__name__)
+candidates:
+tensor([[0.883, 0.042, 0.559, 0.858, 0.124, 0.527, 1.000],
+        [0.509, 0.462, 0.763, 0.347, 0.734, 0.704, 1.000],
+        [0.376, 0.117, 0.437, 0.344, 0.342, 0.685, 1.000],
+        [0.559, 0.837, 0.436, 0.535, 0.833, 0.399, 1.000]],
+       dtype=torch.float64)
+observations:
+tensor([[0.018],
+        [0.120],
+        [2.814],
+        [0.323]], dtype=torch.float64)
+/Users/saitcakmak/botorch/botorch/acquisition/monte_carlo.py:400: NumericsWarning: qExpectedImprovement has known numerical issues that lead to suboptimal optimization performance. It is strongly recommended to simply replace
+	 qExpectedImprovement 	 --> 	 qLogExpectedImprovement 
+instead, which fixes the issues and has the same API. See https://arxiv.org/abs/2310.20708 for details.
+  legacy_ei_numerics_warning(legacy_name=type(self).__name__)
+candidates:
+tensor([[0.919, 0.871, 0.568, 0.437, 0.799, 0.289, 1.000],
+        [0.580, 0.158, 0.047, 0.013, 0.648, 0.573, 1.000],
+        [0.335, 0.114, 0.424, 0.304, 0.342, 0.685, 1.000],
+        [0.886, 0.314, 0.142, 0.184, 0.586, 0.862, 1.000]],
+       dtype=torch.float64)
+observations:
+tensor([[0.012],
+        [0.107],
+        [3.020],
+        [0.121]], dtype=torch.float64)
+candidates:
+tensor([[0.046, 0.475, 0.458, 0.628, 0.252, 0.000, 1.000],
+        [0.466, 0.662, 0.776, 0.086, 0.500, 0.067, 1.000],
+        [0.858, 0.552, 0.392, 0.927, 0.518, 0.878, 1.000],
+        [0.292, 0.127, 0.438, 0.278, 0.322, 0.660, 1.000]],
+       dtype=torch.float64)
+observations:
+tensor([[0.111],
+        [0.204],
+        [0.010],
+        [3.211]], dtype=torch.float64)
+/Users/saitcakmak/botorch/botorch/acquisition/monte_carlo.py:400: NumericsWarning: qExpectedImprovement has known numerical issues that lead to suboptimal optimization performance. It is strongly recommended to simply replace
+	 qExpectedImprovement 	 --> 	 qLogExpectedImprovement 
+instead, which fixes the issues and has the same API. See https://arxiv.org/abs/2310.20708 for details.
+  legacy_ei_numerics_warning(legacy_name=type(self).__name__)`
+}
+</CellOutput>
+
+```python
+final_rec = get_recommendation(model)
+print(f"\ntotal cost: {cumulative_cost}\n")
+```
+
+<CellOutput>
+{
+`recommended point:
+tensor([[0.318, 0.119, 0.430, 0.294, 0.336, 0.676, 1.000]],
+       dtype=torch.float64)
+objective value:
+tensor([3.108], dtype=torch.float64)
+total cost: 144.0`
+}
+</CellOutput>
+

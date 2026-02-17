@@ -1,0 +1,863 @@
+---
+title: Multi-Objective-Multi-Fidelity optimization with MOMF
+sidebar_label: Multi-Objective-Multi-Fidelity optimization with MOMF
+---
+
+import LinkButtons from "@site/src/components/LinkButtons.jsx";
+import CellOutput from "@site/src/components/CellOutput.jsx";
+import {PlotlyFigure} from "@site/src/components/Plotting.jsx";
+
+<LinkButtons
+  githubUrl="https://github.com/pytorch/botorch/blob/main/tutorials/Multi_objective_multi_fidelity_BO/Multi_objective_multi_fidelity_BO.ipynb"
+  colabUrl="https://colab.research.google.com/github/pytorch/botorch/blob/main/tutorials/Multi_objective_multi_fidelity_BO/Multi_objective_multi_fidelity_BO.ipynb"
+/>
+
+# Multi-fidelity Multi-Objective optimization
+
+In this tutorial notebook we demonstrate how to perform multi-objective multi-fidelity
+optimization in BoTorch using the multi-fidelity Hypervolume Knowledge Gradient
+(MF-HVKG) [3] and a method called Multi-Objective Multi-Fidelity (MOMF) [1].
+
+MF-HVKG performs one-step lookahead: it operates under the assumption that we can make
+one additional observation, and after receiving that additional observation, we will
+select the Pareto set of optimal designs. HVKG seeks to select the design `x` to
+evaluate that maximizes the value of information about the Pareto set by maximizing the
+hypervolume under the posterior mean (conditional on receiving on new observation for
+the design `x`).
+
+MOMF is an alternative approach that introduces an additional "fidelity objective" that
+is optimized along with the problem objectives. This fidelity objective can be thought
+of as a trust objective that rewards the optimization when going to higher fidelity.
+Thus, the MOMF explicitly optimizes for getting more high-fidelity (trustworthy) data
+while taking into account the higher computational costs associated with it.
+
+HVKG is generally more cost efficient [3], since it explicitly targets the goal of MF
+optimization: select design points and fidelities that enable identifying about the
+Pareto Frontier at the target fidelity in a cost-aware fashion. MOMF will typically
+result in faster candidate generation. If the application is high-throughput and
+requires fast candidate generation, MOMF will be preferable. Otherwise, MF-HVKG will
+likely give better sample efficiency and performance [3].
+
+In this tutorial, we will optimize a synthetic function that is a modified
+multi-fidelity Branin-Currin [1]. This is a 3-dimesional, bi-objective problem with one
+of the input dimensions being the fidelity. For the MOMF, this results in a 3-objective
+problem since it also takes the fidelity objective into account. In this case the
+fidelity objective is a linear function of fidelity, $ f(s)=s$, where $s$ is the
+fidelity. The MOMF algorithm can accept any discrete or continuous cost functions as an
+input. In this example, we choose an exponential dependency of the form
+$C(s)=\exp(4.8s)$. The goal of the optimization is to find the Pareto front, which is a
+trade-off solution set for Multi-objective problems, at the highest fidelity.
+
+Note: pymoo is an optional dependency that is used for determining the Pareto set of
+optimal designs under the model posterior mean using NSGA-II (which is not a sample
+efficient method, but sample efficiency is not critical for this step). If pymoo is not
+available, the Pareto set of optimal designs is selected from a discrete set. This will
+work okay for low-dim (e.g. dimensions) problems, but in general NSGA-II will yield far
+better results.
+
+[1]
+[Irshad, Faran, Stefan Karsch, and Andreas Döpp. "Expected hypervolume improvement for simultaneous multi-objective and multi-fidelity optimization." arXiv preprint arXiv:2112.13901 (2021).](https://arxiv.org/abs/2112.13901)
+
+[2]
+[S. Daulton, M. Balandat, and E. Bakshy. Parallel Bayesian Optimization of Multiple Noisy Objectives. NeurIPS, 2021.](https://proceedings.neurips.cc/paper/2021/hash/11704817e347269b7254e744b5e22dac-Abstract.html)
+
+[3]
+[S. Daulton, M. Balandat, and E. Bakshy. Hypervolume Knowledge Gradient for Multi-Objective Bayesian Optimization with Partial Information. ICML, 2023.](https://proceedings.mlr.press/v202/daulton23a.html)
+
+```python
+# Install dependencies if we are running in colab
+import sys
+if 'google.colab' in sys.modules:
+    %pip install botorch
+```
+
+```python
+import os
+from typing import Callable, Dict
+
+import matplotlib.pyplot as plt
+import numpy as np
+import torch
+```
+
+### Set dtype and device
+
+Setting up the global variable that determine the device to run the optimization. The
+optimization is much faster when it runs on GPU.
+
+```python
+tkwargs = {  # Tkwargs is a dictionary contaning data about data type and data device
+    "dtype": torch.double,
+    "device": torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+}
+SMOKE_TEST = os.environ.get("SMOKE_TEST")
+```
+
+### Define the problem and optimization settings
+
+```python
+from botorch.test_functions.multi_objective_multi_fidelity import MOMFBraninCurrin
+
+BC = MOMFBraninCurrin(negate=True).to(**tkwargs)
+dim_x = BC.dim
+dim_y = BC.num_objectives
+
+ref_point = torch.zeros(dim_y, **tkwargs)
+
+
+BATCH_SIZE = 1  # For batch optimization, BATCH_SIZE should be greater than 1
+# This evaluation budget is set to be very low to make the notebook run fast. This should be much higher.
+EVAL_BUDGET = 2.05  # in terms of the number of full-fidelity evaluations
+n_INIT = 2  # Initialization budget in terms of the number of full-fidelity evaluations
+# Number of Monte Carlo samples, used to approximate MOMF
+MC_SAMPLES = 2 if SMOKE_TEST else 128
+# Number of restart points for multi-start optimization
+NUM_RESTARTS = 2 if SMOKE_TEST else 10
+# Number of raw samples for initial point selection heuristic
+RAW_SAMPLES = 4 if SMOKE_TEST else 512
+
+standard_bounds = torch.zeros(2, dim_x, **tkwargs)
+standard_bounds[1] = 1
+# mapping from index to target fidelity (highest fidelity)
+target_fidelities = {2: 1.0}
+```
+
+<CellOutput>
+{
+`[KeOps] Warning : There were warnings or errors :
+/bin/sh: brew: command not found
+[KeOps] Warning : CUDA libraries not found or could not be loaded; Switching to CPU only.
+[KeOps] Warning : There were warnings or errors :
+/bin/sh: brew: command not found
+[KeOps] Warning : OpenMP library not found, it must be downloaded through Homebrew for apple Silicon chips
+[KeOps] Warning : OpenMP support is not available. Disabling OpenMP.`
+}
+</CellOutput>
+
+### Helper functions to define Cost
+
+The cost_func function returns an exponential cost from the fidelity. The cost_callable
+is a wrapper around it that takes care of the input output shapes. This is provided to
+the MF algorithms which inversely weight the expected utility by the cost.
+
+```python
+from math import exp
+
+
+def cost_func(x):
+    """A simple exponential cost function."""
+    exp_arg = torch.tensor(4.8, **tkwargs)
+    val = torch.exp(exp_arg * x)
+    return val
+
+
+# Displaying the min and max costs for this optimization
+print(f"Min Cost: {cost_func(0)}")
+print(f"Max Cost: {cost_func(1)}")
+
+
+def cost_callable(X: torch.Tensor) -> torch.Tensor:
+    r"""Wrapper for the cost function that takes care of shaping
+    input and output arrays for interfacing with cost_func.
+    This is passed as a callable function to MOMF.
+
+    Args:
+        X: A `batch_shape x q x d`-dim Tensor
+    Returns:
+        Cost `batch_shape x q x m`-dim Tensor of cost generated
+        from fidelity dimension using cost_func.
+    """
+
+    return cost_func(X[..., -1:])
+```
+
+<CellOutput>
+{
+`Min Cost: 1.0
+Max Cost: 121.51041751873485`
+}
+</CellOutput>
+
+### Model Initialization
+
+We use a multi-output SingleTaskGP to model the problem with a homoskedastic Gaussian
+likelihood with an inferred noise level. The model is initialized with random points,
+where the fidelity is sampled from a probability distribution with a PDF that is
+inversely proportional to the cost: $p(s)=C(s)^{-1}$. The initialization is given a
+budget equivalent to 2 full-fidelity evaluations.
+
+```python
+from botorch.models.gp_regression import SingleTaskGP
+from botorch.models.model_list_gp_regression import ModelListGP
+from botorch.utils.transforms import normalize
+from gpytorch.kernels import MaternKernel, ScaleKernel
+from gpytorch.mlls.sum_marginal_log_likelihood import SumMarginalLogLikelihood
+from gpytorch.priors import GammaPrior
+
+
+def inv_transform(u):
+    # define inverse transform to sample from the probability distribution with
+    # PDF proportional to 1/(c(x))
+    # u is a uniform(0,1) rv
+    return 5 / 24 * torch.log(-exp(24 / 5) / (exp(24 / 5) * u - u - exp(24 / 5)))
+
+
+def gen_init_data(n: int):
+    r"""
+    Generates the initial data. Sample fidelities inversely proportional to cost.
+    """
+    # total cost budget is n
+    train_x = torch.empty(
+        0, BC.bounds.shape[1], dtype=BC.bounds.dtype, device=BC.bounds.device
+    )
+    total_cost = 0
+    # assume target fidelity is 1
+    total_cost_limit = (
+        n
+        * cost_callable(
+            torch.ones(
+                1, BC.bounds.shape[1], dtype=BC.bounds.dtype, device=BC.bounds.device
+            )
+        ).item()
+    )
+    while total_cost < total_cost_limit:
+        new_x = torch.rand(
+            1, BC.bounds.shape[1], dtype=BC.bounds.dtype, device=BC.bounds.device
+        )
+        new_x[:, -1] = inv_transform(new_x[:, -1])
+        total_cost += cost_callable(new_x)
+        train_x = torch.cat([train_x, new_x], dim=0)
+    train_x = train_x[:-1]
+    train_obj = BC(train_x)
+    return train_x, train_obj
+
+
+def initialize_model(train_x, train_obj, state_dict=None):
+    """Initializes a ModelList with Matern 5/2 Kernel and returns the model and its MLL.
+
+    Note: a batched model could also be used here.
+    """
+    models = []
+    for i in range(train_obj.shape[-1]):
+        m = SingleTaskGP(
+            train_x,
+            train_obj[:, i : i + 1],
+            train_Yvar=torch.full_like(train_obj[:, i : i + 1], 1e-6),
+            covar_module=ScaleKernel(
+                MaternKernel(
+                    nu=2.5,
+                    ard_num_dims=train_x.shape[-1],
+                    lengthscale_prior=GammaPrior(2.0, 2.0),
+                ),
+                outputscale_prior=GammaPrior(2.0, 0.15),
+            ),
+        )
+        models.append(m)
+    model = ModelListGP(*models)
+    mll = SumMarginalLogLikelihood(model.likelihood, model)
+    if state_dict is not None:
+        model.load_state_dict(state_dict=state_dict)
+    return mll, model
+```
+
+### Helper function to optimize acquisition function
+
+This is a helper function that initializes, optimizes the acquisition function MOMF and
+returns the new_x and new_obj. The problem is called from within this helper function.
+
+A simple initialization heuristic is used to select the 20 restart initial locations
+from a set of 1024 random points. Multi-start optimization of the acquisition function
+is performed using LBFGS-B with exact gradients computed via auto-differentiation.
+
+```python
+from botorch.acquisition.multi_objective.multi_fidelity import MOMF
+from botorch.optim.optimize import optimize_acqf
+from botorch.sampling.normal import SobolQMCNormalSampler
+from botorch.utils.multi_objective.box_decompositions.non_dominated import (
+    FastNondominatedPartitioning,
+)
+from botorch.utils.transforms import unnormalize
+
+
+dim_y_momf = dim_y + 1  # Output Dimesnion for MOMF optimization
+ref_point_momf = torch.zeros(dim_y_momf, **tkwargs)
+
+
+def fid_obj(X: torch.Tensor) -> torch.Tensor:
+    """
+    A Fidelity Objective that can be thought of as a trust objective.
+    Higher Fidelity simulations are rewarded as being more
+    trustworthy. Here we consider just a linear fidelity objective.
+    """
+    fid_obj = 1 * X[..., -1]
+    return fid_obj
+
+
+def get_objective_momf(x: torch.Tensor) -> torch.Tensor:
+    """Wrapper around the Objective function to take care of fid_obj stacking"""
+    y = BC(x)  # The Branin-Currin is called
+    fid = fid_obj(x)  # Getting the fidelity objective values
+    fid_out = fid.unsqueeze(-1)
+    # Concatenating objective values with fid_objective
+    y_out = torch.cat([y, fid_out], -1)
+    return y_out
+
+
+def optimize_MOMF_and_get_obs(
+    model: SingleTaskGP,
+    train_obj: torch.Tensor,
+    sampler: SobolQMCNormalSampler,
+    ref_point: torch.Tensor,
+    standard_bounds: torch.Tensor,
+    BATCH_SIZE: int,
+    cost_call: Callable[[torch.Tensor], torch.Tensor],
+):
+    """
+    Wrapper to call MOMF and optimizes it in a sequential greedy
+    fashion returning a new candidate and evaluation
+    """
+    partitioning = FastNondominatedPartitioning(ref_point=ref_point, Y=train_obj)
+    acq_func = MOMF(
+        model=model,
+        ref_point=ref_point,  # use known reference point
+        partitioning=partitioning,
+        sampler=sampler,
+        cost_call=cost_call,
+    )
+    # Optimization
+    candidates, vals = optimize_acqf(
+        acq_function=acq_func,
+        bounds=standard_bounds,
+        q=BATCH_SIZE,
+        num_restarts=NUM_RESTARTS,
+        raw_samples=RAW_SAMPLES,  # used for intialization heuristic
+        options={
+            "batch_limit": 5,
+            "maxiter": 3 if SMOKE_TEST else 200,
+            "nonnegative": True,
+        },
+        sequential=True,
+    )
+    # if the AF val is 0, set the fidelity parameter to zero
+    if vals.item() == 0.0:
+        candidates[:, -1] = 0.0
+    # observe new values
+    new_x = unnormalize(candidates.detach(), bounds=standard_bounds)
+    new_obj = get_objective_momf(new_x)
+    return new_x, new_obj
+```
+
+### Define helper functions for MF-HVKG
+
+`get_current_value` optimizes the current posterior mean at the full fidelity to
+determine the hypervolume under the current model.
+
+`optimize_HVKG_and_get_obs` creates the MF-HVKG acquisition function, optimizes it, and
+returns the new design and corresponding observation.
+
+```python
+from botorch.acquisition.cost_aware import InverseCostWeightedUtility
+from botorch.acquisition.fixed_feature import FixedFeatureAcquisitionFunction
+from botorch.acquisition.multi_objective.hypervolume_knowledge_gradient import (
+    _get_hv_value_function,
+    qMultiFidelityHypervolumeKnowledgeGradient,
+)
+from botorch.acquisition.utils import project_to_target_fidelity
+from botorch.models.deterministic import GenericDeterministicModel
+from torch import Tensor
+
+NUM_INNER_MC_SAMPLES = 2 if SMOKE_TEST else 32
+NUM_PARETO = 1 if SMOKE_TEST else 10
+NUM_FANTASIES = 2 if SMOKE_TEST else 8
+
+
+def get_current_value(
+    model: SingleTaskGP,
+    ref_point: torch.Tensor,
+    bounds: torch.Tensor,
+    normalized_target_fidelities: Dict[int, float],
+):
+    """Helper to get the hypervolume of the current hypervolume
+    maximizing set.
+    """
+    fidelity_dims, fidelity_targets = zip(*normalized_target_fidelities.items())
+    # optimize
+    non_fidelity_dims = list(set(range(dim_x)) - set(fidelity_dims))
+    curr_val_acqf = FixedFeatureAcquisitionFunction(
+        acq_function=_get_hv_value_function(
+            model=model,
+            ref_point=ref_point,
+            sampler=SobolQMCNormalSampler(
+                sample_shape=torch.Size([NUM_INNER_MC_SAMPLES]),
+            ),
+            use_posterior_mean=True,
+        ),
+        d=dim_x,
+        columns=fidelity_dims,
+        values=fidelity_targets,
+    )
+    # optimize
+    _, current_value = optimize_acqf(
+        acq_function=curr_val_acqf,
+        bounds=bounds[:, non_fidelity_dims],
+        q=NUM_PARETO,
+        num_restarts=1,
+        raw_samples=2 * RAW_SAMPLES,
+        return_best_only=True,
+        options={
+            "nonnegative": True,
+            "maxiter": 3 if SMOKE_TEST else 200,
+        },
+    )
+    return current_value
+
+
+normalized_target_fidelities = {}
+for idx, fidelity in target_fidelities.items():
+    lb = standard_bounds[0, idx].item()
+    ub = standard_bounds[1, idx].item()
+    normalized_target_fidelities[idx] = (fidelity - lb) / (ub - lb)
+project_d = dim_x
+
+
+def project(X: Tensor) -> Tensor:
+
+    return project_to_target_fidelity(
+        X=X,
+        d=project_d,
+        target_fidelities=normalized_target_fidelities,
+    )
+
+
+def optimize_HVKG_and_get_obs(
+    model: SingleTaskGP,
+    ref_point: torch.Tensor,
+    standard_bounds: torch.Tensor,
+    BATCH_SIZE: int,
+    cost_call: Callable[[torch.Tensor], torch.Tensor],
+):
+    """Utility to initialize and optimize HVKG."""
+    cost_model = GenericDeterministicModel(cost_call)
+    cost_aware_utility = InverseCostWeightedUtility(cost_model=cost_model)
+    current_value = get_current_value(
+        model=model,
+        ref_point=ref_point,
+        bounds=standard_bounds,
+        normalized_target_fidelities=normalized_target_fidelities,
+    )
+
+    acq_func = qMultiFidelityHypervolumeKnowledgeGradient(
+        model=model,
+        ref_point=ref_point,  # use known reference point
+        num_fantasies=NUM_FANTASIES,
+        num_pareto=NUM_PARETO,
+        current_value=current_value,
+        cost_aware_utility=cost_aware_utility,
+        target_fidelities=normalized_target_fidelities,
+        project=project,
+    )
+    # Optimization
+    candidates, vals = optimize_acqf(
+        acq_function=acq_func,
+        bounds=standard_bounds,
+        q=BATCH_SIZE,
+        num_restarts=1,
+        raw_samples=RAW_SAMPLES,  # used for intialization heuristic
+        options={
+            "batch_limit": 5,
+            "maxiter": 3 if SMOKE_TEST else 200,
+        },
+    )
+    # if the AF val is 0, set the fidelity parameter to zero
+    if vals.item() == 0.0:
+        candidates[:, -1] = 0.0
+    # observe new values
+    new_x = unnormalize(candidates.detach(), bounds=BC.bounds)
+    new_obj = BC(new_x)
+    return new_x, new_obj
+```
+
+### Define helper functions for MF-HVKG
+
+We run MOMF to optimize the multi-fidelity versions of the Branin-Currin functions. The
+optimization loop works in the following sequence.
+
+1. At the start with an initialization equivalent to 2 full fidelity evaluations.
+1. The models are used to generate an acquisition function that is optimized to select
+   new input parameters
+1. The objective function is evaluated at the suggested new_x and returns a new_obj.
+1. The models are updated with the new points and then are used again to make the next
+   prediction.
+
+The evaluation budget for the optimization is set to 4 full fidelity evaluations.
+
+Note: running this takes some time.
+
+```python
+from botorch import fit_gpytorch_mll
+```
+
+```python
+%%time
+
+# Intializing train_x to zero
+verbose = False
+torch.manual_seed(0)
+train_x_momf, _ = gen_init_data(n_INIT)
+train_obj_momf = get_objective_momf(train_x_momf)
+# Generate Sampler
+momf_sampler = SobolQMCNormalSampler(sample_shape=torch.Size([MC_SAMPLES]))
+
+# run N_BATCH rounds of BayesOpt after the initial random batch
+iteration = 0
+total_cost = cost_callable(train_x_momf).sum().item()
+while total_cost < EVAL_BUDGET * cost_func(1):
+    if verbose:
+        print(f"cost: {total_cost}")
+
+    # reinitialize the models so they are ready for fitting on next iteration
+    mll, model = initialize_model(normalize(train_x_momf, BC.bounds), train_obj_momf)
+
+    fit_gpytorch_mll(mll=mll)  # Fit the model
+
+    # optimize acquisition functions and get new observations
+    new_x, new_obj = optimize_MOMF_and_get_obs(
+        model=model,
+        train_obj=train_obj_momf,
+        sampler=momf_sampler,
+        ref_point=ref_point_momf,
+        standard_bounds=standard_bounds,
+        BATCH_SIZE=BATCH_SIZE,
+        cost_call=cost_callable,
+    )
+    # Updating train_x and train_obj
+    train_x_momf = torch.cat([train_x_momf, new_x], dim=0)
+    train_obj_momf = torch.cat([train_obj_momf, new_obj], dim=0)
+    iteration += 1
+    total_cost += cost_callable(new_x).sum().item()
+```
+
+<CellOutput>
+{
+`/opt/anaconda3/envs/botorch/lib/python3.10/site-packages/gpytorch/likelihoods/noise_models.py:150: NumericalWarning: Very small noise values detected. This will likely lead to numerical instabilities. Rounding small noise values up to 1e-06.
+  warnings.warn(
+/opt/anaconda3/envs/botorch/lib/python3.10/site-packages/gpytorch/likelihoods/noise_models.py:150: NumericalWarning: Very small noise values detected. This will likely lead to numerical instabilities. Rounding small noise values up to 1e-06.
+  warnings.warn(
+/opt/anaconda3/envs/botorch/lib/python3.10/site-packages/gpytorch/likelihoods/noise_models.py:150: NumericalWarning: Very small noise values detected. This will likely lead to numerical instabilities. Rounding small noise values up to 1e-06.
+  warnings.warn(
+/opt/anaconda3/envs/botorch/lib/python3.10/site-packages/gpytorch/likelihoods/noise_models.py:150: NumericalWarning: Very small noise values detected. This will likely lead to numerical instabilities. Rounding small noise values up to 1e-06.
+  warnings.warn(
+CPU times: user 1.84 s, sys: 350 ms, total: 2.19 s
+Wall time: 2.07 s`
+}
+</CellOutput>
+
+### Run MF-HVKG
+
+```python
+%%time
+
+torch.manual_seed(0)
+train_x_kg, train_obj_kg = gen_init_data(n_INIT)
+MF_n_INIT = train_x_kg.shape[0]
+iteration = 0
+total_cost = cost_callable(train_x_kg).sum().item()
+while total_cost < EVAL_BUDGET * cost_func(1):
+    if verbose:
+        print(f"cost: {total_cost}")
+
+    # reinitialize the models so they are ready for fitting on next iteration
+    mll, model = initialize_model(normalize(train_x_kg, BC.bounds), train_obj_kg)
+
+    fit_gpytorch_mll(mll=mll)  # Fit the model
+    # optimize acquisition functions and get new observations
+    new_x, new_obj = optimize_HVKG_and_get_obs(
+        model=model,
+        ref_point=ref_point,
+        standard_bounds=standard_bounds,
+        BATCH_SIZE=BATCH_SIZE,
+        cost_call=cost_callable,
+    )
+    # Updating train_x and train_obj
+    train_x_kg = torch.cat([train_x_kg, new_x], dim=0)
+    train_obj_kg = torch.cat([train_obj_kg, new_obj], dim=0)
+    iteration += 1
+    total_cost += cost_callable(new_x).sum().item()
+```
+
+<CellOutput>
+{
+`/opt/anaconda3/envs/botorch/lib/python3.10/site-packages/gpytorch/likelihoods/noise_models.py:150: NumericalWarning: Very small noise values detected. This will likely lead to numerical instabilities. Rounding small noise values up to 1e-06.
+  warnings.warn(
+/opt/anaconda3/envs/botorch/lib/python3.10/site-packages/gpytorch/likelihoods/noise_models.py:150: NumericalWarning: Very small noise values detected. This will likely lead to numerical instabilities. Rounding small noise values up to 1e-06.
+  warnings.warn(
+/opt/anaconda3/envs/botorch/lib/python3.10/site-packages/gpytorch/likelihoods/noise_models.py:150: NumericalWarning: Very small noise values detected. This will likely lead to numerical instabilities. Rounding small noise values up to 1e-06.
+  warnings.warn(
+/opt/anaconda3/envs/botorch/lib/python3.10/site-packages/gpytorch/likelihoods/noise_models.py:150: NumericalWarning: Very small noise values detected. This will likely lead to numerical instabilities. Rounding small noise values up to 1e-06.
+  warnings.warn(
+/opt/anaconda3/envs/botorch/lib/python3.10/site-packages/gpytorch/likelihoods/noise_models.py:150: NumericalWarning: Very small noise values detected. This will likely lead to numerical instabilities. Rounding small noise values up to 1e-06.
+  warnings.warn(
+/opt/anaconda3/envs/botorch/lib/python3.10/site-packages/gpytorch/likelihoods/noise_models.py:150: NumericalWarning: Very small noise values detected. This will likely lead to numerical instabilities. Rounding small noise values up to 1e-06.
+  warnings.warn(
+/opt/anaconda3/envs/botorch/lib/python3.10/site-packages/gpytorch/likelihoods/noise_models.py:150: NumericalWarning: Very small noise values detected. This will likely lead to numerical instabilities. Rounding small noise values up to 1e-06.
+  warnings.warn(
+/opt/anaconda3/envs/botorch/lib/python3.10/site-packages/gpytorch/likelihoods/noise_models.py:150: NumericalWarning: Very small noise values detected. This will likely lead to numerical instabilities. Rounding small noise values up to 1e-06.
+  warnings.warn(
+/opt/anaconda3/envs/botorch/lib/python3.10/site-packages/gpytorch/likelihoods/noise_models.py:150: NumericalWarning: Very small noise values detected. This will likely lead to numerical instabilities. Rounding small noise values up to 1e-06.
+  warnings.warn(
+/opt/anaconda3/envs/botorch/lib/python3.10/site-packages/gpytorch/likelihoods/noise_models.py:150: NumericalWarning: Very small noise values detected. This will likely lead to numerical instabilities. Rounding small noise values up to 1e-06.
+  warnings.warn(
+/opt/anaconda3/envs/botorch/lib/python3.10/site-packages/gpytorch/likelihoods/noise_models.py:150: NumericalWarning: Very small noise values detected. This will likely lead to numerical instabilities. Rounding small noise values up to 1e-06.
+  warnings.warn(
+/opt/anaconda3/envs/botorch/lib/python3.10/site-packages/gpytorch/likelihoods/noise_models.py:150: NumericalWarning: Very small noise values detected. This will likely lead to numerical instabilities. Rounding small noise values up to 1e-06.
+  warnings.warn(
+/opt/anaconda3/envs/botorch/lib/python3.10/site-packages/gpytorch/likelihoods/noise_models.py:150: NumericalWarning: Very small noise values detected. This will likely lead to numerical instabilities. Rounding small noise values up to 1e-06.
+  warnings.warn(
+/opt/anaconda3/envs/botorch/lib/python3.10/site-packages/gpytorch/likelihoods/noise_models.py:150: NumericalWarning: Very small noise values detected. This will likely lead to numerical instabilities. Rounding small noise values up to 1e-06.
+  warnings.warn(
+/opt/anaconda3/envs/botorch/lib/python3.10/site-packages/gpytorch/likelihoods/noise_models.py:150: NumericalWarning: Very small noise values detected. This will likely lead to numerical instabilities. Rounding small noise values up to 1e-06.
+  warnings.warn(
+CPU times: user 42.4 s, sys: 18.6 s, total: 1min
+Wall time: 43.8 s`
+}
+</CellOutput>
+
+### Result: Evaluating the Pareto front at the highest fidelity using NSGA-II on the posterior mean
+
+```python
+from botorch.utils.multi_objective.pareto import (
+    _is_non_dominated_loop,
+    is_non_dominated,
+)
+from gpytorch import settings
+
+try:
+    # Note: These are the pymoo 0.6+ imports, if you happen to be stuck on
+    # an older pymoo version you need to replace them with the ones below.
+    from pymoo.algorithms.moo.nsga2 import NSGA2
+    from pymoo.core.problem import Problem
+    from pymoo.optimize import minimize
+    from pymoo.termination.max_gen import MaximumGenerationTermination
+
+    # from pymoo.algorithms.nsga2 import NSGA2
+    # from pymoo.model.problem import Problem
+    # from pymoo.util.termination.max_gen import MaximumGenerationTermination
+
+    def get_pareto(
+        model,
+        non_fidelity_indices,
+        project,
+        population_size=20 if SMOKE_TEST else 250,
+        max_gen=10 if SMOKE_TEST else 100,
+        is_mf_model=True,
+    ):
+        """Optimize the posterior mean using NSGA-II."""
+        tkwargs = {
+            "dtype": BC.ref_point.dtype,
+            "device": BC.ref_point.device,
+        }
+        dim = len(non_fidelity_indices)
+
+        class PosteriorMeanPymooProblem(Problem):
+            def __init__(self):
+                super().__init__(
+                    n_var=dim,
+                    n_obj=BC.num_objectives,
+                    type_var=np.double,
+                )
+                self.xl = np.zeros(dim)
+                self.xu = np.ones(dim)
+
+            def _evaluate(self, x, out, *args, **kwargs):
+                X = torch.from_numpy(x).to(**tkwargs)
+                if is_mf_model:
+                    X = project(X)
+                with torch.no_grad():
+                    with settings.cholesky_max_tries(9):
+                        # eval in batch mode
+                        y = model.posterior(X.unsqueeze(-2)).mean.squeeze(-2)
+                out["F"] = -y.cpu().numpy()
+
+        pymoo_problem = PosteriorMeanPymooProblem()
+        algorithm = NSGA2(
+            pop_size=population_size,
+            eliminate_duplicates=True,
+        )
+        res = minimize(
+            pymoo_problem,
+            algorithm,
+            termination=MaximumGenerationTermination(max_gen),
+            seed=0,  # fix seed
+            verbose=False,
+        )
+        X = torch.tensor(
+            res.X,
+            **tkwargs,
+        )
+        # project to full fidelity
+        if is_mf_model:
+            if project is not None:
+                X = project(X)
+        # determine Pareto set of designs under model
+        with torch.no_grad():
+            preds = model.posterior(X.unsqueeze(-2)).mean.squeeze(-2)
+        pareto_mask = is_non_dominated(preds)
+        X = X[pareto_mask]
+        # evaluate Pareto set of designs on true function and compute hypervolume
+        if not is_mf_model:
+            X = project(X)
+        X = unnormalize(X, BC.bounds)
+        Y = BC(X)
+        # compute HV
+        partitioning = FastNondominatedPartitioning(ref_point=BC.ref_point, Y=Y)
+        return partitioning.compute_hypervolume().item()
+
+except ImportError:
+    NUM_DISCRETE_POINTS = 10 if SMOKE_TEST else 100000
+    CHUNK_SIZE = 512
+
+    def get_pareto(
+        model,
+        non_fidelity_indices,
+        project,
+        population_size=20 if SMOKE_TEST else 250,
+        max_gen=10 if SMOKE_TEST else 100,
+        is_mf_model=True,
+    ):
+        """Optimize the posterior mean over a discrete set."""
+        tkwargs = {
+            "dtype": BC.ref_point.dtype,
+            "device": BC.ref_point.device,
+        }
+        dim_x = BC.dim
+
+        discrete_set = torch.rand(NUM_DISCRETE_POINTS, dim_x - 1, **tkwargs)
+        if is_mf_model:
+            discrete_set = project(discrete_set)
+        discrete_set[:, -1] = 1.0  # set to target fidelity
+        with torch.no_grad():
+            preds_list = []
+            for start in range(0, NUM_DISCRETE_POINTS, CHUNK_SIZE):
+                preds = model.posterior(
+                    discrete_set[start : start + CHUNK_SIZE].unsqueeze(-2)
+                ).mean.squeeze(-2)
+                preds_list.append(preds)
+            preds = torch.cat(preds_list, dim=0)
+            pareto_mask = _is_non_dominated_loop(preds)
+            pareto_X = discrete_set[pareto_mask]
+        if not is_mf_model:
+            pareto_X = project(pareto_X)
+        pareto_X = unnormalize(pareto_X, BC.bounds)
+        Y = BC(pareto_X)
+        # compute HV
+        partitioning = FastNondominatedPartitioning(ref_point=BC.ref_point, Y=Y)
+        return partitioning.compute_hypervolume().item()
+```
+
+## Evaluate MF-HVKG
+
+We evaluate performance after every 5 evaluations (this is to speed things up, since
+there are many observations).
+
+```python
+%%time
+
+hvs_kg = []
+costs = []
+for i in range(MF_n_INIT, train_x_kg.shape[0] + 1, 5):
+
+    mll, model = initialize_model(
+        normalize(train_x_kg[:i], BC.bounds), train_obj_kg[:i]
+    )
+    fit_gpytorch_mll(mll)
+    hypervolume = get_pareto(model, project=project, non_fidelity_indices=[0, 1])
+    hvs_kg.append(hypervolume)
+    costs.append(cost_callable(train_x_kg[:i]).sum().item())
+```
+
+<CellOutput>
+{
+`/opt/anaconda3/envs/botorch/lib/python3.10/site-packages/gpytorch/likelihoods/noise_models.py:150: NumericalWarning: Very small noise values detected. This will likely lead to numerical instabilities. Rounding small noise values up to 1e-06.
+  warnings.warn(
+/opt/anaconda3/envs/botorch/lib/python3.10/site-packages/gpytorch/likelihoods/noise_models.py:150: NumericalWarning: Very small noise values detected. This will likely lead to numerical instabilities. Rounding small noise values up to 1e-06.
+  warnings.warn(
+/opt/anaconda3/envs/botorch/lib/python3.10/site-packages/gpytorch/likelihoods/noise_models.py:150: NumericalWarning: Very small noise values detected. This will likely lead to numerical instabilities. Rounding small noise values up to 1e-06.
+  warnings.warn(
+/opt/anaconda3/envs/botorch/lib/python3.10/site-packages/gpytorch/likelihoods/noise_models.py:150: NumericalWarning: Very small noise values detected. This will likely lead to numerical instabilities. Rounding small noise values up to 1e-06.
+  warnings.warn(
+CPU times: user 4.26 s, sys: 3.16 s, total: 7.42 s
+Wall time: 3.66 s`
+}
+</CellOutput>
+
+## Evaluate MOMF
+
+We evaluate performance after every evaluation (there are not as many evaluations since
+MOMF queries higher fidelities more frequently).
+
+```python
+%%time
+
+hvs_momf = []
+costs_momf = []
+for i in range(MF_n_INIT, train_x_momf.shape[0] + 1):
+
+    mll, model = initialize_model(
+        normalize(train_x_momf[:i], BC.bounds), train_obj_momf[:i, :2]
+    )
+    fit_gpytorch_mll(mll)
+    hypervolume = get_pareto(model, project=project, non_fidelity_indices=[0, 1])
+    hvs_momf.append(hypervolume)
+    costs_momf.append(cost_callable(train_x_momf[:i]).sum().item())
+```
+
+<CellOutput>
+{
+`/opt/anaconda3/envs/botorch/lib/python3.10/site-packages/gpytorch/likelihoods/noise_models.py:150: NumericalWarning: Very small noise values detected. This will likely lead to numerical instabilities. Rounding small noise values up to 1e-06.
+  warnings.warn(
+/opt/anaconda3/envs/botorch/lib/python3.10/site-packages/gpytorch/likelihoods/noise_models.py:150: NumericalWarning: Very small noise values detected. This will likely lead to numerical instabilities. Rounding small noise values up to 1e-06.
+  warnings.warn(
+/opt/anaconda3/envs/botorch/lib/python3.10/site-packages/gpytorch/likelihoods/noise_models.py:150: NumericalWarning: Very small noise values detected. This will likely lead to numerical instabilities. Rounding small noise values up to 1e-06.
+  warnings.warn(
+/opt/anaconda3/envs/botorch/lib/python3.10/site-packages/gpytorch/likelihoods/noise_models.py:150: NumericalWarning: Very small noise values detected. This will likely lead to numerical instabilities. Rounding small noise values up to 1e-06.
+  warnings.warn(
+/opt/anaconda3/envs/botorch/lib/python3.10/site-packages/gpytorch/likelihoods/noise_models.py:150: NumericalWarning: Very small noise values detected. This will likely lead to numerical instabilities. Rounding small noise values up to 1e-06.
+  warnings.warn(
+CPU times: user 5.14 s, sys: 3.32 s, total: 8.46 s
+Wall time: 4.23 s`
+}
+</CellOutput>
+
+### Plot log inference hypervolume regret (under the model) vs cost
+
+Log inference hypervolume regret, defined as the logarithm of the difference between the
+maximum hypervolume dominated by the Pareto frontier and the hypervolume corresponding
+to the Pareto set identified by each algorithm, is a performance evaluation criterion
+for multi-information source multi-objective optimization [3].
+
+```python
+plt.plot(
+    costs_momf,
+    np.log10(BC.max_hv - np.array(hvs_momf)),
+    "--",
+    marker="s",
+    ms=10,
+    label="MOMF",
+)
+plt.plot(
+    costs, np.log10(BC.max_hv - np.array(hvs_kg)), "--", marker="d", ms=10, label="HVKG"
+)
+plt.ylabel("Log Inference Hypervolume Regret")
+plt.xlabel("Cost")
+plt.legend()
+```
+
+<CellOutput>
+{
+`<matplotlib.legend.Legend at 0x130504dc0>`
+}
+</CellOutput>
+
+
+![](data:image/png;base64,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c6fhwIEDhnfeeccQGBhomD17ts4/nXO/9hW5eCqosLDQ0L59ezUtsX37dsOvv/5qiIqKMsycOdNOP4X7vvb8vbf+6y7TPU8++aR6vzl8+LCaDm3evLmhb9++pc/B33n9Xnv+ztsfkyUHIR8AFR3z589X9yclJRlGjBhhiI6ONvj4+Ki56TFjxhj27dtX+hy//PKLoXPnzobg4GBDUFCQoVOnTob33nvPUFRUpONP5vyvfWWPubhu5siRI+r/o4CAAEPdunUNjzzyiKGgoMAOP4F7v/b8vbf+637s2DH14Sx/jPn5+am6senTpxsyMjLMnoe/8/q89vydtz8P+R9bjlwREREROTPWLBERERFVgckSERERURWYLBERERFVgckSERERURWYLBERERFVgckSERERURWYLBERERFVgckSERERURWYLBERERFVgckSEbmV5ORkPPjgg2jevLnadLRRo0a45pprsHz58lo/94IFCxAeHm6VOInIcXjrHQARkb0cOXIEvXv3VgnNSy+9hA4dOqCgoAC//fYbHnjgAezbt0/vEInIAXFkiYjcxv333w8PDw9s3rwZN954I+Li4tCuXTtMmzYNGzduVNccO3YM1113HYKDgxEaGoqbb74Zp0+fLn2OHTt2YMCAAQgJCVH3d+3aFVu2bMGqVatw5513IiMjQ/0bcjzxxBM6/rREZC1MlojILaSlpeHXX39VI0hBQUHl7pfRpuLiYpUoybWrV6/GsmXLcOjQIdxyyy2l140dOxYNGzbEX3/9ha1bt2LGjBnw8fFBr1698Nprr6kE6tSpU+p49NFH7fxTEpEtcBqOiNzCwYMHYTAY0Lp160qvkbqlnTt34vDhw6qWSXz66adq9EmSo+7du6uRp+nTp5c+T6tWrUofHxYWpkaUYmNj7fATEZG9cGSJiNyCJEqXsnfvXpUkGRMl0bZtWzXqJPcJmbK76667MHjwYDz//PNITEy0adxEpD8mS0TkFmQESEZ9alvELXVIu3fvxsiRI7FixQqVTH333XdWi5OIHA+TJSJyC5GRkRg2bBjefvttZGdnl7s/PT0dbdq0wfHjx9VhtGfPHnWfJEVGUhg+depU/P7777jhhhswf/58dd7X1xdFRUV2+omIyF6YLBGR25BESZKZyy+/HIsXL8aBAwfU9Nobb7yBnj17qqk1aScgRdx///23WjV3++23o1+/fujWrRsuXLiAyZMnq5VvR48exbp161QtkyRZomnTpsjKylK1T2fPnkVOTo7ePzIRWQGTJSJyG9KIUpIgWfr/yCOPoH379hgyZIhKbt599101TbdkyRJERESgb9++KnmSx3z11Vfq8V5eXkhNTVUJlIwuSVuBESNGYM6cOep+WRF37733qtVzUVFRePHFF3X+iYnIGjwM1al6JCIiInJTHFkiIiIiqgKTJSIiIqIqMFkiIiIiqgKTJSIiIqIqMFkiIiIiqgKTJSIiIqIqMFkiIiIiqgKTJSIiIqIqMFkiIiIiqgKTJSIiIqIqMFkiIiIiQuX+H3f8EjfSnJ8QAAAAAElFTkSuQmCC)
+
