@@ -44,6 +44,7 @@ from gpytorch.kernels import RBFKernel, ScaleKernel
 from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.means import ConstantMean
 from gpytorch.models import ExactGP, IndependentModelList
+from gpytorch.priors import LogNormalPrior
 from gpytorch.settings import trace_mode
 from torch import Tensor
 from torch.nn.functional import one_hot
@@ -1041,6 +1042,104 @@ class TestLoadStateDict(BotorchTestCase):
                         state_dict["outcome_transform.means"],
                     )
                 )
+
+    def test_load_state_dict_assign_parameter(self):
+        """Test that the assign parameter correctly controls tensor property
+        preservation.
+
+        With assign=False (default): properties of the current model's tensors are
+        preserved.
+        With assign=True: properties of the state dict's tensors are preserved.
+        """
+        # Create base model with double precision
+        tkwargs_double = {"device": self.device, "dtype": torch.double}
+        train_X_double = torch.rand(5, 2, **tkwargs_double)
+        train_Y_double = torch.sin(train_X_double).sum(dim=1, keepdim=True)
+
+        # NOTE Due to issues with transformed priors in gpytorch, we refrain from
+        # instantiating a model with a LogNormal prior here.
+        model_specs_without_priors = {
+            "covar_module": RBFKernel(ard_num_dims=2),
+            "likelihood": GaussianLikelihood(),
+        }
+        base_model = SingleTaskGP(
+            train_X=train_X_double,
+            train_Y=train_Y_double,
+            **model_specs_without_priors,
+            **_get_input_output_transform(d=2, indices=[0, 1], m=1),
+        )
+        state_dict_double = base_model.state_dict()
+
+        # Create a new model with float32 precision (different dtype)
+        tkwargs_float = {"device": self.device, "dtype": torch.float}
+        train_X_float = torch.rand(5, 2, **tkwargs_float)
+        train_Y_float = torch.sin(train_X_float).sum(dim=1, keepdim=True)
+
+        # Test assign=False (default behavior)
+        model_assign_false = SingleTaskGP(
+            train_X=train_X_float,
+            train_Y=train_Y_float,
+            **model_specs_without_priors,
+            **_get_input_output_transform(d=2, indices=[0, 1], m=1),
+        )
+
+        # Load double precision state dict with assign=False
+        model_assign_false.load_state_dict(
+            state_dict_double, keep_transforms=False, assign=False
+        )
+
+        # With assign=False, the model should keep its original float32 dtype
+        self.assertEqual(model_assign_false.train_inputs[0].dtype, torch.float)
+
+        # Test assign=True
+        model_assign_true = SingleTaskGP(
+            train_X=train_X_float,
+            train_Y=train_Y_float,
+            **model_specs_without_priors,
+            **_get_input_output_transform(d=2, indices=[0, 1], m=1),
+        )
+
+        # Load double precision state dict with assign=True
+        model_assign_true.load_state_dict(
+            state_dict_double, keep_transforms=False, assign=True
+        )
+
+        # With assign=True, the model should adopt the state dict's double dtype
+        self.assertEqual(model_assign_true.train_inputs[0].dtype, torch.double)
+        self.assertEqual(
+            model_assign_true.train_inputs[0].dtype,
+            next(iter(state_dict_double.values())).dtype,
+        )
+
+        # Verify the two models have different dtypes
+        self.assertNotEqual(
+            model_assign_false.train_inputs[0].dtype,
+            model_assign_true.train_inputs[0].dtype,
+        )
+
+        base_model_with_prior = SingleTaskGP(
+            train_X=train_X_double,
+            train_Y=train_Y_double,
+            **_get_input_output_transform(d=2, indices=[0, 1], m=1),
+        )
+        state_dict_with_prior = base_model_with_prior.state_dict()
+        state_dict_double = base_model.state_dict()
+        model_assign_true_with_prior = SingleTaskGP(
+            train_X=train_X_float,
+            train_Y=train_Y_float,
+            covar_module=RBFKernel(
+                ard_num_dims=2, lengthscale_prior=LogNormalPrior(1.23, 2.34)
+            ),
+            **_get_input_output_transform(d=2, indices=[0, 1], m=1),
+        )
+
+        model_assign_true_with_prior.load_state_dict(
+            state_dict_with_prior, keep_transforms=False, assign=True
+        )
+        self.assertAlmostEqual(
+            model_assign_true_with_prior.covar_module.lengthscale_prior.loc,
+            base_model_with_prior.covar_module.lengthscale_prior.loc,
+        )
 
     def test_load_state_dict_no_transforms(self):
         tkwargs = {"device": self.device, "dtype": torch.double}
