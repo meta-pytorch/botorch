@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import copy
 import warnings
+from typing import Self
 
 import torch
 from botorch.acquisition.objective import PosteriorTransform
@@ -67,7 +68,6 @@ from gpytorch.variational import (
 )
 from torch import Tensor
 from torch.nn import Module
-from typing_extensions import Self
 
 
 TRANSFORM_WARNING = (
