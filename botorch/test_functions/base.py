@@ -11,7 +11,8 @@ Base class for test functions for optimization benchmarks.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Iterable, Iterator, Protocol
+from collections.abc import Iterable, Iterator
+from typing import Any, Protocol
 
 import torch
 from botorch.exceptions.errors import InputDataError, UnsupportedError

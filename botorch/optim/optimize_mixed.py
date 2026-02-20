@@ -8,8 +8,8 @@ import dataclasses
 import itertools
 import random
 import warnings
-from collections.abc import Mapping, Sequence
-from typing import Any, Callable
+from collections.abc import Callable, Mapping, Sequence
+from typing import Any
 
 import torch
 from botorch.acquisition import AcquisitionFunction

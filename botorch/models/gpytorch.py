@@ -16,8 +16,9 @@ from __future__ import annotations
 import itertools
 import warnings
 from abc import ABC
+from collections.abc import Mapping
 from copy import deepcopy
-from typing import Any, Mapping, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 import torch
 from botorch.acquisition.objective import PosteriorTransform
