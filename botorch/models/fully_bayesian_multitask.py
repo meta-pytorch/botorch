@@ -16,6 +16,7 @@ from botorch.models.fully_bayesian import (
     matern52_kernel,
     MCMC_DIM,
     MIN_INFERRED_NOISE_LEVEL,
+    PyroModel,
     reshape_and_detach,
     SaasPyroModel,
 )
@@ -39,8 +40,8 @@ from torch.nn.parameter import Parameter
 from typing_extensions import Self
 
 # Can replace with Self type once 3.11 is the minimum version
-TSaasFullyBayesianMultiTaskGP = TypeVar(
-    "TSaasFullyBayesianMultiTaskGP", bound="SaasFullyBayesianMultiTaskGP"
+TFullyBayesianMultiTaskGP = TypeVar(
+    "TFullyBayesianMultiTaskGP", bound="FullyBayesianMultiTaskGP"
 )
 
 
@@ -261,19 +262,20 @@ class LatentFeatureMultiTaskPyroMixin(MultiTaskPyroMixin):
 
 class MultitaskSaasPyroModel(LatentFeatureMultiTaskPyroMixin, SaasPyroModel):
     r"""
-    Multi-task SAAS model. Backward-compatible subclass that composes
-    ``LatentFeatureMultiTaskPyroMixin`` with ``SaasPyroModel``.
+    Multi-task SAAS model using latent task features. Backward-compatible
+    subclass that composes ``LatentFeatureMultiTaskPyroMixin`` with
+    ``SaasPyroModel``.
     """
 
     pass
 
 
-class SaasFullyBayesianMultiTaskGP(MultiTaskGP):
-    r"""A fully Bayesian multi-task GP model with the SAAS prior.
+class FullyBayesianMultiTaskGP(MultiTaskGP):
+    r"""A fully Bayesian multi-task GP model.
+
     This model assumes that the inputs have been normalized to [0, 1]^d and that the
     output has been stratified standardized to have zero mean and unit variance for
-    each task. The SAAS model [Eriksson2021saasbo]_ with a Matern-5/2 is used as data
-    kernel by default.
+    each task.
 
     You are expected to use ``fit_fully_bayesian_model_nuts`` to fit this model as it
     isn't compatible with ``fit_gpytorch_mll``.
@@ -286,11 +288,12 @@ class SaasFullyBayesianMultiTaskGP(MultiTaskGP):
         >>> ])
         >>> train_Y = torch.cat(f1(X1), f2(X2)).unsqueeze(-1)
         >>> train_Yvar = 0.01 * torch.ones_like(train_Y)
-        >>> mtsaas_gp = SaasFullyBayesianMultiTaskGP(
-        >>>     train_X, train_Y, train_Yvar, task_feature=-1,
+        >>> mt_gp = FullyBayesianMultiTaskGP(
+        >>>     train_X, train_Y, task_feature=-1,
+        >>>     pyro_model=MultitaskSaasPyroModel(),
         >>> )
-        >>> fit_fully_bayesian_model_nuts(mtsaas_gp)
-        >>> posterior = mtsaas_gp.posterior(test_X)
+        >>> fit_fully_bayesian_model_nuts(mt_gp)
+        >>> posterior = mt_gp.posterior(test_X)
     """
 
     _is_fully_bayesian = True
@@ -307,7 +310,7 @@ class SaasFullyBayesianMultiTaskGP(MultiTaskGP):
         all_tasks: list[int] | None = None,
         outcome_transform: OutcomeTransform | None = None,
         input_transform: InputTransform | None = None,
-        pyro_model: MultitaskSaasPyroModel | None = None,
+        pyro_model: PyroModel | None = None,
         validate_task_values: bool = True,
     ) -> None:
         r"""Initialize the fully Bayesian multi-task GP model.
@@ -334,8 +337,7 @@ class SaasFullyBayesianMultiTaskGP(MultiTaskGP):
                 instantiation of the model.
             input_transform: An input transform that is applied to the inputs ``X``
                 in the model's forward pass.
-            pyro_model: Optional ``PyroModel`` that has the same signature as
-                ``MultitaskSaasPyroModel``. Defaults to ``MultitaskSaasPyroModel``.
+            pyro_model: A ``PyroModel`` that inherits from ``MultiTaskPyroMixin``.
             validate_task_values: If True, validate that the task values supplied in the
                 input are expected tasks values. If false, unexpected task values
                 will be mapped to the first output_task if supplied.
@@ -385,7 +387,8 @@ class SaasFullyBayesianMultiTaskGP(MultiTaskGP):
         self.likelihood = None
         if pyro_model is None:
             pyro_model = MultitaskSaasPyroModel()
-        # apply task_mapper
+        if not isinstance(pyro_model, MultiTaskPyroMixin):
+            raise ValueError("pyro_model must be a multi-task model.")
         x_before, task_idcs, x_after = self._split_inputs(transformed_X)
         pyro_model.set_inputs(
             train_X=torch.cat([x_before, task_idcs, x_after], dim=-1),
@@ -395,15 +398,13 @@ class SaasFullyBayesianMultiTaskGP(MultiTaskGP):
             task_rank=self._rank,
             all_tasks=all_tasks,
         )
-        self.pyro_model: MultitaskSaasPyroModel = pyro_model
+        self.pyro_model: PyroModel = pyro_model
         if outcome_transform is not None:
             self.outcome_transform = outcome_transform
         if input_transform is not None:
             self.input_transform = input_transform
 
-    def train(
-        self, mode: bool = True, reset: bool = True
-    ) -> TSaasFullyBayesianMultiTaskGP:
+    def train(self, mode: bool = True, reset: bool = True) -> TFullyBayesianMultiTaskGP:
         r"""Puts the model in ``train`` mode.
 
         Args:
@@ -437,7 +438,7 @@ class SaasFullyBayesianMultiTaskGP(MultiTaskGP):
     @property
     def batch_shape(self) -> torch.Size:
         r"""Batch shape of the model, equal to the number of MCMC samples.
-        Note that ``SaasFullyBayesianMultiTaskGP`` does not support batching
+        Note that ``FullyBayesianMultiTaskGP`` does not support batching
         over input data at this point.
         """
         self._check_if_fitted()
@@ -514,22 +515,14 @@ class SaasFullyBayesianMultiTaskGP(MultiTaskGP):
         r"""Custom logic for loading the state dict.
 
         The standard approach of calling ``load_state_dict`` currently doesn't
-        play well with the ``SaasFullyBayesianMultiTaskGP`` since the
+        play well with the ``FullyBayesianMultiTaskGP`` since the
         ``mean_module``, ``covar_module`` and ``likelihood`` aren't initialized
         until the model has been fitted. The reason for this is that we don't
         know the number of MCMC samples until NUTS is called. Given the state
         dict, we can initialize a new model with some dummy samples and then
-        load the state dict into this model. This currently only works for a
-        ``MultitaskSaasPyroModel`` and supporting more Pyro models likely
-        requires moving the model construction logic into the Pyro model itself.
-
-        TODO: If this were to inherit from ``SaasFullyBayesianSingleTaskGP``, we could
-        simplify this method and eliminate some others.
+        load the state dict into this model. The dummy samples are obtained
+        from ``pyro_model.get_dummy_mcmc_samples()``.
         """
-        if not isinstance(self.pyro_model, MultitaskSaasPyroModel):
-            raise NotImplementedError(  # pragma: no cover
-                "load_state_dict only works for MultitaskSaasPyroModel"
-            )
         raw_mean = state_dict["mean_module.base_means.0.raw_constant"]
         num_mcmc_samples = len(raw_mean)
         tkwargs = {"device": raw_mean.device, "dtype": raw_mean.dtype}
@@ -573,3 +566,7 @@ class SaasFullyBayesianMultiTaskGP(MultiTaskGP):
             X = X.repeat(*(Y.shape[:-2] + (1, 1)))
 
         return super().condition_on_observations(X, Y, **kwargs)
+
+
+class SaasFullyBayesianMultiTaskGP(FullyBayesianMultiTaskGP):
+    r"""A fully Bayesian multi-task GP model with the SAAS prior by default."""
