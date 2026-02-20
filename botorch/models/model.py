@@ -243,12 +243,12 @@ class Model(Module, ABC):
             self.set_train_data(self._original_train_inputs, strict=False)
             self._has_transformed_inputs = False
 
-    def eval(self) -> Model:
+    def eval(self) -> Self:
         r"""Puts the model in ``eval`` mode and sets the transformed inputs."""
         self._set_transformed_inputs()
         return super().eval()
 
-    def train(self, mode: bool = True) -> Model:
+    def train(self, mode: bool = True) -> Self:
         r"""Put the model in ``train`` mode. Reverts to the original inputs if
         in ``train`` mode (``mode=True``) or sets transformed inputs if in
         ``eval`` mode (``mode=False``).

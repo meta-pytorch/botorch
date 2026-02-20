@@ -34,7 +34,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping, Sequence
-from typing import Any
+from typing import Any, Self
 
 import torch
 from botorch.exceptions.errors import UnsupportedError
@@ -140,7 +140,7 @@ class RobustRelevancePursuitMixin(ABC):
             A standard model.
         """
 
-    def load_standard_model(self, standard_model: Model) -> RobustRelevancePursuitMixin:
+    def load_standard_model(self, standard_model: Model) -> Self:
         """Loads the state dict of a model into the ``RobustRelevancePursuitMixin``.
 
         Args:

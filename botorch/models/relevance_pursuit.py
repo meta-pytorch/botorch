@@ -22,7 +22,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
 from copy import copy, deepcopy
 from functools import partial
-from typing import Any, cast
+from typing import Any, cast, Self
 from warnings import warn
 
 import torch
@@ -117,7 +117,7 @@ class RelevancePursuitMixin(ABC):
         device = self.sparse_parameter.device
         return torch.arange(self.dim, device=device)[~self.is_active]
 
-    def to_sparse(self) -> RelevancePursuitMixin:
+    def to_sparse(self) -> Self:
         """Converts the sparse parameter to its sparse (< dim) representation.
 
         Returns:
@@ -130,7 +130,7 @@ class RelevancePursuitMixin(ABC):
             self._is_sparse = True
         return self
 
-    def to_dense(self) -> RelevancePursuitMixin:
+    def to_dense(self) -> Self:
         """Converts the sparse parameter to its dense, length-``dim`` representation.
 
         Returns:
@@ -157,7 +157,7 @@ class RelevancePursuitMixin(ABC):
             self._is_sparse = False
         return self
 
-    def expand_support(self, indices: list[int]) -> RelevancePursuitMixin:
+    def expand_support(self, indices: list[int]) -> Self:
         """Expands the support by a number of indices.
 
         Args:
@@ -186,7 +186,7 @@ class RelevancePursuitMixin(ABC):
             )
         return self
 
-    def contract_support(self, indices: list[int]) -> RelevancePursuitMixin:
+    def contract_support(self, indices: list[int]) -> Self:
         """Contracts the support by a number of indices.
 
         Args:
@@ -216,7 +216,7 @@ class RelevancePursuitMixin(ABC):
         return self
 
     # support initialization helpers
-    def full_support(self) -> RelevancePursuitMixin:
+    def full_support(self) -> Self:
         """Initializes the RelevancePursuitMixin with a full, size-``dim`` support.
 
         Returns:
@@ -226,7 +226,7 @@ class RelevancePursuitMixin(ABC):
         self.to_dense()  # no reason to be sparse with full support
         return self
 
-    def remove_support(self) -> RelevancePursuitMixin:
+    def remove_support(self) -> Self:
         """Initializes the RelevancePursuitMixin with an empty, size-zero support.
 
         Returns:
