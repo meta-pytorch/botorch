@@ -4,6 +4,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+from botorch.models.additive_gp import OrthogonalAdditiveGP
 from botorch.models.approximate_gp import (
     ApproximateGPyTorchModel,
     SingleTaskVariationalGP,
@@ -44,6 +45,7 @@ __all__ = [
     "ModelList",
     "ModelListGP",
     "MultiTaskGP",
+    "OrthogonalAdditiveGP",
     "PairwiseGP",
     "PairwiseLaplaceMarginalLogLikelihood",
     "PosteriorMeanModel",

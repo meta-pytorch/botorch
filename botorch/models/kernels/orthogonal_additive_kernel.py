@@ -134,18 +134,65 @@ class OrthogonalAdditiveKernel(Kernel):
         self.coeff_constraint = coeff_constraint
         self.dim = dim
 
-    def k(self, x1: Tensor, x2: Tensor) -> Tensor:
+    # =========================================================================
+    # Helper methods for diag-dependent operations (reduces code duplication)
+    # =========================================================================
+
+    def _trailing_dims(self, diag: bool) -> tuple[None, ...]:
+        """Returns trailing dims for broadcasting: (None,) or (None, None)."""
+        return (None,) if diag else (None, None)
+
+    def _triu_indices(
+        self, device: torch.device | None = None
+    ) -> tuple[Tensor, Tensor]:
+        """Upper triangular indices for second-order terms (i, j) where i < j."""
+        return torch.triu_indices(self.dim, self.dim, offset=1, device=device)
+
+    def _coeff_for_kernel_broadcast(self, coeff: Tensor, diag: bool) -> Tensor:
+        """Expands coefficient for broadcasting with kernel matrices."""
+        return coeff[(...,) + self._trailing_dims(diag)]
+
+    def _bias_covariance(self, n1: int, n2: int, diag: bool) -> Tensor:
+        """Creates constant (bias) covariance matrix from self.offset."""
+        spatial_dims = (n1,) if diag else (n1, n2)
+        return self.offset[(...,) + self._trailing_dims(diag)].expand(
+            *self.batch_shape, *spatial_dims
+        )
+
+    def _slice_kernel_components(
+        self, K_ortho: Tensor, indices: Tensor | int, diag: bool
+    ) -> Tensor:
+        """Slices kernel components along the component dimension."""
+        slices = (..., indices) + (slice(None),) * (1 if diag else 2)
+        return K_ortho[slices]
+
+    @property
+    def num_components(self) -> int:
+        """Total number of additive components (bias + first-order [+ second-order])."""
+        n = 1 + self.dim  # bias + first-order
+        if self.raw_coeffs_2 is not None:
+            n += self.dim * (self.dim - 1) // 2
+        return n
+
+    def k(self, x1: Tensor, x2: Tensor, diag: bool = False) -> Tensor:
         """Evaluates the kernel matrix base_kernel(x1, x2) on each input dimension
         independently.
 
         Args:
             x1: ``batch_shape x n1 x d``-dim Tensor in [0, 1]^dim.
             x2: ``batch_shape x n2 x d``-dim Tensor in [0, 1]^dim.
+            diag: Whether to evaluate only the diagonal of the kernel matrix.
 
         Returns:
-            A ``batch_shape x d x n1 x n2``-dim Tensor of kernel matrices.
+            A ``batch_shape x d x n1 x n2``-dim Tensor of kernel matrices, or a
+            `batch_shape x d x n1`-dim Tensor of diagonal elements if `diag=True`.
         """
-        return self.base_kernel(x1, x2, last_dim_is_batch=True).to_dense()
+        # Reshape inputs to treat each dimension as a batch:
+        # x1: batch_shape x n1 x d -> batch_shape x d x n1 x 1
+        # x2: batch_shape x n2 x d -> batch_shape x d x n2 x 1
+        x1_reshaped = x1.transpose(-1, -2).unsqueeze(-1)
+        x2_reshaped = x2.transpose(-1, -2).unsqueeze(-1)
+        return self.base_kernel(x1_reshaped, x2_reshaped, diag=diag).to_dense()
 
     @property
     def offset(self) -> Tensor:
@@ -187,7 +234,7 @@ class OrthogonalAdditiveKernel(Kernel):
     def _set_coeffs_2(self, value: Tensor) -> None:
         value = torch.as_tensor(value).to(self.raw_coeffs_1)
         value = value.expand(*self.batch_shape, self.dim, self.dim)
-        row_idcs, col_idcs = torch.triu_indices(self.dim, self.dim, offset=1)
+        row_idcs, col_idcs = self._triu_indices()
         value = value[..., row_idcs, col_idcs].to(self.raw_coeffs_2)
         self.initialize(raw_coeffs_2=self.coeff_constraint.inverse_transform(value))
 
@@ -229,13 +276,22 @@ class OrthogonalAdditiveKernel(Kernel):
             raise UnsupportedError(
                 "OrthogonalAdditiveKernel does not support `last_dim_is_batch`."
             )
-        K_ortho = self._orthogonal_base_kernels(x1, x2)  # batch_shape x d x n1 x n2
+        K_ortho = self._orthogonal_base_kernels(
+            x1, x2, diag=diag
+        )  # batch_shape x d x n1 (x n2)
 
         # contracting over d, leading to ``batch_shape x n x n``-dim tensor, i.e.:
         #   K1 = torch.sum(self.coeffs_1[..., None, None] * K_ortho, dim=-3)
-        K1 = torch.einsum(self.coeffs_1, [..., 0], K_ortho, [..., 0, 1, 2], [..., 1, 2])
+        non_diag_dim = [] if diag else [2]
+        K1 = torch.einsum(
+            self.coeffs_1,
+            [..., 0],
+            K_ortho,
+            [..., 0, 1] + non_diag_dim,
+            [..., 1] + non_diag_dim,
+        )
         # adding the non-batch dimensions to offset
-        K = K1 + self.offset[..., None, None]
+        K = K1 + self.offset[(...,) + self._trailing_dims(diag)]
         if self.coeffs_2 is not None:
             # Computing the tensor of second order interactions K2.
             # NOTE: K2 here is equivalent to:
@@ -244,20 +300,164 @@ class OrthogonalAdditiveKernel(Kernel):
             # but avoids forming the ``batch_shape x d x d x n x n``-dim tensor
             # in memory.
             # Reducing over the dimensions with the O(d^2) quadratic terms:
+            non_diag_dim = [] if diag else [3]
             K2 = torch.einsum(
                 K_ortho,
-                [..., 0, 2, 3],
+                [..., 0, 2] + non_diag_dim,
                 K_ortho,
-                [..., 1, 2, 3],
+                [..., 1, 2] + non_diag_dim,
                 self.coeffs_2,
                 [..., 0, 1],
-                [..., 2, 3],  # i.e. contracting over the first two non-batch dims
+                # i.e. contracting over the first two non-batch dims
+                [..., 2] + non_diag_dim,
             )
             K = K + K2
 
-        return K if not diag else K.diag()  # poor man's diag (TODO)
+        return K
 
-    def _orthogonal_base_kernels(self, x1: Tensor, x2: Tensor) -> Tensor:
+    def _non_reduced_forward(
+        self,
+        x1: Tensor,
+        x2: Tensor,
+        diag: bool = False,
+        last_dim_is_batch: bool = False,
+    ) -> Tensor:
+        """Computes the non-reduced kernel matrices for each additive component.
+
+        Returns a stacked tensor of component kernel matrices that can be used for
+        posterior inference of individual additive components. The components are:
+        - 1 bias term (constant offset)
+        - d first-order terms (one per input dimension)
+        - d*(d-1)/2 second-order terms (upper triangular, excluding diagonal)
+
+        Args:
+            x1: `batch_shape x n1 x d`-dim Tensor in [0, 1]^dim.
+            x2: `batch_shape x n2 x d`-dim Tensor in [0, 1]^dim.
+            diag: If True, only returns the diagonal of the kernel matrix.
+            last_dim_is_batch: Not supported by this kernel.
+
+        Returns:
+            A `batch_shape x num_components x n1 x n2`-dim Tensor of kernel matrices,
+            where num_components = 1 + d (first-order only) or 1 + d + d*(d-1)/2
+            (with second-order interactions).
+        """
+        if last_dim_is_batch:
+            raise UnsupportedError(
+                "OrthogonalAdditiveKernel does not support `last_dim_is_batch`."
+            )
+
+        K_ortho = self._orthogonal_base_kernels(
+            x1, x2, diag=diag
+        )  # batch_shape x d x n1 (x n2)
+        n1, n2 = x1.shape[-2], x2.shape[-2]
+
+        # First-order: batch_shape x d x n (x n)
+        K1 = self._coeff_for_kernel_broadcast(self.coeffs_1, diag) * K_ortho
+
+        # Bias: batch_shape x 1 x n (x n)
+        component_dim = -2 if diag else -3
+        K0 = self._bias_covariance(n1, n2, diag).unsqueeze(component_dim)
+
+        component_tensors = [K0, K1]
+
+        if self.raw_coeffs_2 is not None:
+            row_idcs, col_idcs = self._triu_indices(x1.device)
+            K_i = self._slice_kernel_components(K_ortho, row_idcs, diag)
+            K_j = self._slice_kernel_components(K_ortho, col_idcs, diag)
+            coeffs_2 = self.coeff_constraint.transform(self.raw_coeffs_2)
+            K2 = self._coeff_for_kernel_broadcast(coeffs_2, diag) * (K_i * K_j)
+            component_tensors.append(K2)
+
+        return torch.cat(component_tensors, dim=component_dim)
+
+    @property
+    def component_indices(self) -> dict[str, Tensor]:
+        """Returns mapping from component type to input dimension indices.
+
+        This property helps users understand which batch index in the output of
+        `_non_reduced_forward` corresponds to which additive component.
+
+        Returns:
+            A dict with keys:
+            - 'bias': Tensor of shape (1,) with value 0 (the bias component index)
+            - 'first_order': Tensor of shape (d,) with values 1, 2, ..., d
+                (indices into batch dimension, mapping to input dimensions 0..d-1)
+            - 'second_order': Tensor of shape (d*(d-1)/2, 2) with pairs (i, j)
+                where i < j, representing interaction between input dims i and j
+                (only present if second_order=True)
+        """
+        d = self.dim
+        device = self.raw_offset.device
+
+        result = {
+            "bias": torch.tensor([0], device=device),
+            "first_order": torch.arange(d, device=device),
+        }
+
+        if self.raw_coeffs_2 is not None:
+            # Upper triangular indices (i, j) where i < j
+            row_idcs, col_idcs = self._triu_indices(device)
+            result["second_order"] = torch.stack([row_idcs, col_idcs], dim=-1)
+
+        return result
+
+    def get_component_index(
+        self,
+        component_type: str,
+        dim_index: int | tuple[int, int] | None = None,
+    ) -> int:
+        """Returns the component index for a given component type and dimension.
+
+        Args:
+            component_type: One of "bias", "first_order", or "second_order"
+            dim_index: For "first_order", the input dimension (0 to d-1).
+                       For "second_order", a tuple (i, j) where i < j.
+                       Not used for "bias".
+
+        Returns:
+            The integer index into the component batch dimension.
+
+        Raises:
+            ValueError: If component_type is unknown or dim_index is invalid.
+            IndexError: If dim_index is out of range.
+        """
+        d = self.dim
+
+        if component_type == "bias":
+            return 0
+        elif component_type == "first_order":
+            if dim_index is None or not isinstance(dim_index, int):
+                raise ValueError("dim_index must be an int for first_order")
+            if dim_index < 0 or dim_index >= d:
+                raise IndexError(f"dim_index {dim_index} out of range [0, {d - 1}]")
+            return 1 + dim_index
+        elif component_type == "second_order":
+            if self.raw_coeffs_2 is None:
+                raise ValueError("second_order components not enabled for this kernel")
+            if (
+                dim_index is None
+                or not isinstance(dim_index, tuple)
+                or len(dim_index) != 2
+            ):
+                raise ValueError("dim_index must be a tuple (i, j) for second_order")
+            i, j = dim_index
+            if i >= j:
+                raise ValueError(f"For second_order, require i < j, got ({i}, {j})")
+            if i < 0 or j >= d:
+                raise IndexError(f"Invalid second_order index ({i}, {j}) for dim={d}")
+            # Find the index in the upper triangular enumeration
+            row_idcs, col_idcs = self._triu_indices()
+            mask = (row_idcs == i) & (col_idcs == j)
+            idx = mask.nonzero(as_tuple=True)[0]
+            if len(idx) == 0:
+                raise IndexError(f"Invalid second_order index ({i}, {j})")
+            return 1 + d + idx.item()
+        else:
+            raise ValueError(f"Unknown component_type: {component_type}")
+
+    def _orthogonal_base_kernels(
+        self, x1: Tensor, x2: Tensor, diag: bool = False
+    ) -> Tensor:
         """Evaluates the set of ``d`` orthogonalized base kernels on (x1, x2).
         Note that even if the base kernel is positive, the orthogonalized versions
         can - and usually do - take negative values.
@@ -265,22 +465,26 @@ class OrthogonalAdditiveKernel(Kernel):
         Args:
             x1: ``batch_shape x n1 x d``-dim inputs to the kernel.
             x2: ``batch_shape x n2 x d``-dim inputs to the kernel.
+            diag: Whether to evaluate only the diagonal of the kernel matrix.
 
         Returns:
-            A ``batch_shape x d x n1 x n2``-dim Tensor.
+            A ``batch_shape x d x n1 x n2``-dim Tensor, or a `batch_shape x d x n1`-dim
+            Tensor if `diag=True`.
         """
         _check_hypercube(x1, "x1")
         if x1 is not x2:
             _check_hypercube(x2, "x2")
-        Kx1x2 = self.k(x1, x2)  # d x n x n
+        Kx1x2 = self.k(x1, x2, diag=diag)  # batch_shape x d x n1 (x n2)
         # Overwriting allocated quadrature tensors with fitting dtype and device
         # self.z, self.w = self.z.to(x1), self.w.to(x1)
         # include normalization constant in weights
+        # self.w: (q, 1), self.normalizer(): (d, 1, 1) -> w: (d, q, 1)
         w = self.w / self.normalizer().sqrt()
-        Skx1 = self.k(x1, self.z) @ w  # batch_shape x d x n
-        Skx2 = Skx1 if (x1 is x2) else self.k(x2, self.z) @ w  # d x n
-        # this is a tensor of kernel matrices of orthogonal 1d kernels
-        K_ortho = (Kx1x2 - Skx1 @ Skx2.transpose(-2, -1)).to_dense()  # d x n x n
+        # self.k(x1, self.z): batch_shape, d, n, q
+        Skx1 = self.k(x1, self.z) @ w  # batch_shape, d, n, 1
+        Skx2 = Skx1 if (x1 is x2) else self.k(x2, self.z) @ w
+        correction = Skx1 @ Skx2.transpose(-2, -1) if not diag else Skx1.square()
+        K_ortho = (Kx1x2 - correction).to_dense()  # batch_shape x d x n1 (x n2)
         return K_ortho
 
     def normalizer(self, eps: float = 1e-6) -> Tensor:
@@ -292,10 +496,21 @@ class OrthogonalAdditiveKernel(Kernel):
             eps: Minimum value constraint on the normalizers. Avoids division by zero.
 
         Returns:
-            A ``d``-dim tensor of normalization constants.
+            A ``(d, 1, 1)``-dim tensor of normalization constants.
         """
         if self.train() or getattr(self, "_normalizer", None) is None:
-            self._normalizer = (self.w.T @ self.k(self.z, self.z) @ self.w).clamp(eps)
+            # Computes w.T @ K @ w for each dimension d.
+            w = self.w.squeeze(-1)  # (q, 1) -> (q,)
+            normalizer = torch.einsum(
+                w,
+                [0],
+                self.k(self.z, self.z),
+                [2, 0, 1],
+                w,
+                [1],
+                [2],
+            ).clamp(eps)  # (d)
+            self._normalizer = normalizer[..., None, None]
         return self._normalizer
 
 
