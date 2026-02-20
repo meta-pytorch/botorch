@@ -11,7 +11,8 @@ References
     Optimization with Natural Simplicity and Interpretability. ArXiv, 2026.
 """
 
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 import torch
 from botorch.acquisition.objective import PosteriorTransform

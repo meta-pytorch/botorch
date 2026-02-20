@@ -12,9 +12,9 @@ from __future__ import annotations
 
 import time
 import warnings
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from functools import partial
-from typing import Any, Mapping, NoReturn
+from typing import Any, NoReturn
 
 import numpy as np
 import numpy.typing as npt
