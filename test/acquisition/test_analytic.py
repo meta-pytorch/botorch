@@ -10,12 +10,10 @@ from unittest import mock
 from warnings import catch_warnings, simplefilter
 
 import torch
-from botorch.acquisition import qAnalyticProbabilityOfImprovement
 from botorch.acquisition.analytic import (
     _check_noisy_ei_model,
     _ei_helper,
     _log_ei_helper,
-    AnalyticAcquisitionFunction,
     ConstrainedAnalyticAcquisitionFunctionMixin,
     ConstrainedExpectedImprovement,
     ExpectedImprovement,
@@ -25,11 +23,7 @@ from botorch.acquisition.analytic import (
     LogProbabilityOfFeasibility,
     LogProbabilityOfImprovement,
     NoisyExpectedImprovement,
-    PosteriorMean,
-    PosteriorStandardDeviation,
     ProbabilityOfImprovement,
-    ScalarizedPosteriorMean,
-    UpperConfidenceBound,
 )
 from botorch.acquisition.objective import (
     IdentityMCObjective,
@@ -65,28 +59,6 @@ NEI_NOISE = [
     [-0.237],
     [0.052],
 ]
-
-
-class DummyAnalyticAcquisitionFunction(AnalyticAcquisitionFunction):
-    def forward(self, X):
-        pass
-
-
-class TestAnalyticAcquisitionFunction(BotorchTestCase):
-    def test_init(self):
-        with self.assertRaises(TypeError):
-            AnalyticAcquisitionFunction()
-        # single-output models should always work
-        mm = MockModel(MockPosterior(mean=torch.zeros(1, 1), variance=torch.ones(1, 1)))
-        DummyAnalyticAcquisitionFunction(model=mm)
-        # raise if model is multi-output, but no posterior transform is given
-        mean = torch.zeros(1, 2)
-        variance = torch.ones(1, 2)
-        mm = MockModel(MockPosterior(mean=mean, variance=variance))
-        with self.assertRaises(UnsupportedError):
-            DummyAnalyticAcquisitionFunction(model=mm)
-        # do not raise if the allwo_multi_output flag is set
-        DummyAnalyticAcquisitionFunction(model=mm, allow_multi_output=True)
 
 
 class TestExpectedImprovement(BotorchTestCase):
@@ -278,87 +250,6 @@ class TestExpectedImprovement(BotorchTestCase):
             )
 
 
-class TestPosteriorMean(BotorchTestCase):
-    def test_posterior_mean(self):
-        for dtype in (torch.float, torch.double):
-            mean = torch.rand(3, 1, device=self.device, dtype=dtype)
-            mm = MockModel(MockPosterior(mean=mean))
-
-            module = PosteriorMean(model=mm)
-            X = torch.rand(3, 1, 2, device=self.device, dtype=dtype)
-            pm = module(X)
-            self.assertTrue(torch.equal(pm, mean.view(-1)))
-
-            module = PosteriorMean(model=mm, maximize=False)
-            X = torch.rand(3, 1, 2, device=self.device, dtype=dtype)
-            pm = module(X)
-            self.assertTrue(torch.equal(pm, -mean.view(-1)))
-
-            # check for proper error if multi-output model
-            mean2 = torch.rand(1, 2, device=self.device, dtype=dtype)
-            mm2 = MockModel(MockPosterior(mean=mean2))
-            with self.assertRaises(UnsupportedError):
-                PosteriorMean(model=mm2)
-
-    def test_posterior_mean_batch(self):
-        for dtype in (torch.float, torch.double):
-            mean = torch.tensor([-0.5, 0.0, 0.5], device=self.device, dtype=dtype).view(
-                3, 1, 1
-            )
-            mm = MockModel(MockPosterior(mean=mean))
-            module = PosteriorMean(model=mm)
-            X = torch.empty(3, 1, 1, device=self.device, dtype=dtype)
-            pm = module(X)
-            self.assertTrue(torch.equal(pm, mean.view(-1)))
-            # check for proper error if multi-output model
-            mean2 = torch.rand(3, 1, 2, device=self.device, dtype=dtype)
-            mm2 = MockModel(MockPosterior(mean=mean2))
-            with self.assertRaises(UnsupportedError):
-                PosteriorMean(model=mm2)
-
-
-class TestPosteriorStandardDeviation(BotorchTestCase):
-    def test_posterior_stddev(self):
-        for dtype in (torch.float, torch.double):
-            mean = torch.rand(3, 1, device=self.device, dtype=dtype)
-            std = torch.rand_like(mean)
-            mm = MockModel(MockPosterior(mean=mean, variance=std.square()))
-
-            acqf = PosteriorStandardDeviation(model=mm)
-            X = torch.rand(3, 1, 2, device=self.device, dtype=dtype)
-            pm = acqf(X)
-            self.assertTrue(torch.equal(pm, std.view(-1)))
-
-            acqf = PosteriorStandardDeviation(model=mm, maximize=False)
-            X = torch.rand(3, 1, 2, device=self.device, dtype=dtype)
-            pm = acqf(X)
-            self.assertTrue(torch.equal(pm, -std.view(-1)))
-
-            # check for proper error if multi-output model
-            mean2 = torch.rand(1, 2, device=self.device, dtype=dtype)
-            std2 = torch.rand_like(mean2)
-            mm2 = MockModel(MockPosterior(mean=mean2, variance=std2.square()))
-            with self.assertRaises(UnsupportedError):
-                PosteriorStandardDeviation(model=mm2)
-
-    def test_posterior_stddev_batch(self):
-        for dtype in (torch.float, torch.double):
-            mean = torch.rand(3, 1, 1, device=self.device, dtype=dtype)
-            std = torch.rand_like(mean)
-            mm = MockModel(MockPosterior(mean=mean, variance=std.square()))
-            acqf = PosteriorStandardDeviation(model=mm)
-            X = torch.empty(3, 1, 1, device=self.device, dtype=dtype)
-            pm = acqf(X)
-            self.assertAllClose(pm, std.view(-1))
-            # check for proper error if multi-output model
-            mean2 = torch.rand(3, 1, 2, device=self.device, dtype=dtype)
-            std2 = torch.rand_like(mean2)
-            mm2 = MockModel(MockPosterior(mean=mean2, variance=std2.square()))
-            msg = "Must specify a posterior transform when using a multi-output model."
-            with self.assertRaisesRegex(UnsupportedError, msg):
-                PosteriorStandardDeviation(model=mm2)
-
-
 class TestProbabilityOfImprovement(BotorchTestCase):
     def test_probability_of_improvement(self):
         for dtype in (torch.float, torch.double):
@@ -416,209 +307,6 @@ class TestProbabilityOfImprovement(BotorchTestCase):
 
             with self.assertRaises(UnsupportedError):
                 LogProbabilityOfImprovement(model=mm2, best_f=0.0)
-
-
-class TestqAnalyticProbabilityOfImprovement(BotorchTestCase):
-    def test_q_analytic_probability_of_improvement(self):
-        for dtype in (torch.float, torch.double):
-            mean = torch.zeros(1, device=self.device, dtype=dtype)
-            cov = torch.eye(n=1, device=self.device, dtype=dtype)
-            mvn = MultivariateNormal(mean=mean, covariance_matrix=cov)
-            posterior = GPyTorchPosterior(mvn)
-            mm = MockModel(posterior)
-
-            # basic test
-            module = qAnalyticProbabilityOfImprovement(model=mm, best_f=1.96)
-            X = torch.rand(1, 2, device=self.device, dtype=dtype)
-            pi = module(X)
-            pi_expected = torch.tensor(0.0250, device=self.device, dtype=dtype)
-            self.assertTrue(torch.allclose(pi, pi_expected, atol=1e-4))
-
-            # basic test, maximize
-            module = qAnalyticProbabilityOfImprovement(
-                model=mm, best_f=1.96, maximize=False
-            )
-            X = torch.rand(1, 2, device=self.device, dtype=dtype)
-            pi = module(X)
-            pi_expected = torch.tensor(0.9750, device=self.device, dtype=dtype)
-            self.assertTrue(torch.allclose(pi, pi_expected, atol=1e-4))
-
-            # basic test, posterior transform (single-output)
-            mean = torch.ones(1, device=self.device, dtype=dtype)
-            cov = torch.eye(n=1, device=self.device, dtype=dtype)
-            mvn = MultivariateNormal(mean=mean, covariance_matrix=cov)
-            posterior = GPyTorchPosterior(mvn)
-            mm = MockModel(posterior)
-            weights = torch.tensor([0.5], device=self.device, dtype=dtype)
-            transform = ScalarizedPosteriorTransform(weights)
-            module = qAnalyticProbabilityOfImprovement(
-                model=mm, best_f=0.0, posterior_transform=transform
-            )
-            X = torch.rand(1, 2, device=self.device, dtype=dtype)
-            pi = module(X)
-            pi_expected = torch.tensor(0.8413, device=self.device, dtype=dtype)
-            self.assertTrue(torch.allclose(pi, pi_expected, atol=1e-4))
-
-            # basic test, posterior transform (multi-output)
-            mean = torch.ones(1, 2, device=self.device, dtype=dtype)
-            cov = torch.eye(n=2, device=self.device, dtype=dtype).unsqueeze(0)
-            mvn = MultitaskMultivariateNormal(mean=mean, covariance_matrix=cov)
-            posterior = GPyTorchPosterior(mvn)
-            mm = MockModel(posterior)
-            weights = torch.ones(2, device=self.device, dtype=dtype)
-            transform = ScalarizedPosteriorTransform(weights)
-            module = qAnalyticProbabilityOfImprovement(
-                model=mm, best_f=0.0, posterior_transform=transform
-            )
-            X = torch.rand(1, 1, device=self.device, dtype=dtype)
-            pi = module(X)
-            pi_expected = torch.tensor(0.9214, device=self.device, dtype=dtype)
-            self.assertTrue(torch.allclose(pi, pi_expected, atol=1e-4))
-
-            # basic test, q = 2
-            mean = torch.zeros(2, device=self.device, dtype=dtype)
-            cov = torch.eye(n=2, device=self.device, dtype=dtype)
-            mvn = MultivariateNormal(mean=mean, covariance_matrix=cov)
-            posterior = GPyTorchPosterior(mvn)
-            mm = MockModel(posterior)
-            module = qAnalyticProbabilityOfImprovement(model=mm, best_f=1.96)
-            X = torch.zeros(2, 2, device=self.device, dtype=dtype)
-            pi = module(X)
-            pi_expected = torch.tensor(0.049375, device=self.device, dtype=dtype)
-            self.assertTrue(torch.allclose(pi, pi_expected, atol=1e-4))
-
-    def test_batch_q_analytic_probability_of_improvement(self):
-        for dtype in (torch.float, torch.double):
-            # test batch mode
-            mean = torch.tensor([[0.0], [1.0]], device=self.device, dtype=dtype)
-            cov = (
-                torch.eye(n=1, device=self.device, dtype=dtype)
-                .unsqueeze(0)
-                .repeat(2, 1, 1)
-            )
-            mvn = MultivariateNormal(mean=mean, covariance_matrix=cov)
-            posterior = GPyTorchPosterior(mvn)
-            mm = MockModel(posterior)
-            module = qAnalyticProbabilityOfImprovement(model=mm, best_f=0)
-            X = torch.rand(2, 1, 1, device=self.device, dtype=dtype)
-            pi = module(X)
-            pi_expected = torch.tensor([0.5, 0.8413], device=self.device, dtype=dtype)
-            self.assertTrue(torch.allclose(pi, pi_expected, atol=1e-4))
-
-            # test batched model and best_f values
-            mean = torch.zeros(2, 1, device=self.device, dtype=dtype)
-            cov = (
-                torch.eye(n=1, device=self.device, dtype=dtype)
-                .unsqueeze(0)
-                .repeat(2, 1, 1)
-            )
-            mvn = MultivariateNormal(mean=mean, covariance_matrix=cov)
-            posterior = GPyTorchPosterior(mvn)
-            mm = MockModel(posterior)
-            best_f = torch.tensor([0.0, -1.0], device=self.device, dtype=dtype)
-            module = qAnalyticProbabilityOfImprovement(model=mm, best_f=best_f)
-            X = torch.rand(2, 1, 1, device=self.device, dtype=dtype)
-            pi = module(X)
-            pi_expected = torch.tensor([[0.5, 0.8413]], device=self.device, dtype=dtype)
-            self.assertTrue(torch.allclose(pi, pi_expected, atol=1e-4))
-
-            # test batched model, output transform (single output)
-            mean = torch.tensor([[0.0], [1.0]], device=self.device, dtype=dtype)
-            cov = (
-                torch.eye(n=1, device=self.device, dtype=dtype)
-                .unsqueeze(0)
-                .repeat(2, 1, 1)
-            )
-            mvn = MultivariateNormal(mean=mean, covariance_matrix=cov)
-            posterior = GPyTorchPosterior(mvn)
-            mm = MockModel(posterior)
-            weights = torch.tensor([0.5], device=self.device, dtype=dtype)
-            transform = ScalarizedPosteriorTransform(weights)
-            module = qAnalyticProbabilityOfImprovement(
-                model=mm, best_f=0.0, posterior_transform=transform
-            )
-            X = torch.rand(2, 1, 2, device=self.device, dtype=dtype)
-            pi = module(X)
-            pi_expected = torch.tensor([0.5, 0.8413], device=self.device, dtype=dtype)
-            self.assertTrue(torch.allclose(pi, pi_expected, atol=1e-4))
-
-            # test batched model, output transform (multiple output)
-            mean = torch.tensor(
-                [[[1.0, 1.0]], [[0.0, 1.0]]], device=self.device, dtype=dtype
-            )
-            cov = (
-                torch.eye(n=2, device=self.device, dtype=dtype)
-                .unsqueeze(0)
-                .repeat(2, 1, 1)
-            )
-            mvn = MultitaskMultivariateNormal(mean=mean, covariance_matrix=cov)
-            posterior = GPyTorchPosterior(mvn)
-            mm = MockModel(posterior)
-            weights = torch.ones(2, device=self.device, dtype=dtype)
-            transform = ScalarizedPosteriorTransform(weights)
-            module = qAnalyticProbabilityOfImprovement(
-                model=mm, best_f=0.0, posterior_transform=transform
-            )
-            X = torch.rand(2, 1, 2, device=self.device, dtype=dtype)
-            pi = module(X)
-            pi_expected = torch.tensor(
-                [0.9214, 0.7602], device=self.device, dtype=dtype
-            )
-            self.assertTrue(torch.allclose(pi, pi_expected, atol=1e-4))
-
-            # test bad posterior transform class
-            with self.assertRaises(UnsupportedError):
-                qAnalyticProbabilityOfImprovement(
-                    model=mm, best_f=0.0, posterior_transform=IdentityMCObjective()
-                )
-
-
-class TestUpperConfidenceBound(BotorchTestCase):
-    def test_upper_confidence_bound(self):
-        for dtype in (torch.float, torch.double):
-            mean = torch.tensor([[0.5]], device=self.device, dtype=dtype)
-            variance = torch.tensor([[1.0]], device=self.device, dtype=dtype)
-            mm = MockModel(MockPosterior(mean=mean, variance=variance))
-
-            module = UpperConfidenceBound(model=mm, beta=1.0)
-            X = torch.zeros(1, 1, device=self.device, dtype=dtype)
-            ucb = module(X)
-            ucb_expected = torch.tensor(1.5, device=self.device, dtype=dtype)
-            self.assertAllClose(ucb, ucb_expected, atol=1e-4)
-
-            module = UpperConfidenceBound(model=mm, beta=1.0, maximize=False)
-            X = torch.zeros(1, 1, device=self.device, dtype=dtype)
-            ucb = module(X)
-            ucb_expected = torch.tensor(0.5, device=self.device, dtype=dtype)
-            self.assertAllClose(ucb, ucb_expected, atol=1e-4)
-
-            # check for proper error if multi-output model
-            mean2 = torch.rand(1, 2, device=self.device, dtype=dtype)
-            variance2 = torch.rand(1, 2, device=self.device, dtype=dtype)
-            mm2 = MockModel(MockPosterior(mean=mean2, variance=variance2))
-            with self.assertRaises(UnsupportedError):
-                UpperConfidenceBound(model=mm2, beta=1.0)
-
-    def test_upper_confidence_bound_batch(self):
-        for dtype in (torch.float, torch.double):
-            mean = torch.tensor([0.0, 0.5], device=self.device, dtype=dtype).view(
-                2, 1, 1
-            )
-            variance = torch.tensor([1.0, 4.0], device=self.device, dtype=dtype).view(
-                2, 1, 1
-            )
-            mm = MockModel(MockPosterior(mean=mean, variance=variance))
-            module = UpperConfidenceBound(model=mm, beta=1.0)
-            X = torch.zeros(2, 1, 1, device=self.device, dtype=dtype)
-            ucb = module(X)
-            ucb_expected = torch.tensor([1.0, 2.5], device=self.device, dtype=dtype)
-            self.assertAllClose(ucb, ucb_expected, atol=1e-4)
-            # check for proper error if multi-output model
-            mean2 = torch.rand(3, 1, 2, device=self.device, dtype=dtype)
-            variance2 = torch.rand(3, 1, 2, device=self.device, dtype=dtype)
-            mm2 = MockModel(MockPosterior(mean=mean2, variance=variance2))
-            with self.assertRaises(UnsupportedError):
-                UpperConfidenceBound(model=mm2, beta=1.0)
 
 
 class ConstrainedAnalyticAcquisitionFunctionTestHelper(
@@ -1162,32 +850,3 @@ class TestNoisyExpectedImprovement(BotorchTestCase):
         model.likelihood = GaussianLikelihood()
         with self.assertRaisesRegex(UnsupportedError, "Model likelihood is not"):
             _check_noisy_ei_model(model=model)
-
-
-class TestScalarizedPosteriorMean(BotorchTestCase):
-    def test_scalarized_posterior_mean(self) -> None:
-        for dtype in (torch.float, torch.double):
-            mean = torch.tensor([[0.25], [0.5]], device=self.device, dtype=dtype)
-            mm = MockModel(MockPosterior(mean=mean))
-            weights = torch.tensor([0.5, 1.0], device=self.device, dtype=dtype)
-            module = ScalarizedPosteriorMean(model=mm, weights=weights)
-            X = torch.empty(1, 1, device=self.device, dtype=dtype)
-            pm = module(X)
-            self.assertTrue(
-                torch.allclose(pm, (mean.squeeze(-1) * module.weights).sum(dim=-1))
-            )
-
-    def test_scalarized_posterior_mean_batch(self) -> None:
-        for dtype in (torch.float, torch.double):
-            mean = torch.tensor(
-                [[-0.5, 1.0], [0.0, 1.0], [0.5, 1.0]], device=self.device, dtype=dtype
-            ).view(3, 2, 1)
-            mm = MockModel(MockPosterior(mean=mean))
-            weights = torch.tensor([0.5, 1.0], device=self.device, dtype=dtype)
-
-            module = ScalarizedPosteriorMean(model=mm, weights=weights)
-            X = torch.empty(3, 1, 1, device=self.device, dtype=dtype)
-            pm = module(X)
-            self.assertTrue(
-                torch.allclose(pm, (mean.squeeze(-1) * module.weights).sum(dim=-1))
-            )
