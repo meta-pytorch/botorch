@@ -14,10 +14,12 @@ from unittest import mock
 
 import numpy as np
 import torch
+
 from botorch.acquisition.acquisition import (
     AcquisitionFunction,
     OneShotAcquisitionFunction,
 )
+from botorch.acquisition.analytic import LogExpectedImprovement
 from botorch.acquisition.knowledge_gradient import qKnowledgeGradient
 from botorch.acquisition.monte_carlo import qExpectedImprovement
 from botorch.acquisition.multi_objective.hypervolume_knowledge_gradient import (
@@ -1249,6 +1251,23 @@ class TestOptimizeAcqf(BotorchTestCase):
                     ),
                 ),
             )
+
+    def test_optimize_acqf_all_fixed_features(self):
+        train_X = torch.rand(3, 2)
+        train_Y = torch.rand(3, 1)
+        gp = SingleTaskGP(train_X=train_X, train_Y=train_Y)
+        gp.eval()
+        logEI = LogExpectedImprovement(model=gp, best_f=train_Y.max())
+        bounds = torch.stack([torch.zeros(2), torch.ones(2)])
+        _, acqf_value = optimize_acqf(
+            logEI,
+            bounds,
+            q=1,
+            num_restarts=1,
+            raw_samples=1,
+            fixed_features={0: 0, 1: 0},
+        )
+        self.assertEqual(acqf_value.ndim, 0)
 
     def test_constraint_caching(self):
         def nlc(x):
