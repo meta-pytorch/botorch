@@ -60,7 +60,7 @@ INIT_OPTION_KEYS = {
 }
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True, slots=True, kw_only=True)
 class OptimizeAcqfInputs:
     """
     Container for inputs to ``optimize_acqf``.

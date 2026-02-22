@@ -52,7 +52,7 @@ def _flip_sub_unique(x: Tensor, k: int) -> Tensor:
     return x[idcs[: len(out)]]
 
 
-@dataclass(frozen=True, repr=False, eq=False)
+@dataclass(frozen=True, repr=False, eq=False, slots=True)
 class _NoFixedFeatures:
     """
     Dataclass to store the objects after removing fixed features.
