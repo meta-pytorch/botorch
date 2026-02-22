@@ -13,7 +13,7 @@ For the latter to work ``pfns4bo`` must be installed.
 
 from __future__ import annotations
 
-from typing import Any, Optional, Union
+from typing import Any
 
 import torch
 from botorch.acquisition.objective import PosteriorTransform
@@ -198,9 +198,9 @@ class PFNModel(Model):
     def posterior(
         self,
         X: Tensor,
-        output_indices: Optional[list[int]] = None,
-        observation_noise: Union[bool, Tensor] = False,
-        posterior_transform: Optional[PosteriorTransform] = None,
+        output_indices: list[int] | None = None,
+        observation_noise: bool | Tensor = False,
+        posterior_transform: PosteriorTransform | None = None,
         negate_train_ys: bool = False,
     ) -> BoundedRiemannPosterior:
         r"""Computes the posterior over model outputs at the provided points.
@@ -341,10 +341,10 @@ class PFNModelWithPendingPoints(PFNModel):
     def posterior(
         self,
         X: Tensor,
-        output_indices: Optional[list[int]] = None,
-        observation_noise: Union[bool, Tensor] = False,
-        posterior_transform: Optional[PosteriorTransform] = None,
-        pending_X: Optional[Tensor] = None,
+        output_indices: list[int] | None = None,
+        observation_noise: bool | Tensor = False,
+        posterior_transform: PosteriorTransform | None = None,
+        pending_X: Tensor | None = None,
         negate_train_ys: bool = False,
     ) -> BoundedRiemannPosterior:
         r"""Computes the posterior over model outputs at the provided points.
@@ -429,10 +429,10 @@ class MultivariatePFNModel(PFNModel):
     def posterior(
         self,
         X: Tensor,
-        output_indices: Optional[list[int]] = None,
-        observation_noise: Union[bool, Tensor] = False,
-        posterior_transform: Optional[PosteriorTransform] = None,
-    ) -> Union[BoundedRiemannPosterior, MultivariateRiemannPosterior]:
+        output_indices: list[int] | None = None,
+        observation_noise: bool | Tensor = False,
+        posterior_transform: PosteriorTransform | None = None,
+    ) -> BoundedRiemannPosterior | MultivariateRiemannPosterior:
         """Computes the posterior over model outputs at the provided points.
 
         Will produce a MultivariateRiemannPosterior that fits a joint structure

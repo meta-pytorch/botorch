@@ -17,7 +17,7 @@ References:
 Contributor: eibarolle
 """
 
-from typing import Callable, List, Optional, Tuple
+from collections.abc import Callable
 
 import torch
 import torch.nn as nn
@@ -37,9 +37,9 @@ class MLP(nn.Module):
         self,
         input_dim: int,
         output_dim: int,
-        hidden_dims: List[int],
+        hidden_dims: list[int],
         activation: Callable = nn.Sigmoid,
-        init_func: Optional[Callable] = nn.init.normal_,
+        init_func: Callable | None = nn.init.normal_,
     ) -> None:
         r"""
         A modular implementation of a Multilayer Perceptron (MLP).
@@ -81,9 +81,9 @@ class REncoder(nn.Module):
         self,
         input_dim: int,
         output_dim: int,
-        hidden_dims: List[int],
+        hidden_dims: list[int],
         activation: Callable = nn.Sigmoid,
-        init_func: Optional[Callable] = nn.init.normal_,
+        init_func: Callable | None = nn.init.normal_,
     ) -> None:
         r"""Encodes inputs of the form (x_i,y_i) into representations, r_i.
 
@@ -123,9 +123,9 @@ class ZEncoder(nn.Module):
         self,
         input_dim: int,
         output_dim: int,
-        hidden_dims: List[int],
+        hidden_dims: list[int],
         activation: Callable = nn.Sigmoid,
-        init_func: Optional[Callable] = nn.init.normal_,
+        init_func: Callable | None = nn.init.normal_,
     ) -> None:
         r"""Takes an r representation and produces the mean & standard
         deviation of the normally distributed function encoding, z.
@@ -175,9 +175,9 @@ class Decoder(torch.nn.Module):
         self,
         input_dim: int,
         output_dim: int,
-        hidden_dims: List[int],
+        hidden_dims: list[int],
         activation: Callable = nn.Sigmoid,
-        init_func: Optional[Callable] = nn.init.normal_,
+        init_func: Callable | None = nn.init.normal_,
     ) -> None:
         r"""Takes the x star points, along with a 'function encoding', z, and makes
         predictions.
@@ -227,16 +227,16 @@ class NeuralProcessModel(Model, GP):
         self,
         train_X: torch.Tensor,
         train_Y: torch.Tensor,
-        r_hidden_dims: List[int] | None = None,
-        z_hidden_dims: List[int] | None = None,
-        decoder_hidden_dims: List[int] | None = None,
+        r_hidden_dims: list[int] | None = None,
+        z_hidden_dims: list[int] | None = None,
+        decoder_hidden_dims: list[int] | None = None,
         x_dim: int = 2,
         y_dim: int = 1,
         r_dim: int = 64,
         z_dim: int = 8,
         n_context: int = 20,
         activation: Callable = nn.Sigmoid,
-        init_func: Optional[Callable] = torch.nn.init.normal_,
+        init_func: Callable | None = torch.nn.init.normal_,
         likelihood: Likelihood | None = None,
         input_transform: InputTransform | None = None,
     ) -> None:
@@ -305,7 +305,7 @@ class NeuralProcessModel(Model, GP):
 
     def data_to_z_params(
         self, x: torch.Tensor, y: torch.Tensor, r_dim: int = 0
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         r"""Compute latent parameters from inputs as a latent distribution.
 
         Args:
@@ -423,7 +423,7 @@ class NeuralProcessModel(Model, GP):
     def transform_inputs(
         self,
         X: torch.Tensor,
-        input_transform: Optional[Module] = None,
+        input_transform: Module | None = None,
     ) -> torch.Tensor:
         r"""Transform inputs.
 
@@ -476,7 +476,7 @@ class NeuralProcessModel(Model, GP):
 
     def random_split_context_target(
         self, x: torch.Tensor, y: torch.Tensor, n_context, axis: int = 0
-    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         r"""Helper function to split randomly into context and target.
 
         Args:

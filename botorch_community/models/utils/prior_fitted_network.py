@@ -8,7 +8,6 @@ import gzip
 import io
 import os
 from enum import Enum
-from typing import Optional
 
 from botorch.logging import logger
 
@@ -46,8 +45,8 @@ class ModelPaths(Enum):
 
 def download_model(
     model_path: str | ModelPaths,
-    proxies: Optional[dict[str, str]] = None,
-    cache_dir: Optional[str] = None,
+    proxies: dict[str, str] | None = None,
+    cache_dir: str | None = None,
 ) -> nn.Module:
     """Download and load PFN model weights from a URL.
 

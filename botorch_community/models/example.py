@@ -16,8 +16,6 @@ References:
 Contributor: saitcakmak
 """
 
-from typing import Optional
-
 from botorch.models.gp_regression import SingleTaskGP
 from gpytorch.kernels import RBFKernel, ScaleKernel
 from torch import Tensor
@@ -25,7 +23,7 @@ from torch import Tensor
 
 class ExampleModel(SingleTaskGP):
     def __init__(
-        self, train_X: Tensor, train_Y: Tensor, train_Yvar: Optional[Tensor] = None
+        self, train_X: Tensor, train_Y: Tensor, train_Yvar: Tensor | None = None
     ) -> None:
         r"""Initialize the example model from [Example2024paper]_.
 

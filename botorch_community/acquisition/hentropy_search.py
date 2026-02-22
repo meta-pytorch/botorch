@@ -29,7 +29,7 @@ Contributor: sangttruong, martinakaduc
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 import torch
 import torch.nn as nn
@@ -46,9 +46,9 @@ from torch import Tensor
 
 
 def get_sampler_and_num_points(
-    sampler: Optional[MCSampler],
-    num_points: Optional[int],
-) -> Tuple[MCSampler, int]:
+    sampler: MCSampler | None,
+    num_points: int | None,
+) -> tuple[MCSampler, int]:
     r"""Make sure the sampler and num_points are consistent, if specified.
     If the sampler is not specified, construct one.
     """
@@ -70,11 +70,11 @@ class qHEntropySearch(MCAcquisitionFunction, OneShotAcquisitionFunction):
         self,
         model: Model,
         loss_function_class: nn.Module,
-        loss_function_hyperparameters: Dict[str, Any],
-        n_fantasy_at_design_pts: Optional[int] = 64,
-        n_fantasy_at_action_pts: Optional[int] = 64,
-        design_sampler: Optional[MCSampler] = None,
-        action_sampler: Optional[MCSampler] = None,
+        loss_function_hyperparameters: dict[str, Any],
+        n_fantasy_at_design_pts: int | None = 64,
+        n_fantasy_at_action_pts: int | None = 64,
+        design_sampler: MCSampler | None = None,
+        action_sampler: MCSampler | None = None,
     ) -> None:
         r"""Batch H-Entropy Search using one-shot optimization.
 
