@@ -1351,7 +1351,7 @@ def construct_inputs_mf_base(
 ) -> dict[str, Any]:
     r"""Construct kwargs for a multifidelity acquisition function's constructor."""
     if fidelity_weights is None:
-        fidelity_weights = {f: 1.0 for f in target_fidelities}
+        fidelity_weights = dict.fromkeys(target_fidelities, 1.0)
 
     if set(target_fidelities) != set(fidelity_weights):
         raise RuntimeError(
