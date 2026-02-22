@@ -13,7 +13,8 @@ Contributor: hvarfner (bayesian_active_learning, scorebo)
 
 from __future__ import annotations
 
-from typing import Any, Hashable, List, Optional, Tuple
+from collections.abc import Hashable
+from typing import Any
 
 import torch
 from botorch.acquisition.input_constructors import (
@@ -80,7 +81,7 @@ def construct_inputs_best_f(
 def construct_inputs_noisy(
     model: Model,
     posterior_transform: PosteriorTransform | None = None,
-    X_pending: Optional[Tensor] = None,
+    X_pending: Tensor | None = None,
 ) -> dict[str, Any]:
     r"""Construct kwargs for the acquisition functions requiring ``best_f``.
 
@@ -109,7 +110,7 @@ def construct_inputs_noisy(
 )
 def construct_inputs_BAL(
     model: Model,
-    X_pending: Optional[Tensor] = None,
+    X_pending: Tensor | None = None,
 ):
     inputs = {
         "model": model,
@@ -122,7 +123,7 @@ def construct_inputs_BAL(
 def construct_inputs_SAL(
     model: Model,
     distance_metric: str = "hellinger",
-    X_pending: Optional[Tensor] = None,
+    X_pending: Tensor | None = None,
 ):
     inputs = {
         "model": model,
@@ -135,11 +136,11 @@ def construct_inputs_SAL(
 @acqf_input_constructor(qSelfCorrectingBayesianOptimization)
 def construct_inputs_SCoreBO(
     model: Model,
-    bounds: List[Tuple[float, float]],
+    bounds: list[tuple[float, float]],
     num_optima: int = 8,
-    posterior_transform: Optional[ScalarizedPosteriorTransform] = None,
+    posterior_transform: ScalarizedPosteriorTransform | None = None,
     distance_metric: str = "hellinger",
-    X_pending: Optional[Tensor] = None,
+    X_pending: Tensor | None = None,
 ):
     dtype = model.train_targets.dtype
     # the number of optima are per model
