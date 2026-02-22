@@ -79,7 +79,7 @@ class LogLinearHomotopySchedule(FixedHomotopySchedule):
         )
 
 
-@dataclass
+@dataclass(slots=True)
 class HomotopyParameter:
     r"""Homotopy parameter.
 
