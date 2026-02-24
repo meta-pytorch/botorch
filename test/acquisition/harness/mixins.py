@@ -10,13 +10,17 @@ from __future__ import annotations
 
 import warnings
 from dataclasses import dataclass, field
+from enum import Enum
 from functools import wraps
 from typing import Any, Callable
 
 import torch
 from botorch.acquisition.acquisition import AcquisitionFunction
+from botorch.acquisition.input_constructors import get_acqf_input_constructor
 from botorch.exceptions import BotorchWarning
+from botorch.models import SingleTaskGP
 from botorch.sampling.normal import IIDNormalSampler, SobolQMCNormalSampler
+from botorch.utils.datasets import SupervisedDataset
 
 from .factories import make_trained_gp, make_X
 
@@ -291,3 +295,164 @@ class MCAcquisitionTestMixin(AcquisitionTestMixin):
                 bs = acqf.sampler.base_samples.clone()
                 acqf(X)
                 self.assertTrue(torch.equal(acqf.sampler.base_samples, bs))
+
+
+# ============================================================================
+# Input constructor harness
+# ============================================================================
+
+
+class ModelCategory(Enum):
+    SINGLE_TASK = "single_task"
+    MODEL_LIST = "model_list"
+
+
+@dataclass
+class InputConstructorSpec:
+    """Spec for testing acquisition functions via their input constructors.
+
+    Mirrors the Ax MBM pattern:
+        get_acqf_input_constructor(cls)(**kwargs) → cls(**result)
+
+    Attributes:
+        cls: The acquisition function class to test.
+        constructor_kwargs: Extra kwargs passed to the input constructor
+            (e.g. ``{"beta": 0.2}`` for UCB).
+        supports_posterior_transform: Whether the constructor accepts
+            ``posterior_transform``.
+        supports_objective: Whether the constructor accepts ``objective``.
+        is_multi_objective: Whether the acqf is multi-objective.
+        compatible_models: Model categories this acqf supports.
+        bypass_tests: Test method names to skip for this spec.
+        expected_defaults: Dict of attribute names → expected values on the
+            constructed acqf (e.g. ``{"fat": True, "tau_max": 1e-3}``).
+        expected_errors: List of (extra_kwargs, exception_type, match_regex)
+            tuples. Each entry asserts that passing those extra kwargs to the
+            input constructor raises the given exception.
+    """
+
+    cls: type[AcquisitionFunction]
+    constructor_kwargs: dict[str, Any] = field(default_factory=dict)
+    supports_posterior_transform: bool = False
+    supports_objective: bool = False
+    is_multi_objective: bool = False
+    compatible_models: list[ModelCategory] = field(
+        default_factory=lambda: [ModelCategory.SINGLE_TASK]
+    )
+    bypass_tests: list[str] = field(default_factory=list)
+    expected_defaults: dict[str, Any] = field(default_factory=dict)
+
+
+def loop_input_constructor_specs(test_method: Callable) -> Callable:
+    """Decorator that runs a test method for each InputConstructorSpec.
+
+    Skips specs that list the test name in ``bypass_tests``.
+    """
+
+    @wraps(test_method)
+    def wrapper(self: "InputConstructorTestMixin") -> None:
+        test_name = test_method.__name__
+        for spec in self.input_constructor_specs:
+            if test_name in spec.bypass_tests:
+                continue
+            with self.subTest(cls=spec.cls.__name__):
+                test_method(self, spec)
+
+    return wrapper
+
+
+class InputConstructorTestMixin:
+    """Mixin providing standard tests for acquisition input constructors.
+
+    Subclasses must override ``input_constructor_specs`` and inherit from
+    ``BotorchTestCase``.
+    """
+
+    @property
+    def input_constructor_specs(self) -> list[InputConstructorSpec]:
+        return []
+
+    def _make_constructor_inputs(
+        self,
+        spec: InputConstructorSpec,
+    ) -> dict[str, Any]:
+        """Build the kwargs dict for ``get_acqf_input_constructor(spec.cls)``."""
+        model = SingleTaskGP(
+            train_X=torch.rand(5, 2, dtype=torch.double),
+            train_Y=torch.rand(5, 1, dtype=torch.double),
+        )
+        training_data = {
+            0: SupervisedDataset(
+                X=model.train_inputs[0],
+                Y=model.train_targets.unsqueeze(-1),
+                feature_names=["x0", "x1"],
+                outcome_names=["y"],
+            )
+        }
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "training_data": training_data,
+            **spec.constructor_kwargs,
+        }
+        return kwargs
+
+    # -- test methods ---------------------------------------------------------
+
+    @loop_input_constructor_specs
+    def test_input_constructor_basic(self, spec: InputConstructorSpec) -> None:
+        """Construct via input constructor, verify forward pass."""
+        constructor = get_acqf_input_constructor(spec.cls)
+        kwargs = self._make_constructor_inputs(spec)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=BotorchWarning)
+            acqf_kwargs = constructor(**kwargs)
+        acqf = spec.cls(**acqf_kwargs)
+        X = torch.rand(3, 1, 2, dtype=torch.double)
+        value = acqf(X)
+        self.assertEqual(value.shape, torch.Size([3]))
+        self.assertFalse(value.isnan().any())
+
+    @loop_input_constructor_specs
+    def test_propagation(self, spec: InputConstructorSpec) -> None:
+        """Test that posterior_transform and objective propagate correctly."""
+        from botorch.acquisition.objective import LinearMCObjective
+
+        constructor = get_acqf_input_constructor(spec.cls)
+        kwargs = self._make_constructor_inputs(spec)
+
+        if spec.supports_posterior_transform:
+            from botorch.acquisition.objective import ScalarizedPosteriorTransform
+
+            pt = ScalarizedPosteriorTransform(
+                weights=torch.tensor([1.0], dtype=torch.double)
+            )
+            kwargs_with_pt = {**kwargs, "posterior_transform": pt}
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=BotorchWarning)
+                acqf_kwargs = constructor(**kwargs_with_pt)
+            self.assertIs(acqf_kwargs.get("posterior_transform"), pt)
+
+        if spec.supports_objective:
+            obj = LinearMCObjective(weights=torch.tensor([1.0]))
+            kwargs_with_obj = {**kwargs, "objective": obj}
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=BotorchWarning)
+                acqf_kwargs = constructor(**kwargs_with_obj)
+            self.assertIs(acqf_kwargs.get("objective"), obj)
+
+    @loop_input_constructor_specs
+    def test_defaults(self, spec: InputConstructorSpec) -> None:
+        """Verify expected default values on constructed acquisition function."""
+        constructor = get_acqf_input_constructor(spec.cls)
+        kwargs = self._make_constructor_inputs(spec)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=BotorchWarning)
+            acqf_kwargs = constructor(**kwargs)
+        acqf = spec.cls(**acqf_kwargs)
+        for attr_name, expected in spec.expected_defaults.items():
+            actual = getattr(acqf, attr_name)
+            self.assertEqual(
+                actual,
+                expected,
+                f"{spec.cls.__name__}.{attr_name}: {actual!r} != {expected!r}",
+            )
