@@ -12,6 +12,8 @@ from .mixins import (
     AcquisitionTestMixin,
     AnalyticAcquisitionTestMixin,
     loop_filtered_specs,
+    MCAcquisitionSpec,
+    MCAcquisitionTestMixin,
 )
 
 
@@ -22,4 +24,6 @@ __all__ = [
     "loop_filtered_specs",
     "make_trained_gp",
     "make_X",
+    "MCAcquisitionSpec",
+    "MCAcquisitionTestMixin",
 ]

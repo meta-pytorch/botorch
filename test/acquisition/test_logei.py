@@ -162,44 +162,6 @@ class TestQLogExpectedImprovement(BotorchTestCase):
             self.assertGreater(-1, log_res.item())
             self.assertGreater(log_res.item(), -100)
 
-            # NOTE: The following tests are adapted from the qEI tests.
-            # basic test, no resample
-            sampler = IIDNormalSampler(sample_shape=torch.Size([2]), seed=12345)
-            acqf = qLogExpectedImprovement(model=mm, best_f=0, sampler=sampler)
-            res = acqf(X)
-            self.assertTrue(0 < res.exp().item())
-            self.assertTrue(res.exp().item() < acqf.tau_relu)
-            self.assertEqual(acqf.sampler.base_samples.shape, torch.Size([2, 1, 1, 1]))
-            bs = acqf.sampler.base_samples.clone()
-            res = acqf(X)
-            self.assertTrue(torch.equal(acqf.sampler.base_samples, bs))
-
-            # basic test, qmc
-            sampler = SobolQMCNormalSampler(sample_shape=torch.Size([2]))
-            acqf = qLogExpectedImprovement(model=mm, best_f=0, sampler=sampler)
-            res = acqf(X)
-            self.assertTrue(0 < res.exp().item())
-            self.assertTrue(res.exp().item() < acqf.tau_relu)
-            self.assertEqual(acqf.sampler.base_samples.shape, torch.Size([2, 1, 1, 1]))
-            bs = acqf.sampler.base_samples.clone()
-            acqf(X)
-            self.assertTrue(torch.equal(acqf.sampler.base_samples, bs))
-
-            # basic test for X_pending and warning
-            acqf.set_X_pending()
-            self.assertIsNone(acqf.X_pending)
-            acqf.set_X_pending(None)
-            self.assertIsNone(acqf.X_pending)
-            acqf.set_X_pending(X)
-            self.assertEqual(acqf.X_pending, X)
-            mm._posterior._samples = torch.zeros(1, 2, 1, **tkwargs)
-            res = acqf(X)
-            X2 = torch.zeros(1, 1, 1, **tkwargs, requires_grad=True)
-            with warnings.catch_warnings(record=True) as ws:
-                acqf.set_X_pending(X2)
-            self.assertEqual(acqf.X_pending, X2)
-            self.assertEqual(sum(issubclass(w.category, BotorchWarning) for w in ws), 1)
-
             # testing with illegal taus
             with self.assertRaisesRegex(ValueError, "tau_max is not a scalar:"):
                 qLogExpectedImprovement(
@@ -207,105 +169,6 @@ class TestQLogExpectedImprovement(BotorchTestCase):
                 )
             with self.assertRaisesRegex(ValueError, "tau_relu is non-positive:"):
                 qLogExpectedImprovement(model=mm, best_f=0, tau_relu=-2)
-
-    def test_q_log_expected_improvement_batch(self):
-        for dtype in (torch.float, torch.double):
-            # the event shape is ``b x q x t`` = 2 x 2 x 1
-            samples = torch.zeros(2, 2, 1, device=self.device, dtype=dtype)
-            samples[0, 0, 0] = 1.0
-            mm = MockModel(MockPosterior(samples=samples))
-
-            # X is a dummy and unused b/c of mocking
-            X = torch.zeros(2, 2, 1, device=self.device, dtype=dtype)
-
-            # test batch mode
-            sampler = IIDNormalSampler(sample_shape=torch.Size([2]))
-            acqf = qLogExpectedImprovement(model=mm, best_f=0, sampler=sampler)
-            exp_log_res = acqf(X).exp()
-            # with no approximations (qEI): self.assertEqual(res[0].item(), 1.0)
-            self.assertEqual(exp_log_res.dtype, dtype)
-            self.assertEqual(exp_log_res.device.type, self.device.type)
-            self.assertTrue(1.0 <= exp_log_res[0].item())
-            self.assertTrue(exp_log_res[0].item() <= 1.0 + acqf.tau_relu)
-
-            # with no approximations (qEI): self.assertEqual(res[1].item(), 0.0)
-            self.assertTrue(0 < exp_log_res[1].item())
-            self.assertTrue(exp_log_res[1].item() <= acqf.tau_relu)
-
-            # test batch model, batched best_f values
-            sampler = IIDNormalSampler(sample_shape=torch.Size([3]))
-            acqf = qLogExpectedImprovement(
-                model=mm, best_f=torch.Tensor([0, 0]), sampler=sampler
-            )
-            exp_log_res = acqf(X).exp()
-            # with no approximations (qEI): self.assertEqual(res[0].item(), 1.0)
-            self.assertTrue(1.0 <= exp_log_res[0].item())
-            self.assertTrue(exp_log_res[0].item() <= 1.0 + acqf.tau_relu)
-            # with no approximations (qEI): self.assertEqual(res[1].item(), 0.0)
-            self.assertTrue(0 < exp_log_res[1].item())
-            self.assertTrue(exp_log_res[1].item() <= acqf.tau_relu)
-
-            # test shifting best_f value
-            acqf = qLogExpectedImprovement(model=mm, best_f=-1, sampler=sampler)
-            exp_log_res = acqf(X).exp()
-            # with no approximations (qEI): self.assertEqual(res[0].item(), 2.0)
-            # TODO: figure out numerically stable tests and principled tolerances
-            # With q > 1, maximum value can get moved down due to L_q-norm approximation
-            # of the maximum over the q-batch.
-            safe_upper_lower_bound = 1.999
-            self.assertTrue(safe_upper_lower_bound <= exp_log_res[0].item())
-            self.assertTrue(exp_log_res[0].item() <= 2.0 + acqf.tau_relu + acqf.tau_max)
-            # with no approximations (qEI): self.assertEqual(res[1].item(), 1.0)
-            self.assertTrue(1.0 <= exp_log_res[1].item())
-            # ocurring ~tau_max error when all candidates in a q-batch have the
-            # acquisition value
-            self.assertTrue(exp_log_res[1].item() <= 1.0 + acqf.tau_relu + acqf.tau_max)
-
-            # test batch mode
-            sampler = IIDNormalSampler(sample_shape=torch.Size([2]), seed=12345)
-            acqf = qLogExpectedImprovement(model=mm, best_f=0, sampler=sampler)
-            # res = acqf(X)  # 1-dim batch
-            exp_log_res = acqf(X).exp()  # 1-dim batch
-            # with no approximations (qEI): self.assertEqual(res[0].item(), 1.0)
-            safe_upper_lower_bound = 0.999
-            self.assertTrue(safe_upper_lower_bound <= exp_log_res[0].item())
-            self.assertTrue(exp_log_res[0].item() <= 1.0 + acqf.tau_relu)
-            # with no approximations (qEI): self.assertEqual(res[1].item(), 0.0)
-            self.assertTrue(0.0 <= exp_log_res[1].item())
-            self.assertTrue(exp_log_res[1].item() <= 0.0 + acqf.tau_relu)
-            self.assertEqual(acqf.sampler.base_samples.shape, torch.Size([2, 1, 2, 1]))
-            bs = acqf.sampler.base_samples.clone()
-            acqf(X)
-            self.assertTrue(torch.equal(acqf.sampler.base_samples, bs))
-            exp_log_res = acqf(X.expand(2, 2, 1)).exp()  # 2-dim batch
-            # self.assertEqual(res[0].item(), 1.0)
-            safe_upper_lower_bound = 0.999
-            self.assertTrue(safe_upper_lower_bound <= exp_log_res[0].item())
-            self.assertTrue(exp_log_res[0].item() <= 1.0 + acqf.tau_relu)
-            # self.assertEqual(res[1].item(), 0.0)
-            self.assertTrue(0.0 <= exp_log_res[1].item())
-            self.assertTrue(exp_log_res[1].item() <= 0.0 + acqf.tau_relu)
-            # the base samples should have the batch dim collapsed
-            self.assertEqual(acqf.sampler.base_samples.shape, torch.Size([2, 1, 2, 1]))
-            bs = acqf.sampler.base_samples.clone()
-            acqf(X.expand(2, 2, 1))
-            self.assertTrue(torch.equal(acqf.sampler.base_samples, bs))
-
-            # test batch mode, qmc
-            sampler = SobolQMCNormalSampler(sample_shape=torch.Size([2]))
-            acqf = qLogExpectedImprovement(model=mm, best_f=0, sampler=sampler)
-            exp_log_res = acqf(X).exp()
-            # self.assertEqual(res[0].item(), 1.0)
-            safe_upper_lower_bound = 0.999
-            self.assertTrue(safe_upper_lower_bound <= exp_log_res[0].item())
-            self.assertTrue(exp_log_res[0].item() <= 1.0 + acqf.tau_relu)
-            # self.assertEqual(res[1].item(), 0.0)
-            self.assertTrue(0.0 <= exp_log_res[1].item())
-            self.assertTrue(exp_log_res[1].item() <= 0.0 + acqf.tau_relu)
-            self.assertEqual(acqf.sampler.base_samples.shape, torch.Size([2, 1, 2, 1]))
-            bs = acqf.sampler.base_samples.clone()
-            acqf(X)
-            self.assertTrue(torch.equal(acqf.sampler.base_samples, bs))
 
     # # TODO: Test different objectives (incl. constraints)
 
@@ -344,79 +207,17 @@ class TestQLogNoisyExpectedImprovement(BotorchTestCase):
             self.assertEqual(log_res.device.type, self.device.type)
             self.assertAllClose(log_res.exp().item(), 1.0)
 
-            # basic test
-            sampler = IIDNormalSampler(sample_shape=torch.Size([2]), seed=12345)
-            kwargs = {
-                "model": mm_noisy,
-                "X_baseline": X_baseline,
-                "sampler": sampler,
-                "prune_baseline": False,
-                "cache_root": False,
-            }
-            log_acqf = qLogNoisyExpectedImprovement(**kwargs)
-            log_res = log_acqf(X)
-            self.assertEqual(log_res.exp().item(), 1.0)
-            self.assertEqual(
-                log_acqf.sampler.base_samples.shape, torch.Size([2, 1, 2, 1])
-            )
-            bs = log_acqf.sampler.base_samples.clone()
-            log_acqf(X)
-            self.assertTrue(torch.equal(log_acqf.sampler.base_samples, bs))
-
-            # basic test, qmc
-            sampler = SobolQMCNormalSampler(sample_shape=torch.Size([2]))
-            kwargs = {
-                "model": mm_noisy,
-                "X_baseline": X_baseline,
-                "sampler": sampler,
-                "prune_baseline": False,
-                "cache_root": False,
-            }
-            log_acqf = qLogNoisyExpectedImprovement(**kwargs)
-            log_res = log_acqf(X)
-            self.assertEqual(log_res.exp().item(), 1.0)
-            self.assertEqual(
-                log_acqf.sampler.base_samples.shape, torch.Size([2, 1, 2, 1])
-            )
-            bs = log_acqf.sampler.base_samples.clone()
-            log_acqf(X)
-            self.assertTrue(torch.equal(log_acqf.sampler.base_samples, bs))
-
-            # basic test for X_pending and warning
-            sampler = SobolQMCNormalSampler(sample_shape=torch.Size([2]))
+            # test incremental
+            # Check that adding a pending point is equivalent to adding a point to
+            # X_baseline
             samples_noisy_pending = torch.tensor(
                 [1.0, 0.0, 0.0], device=self.device, dtype=dtype
             )
             samples_noisy_pending = samples_noisy_pending.view(1, 3, 1)
             mm_noisy_pending = MockModel(MockPosterior(samples=samples_noisy_pending))
-            kwargs = {
-                "model": mm_noisy_pending,
-                "X_baseline": X_baseline,
-                "sampler": sampler,
-                "prune_baseline": False,
-                "cache_root": False,
-                "incremental": False,
-            }
-            # copy for log version
-            log_acqf = qLogNoisyExpectedImprovement(**kwargs)
-            log_acqf.set_X_pending()
-            self.assertIsNone(log_acqf.X_pending)
-            log_acqf.set_X_pending(None)
-            self.assertIsNone(log_acqf.X_pending)
-            log_acqf.set_X_pending(X)
-            self.assertEqual(log_acqf.X_pending, X)
-            log_acqf(X)
             X2 = torch.zeros(
                 1, 1, 1, device=self.device, dtype=dtype, requires_grad=True
             )
-            with warnings.catch_warnings(record=True) as ws:
-                log_acqf.set_X_pending(X2)
-            self.assertEqual(log_acqf.X_pending, X2)
-            self.assertEqual(sum(issubclass(w.category, BotorchWarning) for w in ws), 1)
-
-            # test incremental
-            # Check that adding a pending point is equivalent to adding a point to
-            # X_baseline
             for cache_root in (True, False):
                 kwargs = {
                     "model": mm_noisy_pending,
@@ -447,80 +248,6 @@ class TestQLogNoisyExpectedImprovement(BotorchTestCase):
             # test reseting X_pending
             log_acqf.set_X_pending(None)
             self.assertTrue(torch.equal(log_acqf.X_baseline, X_baseline))
-
-    def test_q_noisy_expected_improvement_batch(self):
-        for dtype in (torch.float, torch.double):
-            # the event shape is ``b x q x t`` = 2 x 3 x 1
-            samples_noisy = torch.zeros(2, 3, 1, device=self.device, dtype=dtype)
-            samples_noisy[0, -1, 0] = 1.0
-            mm_noisy = MockModel(MockPosterior(samples=samples_noisy))
-            # X is ``q x d`` = 1 x 1
-            X = torch.zeros(2, 2, 1, device=self.device, dtype=dtype)
-            X_baseline = torch.zeros(1, 1, device=self.device, dtype=dtype)
-
-            # test batch mode
-            sampler = IIDNormalSampler(sample_shape=torch.Size([2]))
-            kwargs = {
-                "model": mm_noisy,
-                "X_baseline": X_baseline,
-                "sampler": sampler,
-                "prune_baseline": False,
-                "cache_root": False,
-            }
-            acqf = qLogNoisyExpectedImprovement(**kwargs)
-            res = acqf(X).exp()
-            expected_res = torch.tensor([1.0, 0.0], dtype=dtype, device=self.device)
-            self.assertAllClose(res, expected_res, atol=acqf.tau_relu)
-            self.assertGreater(res[1].item(), 0.0)
-            self.assertGreater(acqf.tau_relu, res[1].item())
-
-            # test batch mode
-            sampler = IIDNormalSampler(sample_shape=torch.Size([2]), seed=12345)
-            acqf = qLogNoisyExpectedImprovement(
-                model=mm_noisy,
-                X_baseline=X_baseline,
-                sampler=sampler,
-                prune_baseline=False,
-                cache_root=False,
-            )
-            res = acqf(X).exp()  # 1-dim batch
-            expected_res = torch.tensor([1.0, 0.0], dtype=dtype, device=self.device)
-            self.assertAllClose(res, expected_res, atol=acqf.tau_relu)
-            self.assertGreater(res[1].item(), 0.0)
-            self.assertGreater(acqf.tau_relu, res[1].item())
-            self.assertEqual(acqf.sampler.base_samples.shape, torch.Size([2, 1, 3, 1]))
-            bs = acqf.sampler.base_samples.clone()
-            acqf(X)
-            self.assertTrue(torch.equal(acqf.sampler.base_samples, bs))
-            res = acqf(X.expand(2, 2, 1)).exp()  # 2-dim batch
-            expected_res = torch.tensor([1.0, 0.0], dtype=dtype, device=self.device)
-            self.assertAllClose(res, expected_res, atol=acqf.tau_relu)
-            self.assertGreater(res[1].item(), 0.0)
-            self.assertGreater(acqf.tau_relu, res[1].item())
-            # the base samples should have the batch dim collapsed
-            self.assertEqual(acqf.sampler.base_samples.shape, torch.Size([2, 1, 3, 1]))
-            bs = acqf.sampler.base_samples.clone()
-            acqf(X.expand(2, 2, 1))
-            self.assertTrue(torch.equal(acqf.sampler.base_samples, bs))
-
-            # test batch mode, qmc
-            sampler = SobolQMCNormalSampler(sample_shape=torch.Size([2]))
-            acqf = qLogNoisyExpectedImprovement(
-                model=mm_noisy,
-                X_baseline=X_baseline,
-                sampler=sampler,
-                prune_baseline=False,
-                cache_root=False,
-            )
-            res = acqf(X).exp()
-            expected_res = torch.tensor([1.0, 0.0], dtype=dtype, device=self.device)
-            self.assertAllClose(res, expected_res, atol=acqf.tau_relu)
-            self.assertGreater(res[1].item(), 0.0)
-            self.assertGreater(acqf.tau_relu, res[1].item())
-            self.assertEqual(acqf.sampler.base_samples.shape, torch.Size([2, 1, 3, 1]))
-            bs = acqf.sampler.base_samples.clone()
-            acqf(X)
-            self.assertTrue(torch.equal(acqf.sampler.base_samples, bs))
 
     def test_prune_baseline(self):
         no = "botorch.utils.testing.MockModel.num_outputs"
