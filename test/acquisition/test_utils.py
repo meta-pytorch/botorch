@@ -316,23 +316,24 @@ class TestFidelityUtils(BotorchTestCase):
             ([], [2]), (torch.float, torch.double)
         ):
             X = torch.rand(*batch_shape, 3, 4, device=self.device, dtype=dtype)
-            # test default behavior
-            X_proj = project_to_target_fidelity(X)
             ones = torch.ones(*X.shape[:-1], 1, device=self.device, dtype=dtype)
+            # test single target fidelity
+            target_fids = {3: 1.0}
+            X_proj = project_to_target_fidelity(X, target_fidelities=target_fids, d=4)
             self.assertTrue(torch.equal(X_proj[..., :, [-1]], ones))
             self.assertTrue(torch.equal(X_proj[..., :-1], X[..., :-1]))
             # test custom target fidelity
             target_fids = {2: 0.5}
-            X_proj = project_to_target_fidelity(X, target_fidelities=target_fids)
+            X_proj = project_to_target_fidelity(X, target_fidelities=target_fids, d=4)
             self.assertTrue(torch.equal(X_proj[..., :, [2]], 0.5 * ones))
             # test multiple target fidelities
             target_fids = {2: 0.5, 0: 0.1}
-            X_proj = project_to_target_fidelity(X, target_fidelities=target_fids)
+            X_proj = project_to_target_fidelity(X, target_fidelities=target_fids, d=4)
             self.assertTrue(torch.equal(X_proj[..., :, [0]], 0.1 * ones))
             self.assertTrue(torch.equal(X_proj[..., :, [2]], 0.5 * ones))
             # test gradients
             X.requires_grad_(True)
-            X_proj = project_to_target_fidelity(X, target_fidelities=target_fids)
+            X_proj = project_to_target_fidelity(X, target_fidelities=target_fids, d=4)
             out = (X_proj**2).sum()
             out.backward()
             self.assertTrue(torch.all(X.grad[..., [0, 2]] == 0))
@@ -349,6 +350,30 @@ class TestFidelityUtils(BotorchTestCase):
                 project_to_target_fidelity(
                     X[..., :3], target_fidelities=target_fids, d=4
                 )
+            # test positive index out of bounds
+            with self.assertRaisesRegex(
+                BotorchTensorDimensionError,
+                "Target fidelity indices.*out of bounds",
+            ):
+                project_to_target_fidelity(X, target_fidelities={10: 1.0}, d=4)
+            # test negative index works
+            X_proj = project_to_target_fidelity(X, target_fidelities={-1: 0.5}, d=4)
+            self.assertTrue(torch.equal(X_proj[..., :, [-1]], 0.5 * ones))
+            # test negative index resolving out of bounds
+            with self.assertRaisesRegex(
+                BotorchTensorDimensionError,
+                "Target fidelity indices.*out of bounds",
+            ):
+                project_to_target_fidelity(X, target_fidelities={-10: 1.0}, d=4)
+            # test X without fidelity dims, inserting fidelity columns
+            X_no_fidelity = torch.rand(
+                *batch_shape, 3, 3, device=self.device, dtype=dtype
+            )
+            X_proj = project_to_target_fidelity(
+                X_no_fidelity, target_fidelities={3: 1.0}, d=4
+            )
+            self.assertEqual(X_proj.shape[-1], 4)
+            self.assertTrue(torch.equal(X_proj[..., :, [3]], ones))
 
     def test_expand_trace_observations(self):
         for batch_shape, dtype in itertools.product(

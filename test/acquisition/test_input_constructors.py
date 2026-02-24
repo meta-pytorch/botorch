@@ -1679,7 +1679,11 @@ class TestKGandESAcquisitionFunctionInputConstructors(InputConstructorBaseTestCa
             self.assertTrue(
                 torch.equal(
                     kwargs["project"](X),
-                    project_to_target_fidelity(X, target_fidelities=target_fidelities),
+                    project_to_target_fidelity(
+                        X,
+                        target_fidelities=target_fidelities,
+                        d=X.shape[-1],
+                    ),
                 )
             )
 

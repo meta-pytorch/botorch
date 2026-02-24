@@ -1374,7 +1374,7 @@ def construct_inputs_mf_base(
             num_trace_obs=num_trace_observations,
         ),
         "project": lambda X: project_to_target_fidelity(
-            X=X, target_fidelities=target_fidelities
+            X=X, target_fidelities=target_fidelities, d=X.shape[-1]
         ),
     }
 
