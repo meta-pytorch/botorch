@@ -68,8 +68,11 @@ def _quantile(posterior: GaussianMixturePosterior, value: Tensor) -> Tensor:
     if posterior.mean.shape[MCMC_DIM] == 1:  # Analytical solution
         return dist.icdf(value).squeeze(MCMC_DIM)
     icdf_val = dist.icdf(value)
-    low = icdf_val.min(dim=MCMC_DIM).values - TOL
-    high = icdf_val.max(dim=MCMC_DIM).values + TOL
+    # Use a larger padding for float32 to avoid numerical issues where
+    # the CDF evaluated at the bounds fails to bracket the target.
+    bounds_tol = 1e-4 if icdf_val.dtype == torch.float32 else TOL
+    low = icdf_val.min(dim=MCMC_DIM).values - bounds_tol
+    high = icdf_val.max(dim=MCMC_DIM).values + bounds_tol
     bounds = torch.cat((low.unsqueeze(0), high.unsqueeze(0)), dim=0)
     return batched_bisect(
         f=lambda x: dist.cdf(x.unsqueeze(MCMC_DIM)).mean(dim=MCMC_DIM),
