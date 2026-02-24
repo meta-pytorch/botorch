@@ -66,10 +66,10 @@ class KernelEvaluationMap(FeatureMap):
     @property
     def num_outputs(self) -> int:
         if self.output_transform is None:
-            return self.points.shape[-1]
+            return self.points.shape[-2]
 
         canary = torch.empty(
-            1, self.points.shape[-1], device=self.points.device, dtype=self.points.dtype
+            1, self.points.shape[-2], device=self.points.device, dtype=self.points.dtype
         )
         return self.output_transform(canary).shape[-1]
 

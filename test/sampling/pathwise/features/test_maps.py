@@ -17,27 +17,33 @@ from torch import Size
 
 class TestFeatureMaps(BotorchTestCase):
     def test_kernel_evaluation_map(self):
-        kernel = MaternKernel(nu=2.5, ard_num_dims=2, batch_shape=Size([2]))
+        d = 3
+        n_points = 7
+        n_test = 5
+        kernel = MaternKernel(nu=2.5, ard_num_dims=d, batch_shape=Size([2]))
         kernel.to(device=self.device)
         with torch.random.fork_rng():
             torch.manual_seed(0)
             kernel.lengthscale = 0.1 + 0.3 * torch.rand_like(kernel.lengthscale)
 
         with self.assertRaisesRegex(RuntimeError, "Shape mismatch"):
-            KernelEvaluationMap(kernel=kernel, points=torch.rand(4, 3, 2))
+            KernelEvaluationMap(kernel=kernel, points=torch.rand(4, n_points, d))
 
         for dtype in (torch.float32, torch.float64):
             kernel.to(dtype=dtype)
-            X0, X1 = torch.rand(5, 2, dtype=dtype, device=self.device).split([2, 3])
+            X0 = torch.rand(n_test, d, dtype=dtype, device=self.device)
+            X1 = torch.rand(n_points, d, dtype=dtype, device=self.device)
             kernel_map = KernelEvaluationMap(kernel=kernel, points=X1)
             self.assertEqual(kernel_map.batch_shape, kernel.batch_shape)
-            self.assertEqual(kernel_map.num_outputs, X1.shape[-1])
+            # num_outputs should be the number of points (shape[-2]),
+            # since kernel(x, points) returns ... x q x n_points
+            self.assertEqual(kernel_map.num_outputs, n_points)
             self.assertTrue(kernel_map(X0).to_dense().equal(kernel(X0, X1).to_dense()))
 
         with patch.object(
             kernel_map, "output_transform", new=lambda z: torch.concat([z, z], dim=-1)
         ):
-            self.assertEqual(kernel_map.num_outputs, 2 * X1.shape[-1])
+            self.assertEqual(kernel_map.num_outputs, 2 * n_points)
 
     def test_kernel_feature_map(self):
         d = 2
