@@ -45,6 +45,8 @@ def get_model(
     train_Y: Tensor,
     standardize_model: bool = False,
     use_model_list: bool = False,
+    *,
+    train_Yvar: Tensor | None = None,
 ) -> SingleTaskGP | ModelListGP:
     num_objectives = train_Y.shape[-1]
 
@@ -62,6 +64,9 @@ def get_model(
                 SingleTaskGP(
                     train_X=train_X,
                     train_Y=train_Y[:, i : i + 1],
+                    train_Yvar=(
+                        train_Yvar[:, i : i + 1] if train_Yvar is not None else None
+                    ),
                     outcome_transform=outcome_transform,
                 )
                 for i in range(num_objectives)
@@ -71,6 +76,7 @@ def get_model(
         model = SingleTaskGP(
             train_X=train_X,
             train_Y=train_Y,
+            train_Yvar=train_Yvar,
             outcome_transform=outcome_transform,
         )
 
