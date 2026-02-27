@@ -23,7 +23,11 @@ from botorch.models.transforms.input import Normalize
 from botorch.models.transforms.outcome import Standardize
 from botorch.optim.closures import get_loss_closure_with_grads
 from botorch.optim.core import OptimizationResult, OptimizationStatus
-from botorch.optim.fit import fit_gpytorch_mll_scipy, fit_gpytorch_mll_torch
+from botorch.optim.fit import (
+    fit_gpytorch_mll_scipy,
+    fit_gpytorch_mll_scipy_independent,
+    fit_gpytorch_mll_torch,
+)
 from botorch.optim.utils import get_data_loader
 from botorch.utils.context_managers import module_rollback_ctx, TensorCheckpoint
 from botorch.utils.testing import BotorchTestCase
@@ -464,3 +468,118 @@ class TestFitFallbackApproximate(BotorchTestCase):
                 closure=self.closure,
                 data_loader=self.data_loader,
             )
+
+
+class TestFitIndependent(BotorchTestCase):
+    """End-to-end integration tests for fit_gpytorch_mll with
+    fit_gpytorch_mll_scipy_independent."""
+
+    def test_multi_output_independent_fitting(self):
+        """Fit a multi-output SingleTaskGP using independent per-output
+        optimization via fit_gpytorch_mll."""
+        with torch.random.fork_rng():
+            torch.manual_seed(0)
+            train_X = torch.linspace(0, 1, 10, dtype=torch.double).unsqueeze(-1)
+            train_F = torch.cat(
+                [torch.sin(2 * math.pi * train_X), torch.cos(2 * math.pi * train_X)],
+                dim=-1,
+            )
+            train_Y = train_F + 0.1 * torch.randn_like(train_F)
+
+        model = SingleTaskGP(train_X=train_X, train_Y=train_Y)
+        mll = ExactMarginalLogLikelihood(model.likelihood, model)
+
+        # Store initial parameter values.
+        initial_params = {
+            n: p.clone() for n, p in mll.named_parameters() if p.requires_grad
+        }
+
+        with catch_warnings(record=True):
+            fit_gpytorch_mll(
+                mll,
+                optimizer=fit_gpytorch_mll_scipy_independent,
+                max_attempts=1,
+            )
+
+        # Model should be in eval mode after fitting.
+        self.assertFalse(model.training)
+
+        # At least some parameters should have changed.
+        any_changed = False
+        for n, p in mll.named_parameters():
+            if p.requires_grad and not p.equal(initial_params[n]):
+                any_changed = True
+                break
+        self.assertTrue(any_changed, "No parameters changed during fitting.")
+
+        # Verify predictions work.
+        test_X = torch.rand(5, 1, dtype=torch.double)
+        posterior = model.posterior(test_X)
+        self.assertEqual(posterior.mean.shape, torch.Size([5, 2]))
+        self.assertEqual(posterior.variance.shape, torch.Size([5, 2]))
+
+    def test_multi_output_with_transforms(self):
+        """Fit a multi-output model with input and outcome transforms."""
+        with torch.random.fork_rng():
+            torch.manual_seed(42)
+            train_X = torch.rand(15, 2, dtype=torch.double)
+            train_Y = torch.rand(15, 3, dtype=torch.double)
+
+        model = SingleTaskGP(
+            train_X=train_X,
+            train_Y=train_Y,
+            input_transform=Normalize(d=2),
+            outcome_transform=Standardize(m=3),
+        )
+        mll = ExactMarginalLogLikelihood(model.likelihood, model)
+
+        with catch_warnings(record=True):
+            fit_gpytorch_mll(
+                mll,
+                optimizer=fit_gpytorch_mll_scipy_independent,
+                max_attempts=1,
+            )
+
+        self.assertFalse(model.training)
+        test_X = torch.rand(4, 2, dtype=torch.double)
+        posterior = model.posterior(test_X)
+        self.assertEqual(posterior.mean.shape, torch.Size([4, 3]))
+
+    def test_ensemble_model(self):
+        """Fit an EnsembleMapSaasSingleTaskGP using independent per-ensemble-member
+        optimization via fit_gpytorch_mll."""
+        from botorch.models.map_saas import EnsembleMapSaasSingleTaskGP
+
+        with torch.random.fork_rng():
+            torch.manual_seed(0)
+            train_X = torch.rand(10, 3, dtype=torch.double)
+            train_Y = torch.rand(10, 1, dtype=torch.double)
+
+        model = EnsembleMapSaasSingleTaskGP(
+            train_X=train_X, train_Y=train_Y, num_taus=3
+        )
+        mll = ExactMarginalLogLikelihood(model.likelihood, model)
+
+        initial_params = {
+            n: p.clone() for n, p in mll.named_parameters() if p.requires_grad
+        }
+
+        with catch_warnings(record=True):
+            fit_gpytorch_mll(
+                mll,
+                optimizer=fit_gpytorch_mll_scipy_independent,
+                max_attempts=1,
+            )
+
+        self.assertFalse(model.training)
+
+        any_changed = False
+        for n, p in mll.named_parameters():
+            if p.requires_grad and not p.equal(initial_params[n]):
+                any_changed = True
+                break
+        self.assertTrue(any_changed, "No parameters changed during fitting.")
+
+        test_X = torch.rand(5, 3, dtype=torch.double)
+        posterior = model.posterior(test_X)
+        self.assertEqual(posterior.mean.shape, torch.Size([3, 5, 1]))
