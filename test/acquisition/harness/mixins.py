@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import warnings
 from abc import abstractmethod
 from dataclasses import dataclass, field
 from functools import wraps
@@ -15,6 +16,8 @@ from typing import Any, Callable
 
 import torch
 from botorch.acquisition.acquisition import AcquisitionFunction
+from botorch.exceptions import BotorchWarning
+from botorch.sampling.normal import IIDNormalSampler, SobolQMCNormalSampler
 from botorch.utils.test_helpers import get_model
 from botorch.utils.testing import MockModel, MockPosterior
 
@@ -251,3 +254,103 @@ class AnalyticAcquisitionTestMixin(AcquisitionTestMixin):
         max_mean_idx = means.argmax()
         self.assertEqual(value_max.argmax(), max_mean_idx)
         self.assertEqual(value_min.argmin(), max_mean_idx)
+
+
+@dataclass
+class MCAcquisitionSpec(AcquisitionSpec):
+    """Spec for Monte Carlo acquisition functions.
+
+    Attributes:
+        requires_X_baseline: If True, pass X_baseline (model training inputs)
+            to the acquisition function constructor (e.g. qNEI, qLogNEI).
+        q: Number of candidates for MC tests. Defaults to 2.
+    """
+
+    requires_X_baseline: bool = False
+    q: int = 2
+
+
+class MCAcquisitionTestMixin(AcquisitionTestMixin):
+    """Mixin for MC acquisition functions.
+
+    Inherits test_dtype and test_output_shapes from AcquisitionTestMixin.
+    Overrides _make_acquisition for MC-specific kwargs (X_baseline).
+    Adds test_q_greater_than_one to verify q-reduction.
+    """
+
+    def _make_acquisition(
+        self,
+        spec: MCAcquisitionSpec,
+        model,
+        dtype: torch.dtype,
+        extra_kwargs: dict[str, Any] | None = None,
+    ):
+        kwargs = spec.get_kwargs(dtype=dtype, device=self.device)
+        if spec.requires_X_baseline:
+            kwargs["X_baseline"] = model.train_inputs[0]
+        if extra_kwargs is not None:
+            kwargs.update(extra_kwargs)
+        return spec.acqf_class(model=model, **kwargs)
+
+    @loop_filtered_specs
+    def test_q_greater_than_one(self, spec: MCAcquisitionSpec) -> None:
+        """Test that MC acqfs correctly reduce the q dimension."""
+        model = self._make_model(spec=spec, dtype=torch.double)
+        acqf = self._make_acquisition(spec=spec, model=model, dtype=torch.double)
+        for batch_shape in [[4], [3, 2]]:
+            with self.subTest(batch_shape=batch_shape):
+                torch.manual_seed(1)
+                q = max(spec.q, 2)  # Ensure q > 1 for this test
+                X = torch.rand(*batch_shape, q, 2, device=self.device)
+                value = acqf(X)
+                self.assertEqual(value.shape, torch.Size(batch_shape))
+
+    @loop_filtered_specs
+    def test_X_pending(self, spec: MCAcquisitionSpec) -> None:
+        """Test X_pending set/clear behavior for MC acquisition functions."""
+        model = self._make_model(spec=spec, dtype=torch.double)
+        acqf = self._make_acquisition(spec=spec, model=model, dtype=torch.double)
+
+        acqf.set_X_pending()
+        self.assertIsNone(acqf.X_pending)
+
+        acqf.set_X_pending(None)
+        self.assertIsNone(acqf.X_pending)
+
+        torch.manual_seed(1)
+        X_pending = torch.rand(spec.q, 2, device=self.device)
+        acqf.set_X_pending(X_pending)
+        self.assertEqual(acqf.X_pending.shape, X_pending.shape)
+
+        torch.manual_seed(2)
+        X = torch.rand(2, spec.q, 2, device=self.device)
+        value = acqf(X)
+        self.assertEqual(value.shape, torch.Size([2]))
+
+        # Verify BotorchWarning is raised when X_pending has requires_grad=True
+        torch.manual_seed(3)
+        X_grad = torch.rand(1, 2, device=self.device, requires_grad=True)
+        with warnings.catch_warnings(record=True) as ws:
+            acqf.set_X_pending(X_grad)
+        self.assertTrue(any(issubclass(w.category, BotorchWarning) for w in ws))
+
+    @loop_filtered_specs
+    def test_sampler_base_samples(self, spec: MCAcquisitionSpec) -> None:
+        """Test that sampler base_samples are stable across forward calls."""
+        model = self._make_model(spec=spec, dtype=torch.double)
+        for sampler_cls in [IIDNormalSampler, SobolQMCNormalSampler]:
+            with self.subTest(sampler=sampler_cls.__name__):
+                sampler = sampler_cls(sample_shape=torch.Size([4]), seed=12345)
+                acqf = self._make_acquisition(
+                    spec=spec,
+                    model=model,
+                    dtype=torch.double,
+                    extra_kwargs={"sampler": sampler},
+                )
+                torch.manual_seed(1)
+                X = torch.rand(1, 2, device=self.device)
+
+                acqf(X)
+                bs = acqf.sampler.base_samples.clone()
+                acqf(X)
+                self.assertTrue(torch.equal(acqf.sampler.base_samples, bs))

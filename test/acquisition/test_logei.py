@@ -162,17 +162,13 @@ class TestQLogExpectedImprovement(BotorchTestCase):
             self.assertGreater(-1, log_res.item())
             self.assertGreater(log_res.item(), -100)
 
-            # NOTE: The following tests are adapted from the qEI tests.
+            # NOTE: The following tests verify LogEI-specific numerical properties.
             # basic test, no resample
             sampler = IIDNormalSampler(sample_shape=torch.Size([2]), seed=12345)
             acqf = qLogExpectedImprovement(model=mm, best_f=0, sampler=sampler)
             res = acqf(X)
             self.assertTrue(0 < res.exp().item())
             self.assertTrue(res.exp().item() < acqf.tau_relu)
-            self.assertEqual(acqf.sampler.base_samples.shape, torch.Size([2, 1, 1, 1]))
-            bs = acqf.sampler.base_samples.clone()
-            res = acqf(X)
-            self.assertTrue(torch.equal(acqf.sampler.base_samples, bs))
 
             # basic test, qmc
             sampler = SobolQMCNormalSampler(sample_shape=torch.Size([2]))
@@ -180,25 +176,23 @@ class TestQLogExpectedImprovement(BotorchTestCase):
             res = acqf(X)
             self.assertTrue(0 < res.exp().item())
             self.assertTrue(res.exp().item() < acqf.tau_relu)
-            self.assertEqual(acqf.sampler.base_samples.shape, torch.Size([2, 1, 1, 1]))
-            bs = acqf.sampler.base_samples.clone()
-            acqf(X)
-            self.assertTrue(torch.equal(acqf.sampler.base_samples, bs))
 
-            # basic test for X_pending and warning
-            acqf.set_X_pending()
-            self.assertIsNone(acqf.X_pending)
-            acqf.set_X_pending(None)
-            self.assertIsNone(acqf.X_pending)
-            acqf.set_X_pending(X)
-            self.assertEqual(acqf.X_pending, X)
-            mm._posterior._samples = torch.zeros(1, 2, 1, **tkwargs)
+            # testing with illegal taus
+
+            # NOTE: The following tests verify LogEI-specific numerical properties.
+            # basic test, no resample
+            sampler = IIDNormalSampler(sample_shape=torch.Size([2]), seed=12345)
+            acqf = qLogExpectedImprovement(model=mm, best_f=0, sampler=sampler)
             res = acqf(X)
-            X2 = torch.zeros(1, 1, 1, **tkwargs, requires_grad=True)
-            with warnings.catch_warnings(record=True) as ws:
-                acqf.set_X_pending(X2)
-            self.assertEqual(acqf.X_pending, X2)
-            self.assertEqual(sum(issubclass(w.category, BotorchWarning) for w in ws), 1)
+            self.assertTrue(0 < res.exp().item())
+            self.assertTrue(res.exp().item() < acqf.tau_relu)
+
+            # basic test, qmc
+            sampler = SobolQMCNormalSampler(sample_shape=torch.Size([2]))
+            acqf = qLogExpectedImprovement(model=mm, best_f=0, sampler=sampler)
+            res = acqf(X)
+            self.assertTrue(0 < res.exp().item())
+            self.assertTrue(res.exp().item() < acqf.tau_relu)
 
             # testing with illegal taus
             with self.assertRaisesRegex(ValueError, "tau_max is not a scalar:"):
@@ -344,79 +338,17 @@ class TestQLogNoisyExpectedImprovement(BotorchTestCase):
             self.assertEqual(log_res.device.type, self.device.type)
             self.assertAllClose(log_res.exp().item(), 1.0)
 
-            # basic test
-            sampler = IIDNormalSampler(sample_shape=torch.Size([2]), seed=12345)
-            kwargs = {
-                "model": mm_noisy,
-                "X_baseline": X_baseline,
-                "sampler": sampler,
-                "prune_baseline": False,
-                "cache_root": False,
-            }
-            log_acqf = qLogNoisyExpectedImprovement(**kwargs)
-            log_res = log_acqf(X)
-            self.assertEqual(log_res.exp().item(), 1.0)
-            self.assertEqual(
-                log_acqf.sampler.base_samples.shape, torch.Size([2, 1, 2, 1])
-            )
-            bs = log_acqf.sampler.base_samples.clone()
-            log_acqf(X)
-            self.assertTrue(torch.equal(log_acqf.sampler.base_samples, bs))
-
-            # basic test, qmc
-            sampler = SobolQMCNormalSampler(sample_shape=torch.Size([2]))
-            kwargs = {
-                "model": mm_noisy,
-                "X_baseline": X_baseline,
-                "sampler": sampler,
-                "prune_baseline": False,
-                "cache_root": False,
-            }
-            log_acqf = qLogNoisyExpectedImprovement(**kwargs)
-            log_res = log_acqf(X)
-            self.assertEqual(log_res.exp().item(), 1.0)
-            self.assertEqual(
-                log_acqf.sampler.base_samples.shape, torch.Size([2, 1, 2, 1])
-            )
-            bs = log_acqf.sampler.base_samples.clone()
-            log_acqf(X)
-            self.assertTrue(torch.equal(log_acqf.sampler.base_samples, bs))
-
-            # basic test for X_pending and warning
-            sampler = SobolQMCNormalSampler(sample_shape=torch.Size([2]))
+            # test incremental
+            # Check that adding a pending point is equivalent to adding a point to
+            # X_baseline
             samples_noisy_pending = torch.tensor(
                 [1.0, 0.0, 0.0], device=self.device, dtype=dtype
             )
             samples_noisy_pending = samples_noisy_pending.view(1, 3, 1)
             mm_noisy_pending = MockModel(MockPosterior(samples=samples_noisy_pending))
-            kwargs = {
-                "model": mm_noisy_pending,
-                "X_baseline": X_baseline,
-                "sampler": sampler,
-                "prune_baseline": False,
-                "cache_root": False,
-                "incremental": False,
-            }
-            # copy for log version
-            log_acqf = qLogNoisyExpectedImprovement(**kwargs)
-            log_acqf.set_X_pending()
-            self.assertIsNone(log_acqf.X_pending)
-            log_acqf.set_X_pending(None)
-            self.assertIsNone(log_acqf.X_pending)
-            log_acqf.set_X_pending(X)
-            self.assertEqual(log_acqf.X_pending, X)
-            log_acqf(X)
             X2 = torch.zeros(
                 1, 1, 1, device=self.device, dtype=dtype, requires_grad=True
             )
-            with warnings.catch_warnings(record=True) as ws:
-                log_acqf.set_X_pending(X2)
-            self.assertEqual(log_acqf.X_pending, X2)
-            self.assertEqual(sum(issubclass(w.category, BotorchWarning) for w in ws), 1)
-
-            # test incremental
-            # Check that adding a pending point is equivalent to adding a point to
-            # X_baseline
             for cache_root in (True, False):
                 kwargs = {
                     "model": mm_noisy_pending,
