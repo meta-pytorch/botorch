@@ -6,10 +6,18 @@
 
 """Test harness for acquisition function testing."""
 
-from .mixins import AcquisitionSpec, AcquisitionTestMixin, AnalyticAcquisitionTestMixin
+from .mixins import (
+    AcquisitionSpec,
+    AcquisitionTestMixin,
+    AnalyticAcquisitionTestMixin,
+    MCAcquisitionSpec,
+    MCAcquisitionTestMixin,
+)
 
 __all__ = [
     "AcquisitionSpec",
     "AcquisitionTestMixin",
     "AnalyticAcquisitionTestMixin",
+    "MCAcquisitionSpec",
+    "MCAcquisitionTestMixin",
 ]
