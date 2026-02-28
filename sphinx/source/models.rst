@@ -34,6 +34,11 @@ Ensemble Model API
 Models
 -------------------------------------------
 
+Additive GP Models
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.. automodule:: botorch.models.additive_gp
+    :members:
+
 Cost Models (for cost-aware optimization)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 .. automodule:: botorch.models.cost

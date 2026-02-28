@@ -110,6 +110,12 @@ class TestOrthogonalAdditiveKernel(BotorchTestCase):
                 # second order effects change the correlation structure
                 self.assertFalse(torch.allclose(KM, KM2))
 
+                # check normalizer shape: should be (d, 1, 1)
+                normalizer = oak.normalizer()
+                self.assertEqual(normalizer.shape, (d, 1, 1))
+                normalizer_2nd = oak_2nd.normalizer()
+                self.assertEqual(normalizer_2nd.shape, (d, 1, 1))
+
                 # check orthogonality of base kernels
                 n_test = 7
                 # inputs on which to evaluate orthogonality
@@ -302,10 +308,98 @@ class TestOrthogonalAdditiveKernel(BotorchTestCase):
             self.assertAllClose(
                 oak.raw_coeffs_2, 0.3 * torch.ones_like(oak.raw_coeffs_2)
             )
-            # the lower triangular part is set to 0 automatically since the
+            # the lower triangular part is set to 0 automatically
             self.assertAllClose(
                 oak.coeffs_2.tril(diagonal=-1), torch.zeros_like(oak.coeffs_2)
             )
+
+    def test_non_reduced_forward(self):
+        """Test _non_reduced_forward returns component-wise kernel matrices."""
+        n, d = 5, 4
+        tkwargs = {"dtype": torch.double, "device": self.device}
+        X1 = torch.rand(n, d, **tkwargs)
+        X2 = torch.rand(n + 2, d, **tkwargs)
+        base_kernel = RBFKernel().to(**tkwargs)
+
+        # Test first-order only
+        oak = OrthogonalAdditiveKernel(
+            base_kernel, dim=d, second_order=False, **tkwargs
+        )
+        K = oak._non_reduced_forward(X1, X2)
+        # Expected shape: (1 + d) x n x (n + 2)
+        expected_num_components = 1 + d
+        self.assertEqual(K.shape, (expected_num_components, n, n + 2))
+
+        # Test with second-order
+        oak_2nd = OrthogonalAdditiveKernel(
+            base_kernel, dim=d, second_order=True, **tkwargs
+        )
+        K2 = oak_2nd._non_reduced_forward(X1, X2)
+        # Expected shape: (1 + d + d*(d-1)/2) x n x (n + 2)
+        num_second_order = d * (d - 1) // 2
+        expected_num_components = 1 + d + num_second_order
+        self.assertEqual(K2.shape, (expected_num_components, n, n + 2))
+
+        # Verify that the sum of components equals the full kernel output
+        K_full = oak._non_reduced_forward(X1, X2).sum(dim=0)
+        K_standard = oak(X1, X2).to_dense()
+        self.assertAllClose(K_full, K_standard, atol=1e-5)
+
+        K2_full = oak_2nd._non_reduced_forward(X1, X2).sum(dim=0)
+        K2_standard = oak_2nd(X1, X2).to_dense()
+        self.assertAllClose(K2_full, K2_standard, atol=1e-5)
+
+    def test_component_indices(self):
+        """Test component_indices property returns correct mappings."""
+        d = 5
+        tkwargs = {"dtype": torch.double, "device": self.device}
+        base_kernel = RBFKernel().to(**tkwargs)
+
+        # Test first-order only
+        oak = OrthogonalAdditiveKernel(
+            base_kernel, dim=d, second_order=False, **tkwargs
+        )
+        indices = oak.component_indices
+        self.assertIn("bias", indices)
+        self.assertIn("first_order", indices)
+        self.assertNotIn("second_order", indices)
+        self.assertEqual(indices["bias"].tolist(), [0])
+        self.assertEqual(indices["first_order"].tolist(), list(range(d)))
+
+        # Test with second-order
+        oak_2nd = OrthogonalAdditiveKernel(
+            base_kernel, dim=d, second_order=True, **tkwargs
+        )
+        indices_2nd = oak_2nd.component_indices
+        self.assertIn("bias", indices_2nd)
+        self.assertIn("first_order", indices_2nd)
+        self.assertIn("second_order", indices_2nd)
+        self.assertEqual(indices_2nd["bias"].tolist(), [0])
+        self.assertEqual(indices_2nd["first_order"].tolist(), list(range(d)))
+
+        # Verify second_order shape and content
+        second_order_indices = indices_2nd["second_order"]
+        expected_num_pairs = d * (d - 1) // 2
+        self.assertEqual(second_order_indices.shape, (expected_num_pairs, 2))
+
+        # Verify all pairs are upper triangular (i < j)
+        for i in range(expected_num_pairs):
+            row_idx, col_idx = second_order_indices[i].tolist()
+            self.assertLess(row_idx, col_idx)
+
+        # Test get_component_index method
+        self.assertEqual(oak.get_component_index("bias"), 0)
+        self.assertEqual(oak.get_component_index("first_order", 0), 1)
+        self.assertEqual(oak.get_component_index("first_order", d - 1), d)
+        self.assertEqual(oak_2nd.get_component_index("second_order", (0, 1)), d + 1)
+        with self.assertRaises(ValueError):
+            oak.get_component_index("unknown")
+        with self.assertRaises(IndexError):
+            oak.get_component_index("first_order", 99)
+        with self.assertRaises(ValueError):
+            oak.get_component_index("second_order", (1, 0))  # i >= j
+        with self.assertRaises(ValueError):
+            oak.get_component_index("second_order", (0, 1))  # second_order disabled
 
 
 def isposdef(A: Tensor) -> bool:
