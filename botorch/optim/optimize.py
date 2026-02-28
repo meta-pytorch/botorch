@@ -210,6 +210,8 @@ def _optimize_acqf_all_features_fixed(
     X = X.expand(q, *X.shape)
     with torch.no_grad():
         acq_value = acq_function(X)
+    if acq_value.ndim == 1:
+        acq_value = acq_value[0]
     return X, acq_value
 
 
