@@ -29,6 +29,9 @@ from botorch.models.model import ModelList
 from botorch.models.model_list_gp_regression import ModelListGP
 from botorch.models.multitask import KroneckerMultiTaskGP, MultiTaskGP
 from botorch.models.pairwise_gp import PairwiseGP, PairwiseLaplaceMarginalLogLikelihood
+from botorch.models.robust_relevance_pursuit_model import (
+    RobustRelevancePursuitSingleTaskGP,
+)
 
 __all__ = [
     "add_saas_prior",
@@ -52,4 +55,5 @@ __all__ = [
     "SingleTaskGP",
     "SingleTaskMultiFidelityGP",
     "SingleTaskVariationalGP",
+    "RobustRelevancePursuitSingleTaskGP",
 ]
