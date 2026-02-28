@@ -102,8 +102,8 @@ def get_covar_module_with_dim_scaled_prior(
     batch_shape: torch.Size | None = None,
     use_rbf_kernel: bool = True,
     active_dims: Sequence[int] | None = None,
-) -> MaternKernel | RBFKernel:
-    """Returns an RBF or Matern kernel with priors
+) -> ScaleKernel:
+    """Returns an ScaleKernel based on RBF or Matern kernel with priors
     from  [Hvarfner2024vanilla]_.
 
     Args:
@@ -130,4 +130,8 @@ def get_covar_module_with_dim_scaled_prior(
         # pyre-ignore[6] GPyTorch type is unnecessarily restrictive.
         active_dims=active_dims,
     )
-    return base_kernel
+    return ScaleKernel(
+        base_kernel=base_kernel,
+        batch_shape=batch_shape,
+        outputscale_prior=GammaPrior(2.0, 0.15),
+    )
