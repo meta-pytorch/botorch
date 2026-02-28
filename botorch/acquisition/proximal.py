@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import torch
 from botorch.acquisition import AcquisitionFunction
+from botorch.acquisition.wrapper import AbstractAcquisitionFunctionWrapper
 from botorch.exceptions.errors import UnsupportedError
 from botorch.models import ModelListGP
 from botorch.models.gpytorch import BatchedMultiOutputGPyTorchModel
@@ -21,10 +22,9 @@ from botorch.models.transforms.input import InputTransform
 from botorch.utils import t_batch_mode_transform
 from botorch.utils.transforms import average_over_ensemble_models
 from torch import Tensor
-from torch.nn import Module
 
 
-class ProximalAcquisitionFunction(AcquisitionFunction):
+class ProximalAcquisitionFunction(AbstractAcquisitionFunctionWrapper):
     """A wrapper around AcquisitionFunctions to add proximal weighting of the
     acquisition function. The acquisition function is
     weighted via a squared exponential centered at the last training point,
@@ -69,9 +69,7 @@ class ProximalAcquisitionFunction(AcquisitionFunction):
             beta: If not None, apply a softplus transform to the base acquisition
                 function, allows negative base acquisition function values.
         """
-        Module.__init__(self)
-
-        self.acq_func = acq_function
+        AbstractAcquisitionFunctionWrapper.__init__(self, acq_function=acq_function)
         model = self.acq_func.model
 
         if hasattr(acq_function, "X_pending"):
@@ -79,7 +77,6 @@ class ProximalAcquisitionFunction(AcquisitionFunction):
                 raise UnsupportedError(
                     "Proximal acquisition function requires `X_pending` to be None."
                 )
-            self.X_pending = acq_function.X_pending
 
         self.register_buffer("proximal_weights", proximal_weights)
         self.register_buffer(
@@ -89,6 +86,12 @@ class ProximalAcquisitionFunction(AcquisitionFunction):
         self.register_buffer("beta", None if beta is None else torch.tensor(beta))
 
         _validate_model(model, proximal_weights)
+
+    def set_X_pending(self, X_pending: Tensor | None) -> None:
+        r"""Sets the `X_pending` of the base acquisition function."""
+        raise UnsupportedError(
+            "Proximal acquisition function does not support `X_pending`."
+        )
 
     @t_batch_mode_transform(expected_q=1, assert_output_shape=False)
     @average_over_ensemble_models

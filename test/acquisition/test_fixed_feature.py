@@ -91,7 +91,7 @@ class TestFixedFeatureAcquisitionFunction(BotorchTestCase):
             qEI_ff.set_X_pending(X_pending[..., :-1])
             self.assertAllClose(qEI.X_pending, X_pending)
             # test setting to None
-            qEI_ff.X_pending = None
+            qEI_ff.set_X_pending(None)
             self.assertIsNone(qEI_ff.X_pending)
 
         # test gradient

@@ -31,6 +31,7 @@ from botorch.acquisition.multi_objective.hypervolume_knowledge_gradient import (
     qHypervolumeKnowledgeGradient,
     qMultiFidelityHypervolumeKnowledgeGradient,
 )
+from botorch.acquisition.utils import isinstance_af
 from botorch.exceptions.errors import BotorchTensorDimensionError, UnsupportedError
 from botorch.exceptions.warnings import (
     BadInitialCandidatesWarning,
@@ -1274,7 +1275,7 @@ def is_nonnegative(acq_function: AcquisitionFunction) -> bool:
         >>> qEI = qExpectedImprovement(model, best_f=0.1)
         >>> is_nonnegative(qEI)  # returns True
     """
-    return isinstance(
+    return isinstance_af(
         acq_function,
         (
             analytic.ExpectedImprovement,

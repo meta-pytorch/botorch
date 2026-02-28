@@ -207,9 +207,15 @@ class TestProximalAcquisitionFunction(BotorchTestCase):
 
             # test for x_pending points
             pending_acq = DummyAcquisitionFunction(model)
-            pending_acq.set_X_pending(torch.rand(3, 3, device=self.device, dtype=dtype))
+            X_pending = torch.rand(3, 3, device=self.device, dtype=dtype)
+            pending_acq.set_X_pending(X_pending)
             with self.assertRaises(UnsupportedError):
                 ProximalAcquisitionFunction(pending_acq, proximal_weights)
+            # test setting pending points
+            pending_acq.set_X_pending(None)
+            af = ProximalAcquisitionFunction(pending_acq, proximal_weights)
+            with self.assertRaises(UnsupportedError):
+                af.set_X_pending(X_pending)
 
             # test model with multi-batch training inputs
             train_X = torch.rand(5, 2, 3, device=self.device, dtype=dtype)

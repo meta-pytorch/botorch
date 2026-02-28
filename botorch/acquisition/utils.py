@@ -13,6 +13,7 @@ from __future__ import annotations
 import math
 import warnings
 from collections.abc import Callable
+from typing import Any, Union
 
 import torch
 from botorch.acquisition.objective import (
@@ -20,6 +21,7 @@ from botorch.acquisition.objective import (
     PosteriorTransform,
     ScalarizedPosteriorTransform,
 )
+from botorch.acquisition.wrapper import AbstractAcquisitionFunctionWrapper
 from botorch.exceptions.errors import (
     BotorchTensorDimensionError,
     DeprecationError,
@@ -271,6 +273,19 @@ def get_infeasible_cost(
     while lb.dim() > 1:
         lb = lb.min(dim=-2).values
     return -(lb.clamp_max(0.0))
+
+
+def isinstance_af(
+    __obj: object,
+    __class_or_tuple: Union[type, tuple[Union[type, tuple[Any, ...]], ...]],
+) -> bool:
+    r"""A variant of isinstance first checks for the acq_func attribute on wrapped
+    acquisition functions."""
+    if isinstance(__obj, AbstractAcquisitionFunctionWrapper):
+        isinstance_base_af = isinstance(__obj.acq_func, __class_or_tuple)
+    else:
+        isinstance_base_af = False
+    return isinstance_base_af or isinstance(__obj, __class_or_tuple)
 
 
 def _prune_inferior_shared_processing(

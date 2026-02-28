@@ -9,6 +9,8 @@ from unittest import mock
 from unittest.mock import patch
 
 import torch
+from botorch.acquisition import analytic
+from botorch.acquisition.fixed_feature import FixedFeatureAcquisitionFunction
 from botorch.acquisition.objective import (
     ExpectationPosteriorTransform,
     GenericMCObjective,
@@ -16,12 +18,14 @@ from botorch.acquisition.objective import (
     LinearMCObjective,
     ScalarizedPosteriorTransform,
 )
+from botorch.acquisition.proximal import ProximalAcquisitionFunction
 from botorch.acquisition.utils import (
     compute_best_feasible_objective,
     expand_trace_observations,
     get_acquisition_function,
     get_infeasible_cost,
     get_optimal_samples,
+    isinstance_af,
     project_to_sample_points,
     project_to_target_fidelity,
     prune_inferior_points,
@@ -227,6 +231,28 @@ class TestConstraintUtils(BotorchTestCase):
             mm = MockModel(MockPosterior(mean=means, variance=variances))
             M4 = get_infeasible_cost(X=X, model=mm)
             self.assertAllClose(M4, torch.tensor([1.0], **tkwargs))
+
+
+class TestIsinstanceAf(BotorchTestCase):
+    def test_isinstance_af(self):
+        mm = MockModel(
+            MockPosterior(
+                mean=torch.rand(1, 1, device=self.device),
+                variance=torch.ones(1, 1, device=self.device),
+            )
+        )
+        acq_func = analytic.ExpectedImprovement(model=mm, best_f=-1.0)
+        self.assertTrue(isinstance_af(acq_func, analytic.ExpectedImprovement))
+        self.assertFalse(isinstance_af(acq_func, analytic.UpperConfidenceBound))
+        wrapped_af = FixedFeatureAcquisitionFunction(
+            acq_function=acq_func, d=2, columns=[1], values=[0.0]
+        )
+        # test base af class
+        self.assertTrue(isinstance_af(wrapped_af, analytic.ExpectedImprovement))
+        self.assertFalse(isinstance_af(wrapped_af, analytic.UpperConfidenceBound))
+        # test wrapper class
+        self.assertTrue(isinstance_af(wrapped_af, FixedFeatureAcquisitionFunction))
+        self.assertFalse(isinstance_af(wrapped_af, ProximalAcquisitionFunction))
 
 
 class TestPruneInferiorPoints(BotorchTestCase):

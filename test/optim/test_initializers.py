@@ -11,6 +11,7 @@ from random import random
 from unittest import mock
 
 import torch
+from botorch.acquisition import analytic, monte_carlo, multi_objective
 from botorch.acquisition.analytic import PosteriorMean
 from botorch.acquisition.fixed_feature import FixedFeatureAcquisitionFunction
 from botorch.acquisition.knowledge_gradient import qKnowledgeGradient
@@ -38,6 +39,7 @@ from botorch.optim.initializers import (
     initialize_q_batch,
     initialize_q_batch_nonneg,
     initialize_q_batch_topn,
+    is_nonnegative,
     sample_perturbed_subset_dims,
     sample_points_around_best,
     sample_q_batches_from_polytope,
@@ -82,6 +84,39 @@ class TestBoundsAndConstraintCheckers(BotorchTestCase):
 
         result = get_max_violation_of_constraints(samples, constraints, equality=False)
         self.assertAlmostEqual(result, 0.0, delta=1e-6)
+
+
+class TestIsNonnegative(BotorchTestCase):
+    def test_is_nonnegative(self):
+        nonneg_afs = (
+            analytic.ExpectedImprovement,
+            analytic.ConstrainedExpectedImprovement,
+            analytic.ProbabilityOfImprovement,
+            analytic.NoisyExpectedImprovement,
+            monte_carlo.qExpectedImprovement,
+            monte_carlo.qNoisyExpectedImprovement,
+            monte_carlo.qProbabilityOfImprovement,
+            multi_objective.analytic.ExpectedHypervolumeImprovement,
+            multi_objective.monte_carlo.qExpectedHypervolumeImprovement,
+            multi_objective.monte_carlo.qNoisyExpectedHypervolumeImprovement,
+        )
+        mm = MockModel(
+            MockPosterior(
+                mean=torch.rand(1, 1, device=self.device),
+                variance=torch.ones(1, 1, device=self.device),
+            )
+        )
+        acq_func = analytic.ExpectedImprovement(model=mm, best_f=-1.0)
+        with mock.patch(
+            "botorch.optim.initializers.isinstance_af", return_value=True
+        ) as mock_isinstance_af:
+            self.assertTrue(is_nonnegative(acq_function=acq_func))
+            mock_isinstance_af.assert_called_once()
+            cargs, _ = mock_isinstance_af.call_args
+            self.assertIs(cargs[0], acq_func)
+            self.assertEqual(cargs[1], nonneg_afs)
+        acq_func = analytic.UpperConfidenceBound(model=mm, beta=2.0)
+        self.assertFalse(is_nonnegative(acq_function=acq_func))
 
 
 class TestInitializeQBatch(BotorchTestCase):
