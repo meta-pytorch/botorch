@@ -95,3 +95,42 @@ def get_bounds_as_ndarray(
     if np.isinf(out).all():
         out = None
     return out
+
+
+def get_per_element_bounds(
+    parameters: dict[str, Tensor],
+    bounds: dict[str, tuple[float | None, float | None]],
+    batch_shape: torch.Size,
+) -> npt.NDArray | None:
+    r"""Convert bounds to an ndarray for a single batch element's parameters.
+
+    For batched models where all batch elements share the same parameter
+    constraints, this extracts bounds for one element's worth of parameters.
+
+    Args:
+        parameters: A dictionary of batched parameter tensors, each with shape
+            ``(*batch_shape, *trailing_shape)``.
+        bounds: A dictionary of (optional) lower and upper bounds.
+        batch_shape: The batch shape shared by all parameters.
+
+    Returns:
+        An ndarray of shape ``(per_element_size, 2)`` or None if all bounds
+        are infinite.
+    """
+    inf = float("inf")
+    batch_size = max(int(torch.Size(batch_shape).numel()), 1)
+    per_element_size = sum(param.numel() // batch_size for param in parameters.values())
+    out = np.full((per_element_size, 2), (-inf, inf))
+    index = 0
+    for name, param in parameters.items():
+        size = param.numel() // batch_size
+        if name in bounds:
+            lower, upper = bounds[name]
+            lower = -inf if lower is None else lower
+            upper = inf if upper is None else upper
+            out[index : index + size, 0] = lower
+            out[index : index + size, 1] = upper
+        index += size
+    if np.isinf(out).all():
+        return None
+    return out
