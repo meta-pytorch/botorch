@@ -465,7 +465,7 @@ class Hartmann(SyntheticTestFunction):
                 [2348, 1451, 3522, 2883, 3047, 6650],
                 [4047, 8828, 8732, 5743, 1091, 381.0],
             ]
-        else:  # pragma: no cover -- unreacheable code for pyre.
+        else:  # pragma: no cover -- unreachable code for pyre.
             raise NotImplementedError
         self.register_buffer("A", torch.tensor(A))
         self.register_buffer("P", torch.tensor(P))
@@ -755,7 +755,7 @@ class Rosenbrock(SyntheticTestFunction):
 
 
 class Shekel(SyntheticTestFunction):
-    r"""Shekel synthtetic test function.
+    r"""Shekel synthetic test function.
 
     4-dimensional function (usually evaluated on ``[0, 10]^4``):
 
@@ -829,13 +829,13 @@ class SixHumpCamel(SyntheticTestFunction):
 
 
 class StyblinskiTang(SyntheticTestFunction):
-    r"""Styblinski-Tang synthtetic test function.
+    r"""Styblinski-Tang synthetic test function.
 
     d-dimensional function (usually evaluated on the hypercube ``[-5, 5]^d``):
 
         H(x) = 0.5 * sum_{i=1}^d (x_i^4 - 16 * x_i^2 + 5 * x_i)
 
-    H has a single global mininimum ``H(z) = -39.166166 * d`` at ``z = [-2.903534]^d``
+    H has a single global minimum ``H(z) = -39.166166 * d`` at ``z = [-2.903534]^d``
     """
 
     def __init__(
@@ -1430,7 +1430,7 @@ class PressureVessel(ConstrainedSyntheticTestFunction):
 class WeldedBeamSO(ConstrainedSyntheticTestFunction):
     r"""Welded beam design problem with constraints (single-outcome).
 
-    The four-dimensional welded beam design proble problem with six
+    The four-dimensional welded beam design problem with six
     black-box constraints from [CoelloCoello2002constraint]_.
 
     For a (somewhat modified) multi-objective version, see
@@ -1583,7 +1583,7 @@ class KeaneBumpFunction(ConstrainedSyntheticTestFunction):
     This is a challenging d-dimensional minimization problem with two
     constraints that is evaluated on the domain [0, 10]^d.
 
-    There is no known global optimum for this problem, but the aproximate
+    There is no known global optimum for this problem, but the approximate
     global optimal value for a few different dimensionalities can be found in
     [Mishra2007]_.
     """

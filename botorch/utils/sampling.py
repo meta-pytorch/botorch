@@ -331,7 +331,7 @@ def batched_multinomial(
         num_samples: The number of samples to draw for each batch index. Must be smaller
             than ``num_categories`` if ``replacement=False``.
         replacement: If True, samples are drawn with replacement.
-        generator: A a pseudorandom number generator for sampling.
+        generator: A pseudorandom number generator for sampling.
         out: The output tensor (optional). If provided, must be of size
             ``batch_shape x num_samples``.
 

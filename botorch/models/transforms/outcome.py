@@ -185,7 +185,7 @@ class ChainedOutcomeTransform(OutcomeTransform, ModuleDict):
         r"""Un-transform previously transformed outcomes
 
         Args:
-            Y: A ``batch_shape x n x m``-dim tensor of transfomred training targets.
+            Y: A ``batch_shape x n x m``-dim tensor of transformed training targets.
             Yvar: A ``batch_shape x n x m``-dim tensor of transformed observation
                 noises associated with the training targets (if applicable).
             X: A ``batch_shape x n x d``-dim tensor of training inputs (if applicable).
@@ -248,7 +248,7 @@ class Standardize(OutcomeTransform):
             outputs: Which of the outputs to standardize. If omitted, all
                 outputs will be standardized.
             batch_shape: The batch_shape of the training targets.
-            min_stddv: The minimum standard deviation for which to perform
+            min_stdv: The minimum standard deviation for which to perform
                 standardization (if lower, only de-mean the data).
         """
         super().__init__()
@@ -519,7 +519,7 @@ class StratifiedStandardize(Standardize):
     ) -> None:
         r"""Standardize outcomes (zero mean, unit variance) along stratification dim.
 
-        Note: This currenlty only supports single output models
+        Note: This currently only supports single output models
         (including multi-task models that have a single output).
 
         Args:
@@ -801,7 +801,7 @@ class Log(OutcomeTransform):
         r"""Un-transform log-transformed outcomes
 
         Args:
-            Y: A ``batch_shape x n x m``-dim tensor of log-transfomred targets.
+            Y: A ``batch_shape x n x m``-dim tensor of log-transformed targets.
             Yvar: A ``batch_shape x n x m``-dim tensor of log- transformed
                 observation noises associated with the training targets
                 (if applicable).
@@ -938,7 +938,7 @@ class Power(OutcomeTransform):
         r"""Un-transform power-transformed outcomes
 
         Args:
-            Y: A ``batch_shape x n x m``-dim tensor of power-transfomred targets.
+            Y: A ``batch_shape x n x m``-dim tensor of power-transformed targets.
             Yvar: A ``batch_shape x n x m``-dim tensor of power-transformed
                 observation noises associated with the training targets
                 (if applicable).
@@ -1070,7 +1070,7 @@ class Bilog(OutcomeTransform):
         r"""Un-transform bilog-transformed outcomes
 
         Args:
-            Y: A ``batch_shape x n x m``-dim tensor of bilog-transfomred targets.
+            Y: A ``batch_shape x n x m``-dim tensor of bilog-transformed targets.
             Yvar: A ``batch_shape x n x m``-dim tensor of bilog-transformed
                 observation noises associated with the training targets
                 (if applicable).

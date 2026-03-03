@@ -142,7 +142,7 @@ class LCEMGP(MultiTaskGP):
             (len(context_cat_feature[:, i].unique()), embs_dim_list[i])
             for i in range(context_cat_feature.size(1))
         ]
-        # contruct embedding layer: need to handle multiple categorical features
+        # construct embedding layer: need to handle multiple categorical features
         self.emb_layers = ModuleList(
             [
                 torch.nn.Embedding(num_embeddings=x, embedding_dim=y, max_norm=1.0)

@@ -173,7 +173,7 @@ class BaseTestProblem(Module, ABC):
             noise: If ``True``, add observation noise as specified by ``noise_std``.
 
         Returns:
-            A ``batch_shape``-dim tensor ouf function evaluations.
+            A ``batch_shape``-dim tensor of function evaluations.
         """
         f = self.evaluate_true(X=X)
         if noise and self.noise_std is not None:

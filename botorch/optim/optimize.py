@@ -621,7 +621,7 @@ def optimize_acqf(
     with the highest acquisition values in the previous step are then further
     optimized. This is by default done by LBFGS-B optimization, if no constraints are
     present, and SLSQP, if constraints are present (can be changed to
-    other optmizers via ``gen_candidates``).
+    other optimizers via ``gen_candidates``).
 
     While the optimization procedure runs on CPU by default for this function,
     the acq_function can be implemented on GPU and simply move the inputs
@@ -635,7 +635,7 @@ def optimize_acqf(
         q: The number of candidates.
         num_restarts: The number of starting points for multistart acquisition
             function optimization. Even though the name suggests this happens
-            sequentually, it is done in parallel (using batched evaluations)
+            sequentially, it is done in parallel (using batched evaluations)
             for up to ``options.batch_limit`` candidates
             (by default completely parallel).
         raw_samples: The number of samples for initialization. This is required
@@ -1448,7 +1448,7 @@ def _filter_infeasible(
 
 
 def _filter_invalid(X: Tensor, X_avoid: Tensor) -> Tensor:
-    """Remove all occurences of ``X_avoid`` from ``X``."""
+    """Remove all occurrences of ``X_avoid`` from ``X``."""
     return X[~(X == X_avoid.unsqueeze(-2)).all(dim=-1).any(dim=-2)]
 
 

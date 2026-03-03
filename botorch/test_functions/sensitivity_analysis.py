@@ -68,7 +68,7 @@ class Ishigami(SyntheticTestFunction):
 
         This function can be called separately to estimate the dgsm measure
         The exact global integrals of these values are already added under
-        as attributes dgsm_gradient, dgsm_gradient_bas, and dgsm_gradient_square.
+        as attributes dgsm_gradient, dgsm_gradient_abs, and dgsm_gradient_square.
 
         Args:
             X: Set of points at which to compute derivative measures.
@@ -80,8 +80,8 @@ class Ishigami(SyntheticTestFunction):
         dx_3 = 0.4 * (X[..., 2] ** 3) * torch.sin(X[..., 0])
         gradient_measure = [
             torch.mean(dx_1).item(),
-            torch.mean(dx_1).item(),
-            torch.mean(dx_1).item(),
+            torch.mean(dx_2).item(),
+            torch.mean(dx_3).item(),
         ]
         gradient_absolute_measure = [
             torch.mean(torch.abs(dx_1)).item(),

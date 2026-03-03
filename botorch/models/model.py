@@ -541,9 +541,9 @@ class ModelList(Model):
             the outputs subset to the indices in ``idcs``.
 
         Internally, this drops (if single-output) or subsets (if multi-output)
-        the constitutent models and returns them as a ``ModelList``. If the
+        the constituent models and returns them as a ``ModelList``. If the
         result is a single (possibly subset) model from the list, returns this
-        model (instead of forming a degenerate singe-model ``ModelList``).
+        model (instead of forming a degenerate single-model ``ModelList``).
         For instance, if ``m = ModelList(m1, m2)`` with ``m1`` a two-output model
         and ``m2`` a single-output model, then ``m.subset_output([1]) `` will return
         the model ``m1`` subset to its second output.
