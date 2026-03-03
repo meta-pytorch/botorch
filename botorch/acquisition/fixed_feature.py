@@ -35,7 +35,7 @@ def get_dtype_of_sequence(values: Sequence[Tensor | float]) -> torch.dtype:
     return torch.float32 if all_single_precision else torch.float64
 
 
-def get_device_of_sequence(values: Sequence[Tensor | float]) -> torch.dtype:
+def get_device_of_sequence(values: Sequence[Tensor | float]) -> torch.device:
     """
     CPU if everything is on the CPU; Cuda otherwise.
 
@@ -43,7 +43,7 @@ def get_device_of_sequence(values: Sequence[Tensor | float]) -> torch.dtype:
     """
 
     def _is_cuda(value: Tensor | float) -> bool:
-        return hasattr(value, "device") and value.device == torch.device("cuda")
+        return isinstance(value, Tensor) and value.device.type == "cuda"
 
     any_cuda = any(_is_cuda(value) for value in values)
     return torch.device("cuda") if any_cuda else torch.device("cpu")

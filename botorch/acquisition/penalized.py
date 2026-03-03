@@ -104,8 +104,8 @@ class GaussianPenalty(torch.nn.Module):
             A tensor of size "batch_shape" representing the acqfn for each q-batch.
         """
         sq_diff = torch.linalg.norm((X - self.init_point), ord=2, dim=-1) ** 2
-        pdf = torch.exp(sq_diff / 2 / self.sigma**2)
-        regularization_term = pdf.max(dim=-1).values
+        penalty = torch.exp(sq_diff / 2 / self.sigma**2)
+        regularization_term = penalty.max(dim=-1).values
         return regularization_term
 
 
@@ -174,7 +174,7 @@ class L0Approximation(torch.nn.Module):
         # hyperparameter to control the differentiable relaxation in L0 norm function.
         self.register_buffer("a", torch.tensor(a, **tkwargs))
 
-    def __call__(self, X: Tensor) -> Tensor:
+    def forward(self, X: Tensor) -> Tensor:
         return nnz_approx(X=X, target_point=self.target_point, a=self.a)
 
 
@@ -191,14 +191,14 @@ class L0PenaltyApprox(L0Approximation):
         """
         super().__init__(target_point=target_point, a=a, **tkwargs)
 
-    def __call__(self, X: Tensor) -> Tensor:
+    def forward(self, X: Tensor) -> Tensor:
         r"""
         Args:
             X: A "batch_shape x q x dim" representing the points to be evaluated.
         Returns:
             A tensor of size "batch_shape" representing the acqfn for each q-batch.
         """
-        return super().__call__(X=X).squeeze(dim=-1).min(dim=-1).values
+        return super().forward(X=X).squeeze(dim=-1).min(dim=-1).values
 
 
 class PenalizedAcquisitionFunction(AcquisitionFunction):
@@ -216,7 +216,7 @@ class PenalizedAcquisitionFunction(AcquisitionFunction):
         penalty_func: torch.nn.Module,
         regularization_parameter: float,
     ) -> None:
-        r"""Initializing Group-Lasso regularization.
+        r"""Initializing penalized acquisition function.
 
         Args:
             raw_acqf: The raw acquisition function that is going to be regularized.
@@ -317,7 +317,6 @@ class PenalizedMCObjective(GenericMCObjective):
                 objective, l1_penalty_objective, regularization_parameter
             )
         >>> samples = sampler(posterior)
-                objective, l1_penalty_objective, regularization_parameter
     """
 
     def __init__(
@@ -371,7 +370,12 @@ class PenalizedMCObjective(GenericMCObjective):
         # tensor; obj returned from GenericMCObjective is a ``q``-dim tensor and
         # penalty_obj is a ``1 x q``-dim tensor.
         if obj.ndim == 1:
-            assert penalty_obj.shape == torch.Size([1, samples.shape[-2]])
+            if penalty_obj.shape != torch.Size([1, samples.shape[-2]]):
+                expected = torch.Size([1, samples.shape[-2]])
+                raise ValueError(
+                    f"Expected penalty_obj of shape {expected}"
+                    f", but got {penalty_obj.shape}."
+                )
             penalty_obj = penalty_obj.squeeze(dim=0)
         return obj - self.regularization_parameter * penalty_obj
 
@@ -391,7 +395,7 @@ class L0PenaltyApproxObjective(L0Approximation):
         """
         super().__init__(target_point=target_point, a=a, **tkwargs)
 
-    def __call__(self, X: Tensor) -> Tensor:
+    def forward(self, X: Tensor) -> Tensor:
         r"""
         Args:
             X: A "batch_shape x q x dim" representing the points to be evaluated.
@@ -399,4 +403,4 @@ class L0PenaltyApproxObjective(L0Approximation):
             A "1 x batch_shape x q" tensor representing the penalty for each point.
             The first dimension corresponds to the dimension of MC samples.
         """
-        return super().__call__(X=X).squeeze(dim=-1).unsqueeze(dim=0)
+        return super().forward(X=X).squeeze(dim=-1).unsqueeze(dim=0)
