@@ -179,6 +179,46 @@ class TestHomotopy(BotorchTestCase):
         self.assertEqual(candidate.shape, torch.Size([1, 2]))
         self.assertGreaterEqual(candidate.sum().item(), 2.0 - 1e-6)
 
+    def test_optimize_acqf_homotopy_return_acq_values(self):
+        """Test that return_acq_values defaults to True and can be turned off."""
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        p = Parameter(-2 * torch.ones(1, **tkwargs))
+        hp = HomotopyParameter(
+            parameter=p,
+            schedule=LinearHomotopySchedule(start=4, end=0, num_steps=5),
+        )
+        model = GenericDeterministicModel(f=lambda x: 5 - (x - p) ** 2)
+        acqf = PosteriorMean(model=model)
+        q = 1
+        bounds = torch.tensor([[-10], [5]], **tkwargs)
+        homotopy = Homotopy(homotopy_parameters=[hp])
+        # Default (return_acq_values=True): second element is not None
+        candidate, acqf_val = optimize_acqf_homotopy(
+            q=q,
+            acq_function=acqf,
+            bounds=bounds,
+            homotopy=homotopy,
+            num_restarts=2,
+            raw_samples=16,
+            post_processing_func=lambda x: x.round(),
+        )
+        self.assertIsNotNone(acqf_val)
+        self.assertEqual(candidate.shape, (q, 1))
+        # return_acq_values=False: second element is None
+        candidate_no_acq, acqf_val_no_acq = optimize_acqf_homotopy(
+            q=q,
+            acq_function=acqf,
+            bounds=bounds,
+            homotopy=Homotopy(homotopy_parameters=[hp]),
+            num_restarts=2,
+            raw_samples=16,
+            post_processing_func=lambda x: x.round(),
+            return_acq_values=False,
+        )
+        self.assertIsNone(acqf_val_no_acq)
+        self.assertIsNotNone(candidate_no_acq)
+        self.assertEqual(candidate_no_acq.shape, (q, 1))
+
     def test_prune_candidates(self):
         tkwargs = {"device": self.device, "dtype": torch.double}
         # no pruning
