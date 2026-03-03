@@ -44,7 +44,7 @@ class AugmentedBranin(SyntheticTestFunction):
     continuous_inds = list(range(dim))
     _bounds = [(-5.0, 10.0), (0.0, 15.0), (0.0, 1.0)]
     _optimal_value = 0.397887
-    _optimizers = [  # this is a subset, ther are infinitely many optimizers
+    _optimizers = [  # this is a subset, there are infinitely many optimizers
         (-math.pi, 12.275, 1),
         (math.pi, 1.3867356039019576, 0.1),
         (math.pi, 1.781519779945532, 0.5),

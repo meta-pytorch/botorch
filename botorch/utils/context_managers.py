@@ -67,7 +67,7 @@ def parameter_rollback_ctx(
         changes to the checkpoint will be observed at rollback time. If the checkpoint
         is cleared, no rollback will occur.
     """
-    # Create copies of the orginal values
+    # Create copies of the original values
     if checkpoint is None:
         checkpoint = {
             name: TensorCheckpoint(
@@ -111,7 +111,7 @@ def module_rollback_ctx(
         changes to the checkpoint will be observed at rollback time. If the checkpoint
         is cleared, no rollback will occur.
     """
-    # Create copies of the orginal values
+    # Create copies of the original values
     if checkpoint is None:
         checkpoint = {
             name: TensorCheckpoint(

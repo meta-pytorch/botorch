@@ -676,6 +676,8 @@ class Normalize(AffineInputTransform):
                 NOTE: This only applies if ``learn_bounds=True``.
             learn_bounds: Whether to learn the bounds in train mode. Defaults
                 to False if bounds are provided, otherwise defaults to True.
+            almost_zero: Threshold for determining if a range is effectively
+                zero when learning bounds. Default: 1e-12.
             center: The center of the range for each parameter. Default: 0.5.
 
         Example:
@@ -1249,7 +1251,7 @@ class AppendFeatures(InputTransform):
 
     As an example, the predefined set of features can be used with
     ``RiskMeasureMCObjective`` to optimize risk measures as described in
-    [Cakmak2020risk]_. A tutorial notebook implementing the rhoKG acqusition
+    [Cakmak2020risk]_. A tutorial notebook implementing the rhoKG acquisition
     function introduced in [Cakmak2020risk]_ can be found at
     https://botorch.org/docs/tutorials/risk_averse_bo_with_environmental_variables.
 

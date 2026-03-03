@@ -103,7 +103,7 @@ class LinearEllipticalSliceSampler(PolytopeSampler):
             thinning: Number of samples to skip before returning a sample in ``draw``.
             num_chains: Number of Markov chains to run in parallel.
 
-        This sampler samples from a multivariante Normal ``N(mean, covariance_matrix)``
+        This sampler samples from a multivariate Normal ``N(mean, covariance_matrix)``
         subject to linear domain constraints ``A x <= b`` (intersected with box bounds,
         if provided).
         """

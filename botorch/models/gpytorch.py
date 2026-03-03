@@ -223,7 +223,7 @@ class GPyTorchModel(Model, ABC):
                 ``batch_shape'`` is the batch shape of the observations.
                 ``batch_shape'`` must be broadcastable to ``batch_shape`` using
                 standard broadcasting semantics. If ``Y`` has fewer batch dimensions
-                than ``X``, its is assumed that the missing batch dimensions are
+                than ``X``, it is assumed that the missing batch dimensions are
                 the same for all ``Y``.
             noise: If not ``None``, a tensor of the same shape as ``Y`` representing
                 the associated noise variance.
@@ -625,7 +625,7 @@ class BatchedMultiOutputGPyTorchModel(GPyTorchModel):
                 ``batch_shape'`` is the batch shape of the observations.
                 ``batch_shape'`` must be broadcastable to ``batch_shape`` using
                 standard broadcasting semantics. If ``Y`` has fewer batch dimensions
-                than ``X``, its is assumed that the missing batch dimensions are
+                than ``X``, it is assumed that the missing batch dimensions are
                 the same for all ``Y``.
 
         Returns:
@@ -1034,8 +1034,8 @@ class MultiTaskGPyTorchModel(GPyTorchModel, ABC):
                 of points considered jointly. The ``+ 1`` dimension is the optional
                 task feature / index. If given, the model produces the outputs for
                 the given task indices. If omitted, the model produces outputs for
-                tasks in in ``self._output_tasks`` (specified as ``output_tasks``
-                while constructing the model), which can overwritten using
+                tasks in ``self._output_tasks`` (specified as ``output_tasks``
+                while constructing the model), which can be overwritten using
                 ``output_indices``.
             output_indices: A list of task values over which to compute the posterior.
                 Only used if ``X`` does not include the task feature. If omitted,

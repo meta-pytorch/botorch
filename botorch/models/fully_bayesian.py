@@ -381,7 +381,7 @@ class PyroModel:
 
 
 class MaternPyroModel(PyroModel):
-    r"""Implementation of the a fully Bayesian model with a dimension-scaling prior.
+    r"""Implementation of a fully Bayesian model with a dimension-scaling prior.
 
     ``MaternPyroModel`` is not a standard BoTorch model; instead, it is used as
     an input to ``FullyBayesianSingleTaskGP``.

@@ -71,7 +71,7 @@ class FlattenedStandardize(Standardize):
         Args:
             output_shape: A ``n x output_shape``-dim tensor of training targets.
             batch_shape: The batch_shape of the training targets.
-            min_stddv: The minimum standard deviation for which to perform
+            min_stdv: The minimum standard deviation for which to perform
                 standardization (if lower, only de-mean the data).
         """
         if batch_shape is None:
@@ -417,7 +417,7 @@ class HigherOrderGP(BatchedMultiOutputGPyTorchModel, ExactGP, FantasizeMixin):
                 ``batch_shape'`` is the batch shape of the observations.
                 ``batch_shape'`` must be broadcastable to ``batch_shape`` using
                 standard broadcasting semantics. If ``Y`` has fewer batch dimensions
-                than ``X``, its is assumed that the missing batch dimensions are
+                than ``X``, it is assumed that the missing batch dimensions are
                 the same for all ``Y``.
             noise: If not None, a tensor of the same shape as ``Y`` representing
                 the noise variance associated with each observation.

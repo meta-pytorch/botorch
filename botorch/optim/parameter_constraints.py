@@ -735,7 +735,7 @@ def project_to_feasible_space_via_slsqp(
     limited.
 
     Args:
-        X: A ``(batch_shape x) n x d``-dim tensor of inptus.
+        X: A ``(batch_shape x) n x d``-dim tensor of inputs.
         bounds: A ``2 x d``-dim tensor of lower and upper bounds.
         inequality_constraints: A list of tuples (indices, coefficients, rhs),
             with each tuple encoding an inequality constraint of the form

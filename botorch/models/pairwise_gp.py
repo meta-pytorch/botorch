@@ -192,7 +192,7 @@ class PairwiseGP(Model, GP, FantasizeMixin):
                 forward pass.
             jitter: Value added to diagonal for numerical stability in
                 ``psd_safe_cholesky``.
-            xtol: Stopping creteria in scipy.optimize.fsolve used to find f_map
+            xtol: Stopping criteria in scipy.optimize.fsolve used to find f_map
                 in ``PairwiseGP._update``. If None, default behavior is handled by
                 ``PairwiseGP._update``.
             consolidate_rtol: ``rtol`` passed to ``consolidate_duplicates``.
@@ -428,9 +428,10 @@ class PairwiseGP(Model, GP, FantasizeMixin):
             utility = torch.tensor(utility, dtype=self.datapoints.dtype)
             prior_mean = prior_mean.cpu()
 
-        # NOTE: During the optimization, it can occur that b, p, and g_ are NaNs, though
-        # in the cases that occured during testing, the optimization routine escaped and
-        # terminated successfully without NaNs in the result.
+        # NOTE: During the optimization, it can occur that b, p, and g_ are
+        # NaNs, though in the cases that occurred during testing, the
+        # optimization routine escaped and terminated successfully without
+        # NaNs in the result.
         b = self.likelihood.negative_log_gradient_sum(utility=utility, D=D)
         # g_ = covar_inv x (utility - pred_prior)
         p = (utility - prior_mean).unsqueeze(-1).to(covar_chol)
@@ -657,16 +658,16 @@ class PairwiseGP(Model, GP, FantasizeMixin):
         r"""Make ``max_iter`` newton updates on utility.
 
         This is used in ``forward`` to calculate and fill in gradient into tensors.
-        Instead of doing utility -= H^-1 @ g, use substition method.
+        Instead of doing utility -= H^-1 @ g, use substitution method.
         See more explanation in _update_utility_derived_values.
-        By default only need to run one iteration just to fill the the gradients.
+        By default only need to run one iteration just to fill the gradients.
 
         Args:
             dp: (Transformed) datapoints. A Tensor of shape ``batch_size x n x d``
                 as in self.datapoints
             x0: A ``batch_size x n`` dimension tensor, initial values.
             max_iter: Max number of iterations.
-            xtol: Stop creteria. If ``None``, do not stop until
+            xtol: Stop criteria. If ``None``, do not stop until
                 finishing ``max_iter`` updates.
         """
         xtol = float("-Inf") if xtol is None else xtol
@@ -908,7 +909,7 @@ class PairwiseGP(Model, GP, FantasizeMixin):
             state_dict: The state dict.
             strict: Boolean specifying whether or not given and instance-bound
                 state_dicts should have identical keys. Only implemented for
-                ``strict=False`` since buffers will filters out when calling
+                ``strict=False`` since buffers will be filtered out when calling
                 ``_load_from_state_dict``.
 
         Returns:

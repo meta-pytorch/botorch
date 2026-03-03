@@ -358,7 +358,7 @@ class RelevancePursuitMixin(ABC):
         modifier: Callable[[Tensor], Tensor] | None = None,
     ) -> bool:
         """Computes the indices of the elements with the smallest magnitude,
-        and subsequently contracts the support by exluding the elements.
+        and subsequently contracts the support by excluding the elements.
 
         Args:
             mll: The marginal likelihood, containing the model to optimize.
@@ -370,9 +370,9 @@ class RelevancePursuitMixin(ABC):
                 the support contraction criterion.
 
         Returns:
-            True if the support was expanded, False otherwise.
+            True if the support was contracted, False otherwise.
         """
-        # can't expand if the support is already empty, or if n is non-positive
+        # can't contract if the support is already empty, or if n is non-positive
         if len(self.support) == 0 or n <= 0:
             return False
 
