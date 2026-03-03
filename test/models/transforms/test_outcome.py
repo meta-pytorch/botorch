@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import itertools
+import warnings
 from copy import deepcopy
 from random import randint
 
@@ -375,7 +376,7 @@ class TestOutcomeTransforms(BotorchTestCase):
         for (
             dtype,
             batch_shape,
-            observed_task_values,
+            task_values_in_data,
             all_task_values,
         ) in itertools.product(
             (torch.float, torch.double),
@@ -390,9 +391,9 @@ class TestOutcomeTransforms(BotorchTestCase):
             ),
         ):
             if all_task_values is None:
-                all_task_values = observed_task_values
+                all_task_values = task_values_in_data
             torch.manual_seed(seed)
-            tval = observed_task_values[1].item()
+            tval = task_values_in_data[1].item()
             X = torch.rand(*batch_shape, n, 2, dtype=dtype, device=self.device)
             X[..., -1] = torch.tensor(
                 [0, tval, 0, tval, 0], dtype=dtype, device=self.device
@@ -400,11 +401,9 @@ class TestOutcomeTransforms(BotorchTestCase):
             Y = torch.randn(*batch_shape, n, 1, dtype=dtype, device=self.device)
             Yvar = torch.rand(*batch_shape, n, 1, dtype=dtype, device=self.device)
             strata_tf = StratifiedStandardize(
-                observed_task_values=observed_task_values,
                 all_task_values=all_task_values,
                 stratification_idx=-1,
                 batch_shape=batch_shape,
-                default_task_value=0,
             )
             tf_Y, tf_Yvar = strata_tf(Y=Y, Yvar=Yvar, X=X)
             mask0 = X[..., -1] == 0
@@ -419,13 +418,16 @@ class TestOutcomeTransforms(BotorchTestCase):
             tf_Y0, tf_Yvar0 = tf0(Y=Y0, Yvar=Yvar0, X=X0)
             tf1 = Standardize(m=1, batch_shape=batch_shape)
             tf_Y1, tf_Yvar1 = tf1(Y=Y1, Yvar=Yvar1, X=X1)
+            # Get the mapped indices for the tasks in our data
+            # Task 0 always maps to index 0 (first in all_task_values)
+            idx0 = (all_task_values == 0).nonzero(as_tuple=True)[0].item()
+            # Task tval maps to its position in all_task_values
+            idx1 = (all_task_values == tval).nonzero(as_tuple=True)[0].item()
             # check that stratified means are expected
-            self.assertAllClose(strata_tf.means[..., :1, :], tf0.means)
-            # use remapped task values to index
-            self.assertAllClose(strata_tf.means[..., 1:2, :], tf1.means)
-            self.assertAllClose(strata_tf.stdvs[..., :1, :], tf0.stdvs)
-            # use remapped task values to index
-            self.assertAllClose(strata_tf.stdvs[..., 1:2, :], tf1.stdvs)
+            self.assertAllClose(strata_tf.means[..., idx0 : idx0 + 1, :], tf0.means)
+            self.assertAllClose(strata_tf.means[..., idx1 : idx1 + 1, :], tf1.means)
+            self.assertAllClose(strata_tf.stdvs[..., idx0 : idx0 + 1, :], tf0.stdvs)
+            self.assertAllClose(strata_tf.stdvs[..., idx1 : idx1 + 1, :], tf1.stdvs)
             # check the transformed values
             self.assertAllClose(tf_Y0, tf_Y[mask0].view(*batch_shape, -1, 1))
             self.assertAllClose(tf_Y1, tf_Y[mask1].view(*batch_shape, -1, 1))
@@ -441,21 +443,41 @@ class TestOutcomeTransforms(BotorchTestCase):
             self.assertAllClose(Y, untf_Y, **tols)
             self.assertAllClose(Yvar, untf_Yvar)
             # check strata_mapping
-            if not torch.equal(
-                all_task_values,
-                torch.tensor([0, 1], dtype=torch.long, device=self.device),
-            ):
-                expected_strata_mapping = torch.zeros(
-                    4, dtype=torch.long, device=self.device
+            # When all_task_values != [0, 1, ..., n-1], get_task_value_remapping
+            # creates a mapper where all tasks in all_task_values map to contiguous
+            # integers and others map to NaN
+            contiguous_range = torch.arange(
+                len(all_task_values), dtype=torch.long, device=self.device
+            )
+            if not torch.equal(all_task_values, contiguous_range):
+                # strata_mapping has size max(all_task_values) + 1
+                expected_strata_mapping = torch.full(
+                    (int(all_task_values.max().item()) + 1,),
+                    float("nan"),
+                    dtype=strata_tf.strata_mapping.dtype,
+                    device=self.device,
                 )
-                expected_strata_mapping[observed_task_values[1]] = 1
+                # all tasks in all_task_values are mapped to 0, 1, ... in order
+                for i, task_val in enumerate(all_task_values):
+                    expected_strata_mapping[task_val] = float(i)
+                # Check finite values match
                 self.assertTrue(
-                    torch.equal(strata_tf.strata_mapping, expected_strata_mapping)
+                    torch.equal(
+                        strata_tf.strata_mapping[
+                            ~torch.isnan(strata_tf.strata_mapping)
+                        ],
+                        expected_strata_mapping[~torch.isnan(expected_strata_mapping)],
+                    )
+                )
+                # Check NaN positions match
+                self.assertTrue(
+                    torch.equal(
+                        torch.isnan(strata_tf.strata_mapping),
+                        torch.isnan(expected_strata_mapping),
+                    )
                 )
             else:
-                self.assertTrue(
-                    torch.equal(strata_tf.strata_mapping, observed_task_values)
-                )
+                self.assertTrue(torch.equal(strata_tf.strata_mapping, all_task_values))
 
             # test untransform_posterior
             for lazy in (True, False):
@@ -495,11 +517,9 @@ class TestOutcomeTransforms(BotorchTestCase):
 
         # test exception if X is None
         strata_tf = StratifiedStandardize(
-            observed_task_values=observed_task_values,
             all_task_values=all_task_values,
             stratification_idx=-1,
             batch_shape=batch_shape,
-            default_task_value=0,
         )
         with self.assertRaisesRegex(
             ValueError, "X is required for StratifiedStandardize."
@@ -515,6 +535,37 @@ class TestOutcomeTransforms(BotorchTestCase):
             strata_tf.untransform(Y=tf_Y)
         with self.assertRaises(NotImplementedError):
             strata_tf.subset_output(idcs=[0])
+
+        # test warning raised when predicting on tasks not in all_task_values
+        with self.subTest("warning for unknown task predictions"):
+            # Create a transform with all_task_values [0, 1, 3] (non-contiguous
+            # so that a proper mapper is created)
+            all_tasks = torch.tensor([0, 1, 3], dtype=torch.long, device=self.device)
+            strata_tf = StratifiedStandardize(
+                all_task_values=all_tasks,
+                stratification_idx=-1,
+            )
+            # Train the transform
+            X_train = torch.tensor([[0.5, 0.0], [0.5, 1.0]], device=self.device)
+            Y_train = torch.tensor([[1.0], [2.0]], device=self.device)
+            strata_tf(Y=Y_train, Yvar=None, X=X_train)
+            strata_tf.eval()
+
+            # Create test input with a task NOT in all_task_values (task 2)
+            X_test = torch.tensor([[0.5, 2.0]], device=self.device)
+
+            # Check that warning is raised when predicting on unknown task
+            # and verify identity transform values (mean=0, stdvs=stdvs_sq=1)
+            with warnings.catch_warnings(record=True) as w:
+                warnings.simplefilter("always")
+                means, stdvs, stdvs_sq = strata_tf._get_per_input_means_stdvs(
+                    X=X_test, include_stdvs_sq=True
+                )
+                self.assertEqual(len(w), 1)
+                self.assertIn("not observed during training", str(w[0].message))
+            self.assertEqual(means.item(), 0.0)
+            self.assertEqual(stdvs.item(), 1.0)
+            self.assertEqual(stdvs_sq.item(), 1.0)
 
     def test_log(self):
         ms = (1, 2)

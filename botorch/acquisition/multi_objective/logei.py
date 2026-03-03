@@ -352,7 +352,9 @@ class qLogNoisyExpectedHypervolumeImprovement(
         Example:
             >>> model = SingleTaskGP(train_X, train_Y)
             >>> ref_point = [0.0, 0.0]
-            >>> qNEHVI = qNoisyExpectedHypervolumeImprovement(model, ref_point, train_X)
+            >>> qNEHVI = qLogNoisyExpectedHypervolumeImprovement(
+            ...     model, ref_point, train_X
+            ... )
             >>> qnehvi = qNEHVI(test_X)
 
         Args:

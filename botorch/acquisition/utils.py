@@ -439,8 +439,8 @@ def prune_inferior_points(
 
 def project_to_target_fidelity(
     X: Tensor,
-    target_fidelities: dict[int, float] | None = None,
-    d: int | None = None,
+    target_fidelities: dict[int, float],
+    d: int,
 ) -> Tensor:
     r"""Project ``X`` onto the target set of fidelities.
 
@@ -452,26 +452,26 @@ def project_to_target_fidelity(
     Args:
         X: A ``batch_shape x q x (d or d-d_f)``-dim Tensor of with ``q`` ``d`` or
             ``d-d_f``-dim design points for each t-batch, where d_f is the
-            number of fidelity dimensions. If the argument ``d`` is not provided,
-            ``X`` must include the fidelity dimensions and have a trailing``X`` must
-            include the fidelity dimensions and have a trailing
-        target_fidelities: A dictionary mapping a subset of columns of ``X`` (the
-            fidelity parameters) to their respective target fidelity value. If
-            omitted, assumes that the last column of X is the fidelity parameter
-            with a target value of 1.0.
-        d: The total dimension ``d``.
+            number of fidelity dimensions. ``X`` may have size ``d`` (fidelity
+            dims included) or ``d - d_f`` (fidelity dims will be inserted at
+            the appropriate positions).
+        target_fidelities: A dictionary mapping a subset of columns of ``X``
+            (the fidelity parameters) to their respective target fidelity
+            value. Supports both positive and negative indexing.
+        d: The total number of dimensions including fidelity dimensions.
 
     Return:
         A ``batch_shape x q x d``-dim Tensor ``X_proj`` with fidelity parameters
             projected to the provided fidelity values.
     """
-    if target_fidelities is None:
-        target_fidelities = {-1: 1.0}
-    if d is None:
-        # assume X contains the fidelity dimensions
-        d = X.shape[-1]
     # normalize to positive indices
     tfs = {k if k >= 0 else d + k: v for k, v in target_fidelities.items()}
+    # validate that all fidelity indices are within [0, d)
+    out_of_bounds = sorted(k for k in tfs if k < 0 or k >= d)
+    if out_of_bounds:
+        raise BotorchTensorDimensionError(
+            f"Target fidelity indices {out_of_bounds} are out of bounds for `d={d}`."
+        )
     ones = torch.ones(*X.shape[:-1], device=X.device, dtype=X.dtype)
     if X.shape[-1] == d:
         # X contains fidelity dimensions

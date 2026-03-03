@@ -38,6 +38,7 @@ from botorch.test_functions.synthetic import (
     SyntheticTestFunction,
     TensionCompressionString,
     ThreeHumpCamel,
+    TrajectoryPlanning,
     WeldedBeamSO,
 )
 from botorch.utils.testing import (
@@ -366,6 +367,71 @@ class TestAckleyMixed(
     def test_dimension(self):
         with self.assertRaisesRegex(ValueError, "Expected dim > 3. Got dim=3."):
             AckleyMixed(dim=3)
+
+
+class TestTrajectoryPlanning(BotorchTestCase):
+    def test_trajectory_defaults(self):
+        problem = TrajectoryPlanning()
+        self.assertEqual(problem.dim, 30)
+        self.assertAllClose(
+            problem.bounds, torch.tensor([[0, 1]] * 30, dtype=torch.double).T
+        )
+        self.assertEqual(problem.optimal_value, 0.0)
+
+    def test_trajectory_cost_nonnegative(self):
+        problem = TrajectoryPlanning(dim=16)
+        X = torch.rand(3, problem.dim)
+        costs = problem(X)
+        self.assertTrue((costs >= 0).all())
+
+    def test_output_shape(self):
+        for dim in [8, 16]:
+            problem = TrajectoryPlanning(dim=dim)
+            X = torch.rand(5, problem.dim)
+            Y = problem(X)
+            self.assertEqual(Y.shape, torch.Size([5]))
+
+    def test_negate(self):
+        problem = TrajectoryPlanning(dim=8)
+        problem_neg = TrajectoryPlanning(dim=8, negate=True)
+        X = torch.rand(2, problem.dim)
+        self.assertAllClose(problem(X), -problem_neg(X))
+
+    def test_dim_must_be_even(self):
+        with self.assertRaisesRegex(ValueError, "dim must be even"):
+            TrajectoryPlanning(dim=7)
+
+    def test_linear_interpolation(self):
+        problem = TrajectoryPlanning(dim=8, use_smooth_interp=False)
+        X = torch.rand(2, problem.dim)
+        costs = problem(X)
+        self.assertEqual(costs.shape, torch.Size([2]))
+        self.assertTrue((costs >= 0).all())
+
+    def test_single_input(self):
+        problem = TrajectoryPlanning(dim=8)
+        x = torch.rand(problem.dim)
+        cost = problem(x)
+        self.assertEqual(cost.shape, torch.Size([1]))
+
+    def test_at_goal_early(self):
+        # Test that trajectory building terminates early when start is at goal
+        problem = TrajectoryPlanning(dim=4)
+        problem.start = problem.goal.clone()
+        params = torch.full((problem.dim,), 0.5, dtype=torch.double)
+        waypoints = problem._build_waypoints(params)
+        # Should only have start and goal (2 waypoints), not num_waypoints + 2
+        self.assertEqual(len(waypoints), 2)
+        # Both waypoints should be at the goal position
+        self.assertAllClose(waypoints[0], problem.goal)
+        self.assertAllClose(waypoints[1], problem.goal)
+
+    def test_is_in_obstacle_single_point(self):
+        problem = TrajectoryPlanning(dim=8)
+        point_in_obstacle = torch.tensor([0.2, 0.2])
+        self.assertTrue(problem._is_in_obstacle(point_in_obstacle).item())
+        point_outside = torch.tensor([0.5, 0.5])
+        self.assertFalse(problem._is_in_obstacle(point_outside).item())
 
 
 # ------------------ Constrained synthetic test problems ------------------ #

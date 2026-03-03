@@ -26,10 +26,10 @@ jobs:
     needs: tests-and-coverage
     steps:
     - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
     - name: Install uv
       uses: astral-sh/setup-uv@v5
-    - name: Fetch all history for all tags and branches
-      run: git fetch --prune --unshallow
     - name: Set up Python
       uses: actions/setup-python@v5
       with:

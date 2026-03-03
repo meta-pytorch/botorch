@@ -33,7 +33,8 @@ to do two distinct operations in the context of the robust model:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Mapping, Optional, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from typing import Any, Self
 
 import torch
 from botorch.exceptions.errors import UnsupportedError
@@ -139,7 +140,7 @@ class RobustRelevancePursuitMixin(ABC):
             A standard model.
         """
 
-    def load_standard_model(self, standard_model: Model) -> RobustRelevancePursuitMixin:
+    def load_standard_model(self, standard_model: Model) -> Self:
         """Loads the state dict of a model into the ``RobustRelevancePursuitMixin``.
 
         Args:
@@ -273,7 +274,7 @@ def _fit_rrp(
     closure: Callable[[], tuple[Tensor, Sequence[Tensor | None]]] | None = None,
     optimizer: Callable | None = None,
     closure_kwargs: dict[str, Any] | None = None,
-    optimizer_kwargs: Optional[Mapping[str, Any]] = None,
+    optimizer_kwargs: Mapping[str, Any] | None = None,
 ) -> MarginalLogLikelihood:
     """Fits a RobustRelevancePursuitGP model using the given marginal likelihood.
 

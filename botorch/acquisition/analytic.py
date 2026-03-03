@@ -144,7 +144,7 @@ class LogProbabilityOfImprovement(AnalyticAcquisitionFunction):
         posterior_transform: PosteriorTransform | None = None,
         maximize: bool = True,
     ):
-        r"""Single-outcome Probability of Improvement.
+        r"""Single-outcome Log Probability of Improvement.
 
         Args:
             model: A fitted single-outcome model.
@@ -1078,12 +1078,20 @@ class ScalarizedPosteriorMean(AnalyticAcquisitionFunction):
                 t-batches of ``d``-dim design points each.
 
         Returns:
-            A ``(b1 x ... x bk)``-dim Tensor of Posterior Mean values at the given
-            design points ``X``.
+            A ``(b1 x ... x bk)``-dim Tensor of scalarized Posterior Mean values
+            at the given design points ``X``.
         """
-        # (b1 x ... x bk) x q x 1
-        mean, _ = self._mean_and_sigma(X, compute_sigma=False)
-        return mean.squeeze(-1) @ self.weights
+        # ScalarizedPosteriorMean cannot use self._mean_and_sigma, since that squeezes
+        # the q-dim.
+        self.to(X)  # Sync weights buffer to X's device/dtype
+        posterior = self.model.posterior(
+            X=X, posterior_transform=self.posterior_transform
+        )
+        # posterior.mean has shape (b1 x ... x bk) x q x m
+        # squeeze(-1) removes m (should be 1), giving (b1 x ... x bk) x q
+        mean = posterior.mean.squeeze(-1)
+        # @ self.weights: (b1 x ... x bk) x q @ q -> (b1 x ... x bk)
+        return mean @ self.weights
 
 
 class PosteriorStandardDeviation(AnalyticAcquisitionFunction):
@@ -1121,7 +1129,7 @@ class PosteriorStandardDeviation(AnalyticAcquisitionFunction):
         posterior_transform: PosteriorTransform | None = None,
         maximize: bool = True,
     ) -> None:
-        r"""Single-outcome Posterior Mean.
+        r"""Single-outcome Posterior Standard Deviation.
 
         Args:
             model: A fitted single-outcome GP model (must be in batch mode if
@@ -1148,7 +1156,7 @@ class PosteriorStandardDeviation(AnalyticAcquisitionFunction):
                 design points.
 
         Returns:
-            A ``(b1 x ... bk)``-dim tensor of Posterior Mean values at
+            A ``(b1 x ... bk)``-dim tensor of Posterior Standard Deviation values at
                 the given design points ``X``.
         """
         _, std = self._mean_and_sigma(X)

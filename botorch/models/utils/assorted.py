@@ -412,59 +412,51 @@ class fantasize(_Flag):
 
 
 def get_task_value_remapping(
-    observed_task_values: Tensor,
     all_task_values: Tensor,
     dtype: torch.dtype,
-    default_task_value: int | None,
 ) -> Tensor | None:
-    """Construct an mapping of observed task values to contiguous int-valued floats.
+    """Construct a mapping of task values to contiguous int-valued floats.
+
+    This function creates a mapping tensor that remaps task indices. All tasks
+    in ``all_task_values`` are mapped to contiguous integers starting from 0.
+    Task values not in ``all_task_values`` are mapped to NaN.
 
     Args:
-        observed_task_values: A sorted long-valued tensor of task values.
-        all_task_values: A sorted long-valued tensor of task values.
+        all_task_values: A sorted long-valued tensor of all possible task values
+            in the full task space.
         dtype: The dtype of the model inputs (e.g. ``X``), which the new
             task values should have mapped to (e.g. float, double).
-        default_task_value: The default task value to use for missing task values.
 
     Returns:
-        A tensor of shape ``task_values.max() + 1`` that maps task values
+        A tensor of shape ``all_task_values.max() + 1`` that maps task values
         to new task values. The indexing operation ``mapper[task_value]``
         will produce a tensor of new task values, of the same shape as
-        the original. The elements of the ``mapper`` tensor that do not
-        appear in the original ``task_values`` are mapped to ``nan``. The
-        return value will be ``None``, when the task values are contiguous
-        integers starting from zero.
+        the original. All task values in ``all_task_values`` are mapped to
+        contiguous integers [0, 1, ..., n-1] where n is the number of tasks.
+        Task values not in ``all_task_values`` are mapped to NaN. Returns
+        ``None`` when ``all_task_values`` equals [0, 1, ..., n-1].
     """
     if dtype not in (torch.float, torch.double):
         raise ValueError(f"dtype must be torch.float or torch.double, but got {dtype}.")
     task_range = torch.arange(
-        len(observed_task_values),
+        len(all_task_values),
         dtype=all_task_values.dtype,
         device=all_task_values.device,
     )
     mapper = None
 
-    if default_task_value is None:
-        fill_value = float("nan")
-    else:
-        mask = observed_task_values == default_task_value
-        if not mask.any():
-            fill_value = float("nan")
-        else:
-            idx = mask.nonzero().item()
-            fill_value = task_range[idx]
-    # if not all tasks are observed or they are not contiguous integers
+    # if task values are not contiguous integers starting from 0,
     # then map them to contiguous integers
     if not torch.equal(task_range, all_task_values):
         # Create a tensor that maps task values to new task values.
         # The number of tasks should be small, so this should be quite efficient.
         mapper = torch.full(
             (int(all_task_values.max().item()) + 1,),
-            fill_value,
+            float("nan"),
             dtype=dtype,
             device=all_task_values.device,
         )
-        mapper[observed_task_values] = task_range.to(dtype=dtype)
+        mapper[all_task_values] = task_range.to(dtype=dtype)
     return mapper
 
 

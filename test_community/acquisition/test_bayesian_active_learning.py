@@ -21,6 +21,25 @@ from botorch_community.acquisition.bayesian_active_learning import (
 
 
 class TestQStatisticalDistanceActiveLearning(BotorchTestCase):
+    def test_invalid_distance_metric(self):
+        """Test that invalid distance_metric raises ValueError."""
+        torch.manual_seed(1)
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        input_dim = 2
+
+        model = get_fully_bayesian_model(
+            train_X=torch.rand(4, input_dim, **tkwargs),
+            train_Y=torch.rand(4, 1, **tkwargs),
+            num_models=3,
+            **tkwargs,
+        )
+
+        with self.assertRaises(ValueError):
+            qStatisticalDistanceActiveLearning(
+                model=model,
+                distance_metric="invalid_metric",
+            )
+
     def test_q_statistical_distance_active_learning(self):
         torch.manual_seed(1)
         tkwargs = {"device": self.device}

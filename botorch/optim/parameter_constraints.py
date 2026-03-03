@@ -12,7 +12,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from functools import partial
-from typing import Union
 
 import numpy as np
 import numpy.typing as npt
@@ -24,7 +23,7 @@ from torch import Tensor
 
 
 ScipyConstraintDict = dict[
-    str, Union[str, Callable[[np.ndarray], float], Callable[[np.ndarray], np.ndarray]]
+    str, str | Callable[[np.ndarray], float] | Callable[[np.ndarray], np.ndarray]
 ]
 
 

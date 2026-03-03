@@ -239,6 +239,21 @@ class TestSafeDiv(
                     self.assertEqual(a.grad, 1 / b)
                     self.assertEqual(b.grad, -a * b**-2)
 
+    def test_inf_div_finite(self):
+        """Test that div(inf, finite) returns inf, not 1."""
+        for dtype in (torch.float32, torch.float64):
+            for _a, _b in [(INF, 2.0), (-INF, 2.0), (INF, -2.0), (-INF, -2.0)]:
+                a = torch.tensor(
+                    _a, dtype=dtype, requires_grad=True, device=self.device
+                )
+                b = torch.tensor(
+                    _b, dtype=dtype, requires_grad=True, device=self.device
+                )
+                out = self.safe_op(a, b)
+                # inf / finite should return inf with the correct sign
+                expected = torch.tensor(_a / _b, dtype=dtype, device=self.device)
+                self.assertEqual(out, expected)
+
 
 class TestLogMeanExp(BotorchTestCase):
     def test_log_mean_exp(self):
@@ -434,8 +449,22 @@ class TestSmoothNonLinearities(BotorchTestCase):
             tau = 1e-2
             self.assertAllClose(fatmaximum(x, y, tau=tau), x.maximum(y), atol=tau)
 
+            # testing fatmaximum with custom alpha
+            alpha_default = fatmaximum(x, y, tau=tau)
+            alpha_custom = fatmaximum(x, y, tau=tau, alpha=5.0)
+            # different alpha should produce different results
+            self.assertFalse(torch.allclose(alpha_default, alpha_custom))
+            # but both should still approximate the true maximum
+            self.assertAllClose(alpha_custom, x.maximum(y), atol=tau)
+
             # testing fatminimum
             self.assertAllClose(fatminimum(x, y, tau=tau), x.minimum(y), atol=tau)
+
+            # testing fatminimum with custom alpha
+            alpha_default = fatminimum(x, y, tau=tau)
+            alpha_custom = fatminimum(x, y, tau=tau, alpha=5.0)
+            self.assertFalse(torch.allclose(alpha_default, alpha_custom))
+            self.assertAllClose(alpha_custom, x.minimum(y), atol=tau)
 
             # testing fatmoid
             X = torch.arange(-a, a, step=2 * a / n, requires_grad=True, **tkwargs)

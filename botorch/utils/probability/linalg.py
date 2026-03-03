@@ -71,7 +71,7 @@ def augment_cholesky(
     return block_matrix_concat(blocks=([pad(Laa, (0, n))], [Lba, Lbb]))
 
 
-@dataclass
+@dataclass(slots=True)
 class PivotedCholesky:
     step: int
     tril: Tensor

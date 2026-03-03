@@ -12,8 +12,8 @@ Paper: "Variational Bayesian Last Layers" by Harrison et al., ICLR 2024
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 import numpy as np
 import torch

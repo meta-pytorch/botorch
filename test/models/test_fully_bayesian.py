@@ -86,6 +86,9 @@ class CustomPyroModel(PyroModel):
     def load_mcmc_samples(self, mcmc_samples) -> None:
         pass
 
+    def get_dummy_mcmc_samples(self, num_mcmc_samples, **tkwargs):
+        return {}
+
 
 class TestPyroModelPriorMode(BotorchTestCase):
     """Tests for the _prior_mode attribute and sample_observations method."""

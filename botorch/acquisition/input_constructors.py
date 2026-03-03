@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import inspect
 from collections.abc import Callable, Hashable, Iterable, Sequence
-from typing import Any, TypeVar, Union
+from typing import Any, TypeVar
 
 import torch
 from botorch.acquisition.acquisition import AcquisitionFunction
@@ -118,19 +118,19 @@ from torch import Tensor
 ACQF_INPUT_CONSTRUCTOR_REGISTRY = {}
 
 T = TypeVar("T")
-MaybeDict = Union[T, dict[Hashable, T]]
-TOptimizeObjectiveKwargs = Union[
-    None,
-    MCAcquisitionObjective,
-    PosteriorTransform,
-    tuple[Tensor, Tensor],
-    dict[int, float],
-    bool,
-    int,
-    dict[str, Any],
-    Callable[[Tensor], Tensor],
-    Tensor,
-]
+MaybeDict = T | dict[Hashable, T]
+TOptimizeObjectiveKwargs = (
+    None
+    | MCAcquisitionObjective
+    | PosteriorTransform
+    | tuple[Tensor, Tensor]
+    | dict[int, float]
+    | bool
+    | int
+    | dict[str, Any]
+    | Callable[[Tensor], Tensor]
+    | Tensor
+)
 
 
 def _field_is_shared(
@@ -602,7 +602,7 @@ def construct_inputs_qLogEI(
     tau_max: float = TAU_MAX,
     tau_relu: float = TAU_RELU,
 ) -> dict[str, Any]:
-    r"""Construct kwargs for the ``qExpectedImprovement`` constructor.
+    r"""Construct kwargs for the ``qLogExpectedImprovement`` constructor.
 
     Args:
         model: The model to be used in the acquisition function.
@@ -662,7 +662,7 @@ def construct_inputs_LogPF(
     fat: bool = True,
     tau_max: float = TAU_MAX,
 ) -> dict[str, Any]:
-    r"""Construct kwargs for the ``qExpectedImprovement`` constructor.
+    r"""Construct kwargs for the ``qLogProbabilityOfFeasibility`` constructor.
 
     Args:
         model: The model to be used in the acquisition function.
@@ -1258,7 +1258,7 @@ def construct_inputs_qLogNParEGO(
     tau_max: float = TAU_MAX,
     tau_relu: float = TAU_RELU,
 ):
-    r"""Construct kwargs for the ``qLogNoisyExpectedImprovement`` constructor.
+    r"""Construct kwargs for the ``qLogNParEGO`` constructor.
 
     Args:
         model: The model to be used in the acquisition function.
@@ -1351,7 +1351,7 @@ def construct_inputs_mf_base(
 ) -> dict[str, Any]:
     r"""Construct kwargs for a multifidelity acquisition function's constructor."""
     if fidelity_weights is None:
-        fidelity_weights = {f: 1.0 for f in target_fidelities}
+        fidelity_weights = dict.fromkeys(target_fidelities, 1.0)
 
     if set(target_fidelities) != set(fidelity_weights):
         raise RuntimeError(
@@ -1374,7 +1374,7 @@ def construct_inputs_mf_base(
             num_trace_obs=num_trace_observations,
         ),
         "project": lambda X: project_to_target_fidelity(
-            X=X, target_fidelities=target_fidelities
+            X=X, target_fidelities=target_fidelities, d=X.shape[-1]
         ),
     }
 

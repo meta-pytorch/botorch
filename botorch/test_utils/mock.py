@@ -11,10 +11,10 @@ Utilities for speeding up optimization in tests.
 
 from __future__ import annotations
 
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager, ExitStack
 from functools import wraps
-from typing import Any, Callable
+from typing import Any
 from unittest import mock
 
 from botorch.optim.batched_lbfgs_b import fmin_l_bfgs_b_batched
