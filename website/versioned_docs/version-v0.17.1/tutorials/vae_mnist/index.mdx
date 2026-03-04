@@ -1,0 +1,387 @@
+---
+title: High-dimensional optimization with VAEs
+sidebar_label: High-dimensional optimization with VAEs
+---
+
+import LinkButtons from "@site/src/components/LinkButtons.jsx";
+import CellOutput from "@site/src/components/CellOutput.jsx";
+import {PlotlyFigure} from "@site/src/components/Plotting.jsx";
+
+<LinkButtons
+  githubUrl="https://github.com/pytorch/botorch/blob/main/tutorials/vae_mnist/vae_mnist.ipynb"
+  colabUrl="https://colab.research.google.com/github/pytorch/botorch/blob/main/tutorials/vae_mnist/vae_mnist.ipynb"
+/>
+
+## VAE MNIST example: BO in a latent space
+
+In this tutorial, we use the MNIST dataset and some standard PyTorch examples to show a
+synthetic problem where the input to the objective function is a `28 x 28` image. The
+main idea is to train a
+[variational auto-encoder (VAE)](https://arxiv.org/abs/1312.6114) on the MNIST dataset
+and run Bayesian Optimization in the latent space. We also refer readers to
+[this tutorial](http://krasserm.github.io/2018/04/07/latent-space-optimization/), which
+discusses [the method](https://arxiv.org/abs/1610.02415) of jointly training a VAE with
+a predictor (e.g., classifier), and shows a similar tutorial for the MNIST setting.
+
+```python
+# Install dependencies if we are running in colab
+import sys
+if 'google.colab' in sys.modules:
+    %pip install botorch
+```
+
+```python
+import os
+import torch
+
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+from torchvision import datasets  # transforms
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+dtype = torch.double
+SMOKE_TEST = os.environ.get("SMOKE_TEST", False)
+```
+
+### Problem setup
+
+Let's first define our synthetic expensive-to-evaluate objective function. We assume
+that it takes the following form:
+
+$$
+\text{image} \longrightarrow \text{image classifier} \longrightarrow \text{scoring function} 
+\longrightarrow \text{score}.
+$$
+
+The classifier is a convolutional neural network (CNN) trained using the architecture of
+the [PyTorch CNN example](https://github.com/pytorch/examples/tree/master/mnist).
+
+```python
+class Net(nn.Module):
+    def __init__(self):
+        super(Net, self).__init__()
+        self.conv1 = nn.Conv2d(1, 20, 5, 1)
+        self.conv2 = nn.Conv2d(20, 50, 5, 1)
+        self.fc1 = nn.Linear(4 * 4 * 50, 500)
+        self.fc2 = nn.Linear(500, 10)
+
+    def forward(self, x):
+        x = F.relu(self.conv1(x))
+        x = F.max_pool2d(x, 2, 2)
+        x = F.relu(self.conv2(x))
+        x = F.max_pool2d(x, 2, 2)
+        x = x.view(-1, 4 * 4 * 50)
+        x = F.relu(self.fc1(x))
+        x = self.fc2(x)
+        return F.log_softmax(x, dim=1)
+```
+
+```python
+def get_pretrained_dir() -> str:
+    """
+    Get the directory of pretrained models, which are in the BoTorch repo.
+
+    Returns the location specified by PRETRAINED_LOCATION if that env
+    var is set; otherwise checks if we are in a likely part of the BoTorch
+    repo (botorch/botorch or botorch/tutorials) and returns the right path.
+    """
+    if "PRETRAINED_LOCATION" in os.environ.keys():
+        return os.environ["PRETRAINED_LOCATION"]
+    cwd = os.getcwd()
+    folder = os.path.basename(cwd)
+    # automated tests run from botorch folder
+    if folder == "botorch":
+        return os.path.join(cwd, "tutorials/pretrained_models/")
+    # typical case (running from tutorial folder)
+    elif folder == "tutorials":
+        return os.path.join(cwd, "pretrained_models/")
+    raise FileNotFoundError("Could not figure out location of pretrained models.")
+
+```
+
+```python
+cnn_weights_path = os.path.join(get_pretrained_dir(), "mnist_cnn.pt")
+cnn_model = Net().to(dtype=dtype, device=device)
+cnn_state_dict = torch.load(cnn_weights_path, map_location=device, weights_only=True)
+cnn_model.load_state_dict(cnn_state_dict);
+```
+
+Our VAE model follows the
+[PyTorch VAE example](https://github.com/pytorch/examples/tree/master/vae), except that
+we use the same data transform from the CNN tutorial for consistency. We then
+instantiate the model and again load a pre-trained model. To train these models, we
+refer readers to the PyTorch Github repository.
+
+```python
+class VAE(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.fc1 = nn.Linear(784, 400)
+        self.fc21 = nn.Linear(400, 20)
+        self.fc22 = nn.Linear(400, 20)
+        self.fc3 = nn.Linear(20, 400)
+        self.fc4 = nn.Linear(400, 784)
+
+    def encode(self, x):
+        h1 = F.relu(self.fc1(x))
+        return self.fc21(h1), self.fc22(h1)
+
+    def reparameterize(self, mu, logvar):
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        return mu + eps * std
+
+    def decode(self, z):
+        h3 = F.relu(self.fc3(z))
+        return torch.sigmoid(self.fc4(h3))
+
+    def forward(self, x):
+        mu, logvar = self.encode(x.view(-1, 784))
+        z = self.reparameterize(mu, logvar)
+        return self.decode(z), mu, logvar
+
+vae_weights_path = os.path.join(get_pretrained_dir(), "mnist_vae.pt")
+vae_model = VAE().to(dtype=dtype, device=device)
+vae_state_dict = torch.load(vae_weights_path, map_location=device, weights_only=True)
+vae_model.load_state_dict(vae_state_dict);
+```
+
+We now define the scoring function that maps digits to scores. The function below
+prefers the digit '3'.
+
+```python
+def score(y):
+    """Returns a 'score' for each digit from 0 to 9. It is modeled as a squared exponential
+    centered at the digit '3'.
+    """
+    return torch.exp(-2 * (y - 3) ** 2)
+```
+
+Given the scoring function, we can now write our overall objective, which as discussed
+above, starts with an image and outputs a score. Let's say the objective computes the
+expected score given the probabilities from the classifier.
+
+```python
+def score_image(x):
+    """The input x is an image and an expected score
+    based on the CNN classifier and the scoring
+    function is returned.
+    """
+    with torch.no_grad():
+        probs = torch.exp(cnn_model(x))  # b x 10
+        scores = score(
+            torch.arange(10, device=device, dtype=dtype)
+        ).expand(probs.shape)
+    return (probs * scores).sum(dim=1)
+```
+
+Finally, we define a helper function `decode` that takes as input the parameters `mu`
+and `logvar` of the variational distribution and performs reparameterization and the
+decoding. We use batched Bayesian optimization to search over the parameters `mu` and
+`logvar`
+
+```python
+def decode(train_x):
+    with torch.no_grad():
+        decoded = vae_model.decode(train_x)
+    return decoded.view(train_x.shape[0], 1, 28, 28)
+```
+
+#### Model initialization and initial random batch
+
+We use a `SingleTaskGP` to model the score of an image generated by a latent
+representation. The model is initialized with points drawn from $[-6, 6]^{20}$.
+
+```python
+from botorch.models import SingleTaskGP
+from gpytorch.mlls.exact_marginal_log_likelihood import ExactMarginalLogLikelihood
+from botorch.utils.transforms import normalize, unnormalize
+from botorch.models.transforms import Normalize
+
+d = 20
+bounds = torch.tensor([[-6.0] * d, [6.0] * d], device=device, dtype=dtype)
+
+
+def gen_initial_data(n=5):
+    # generate training data
+    train_x = unnormalize(
+        torch.rand(n, d, device=device, dtype=dtype),
+        bounds=bounds
+    )
+    train_obj = score_image(decode(train_x)).unsqueeze(-1)
+    best_observed_value = train_obj.max().item()
+    return train_x, train_obj, best_observed_value
+
+
+def get_fitted_model(train_x, train_obj, state_dict=None):
+    # initialize and fit model
+    model = SingleTaskGP(
+        train_X=normalize(train_x, bounds),
+        train_Y=train_obj,
+    )
+    if state_dict is not None:
+        model.load_state_dict(state_dict)
+    mll = ExactMarginalLogLikelihood(model.likelihood, model)
+    mll.to(train_x)
+    fit_gpytorch_mll(mll)
+    return model
+```
+
+<CellOutput>
+{
+`[KeOps] Warning : There were warnings or errors :
+/bin/sh: brew: command not found
+[KeOps] Warning : CUDA libraries not found or could not be loaded; Switching to CPU only.
+[KeOps] Warning : There were warnings or errors :
+/bin/sh: brew: command not found
+[KeOps] Warning : OpenMP library not found, it must be downloaded through Homebrew for apple Silicon chips
+[KeOps] Warning : OpenMP support is not available. Disabling OpenMP.`
+}
+</CellOutput>
+
+#### Define a helper function that performs the essential BO step
+
+The helper function below takes an acquisition function as an argument, optimizes it,
+and returns the batch ${x_1, x_2, \ldots x_q}$ along with the observed function values.
+For this example, we'll use a small batch of $q=3$.
+
+```python
+from botorch.optim import optimize_acqf
+
+
+BATCH_SIZE = 3 if not SMOKE_TEST else 2
+NUM_RESTARTS = 10 if not SMOKE_TEST else 2
+RAW_SAMPLES = 256 if not SMOKE_TEST else 4
+
+
+def optimize_acqf_and_get_observation(acq_func):
+    """Optimizes the acquisition function, and returns a
+    new candidate and a noisy observation"""
+
+    # optimize
+    candidates, _ = optimize_acqf(
+        acq_function=acq_func,
+        bounds=torch.stack(
+            [
+                torch.zeros(d, dtype=dtype, device=device),
+                torch.ones(d, dtype=dtype, device=device),
+            ]
+        ),
+        q=BATCH_SIZE,
+        num_restarts=NUM_RESTARTS,
+        raw_samples=RAW_SAMPLES,
+    )
+
+    # observe new values
+    new_x = unnormalize(candidates.detach(), bounds=bounds)
+    new_obj = score_image(decode(new_x)).unsqueeze(-1)
+    return new_x, new_obj
+```
+
+### Perform Bayesian Optimization loop with qEI
+
+The Bayesian optimization "loop" for a batch size of $q$ simply iterates the following
+steps: (1) given a surrogate model, choose a batch of points ${x_1, x_2, \ldots x_q}$,
+(2) observe $f(x)$ for each $x$ in the batch, and (3) update the surrogate model. We run
+`N_BATCH=75` iterations. The acquisition function is approximated using
+`MC_SAMPLES=2048` samples. We also initialize the model with 5 randomly drawn points.
+
+```python
+from botorch import fit_gpytorch_mll
+from botorch.acquisition.monte_carlo import qExpectedImprovement
+from botorch.sampling.normal import SobolQMCNormalSampler
+
+seed = 1
+torch.manual_seed(seed)
+
+N_BATCH = 25 if not SMOKE_TEST else 3
+best_observed = []
+
+# call helper function to initialize model
+train_x, train_obj, best_value = gen_initial_data(n=5)
+best_observed.append(best_value)
+```
+
+We are now ready to run the BO loop (this make take a few minutes, depending on your
+machine).
+
+```python
+import warnings
+from matplotlib import pyplot as plt
+
+warnings.filterwarnings("ignore")
+
+
+print(f"\nRunning BO ", end="")
+
+state_dict = None
+# run N_BATCH rounds of BayesOpt after the initial random batch
+for iteration in range(N_BATCH):
+
+    # fit the model
+    model = get_fitted_model(
+        train_x=train_x,
+        train_obj=train_obj,
+        state_dict=state_dict,
+    )
+
+    # define the qNEI acquisition function
+    qEI = qExpectedImprovement(
+        model=model, best_f=train_obj.max()
+    )
+
+    # optimize and get new observation
+    new_x, new_obj = optimize_acqf_and_get_observation(qEI)
+
+    # update training points
+    train_x = torch.cat((train_x, new_x))
+    train_obj = torch.cat((train_obj, new_obj))
+
+    # update progress
+    best_value = train_obj.max().item()
+    best_observed.append(best_value)
+
+    state_dict = model.state_dict()
+
+    print(".", end="")
+```
+
+<CellOutput>
+{
+`Running BO .
+.
+.
+..
+........
+.......
+.....`
+}
+</CellOutput>
+
+EI recommends the best point observed so far. We can visualize what the images
+corresponding to recommended points *would have* been if the BO process ended at various
+times. Here, we show the progress of the algorithm by examining the images at 0%, 10%,
+25%, 50%, 75%, and 100% completion. The first image is the best image found through the
+initial random batch.
+
+```python
+import numpy as np
+
+from matplotlib import pyplot as plt
+
+%matplotlib inline
+
+
+fig, ax = plt.subplots(1, 6, figsize=(14, 14))
+percentages = np.array([0, 10, 25, 50, 75, 100], dtype=np.float32)
+inds = (N_BATCH * BATCH_SIZE * percentages / 100 + 4).astype(int)
+
+for i, ax in enumerate(ax.flat):
+    b = torch.argmax(score_image(decode(train_x[: inds[i], :])), dim=0)
+    img = decode(train_x[b].view(1, -1)).squeeze().cpu()
+    ax.imshow(img, alpha=0.8, cmap="gray")
+```
+
+![](data:image/png;base64,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)
+
