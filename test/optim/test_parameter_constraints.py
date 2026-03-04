@@ -1003,7 +1003,9 @@ class TestProjectToFeasibleSpace(BotorchTestCase):
         bounds = torch.tensor([[0.0, 0.0], [2.0, 2.0]], device=self.device)
 
         X = torch.tensor([[1.0, 1.0]], device=self.device)
-        with self.assertRaisesRegex(RuntimeError, "Optimization failed: failed reason"):
+        with self.assertRaisesRegex(
+            CandidateGenerationError, "Optimization failed: failed reason"
+        ):
             project_to_feasible_space_via_slsqp(
                 X=X,
                 bounds=bounds,
@@ -1015,3 +1017,92 @@ class TestProjectToFeasibleSpace(BotorchTestCase):
                     )
                 ],
             )
+
+    def test_project_to_feasible_space_with_scalar_fixed_features(self) -> None:
+        """Test projection preserves scalar fixed_features values."""
+        for dtype in (torch.float, torch.double):
+            tol = get_constraint_tolerance(dtype=dtype)
+            # Setup: 3D search space, bounds [[0, 0, 0], [2, 2, 2]]
+            bounds = torch.tensor(
+                [[0.0, 0.0, 0.0], [2.0, 2.0, 2.0]], dtype=dtype, device=self.device
+            )
+            # Constraint: x[0] + x[1] >= 1.5
+            inequality_constraints = [
+                (
+                    torch.tensor([0, 1], dtype=torch.long, device=self.device),
+                    torch.tensor([1.0, 1.0], dtype=dtype, device=self.device),
+                    1.5,
+                )
+            ]
+            # Infeasible point X = [[0.3, 0.3, 1.0]] (0.6 < 1.5)
+            X = torch.tensor([[0.3, 0.3, 1.0]], dtype=dtype, device=self.device)
+            # fixed_features = {0: 0.3} (scalar)
+            fixed_features: dict[int, float | torch.Tensor] = {0: 0.3}
+            # Execute: project to feasible space with fixed_features
+            projected = project_to_feasible_space_via_slsqp(
+                X=X,
+                bounds=bounds,
+                inequality_constraints=inequality_constraints,
+                fixed_features=fixed_features,
+            )
+            # Assert: x[0] remains at 0.3 (fixed)
+            self.assertAllClose(
+                projected[0, 0], torch.tensor(0.3, dtype=dtype, device=self.device)
+            )
+            # Assert: constraint is satisfied (x[0] + x[1] >= 1.5)
+            self.assertGreaterEqual(
+                (projected[0, 0] + projected[0, 1]).item(), 1.5 - tol
+            )
+            # Assert: bounds are respected
+            self.assertTrue(torch.all(projected >= bounds[0] - tol))
+            self.assertTrue(torch.all(projected <= bounds[1] + tol))
+
+    def test_project_to_feasible_space_with_batched_fixed_features(self) -> None:
+        """Test projection preserves batched (tensor) fixed_features values."""
+        for dtype in (torch.float, torch.double):
+            tol = get_constraint_tolerance(dtype=dtype)
+            # Setup: 3D search space, bounds [[0, 0, 0], [2, 2, 2]]
+            bounds = torch.tensor(
+                [[0.0, 0.0, 0.0], [2.0, 2.0, 2.0]], dtype=dtype, device=self.device
+            )
+            # Constraint: x[0] + x[1] >= 1.5
+            inequality_constraints = [
+                (
+                    torch.tensor([0, 1], dtype=torch.long, device=self.device),
+                    torch.tensor([1.0, 1.0], dtype=dtype, device=self.device),
+                    1.5,
+                )
+            ]
+            # Batch of 3 infeasible points (all violate x[0] + x[1] >= 1.5)
+            # X must be 3D: batch x q x d when using tensor fixed_features
+            X = torch.tensor(
+                [
+                    [[0.2, 0.3, 1.0]],  # batch 0, q=1
+                    [[0.4, 0.5, 0.5]],  # batch 1, q=1
+                    [[0.1, 0.2, 1.5]],  # batch 2, q=1
+                ],
+                dtype=dtype,
+                device=self.device,
+            )  # Shape: [3, 1, 3]
+            # fixed_features = {0: tensor([0.2, 0.4, 0.1])} (different per batch)
+            fixed_values = torch.tensor(
+                [0.2, 0.4, 0.1], dtype=dtype, device=self.device
+            )
+            fixed_features: dict[int, float | torch.Tensor] = {0: fixed_values}
+            # Execute: project to feasible space with batched fixed_features
+            projected = project_to_feasible_space_via_slsqp(
+                X=X,
+                bounds=bounds,
+                inequality_constraints=inequality_constraints,
+                fixed_features=fixed_features,
+            )
+            # Assert: each batch element preserves its respective fixed value for x[0]
+            self.assertAllClose(projected[:, 0, 0], fixed_values)
+            # Assert: constraint is satisfied for each batch element
+            for i in range(3):
+                self.assertGreaterEqual(
+                    (projected[i, 0, 0] + projected[i, 0, 1]).item(), 1.5 - tol
+                )
+            # Assert: bounds are respected
+            self.assertTrue(torch.all(projected >= bounds[0] - tol))
+            self.assertTrue(torch.all(projected <= bounds[1] + tol))
