@@ -80,7 +80,9 @@ class TestPairwiseGP(BotorchTestCase):
         datapoints = torch.rand(3, 2)
         indices = torch.tensor([[0, 1], [1, 2]], dtype=torch.long)
         event_shape = torch.Size([2 * datapoints.shape[-1]])
-        dataset_X = SliceContainer(datapoints, indices, event_shape=event_shape)
+        dataset_X = SliceContainer(
+            values=datapoints, indices=indices, event_shape=event_shape
+        )
         dataset_Y = torch.tensor([[0, 1], [1, 0]]).expand(indices.shape)
         dataset = RankingDataset(
             X=dataset_X, Y=dataset_Y, feature_names=["a", "b"], outcome_names=["y"]

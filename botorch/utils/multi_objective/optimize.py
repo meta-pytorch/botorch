@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import warnings
-from typing import Callable
+from collections.abc import Callable
 
 import numpy as np
 import torch
@@ -131,12 +131,11 @@ try:
         seed: int | None = None,
         fixed_features: dict[int, float] | None = None,
         max_attempts: int = 2,
+        post_processing_func: Callable[[Tensor], Tensor] | None = None,
     ) -> tuple[Tensor, Tensor]:
         """Optimize the posterior mean via NSGA-II, returning the Pareto set and front.
 
         This assumes maximization of all objectives.
-
-        TODO: Add support for discrete parameters.
 
         Args:
             acq_function: The MultiOutputAcquisitionFunction to optimize.
@@ -165,6 +164,18 @@ try:
                 should be non-negative.
             max_attempts: The total number of times to run the optimization if it
                 fails (usually due to NSGA-II failing to find a feasible point).
+            post_processing_func: A function that post-processes optimization results,
+                e.g., to round discrete dimensions to valid values. The function
+                should take an ``n x d`` tensor and return a tensor of the same shape
+                with post-processed values. When provided, the objective values Y are
+                re-evaluated after post-processing to ensure accuracy.
+
+                Note: Constraint feasibility is not re-checked after post-processing.
+                NSGA-II enforces constraints on the original (pre-processed) X, but
+                post-processing (e.g., rounding) could make previously feasible
+                solutions infeasible. This mirrors the behavior of other optimizers
+                like ``optimize_acqf``. For parameter-space constraints, use
+                Ax-level validation (e.g., ``validate_candidates``) as a safety net.
 
         Returns:
             A two-element tuple containing the pareto set X and pareto frontier Y.
@@ -220,8 +231,19 @@ try:
                 )
         X = torch.tensor(res.X, **tkwargs)
 
-        # multiply by negative one to return the correct sign for maximization
-        Y = -torch.tensor(res.F, **tkwargs)
+        # Apply post-processing (e.g., rounding discrete dimensions)
+        if post_processing_func is not None:
+            X = post_processing_func(X)
+            # Re-evaluate objectives since X has changed after post-processing.
+            # This ensures Y values are accurate for the post-processed X.
+            botorch_objective = (
+                IdentityMCMultiOutputObjective() if objective is None else objective
+            )
+            with torch.no_grad():
+                Y = botorch_objective(acq_function(X.unsqueeze(-2)))
+        else:
+            # multiply by negative one to return the correct sign for maximization
+            Y = -torch.tensor(res.F, **tkwargs)
         pareto_mask = is_non_dominated(Y, deduplicate=True)
         X_pareto = X[pareto_mask]
         Y_pareto = Y[pareto_mask]

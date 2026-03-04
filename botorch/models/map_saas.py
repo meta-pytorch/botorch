@@ -11,7 +11,8 @@ References
     Optimization with Natural Simplicity and Interpretability. ArXiv, 2026.
 """
 
-from typing import Any, Mapping
+from collections.abc import Mapping
+from typing import Any
 
 import torch
 from botorch.acquisition.objective import PosteriorTransform
@@ -210,7 +211,7 @@ def get_map_saas_model(
         train_Yvar: Optional tensor of shape ``n x 1`` with observed noise,
             inferred if None.
         input_transform: An optional input transform.
-        outcome_transform: An optional outcome transforms.
+        outcome_transform: An optional outcome transform.
         tau: Fixed value of the global shrinkage tau. If None, the model
             places a HC(0.1) prior on tau and infers it.
 
@@ -318,7 +319,7 @@ def get_additive_map_saas_covar_module(
 
     The constructed kernel is an additive kernel with ``num_taus`` terms. Each term is a
     scaled Matern kernel with a SAAS prior and a tau sampled from a HalfCauchy(0, 1)
-    distrbution.
+    distribution.
 
     Args:
         ard_num_dims: The number of inputs dimensions.
@@ -424,8 +425,8 @@ class AdditiveMapSaasSingleTaskGP(SingleTaskGP):
             num_taus=num_taus,
             batch_shape=self._aug_batch_shape,
             # Need to pass dtype and device at initialization of the covar_module
-            # because its priors contain tensors, and prior are currently not moved
-            # to the correct device/dtype when callling ``to`` on the model.
+            # because its priors contain tensors, and priors are currently not moved
+            # to the correct device/dtype when calling ``to`` on the model.
             dtype=train_X.dtype,
             device=train_X.device,
         )
@@ -464,7 +465,7 @@ class EnsembleMapSaasSingleTaskGP(SingleTaskGP):
         The model is intended to be trained with ``ExactMarginalLogLikelihood`` and
         ``fit_gpytorch_mll``. Under the hood, the model is equivalent to a
         multi-output ``BatchedMultiOutputGPyTorchModel``, but it produces a
-        ``MixtureGaussiaPosterior``, which leads to ensembling of the model outputs.
+        ``GaussianMixturePosterior``, which leads to ensembling of the model outputs.
 
         Args:
             train_X: An ``n x d`` tensor of training features.

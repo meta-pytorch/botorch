@@ -17,7 +17,7 @@ import numpy as np
 import numpy.typing as npt
 import torch
 from botorch.exceptions.errors import CandidateGenerationError, UnsupportedError
-from botorch.optim.utils import columnwise_clamp
+from botorch.optim.utils import columnwise_clamp, fix_features as apply_fix_features
 from scipy.optimize import Bounds, minimize
 from torch import Tensor
 
@@ -724,6 +724,7 @@ def project_to_feasible_space_via_slsqp(
     bounds: Tensor,
     inequality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
     equality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
+    fixed_features: dict[int, float | Tensor] | None = None,
 ) -> Tensor:
     """Project X onto the feasible space by solving a quadratic program.
 
@@ -735,7 +736,7 @@ def project_to_feasible_space_via_slsqp(
     limited.
 
     Args:
-        X: A ``(batch_shape x) n x d``-dim tensor of inptus.
+        X: A ``(batch_shape x) n x d``-dim tensor of inputs.
         bounds: A ``2 x d``-dim tensor of lower and upper bounds.
         inequality_constraints: A list of tuples (indices, coefficients, rhs),
             with each tuple encoding an inequality constraint of the form
@@ -743,15 +744,38 @@ def project_to_feasible_space_via_slsqp(
             ``coefficients`` should be torch tensors. See the docstring of
             ``make_scipy_linear_constraints`` for an example.
         equality_constraints: A list of tuples (indices, coefficients, rhs).
+        fixed_features: A dictionary mapping feature indices to their fixed values.
+            These dimensions will not be modified during projection. Values can be
+            scalars (applied to all elements) or 1D tensors matching the batch size
+            of X (for per-element fixed values).
 
     Returns:
-        A ``(batch_shape x) n x d``-dim tensor of  projected values.
+        A ``(batch_shape x) n x d``-dim tensor of projected values.
     """
     if inequality_constraints is None and equality_constraints is None:
         return X
-    bounds_scipy = make_scipy_bounds(
-        X=X, lower_bounds=bounds[0], upper_bounds=bounds[1]
-    )
+
+    d = X.shape[-1]
+    lb = _arrayify(bounds[0].expand_as(X)).flatten()
+    ub = _arrayify(bounds[1].expand_as(X)).flatten()
+
+    # If there are fixed features, constrain those dimensions by setting their
+    # bounds to equal the current value. This prevents the optimizer from
+    # modifying them during projection. We use fix_features to apply the fixed
+    # values to X, then extract the values for setting the bounds.
+    if fixed_features:
+        X_fixed = apply_fix_features(X, fixed_features, replace_current_value=True)
+        # Set bounds for fixed dimensions to match the fixed values
+        X_fixed_flat = _arrayify(X_fixed).flatten()
+        for idx in fixed_features.keys():
+            # For each row in the flattened structure, set bounds at dimension idx
+            n_rows = X.numel() // d
+            for i in range(n_rows):
+                flat_idx = i * d + idx
+                lb[flat_idx] = X_fixed_flat[flat_idx]
+                ub[flat_idx] = X_fixed_flat[flat_idx]
+
+    bounds_scipy = Bounds(lb=lb, ub=ub, keep_feasible=True)
     constraints = make_scipy_linear_constraints(
         shapeX=X.shape,
         inequality_constraints=inequality_constraints,
@@ -789,6 +813,6 @@ def project_to_feasible_space_via_slsqp(
     )
 
     if not result.success:
-        raise RuntimeError(f"Optimization failed: {result.message}")
+        raise CandidateGenerationError(f"Optimization failed: {result.message}")
 
     return torch.from_numpy(result.x).to(X).view(X.shape)

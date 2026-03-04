@@ -16,8 +16,9 @@ from __future__ import annotations
 import itertools
 import warnings
 from abc import ABC
+from collections.abc import Mapping
 from copy import deepcopy
-from typing import Any, Mapping, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 import torch
 from botorch.acquisition.objective import PosteriorTransform
@@ -222,7 +223,7 @@ class GPyTorchModel(Model, ABC):
                 ``batch_shape'`` is the batch shape of the observations.
                 ``batch_shape'`` must be broadcastable to ``batch_shape`` using
                 standard broadcasting semantics. If ``Y`` has fewer batch dimensions
-                than ``X``, its is assumed that the missing batch dimensions are
+                than ``X``, it is assumed that the missing batch dimensions are
                 the same for all ``Y``.
             noise: If not ``None``, a tensor of the same shape as ``Y`` representing
                 the associated noise variance.
@@ -329,6 +330,7 @@ class GPyTorchModel(Model, ABC):
         state_dict: Mapping[str, Any],
         strict: bool = True,
         keep_transforms: bool = True,
+        assign: bool = False,
     ) -> None:
         r"""Load the model state.
 
@@ -338,9 +340,17 @@ class GPyTorchModel(Model, ABC):
             keep_transforms: A boolean indicating whether to keep the input and outcome
                 transforms. Doing so is useful when loading a model that was trained on
                 a full set of data, and is later loaded with a subset of the data.
+            assign: When set to ``False``, the properties of the tensors in the current
+                module are preserved whereas setting it to ``True`` preserves
+                properties of the Tensors in the state dict. The only
+                exception is the ``requires_grad`` field of :class:`~torch.nn.Parameter`
+                for which the value from the module is preserved. Default: ``False``.
         """
+        if assign:
+            first_item = next(iter(state_dict.values()))
+            self.to(first_item)
         if not keep_transforms:
-            super().load_state_dict(state_dict, strict)
+            super().load_state_dict(state_dict=state_dict, strict=strict, assign=assign)
             return
 
         should_outcome_transform = (
@@ -369,10 +379,12 @@ class GPyTorchModel(Model, ABC):
                         BotorchWarning,
                         stacklevel=3,
                     )
-                    super().load_state_dict(state_dict, strict)
+                    super().load_state_dict(
+                        state_dict=state_dict, strict=strict, assign=assign
+                    )
                     return
 
-        super().load_state_dict(state_dict, strict)
+        super().load_state_dict(state_dict=state_dict, strict=strict, assign=assign)
 
         if getattr(self, "input_transform", None) is not None:
             self.input_transform.eval()
@@ -613,7 +625,7 @@ class BatchedMultiOutputGPyTorchModel(GPyTorchModel):
                 ``batch_shape'`` is the batch shape of the observations.
                 ``batch_shape'`` must be broadcastable to ``batch_shape`` using
                 standard broadcasting semantics. If ``Y`` has fewer batch dimensions
-                than ``X``, its is assumed that the missing batch dimensions are
+                than ``X``, it is assumed that the missing batch dimensions are
                 the same for all ``Y``.
 
         Returns:
@@ -764,8 +776,11 @@ class ModelListGPyTorchModel(ModelList, GPyTorchModel, ABC):
         self,
         state_dict: Mapping[str, Any],
         strict: bool = True,
+        assign: bool = False,
     ) -> None:
-        return ModelList.load_state_dict(self, state_dict, strict)
+        return ModelList.load_state_dict(
+            self, state_dict=state_dict, strict=strict, assign=assign
+        )
 
     # pyre-fixme[14]: Inconsistent override in return types
     def posterior(
@@ -1019,8 +1034,8 @@ class MultiTaskGPyTorchModel(GPyTorchModel, ABC):
                 of points considered jointly. The ``+ 1`` dimension is the optional
                 task feature / index. If given, the model produces the outputs for
                 the given task indices. If omitted, the model produces outputs for
-                tasks in in ``self._output_tasks`` (specified as ``output_tasks``
-                while constructing the model), which can overwritten using
+                tasks in ``self._output_tasks`` (specified as ``output_tasks``
+                while constructing the model), which can be overwritten using
                 ``output_indices``.
             output_indices: A list of task values over which to compute the posterior.
                 Only used if ``X`` does not include the task feature. If omitted,

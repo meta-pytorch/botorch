@@ -8,8 +8,8 @@ import dataclasses
 import itertools
 import random
 import warnings
-from collections.abc import Mapping, Sequence
-from typing import Any, Callable
+from collections.abc import Callable, Mapping, Sequence
+from typing import Any
 
 import torch
 from botorch.acquisition import AcquisitionFunction
@@ -121,17 +121,32 @@ def _setup_continuous_relaxation(
     discrete_dims: dict[int, list[float]],
     max_discrete_values: int,
     post_processing_func: Callable[[Tensor], Tensor] | None,
+    inequality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
+    equality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
 ) -> tuple[list[int], Callable[[Tensor], Tensor] | None]:
     r"""Update ``discrete_dims`` and ``post_processing_func`` to use
     continuous relaxation for discrete dimensions that have more than
     ``max_discrete_values`` values. These dimensions are removed from
     ``discrete_dims`` and ``post_processing_func`` is updated to round
     them to the nearest integer.
+
+    Dimensions that participate in constraints are NOT relaxed, as rounding
+    after projection could violate those constraints.
     """
+
+    # Identify dimensions involved in constraints
+    constrained_dims: set[int] = set()
+    for constraints in [inequality_constraints, equality_constraints]:
+        if constraints is not None:
+            for indices, _, _ in constraints:
+                constrained_dims.update(indices.tolist())
 
     dims_to_relax, dims_to_keep = {}, {}
     for index, values in discrete_dims.items():
-        if len(values) > max_discrete_values:
+        # Don't relax dimensions that participate in constraints
+        if index in constrained_dims:
+            dims_to_keep[index] = values
+        elif len(values) > max_discrete_values:
             dims_to_relax[index] = values
         else:
             dims_to_keep[index] = values
@@ -839,8 +854,7 @@ def continuous_step(
             This function utilizes ``acq_function``, ``bounds``, ``options``,
             ``fixed_features`` and constraints from ``opt_inputs``.
             ``opt_inputs.return_best_only`` should be ``False``.
-        discrete_dims: A dictionary mapping indices of discrete dimensions
-            to a list of allowed values for that dimension.
+        discrete_dims: A tensor of indices corresponding to discrete dimensions.
         cat_dims: A tensor of indices corresponding to categorical parameters.
         current_x: Starting point. A tensor of shape ``b x d``.
 
@@ -1032,6 +1046,8 @@ def optimize_acqf_mixed_alternating(
             options.get("max_discrete_values", MAX_DISCRETE_VALUES), int
         ),
         post_processing_func=post_processing_func,
+        inequality_constraints=inequality_constraints,
+        equality_constraints=equality_constraints,
     )
 
     opt_inputs = OptimizeAcqfInputs(

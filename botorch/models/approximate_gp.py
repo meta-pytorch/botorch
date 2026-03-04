@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import copy
 import warnings
+from typing import Self
 
 import torch
 from botorch.acquisition.objective import PosteriorTransform
@@ -67,7 +68,6 @@ from gpytorch.variational import (
 )
 from torch import Tensor
 from torch.nn import Module
-from typing_extensions import Self
 
 
 TRANSFORM_WARNING = (
@@ -113,7 +113,7 @@ class ApproximateGPyTorchModel(GPyTorchModel):
         super().__init__()
 
         self.model = (
-            _SingleTaskVariationalGP(num_outputs=num_outputs, *args, **kwargs)
+            _SingleTaskVariationalGP(*args, num_outputs=num_outputs, **kwargs)
             if model is None
             else model
         )

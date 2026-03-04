@@ -671,9 +671,13 @@ class qMultiFidelityMaxValueEntropy(qMaxValueEntropy):
 
         Args:
             model: A fitted single-outcome model.
-            candidate_set: A ``n x d`` Tensor including ``n`` candidate points to
-                discretize the design space, which will be used to sample the
-                max values from their posteriors.
+            candidate_set: A ``n x d`` or ``n x (d + s)`` Tensor including ``n``
+                candidate points to discretize the design space, which will be
+                used to sample the max values from their posteriors. ``s`` is the
+                number of fidelity dimensions. The ``project`` callable is applied
+                to the candidate set before use, so if it handles inserting fidelity
+                dimensions (e.g., ``project_to_target_fidelity`` with ``d``
+                specified), ``candidate_set`` can omit them.
             cost_aware_utility: A CostAwareUtility computing the cost-transformed
                 utility from a candidate set and samples of increases in utility.
             num_fantasies: Number of fantasies to generate. The higher this
@@ -694,12 +698,19 @@ class qMultiFidelityMaxValueEntropy(qMaxValueEntropy):
             project: A callable mapping a ``batch_shape x q x d`` tensor of design
                 points to a tensor of the same shape projected to the desired
                 target set (e.g. the target fidelities in case of multi-fidelity
-                optimization).
+                optimization). This is also applied to the candidate set during
+                initialization.
             expand: A callable mapping a ``batch_shape x q x d`` input tensor to
                 a ``batch_shape x (q + q_e)' x d``-dim output tensor, where the
                 ``q_e`` additional points in each q-batch correspond to
                 additional ("trace") observations.
         """
+        # Project candidate_set to target fidelity before passing to super.
+        # This ensures candidate_set has the right dimensions for concatenation
+        # with train_inputs in MaxValueBase.__init__, and also allows
+        # candidate_set to omit fidelity dimensions if project handles
+        # inserting them (e.g., project_to_target_fidelity with d specified).
+        candidate_set = project(candidate_set)
         super().__init__(
             model=model,
             candidate_set=candidate_set,
@@ -822,9 +833,13 @@ class qMultiFidelityLowerBoundMaxValueEntropy(qMultiFidelityMaxValueEntropy):
 
         Args:
             model: A fitted single-outcome model.
-            candidate_set: A ``n x d`` Tensor including ``n`` candidate points to
-                discretize the design space, which will be used to sample the
-                max values from their posteriors.
+            candidate_set: A ``n x d`` or ``n x (d + s)`` Tensor including ``n``
+                candidate points to discretize the design space, which will be
+                used to sample the max values from their posteriors. ``s`` is the
+                number of fidelity dimensions. The ``project`` callable is applied
+                to the candidate set before use, so if it handles inserting fidelity
+                dimensions (e.g., ``project_to_target_fidelity`` with ``d``
+                specified), ``candidate_set`` can omit them.
             cost_aware_utility: A CostAwareUtility computing the cost-transformed
                 utility from a candidate set and samples of increases in utility.
             num_fantasies: Number of fantasies to generate. The higher this

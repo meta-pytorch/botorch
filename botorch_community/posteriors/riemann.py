@@ -10,7 +10,7 @@ Abstract base module for all botorch posteriors.
 
 from __future__ import annotations
 
-from typing import Callable, Optional, Union
+from collections.abc import Callable
 
 import torch
 from botorch.posteriors.posterior import Posterior
@@ -69,7 +69,7 @@ class BoundedRiemannPosterior(Posterior):
 
     def rsample(
         self,
-        sample_shape: Optional[torch.Size] = None,
+        sample_shape: torch.Size | None = None,
     ) -> Tensor:
         r"""Sample from the posterior (with gradients).
 
@@ -169,7 +169,7 @@ class BoundedRiemannPosterior(Posterior):
 
     def icdf(
         self,
-        value: Union[float, Tensor],
+        value: float | Tensor,
     ) -> Tensor:
         r"""Inverse cdf (with gradients).
         Use value to get the index of the bucket that contains the value

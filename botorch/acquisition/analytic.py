@@ -63,7 +63,7 @@ class AnalyticAcquisitionFunction(AcquisitionFunction, ABC):
             posterior_transform: A PosteriorTransform. If using a multi-output model,
                 a PosteriorTransform that transforms the multi-output posterior into a
                 single-output posterior is required.
-              allow_multi_output: If False, requires a posterior_transform if a
+            allow_multi_output: If False, requires a posterior_transform if a
                 multi-output model is passed.
         """
         super().__init__(model=model)
@@ -436,10 +436,9 @@ class ConstrainedAnalyticAcquisitionFunctionMixin(ABC):
         self,
         constraints: dict[int, tuple[float | None, float | None]],
     ) -> None:
-        r"""Analytic Log Probability of Feasibility.
+        r"""Constrained analytic acquisition function mixin.
 
         Args:
-            model: A fitted single- or multi-output model.
             constraints: A dictionary of the form ``{i: [lower, upper]}``, where
                 ``i`` is the output index, and ``lower`` and ``upper`` are
                 lower and upper bounds on that output (resp. interpreted as
@@ -449,9 +448,17 @@ class ConstrainedAnalyticAcquisitionFunctionMixin(ABC):
         self._preprocess_constraint_bounds(constraints=constraints)
 
     @abstractmethod
-    def register_buffer(self, name: str, value: Tensor) -> None:
-        """Add a buffer that can be accessed by ``self.name`` and stores the Tensor
-        ``value``, usually provided by derivatives that also inherit from ``nn.Module``.
+    def register_buffer(
+        self, name: str, tensor: Tensor | None, persistent: bool = True
+    ) -> None:
+        """Register a buffer on the module.
+
+        This is an abstract placeholder whose signature matches
+        ``torch.nn.Module.register_buffer``. It exists because this mixin calls
+        ``self.register_buffer`` in ``_preprocess_constraint_bounds`` but does not
+        itself inherit from ``nn.Module``. All concrete subclasses obtain the real
+        implementation from ``nn.Module`` via ``AnalyticAcquisitionFunction``; this
+        stub simply makes the interface dependency explicit and keeps Pyre happy.
         """
 
     def _preprocess_constraint_bounds(
@@ -618,10 +625,9 @@ class LogProbabilityOfFeasibility(
     r"""Log Probability of Feasibility.
 
     Computes the logarithm of the analytic probability of feasibility for a Normal
-    posterior distribution weighted by a probability of feasibility. The objective and
-    constraints are assumed to be independent and have Gaussian posterior
-    distributions. Only supports non-batch mode (i.e. ``q=1``). The model should be
-    multi-outcome, with the index of the objective and constraints passed to
+    posterior distribution. The constraints are assumed to be independent and have
+    Gaussian posterior distributions. Only supports non-batch mode (i.e. ``q=1``).
+    The model should be multi-outcome, with the index of the constraints passed to
     the constructor.
 
     See [Ament2023logei]_ for details. Formally,
@@ -636,7 +642,7 @@ class LogProbabilityOfFeasibility(
         >>> model = SingleTaskGP(train_X, train_Y)
         >>> constraints = {0: (0.0, None)}
         >>> LogPOF = LogProbabilityOfFeasibility(model, constraints)
-        >>> cei = LogPF(test_X)
+        >>> log_pof = LogPOF(test_X)
     """
 
     _log: bool = True
@@ -1078,12 +1084,20 @@ class ScalarizedPosteriorMean(AnalyticAcquisitionFunction):
                 t-batches of ``d``-dim design points each.
 
         Returns:
-            A ``(b1 x ... x bk)``-dim Tensor of Posterior Mean values at the given
-            design points ``X``.
+            A ``(b1 x ... x bk)``-dim Tensor of scalarized Posterior Mean values
+            at the given design points ``X``.
         """
-        # (b1 x ... x bk) x q x 1
-        mean, _ = self._mean_and_sigma(X, compute_sigma=False)
-        return mean.squeeze(-1) @ self.weights
+        # ScalarizedPosteriorMean cannot use self._mean_and_sigma, since that squeezes
+        # the q-dim.
+        self.to(X)  # Sync weights buffer to X's device/dtype
+        posterior = self.model.posterior(
+            X=X, posterior_transform=self.posterior_transform
+        )
+        # posterior.mean has shape (b1 x ... x bk) x q x m
+        # squeeze(-1) removes m (should be 1), giving (b1 x ... x bk) x q
+        mean = posterior.mean.squeeze(-1)
+        # @ self.weights: (b1 x ... x bk) x q @ q -> (b1 x ... x bk)
+        return mean @ self.weights
 
 
 class PosteriorStandardDeviation(AnalyticAcquisitionFunction):
@@ -1163,7 +1177,7 @@ class PosteriorStandardDeviation(AnalyticAcquisitionFunction):
 def _scaled_improvement(
     mean: Tensor, sigma: Tensor, best_f: Tensor, maximize: bool
 ) -> Tensor:
-    """Returns ``u = (mean - best_f) / sigma``, -u if maximize == True."""
+    """Returns ``u = (mean - best_f) / sigma``, or ``-u`` if ``maximize`` is False."""
     u = (mean - best_f) / sigma
     return u if maximize else -u
 
