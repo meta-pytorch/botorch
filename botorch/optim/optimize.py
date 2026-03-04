@@ -535,6 +535,7 @@ def _optimize_acqf_batch(opt_inputs: OptimizeAcqfInputs) -> tuple[Tensor, Tensor
             bounds=opt_inputs.bounds,
             equality_constraints=equality_constraints,
             inequality_constraints=inequality_constraints,
+            fixed_features=opt_inputs.fixed_features,
         )
         if opt_inputs.post_processing_func is not None:
             projected_candidates = opt_inputs.post_processing_func(projected_candidates)
