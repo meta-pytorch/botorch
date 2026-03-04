@@ -204,3 +204,109 @@ class TestOptimizeWithNSGAII(BotorchTestCase):
                         max_gen=2,
                         q=3,
                     )
+
+    @skip_if_import_error
+    def test_optimize_with_nsgaii_post_processing_func(self) -> None:
+        """Test that post_processing_func is applied to results."""
+        from botorch.utils.multi_objective.optimize import optimize_with_nsgaii
+
+        tkwargs = {"device": self.device}
+        for dtype in (torch.float, torch.double):
+            tkwargs["dtype"] = dtype
+            dim = 6
+            num_objectives = 2
+            prob = DTLZ2(dim=dim, num_objectives=num_objectives, negate=True).to(
+                **tkwargs
+            )
+
+            model = GenericDeterministicModel(f=prob, num_outputs=2)
+            acqf = MultiOutputPosteriorMean(model=model)
+            bounds = torch.zeros(2, dim, **tkwargs)
+            bounds[1] = 1
+
+            # Define a rounding function that rounds first two dimensions
+            discrete_dims = [0, 1]
+
+            def round_discrete(
+                X: torch.Tensor, dims: list[int] = discrete_dims
+            ) -> torch.Tensor:
+                X = X.clone()
+                for dim_idx in dims:
+                    X[..., dim_idx] = X[..., dim_idx].round()
+                return X
+
+            pareto_X, pareto_Y = optimize_with_nsgaii(
+                acq_function=acqf,
+                bounds=bounds,
+                q=5,
+                num_objectives=num_objectives,
+                max_gen=4,
+                post_processing_func=round_discrete,
+            )
+
+            # Verify discrete dimensions are rounded to integers
+            for dim_idx in discrete_dims:
+                self.assertTrue(
+                    torch.allclose(pareto_X[:, dim_idx], pareto_X[:, dim_idx].round()),
+                    f"Dimension {dim_idx} should be rounded to integers",
+                )
+
+            # Verify Y values are re-evaluated (should match prob(pareto_X))
+            expected_Y = prob(pareto_X)
+            self.assertTrue(
+                torch.allclose(pareto_Y, expected_Y, atol=1e-6),
+                "Y values should be re-evaluated after post-processing",
+            )
+
+    @skip_if_import_error
+    def test_optimize_with_nsgaii_post_processing_func_with_objective(self) -> None:
+        """Test post_processing_func with a custom objective."""
+        from botorch.utils.multi_objective.optimize import optimize_with_nsgaii
+
+        tkwargs = {"device": self.device}
+        for dtype in (torch.float, torch.double):
+            tkwargs["dtype"] = dtype
+            dim = 6
+            num_objectives = 2
+            prob = DTLZ2(dim=dim, num_objectives=num_objectives, negate=True).to(
+                **tkwargs
+            )
+
+            model = GenericDeterministicModel(f=prob, num_outputs=2)
+            acqf = MultiOutputPosteriorMean(model=model)
+            bounds = torch.zeros(2, dim, **tkwargs)
+            bounds[1] = 1
+
+            # Use a weighted objective that negates the outputs
+            objective = WeightedMCMultiOutputObjective(
+                weights=-torch.ones(num_objectives, **tkwargs)
+            )
+
+            def round_first_dim(X: torch.Tensor) -> torch.Tensor:
+                X = X.clone()
+                X[..., 0] = X[..., 0].round()
+                return X
+
+            pareto_X, pareto_Y = optimize_with_nsgaii(
+                acq_function=acqf,
+                bounds=bounds,
+                q=5,
+                num_objectives=num_objectives,
+                max_gen=4,
+                objective=objective,
+                post_processing_func=round_first_dim,
+            )
+
+            # Verify first dimension is rounded
+            self.assertTrue(
+                torch.allclose(pareto_X[:, 0], pareto_X[:, 0].round()),
+                "First dimension should be rounded to integers",
+            )
+
+            # Verify Y values are re-evaluated with the objective applied
+            # prob returns negative values, objective negates them to positive
+            expected_Y = -prob(pareto_X)  # objective negates
+            self.assertTrue(
+                torch.allclose(pareto_Y, expected_Y, atol=1e-6),
+                "Y values should be re-evaluated with objective after post-processing",
+            )
