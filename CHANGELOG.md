@@ -2,6 +2,25 @@
 
 The release log for BoTorch.
 
+## [0.17.1] -- Mar 4, 2026
+
+#### Compatibility
+* Require GPyTorch>=1.15.2 and linear_operator>=0.6.1 (#3182).
+
+#### Bug Fixes
+* Fix BAxUS bugs (#3204).
+* Fix q-dim bug in `ScalarizedPosteriorMean` (#3191).
+* Project `candidate_set` in `qMultiFidelityMaxValueEntropy.__init__` before
+  passing to `super().__init__`, allowing `candidate_set` to be either `n x d`
+  (without fidelity dims) or `n x (d + s)` (with fidelity dims) (#3205).
+
+#### Other Changes
+* Make `d` and `target_fidelities` required arguments in
+  `project_to_target_fidelity` to eliminate silent bugs (#3203).
+* Add test harness infrastructure for acquisition function testing (#3190, #3192).
+* Fix typos and docstring issues across botorch (#3211).
+* Fix docstring issues in analytic acquisition functions (#3208).
+
 ## [0.17.0] -- Feb 17, 2026
 
 #### Compatibility
