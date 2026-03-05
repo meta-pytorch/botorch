@@ -2,6 +2,15 @@
 
 The release log for BoTorch.
 
+## [0.17.2] -- Mar 4, 2026
+
+#### Compatibility
+* Enable creating a new Ax release
+
+#### New Features
+* Support `post_processing_func` in `optimize_with_nsgaii` for post-processing
+  optimization results, e.g., to round discrete dimensions to valid values (#3215).
+
 ## [0.17.1] -- Mar 4, 2026
 
 #### Compatibility
@@ -13,6 +22,8 @@ The release log for BoTorch.
 * Project `candidate_set` in `qMultiFidelityMaxValueEntropy.__init__` before
   passing to `super().__init__`, allowing `candidate_set` to be either `n x d`
   (without fidelity dims) or `n x (d + s)` (with fidelity dims) (#3205).
+* Fix bug in `optimize_acqf_mixed_alternating` that may produce candidates with
+  invalid values when using parameter constraints on discrete parameters (#3212).
 
 #### Other Changes
 * Make `d` and `target_fidelities` required arguments in
