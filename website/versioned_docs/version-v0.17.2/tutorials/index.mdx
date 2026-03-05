@@ -1,0 +1,58 @@
+---
+title: BoTorch Tutorials
+---
+The tutorials here will help you understand and use BoTorch in
+your own work. They assume that you are familiar with both
+Bayesian optimization (BO) and PyTorch.
+* If you are new to BO, we recommend you start with Ax
+[documentation](https://ax.dev/docs/intro-to-bo)
+and [tutorials](https://ax.dev/docs/tutorials/quickstart/) and the
+following
+[tutorial paper](https://arxiv.org/abs/1807.02811).
+* If you are new to PyTorch, the easiest way to get started is
+with the [What is PyTorch?](https://pytorch.org/tutorials/beginner/blitz/tensor_tutorial.html#sphx-glr-beginner-blitz-tensor-tutorial-py)
+tutorial.
+
+
+<h4>Using BoTorch with Ax</h4>
+_For practitioners_ who are interested in running experiments
+to optimize various objectives using Bayesian optimization,
+we recommend using [Ax](https://ax.dev) rather than BoTorch.
+[Ax](https://ax.dev) provides a user-friendly interface for
+experiment configuration and orchestration, while choosing an
+appropriate Bayesian optimization algorithm to optimize the
+given objective, following BoTorch best practices.
+
+_For researchers_ who are interested in running experiments with
+their custom BoTorch models and acquisition functions,
+[Ax](https://ax.dev)'s Modular BoTorch Interface offers a convenient
+way to leverage custom BoTorch objects while utilizing
+[Ax](https://ax.dev) experiment configuration and orchestration. Check out
+[Modular BoTorch tutorial](https://ax.dev/docs/tutorials/modular_botorch/)
+to learn how to use custom BoTorch objects in Ax!
+See [this documentation](/docs/botorch_and_ax)
+for additional information.
+
+<h4>Full Optimization Loops</h4>
+In some situations (e.g. when working in a non-standard setting,
+or if you want to understand and control various details of the
+BO loop), then you may also consider working purely in BoTorch.
+The tutorials in this section illustrate this approach.
+
+<h4>Bite-Sized Tutorials</h4>
+Rather than guiding you through full end-to-end BO loops, the
+tutorials in this section focus on specific tasks that you will
+encounter in customizing your BO algorithms. For instance, you
+may want to
+[write a custom acquisition function](/docs/tutorials/custom_acquisition)
+and then
+[use a custom zero-th order optimizer](/docs/tutorials/optimize_with_cmaes)
+to optimize it.
+
+<h4>Advanced Usage</h4>
+Tutorials in this section showcase more advanced ways of using
+BoTorch. For instance,
+[this tutorial](/docs/tutorials/vae_mnist)
+shows how to perform BO if your objective function is an image,
+by optimizing in the latent space of a variational auto-encoder
+(VAE).
