@@ -64,19 +64,18 @@ jobs:
       run: |
         # Delete existing versions for same Major and Minor version numbers.
         # We do this to keep only the latest patch for a given major/minor version.
-        MAJOR_MINOR_VERSION=$(cut -d '.' -f 1-2 <<< ${{ inputs.new_version }}) # remove patch number
-        MAJOR_MINOR_VERSION=${MAJOR_MINOR_VERSION#v}                           # remove optional "v" prefix
+        MAJOR_MINOR_VERSION=$(cut -d '.' -f 1-2 <<< ${{ inputs.new_version }}) # remove patch number (e.g., "v0.17")
         for dir in website/versioned_docs/version-$MAJOR_MINOR_VERSION.*; do
             if [ -d "$dir" ]; then
                 OLD_VERSION=$(basename "$dir" | sed 's/^version-//') # remove "version-" prefix from the directory name
-                echo "Deleting older version $OLD_VERSION with the same major and minor version numbers as $NEW_VERSION"
+                echo "Deleting older version $OLD_VERSION with the same major and minor version numbers as ${{ inputs.new_version }}"
                 # Delete version from the three locations Docusaurus uses:
                 #   - versioned_docs/version-X.Y.Z/
                 #   - versioned_sidebars/version-X.Y.Z-sidebars.json
                 #   - versions.json
                 # https://docusaurus.io/docs/versioning#deleting-an-existing-version
                 rm -rf "$dir"
-                rm "website/versioned_sidebars/version-$OLD_VERSION-sidebars.json"
+                rm -f "website/versioned_sidebars/version-$OLD_VERSION-sidebars.json"
                 sed -i "/\"$OLD_VERSION\"/d" website/versions.json
             fi
         done
@@ -92,6 +91,9 @@ jobs:
         git commit -m "Create version ${{ inputs.new_version }} of site in Docusaurus"
         git push --force origin HEAD:gh-pages
     - name: Build website
+      env:
+        # Increase Node.js heap memory to avoid OOM during large Docusaurus builds
+        NODE_OPTIONS: "--max-old-space-size=8192"
       run: |
         bash scripts/build_docs.sh -b
     - name: Upload website build as artifact
