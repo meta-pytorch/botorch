@@ -89,6 +89,7 @@ try:
             ref_point: Tensor | None = None,
             objective: MCMultiOutputObjective | None = None,
             constraints: list[Callable[[Tensor], Tensor]] | None = None,
+            inequality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
         ) -> None:
             """PyMOO problem for optimizing the model posterior mean using NSGA-II.
 
@@ -119,10 +120,17 @@ try:
                     ``sample_shape x batch-shape x q x m`` to a Tensor of dimension
                     ``sample_shape x batch-shape x q``, where negative values imply
                     feasibility.
+                inequality_constraints: A list of tuples (indices, coefficients, rhs),
+                    representing inequality constraints of the form
+                    ``sum_i (X[indices[i]] * coefficients[i]) >= rhs``. These are
+                    parameter-space constraints (as opposed to outcome-space
+                    constraints).
             """
             num_constraints = 0 if constraints is None else len(constraints)
             if ref_point is not None:
                 num_constraints += ref_point.shape[0]
+            if inequality_constraints is not None:
+                num_constraints += len(inequality_constraints)
             super().__init__(
                 n_var=n_var,
                 n_obj=n_obj,
@@ -137,6 +145,7 @@ try:
                 IdentityMCMultiOutputObjective() if objective is None else objective
             )
             self.botorch_constraints = constraints
+            self.botorch_inequality_constraints = inequality_constraints
             self.torch_dtype = dtype
             self.torch_device = device
 
@@ -164,6 +173,26 @@ try:
                     )
                 else:
                     constraint_vals = ref_constraints
+            # Handle parameter-space inequality constraints
+            # These are of the form sum_i (X[indices[i]] * coefficients[i]) >= rhs
+            # PyMOO expects constraints in the form G(x) <= 0, so we transform:
+            # sum_i (X[indices[i]] * coefficients[i]) >= rhs
+            # => rhs - sum_i (X[indices[i]] * coefficients[i]) <= 0
+            if self.botorch_inequality_constraints is not None:
+                ineq_constraint_vals = []
+                for indices, coefficients, rhs in self.botorch_inequality_constraints:
+                    # X is (pop_size, n_var), indices is (num_terms,)
+                    # Extract relevant columns and compute linear combination
+                    lhs = (X[:, indices] * coefficients).sum(dim=-1)
+                    # Transform to G(x) <= 0 form: rhs - lhs <= 0
+                    ineq_constraint_vals.append(rhs - lhs)
+                ineq_constraints = torch.stack(ineq_constraint_vals, dim=-1)
+                if constraint_vals is not None:
+                    constraint_vals = torch.cat(
+                        [constraint_vals, ineq_constraints], dim=-1
+                    )
+                else:
+                    constraint_vals = ineq_constraints
             if constraint_vals is not None:
                 out["G"] = constraint_vals.cpu().numpy()
 
@@ -175,6 +204,7 @@ try:
         ref_point: list[float] | Tensor | None = None,
         objective: MCMultiOutputObjective | None = None,
         constraints: list[Callable[[Tensor], Tensor]] | None = None,
+        inequality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
         population_size: int = 250,
         max_gen: int | None = None,
         seed: int | None = None,
@@ -205,6 +235,11 @@ try:
                 ``sample_shape x batch-shape x q x m`` to a Tensor of dimension
                 ``sample_shape x batch-shape x q``, where negative values imply
                 feasibility.
+            inequality_constraints: A list of tuples (indices, coefficients, rhs),
+                representing inequality constraints of the form
+                ``sum_i (X[indices[i]] * coefficients[i]) >= rhs``. These are
+                parameter-space constraints (as opposed to outcome-space
+                constraints).
             population_size: the population size for NSGA-II.
             max_gen: The number of iterations for NSGA-II. If None, this uses the
                 default termination condition in pymoo for NSGA-II.
@@ -264,6 +299,7 @@ try:
                     ref_point=ref_point,
                     objective=objective,
                     constraints=constraints,
+                    inequality_constraints=inequality_constraints,
                     **tkwargs,
                 )
                 pop_size = max(population_size, q) if q is not None else population_size
