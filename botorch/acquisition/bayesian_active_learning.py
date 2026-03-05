@@ -20,8 +20,10 @@ References
 
 from __future__ import annotations
 
+import math
 import warnings
 
+import torch
 from botorch.acquisition.acquisition import AcquisitionFunction, MCSamplerMixin
 from botorch.acquisition.objective import PosteriorTransform
 from botorch.models import ModelListGP
@@ -143,14 +145,19 @@ class qBayesianActiveLearningByDisagreement(
         # avg the probs over models in the mixture - dim (-2) will be broadcasted
         # with the num_models of the posterior --> querying all samples on all models
         # posterior.mvn takes q-dimensional input by default, which removes the q-dim
-        # component_sample_probs: num_models x num_samples x batch_shape x num_models
-        component_sample_probs = posterior.mvn.log_prob(prev_samples).exp()
+        # component_sample_log_probs:
+        #   num_models x num_samples x batch_shape x num_models
+        component_sample_log_probs = posterior.mvn.log_prob(prev_samples)
 
-        # average over mixture components
-        mixture_sample_probs = component_sample_probs.mean(dim=-1, keepdim=True)
+        # average over mixture components in log-space for numerical stability:
+        # log(mean(exp(x))) = logsumexp(x, dim) - log(N)
+        n_components = component_sample_log_probs.shape[-1]
+        mixture_sample_log_probs = torch.logsumexp(
+            component_sample_log_probs, dim=-1, keepdim=True
+        ) - math.log(n_components)
 
         # this is the average over the model and sample dim
-        prev_entropy = -mixture_sample_probs.log().mean(dim=[0, 1])
+        prev_entropy = -mixture_sample_log_probs.mean(dim=[0, 1])
 
         # the posterior entropy is an average entropy over gaussians, so no mixture
         post_entropy = -posterior.mvn.log_prob(samples.squeeze(-1)).mean(0)
