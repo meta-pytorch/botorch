@@ -81,6 +81,17 @@ def mock_optimize_context_manager(
             )
         )
 
+        # Works when calling ``fit_gpytorch_mll_scipy`` for batched multi-output
+        # models (e.g., ``EnsembleMapSaasSingleTaskGP``) which use independent
+        # fitting via ``fmin_l_bfgs_b_batched``. The function is imported locally
+        # inside ``_fit_independent_models``, so we mock at the definition location.
+        mock_fit_independent = es.enter_context(
+            mock.patch(
+                "botorch.optim.batched_lbfgs_b.fmin_l_bfgs_b_batched",
+                wraps=two_iteration_fast_minimize,
+            )
+        )
+
         # Similarly, works when calling a function defined in
         # ``optim.core``, such as ``scipy_minimize`` and ``torch_minimize``.
         mock_fit = es.enter_context(
@@ -124,6 +135,7 @@ def mock_optimize_context_manager(
             mock_generation,
             mock_generation_fast,
             mock_fit,
+            mock_fit_independent,
             mock_gen_ics,
             mock_gen_os_ics,
         ]

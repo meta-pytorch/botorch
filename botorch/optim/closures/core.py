@@ -136,3 +136,145 @@ class NdarrayOptimizationClosure:
         size = sum(param.numel() for param in self.parameters.values())
         self._gradient_ndarray = np_zeros(size, dtype=np_float64)
         return self._gradient_ndarray
+
+
+class BatchedNDarrayOptimizationClosure:
+    r"""Wraps a forward closure and batched parameters for use with
+    ``fmin_l_bfgs_b_batched``.
+
+    Unlike ``NdarrayOptimizationClosure`` which flattens all parameters into a
+    single 1D vector, this class manages parameters as a 2D array of shape
+    ``(batch_size, per_element_size)`` where each row corresponds to one batch
+    element's independent parameter vector.
+
+    This enables independent optimization of each batch element (e.g., each
+    output of a ``BatchedMultiOutputGPyTorchModel``) using batched L-BFGS-B.
+    """
+
+    def __init__(
+        self,
+        forward: Callable[[], Tensor],
+        parameters: dict[str, Tensor],
+        batch_shape: torch.Size,
+    ) -> None:
+        r"""Initializes a BatchedNDarrayOptimizationClosure instance.
+
+        Args:
+            forward: Callable that returns a tensor of shape ``batch_shape``
+                (per-batch-element loss values, e.g., negated per-output MLL).
+            parameters: A dictionary of parameter tensors, each with shape
+                ``(*batch_shape, *trailing_shape)``.
+            batch_shape: The batch shape shared by all parameters (typically
+                ``model._aug_batch_shape``).
+        """
+        self.forward = forward
+        self.parameters = parameters
+        self.batch_shape = batch_shape
+        self.batch_size = max(int(torch.Size(batch_shape).numel()), 1)
+        n_batch_dims = len(batch_shape)
+
+        self._trailing_sizes: dict[str, int] = {}
+        self._per_element_size = 0
+        for name, param in parameters.items():
+            trailing = param.shape[n_batch_dims:]
+            trailing_numel = max(int(torch.Size(trailing).numel()), 1)
+            self._trailing_sizes[name] = trailing_numel
+            self._per_element_size += trailing_numel
+
+    @property
+    def state(self) -> npt.NDArray:
+        """Returns the current parameter state as a 2D ndarray of shape
+        ``(batch_size, per_element_size)``."""
+        out = np.empty((self.batch_size, self._per_element_size), dtype=np_float64)
+        index = 0
+        for name, param in self.parameters.items():
+            size = self._trailing_sizes[name]
+            out[:, index : index + size] = as_ndarray(
+                param.detach().reshape(self.batch_size, size), dtype=np_float64
+            )
+            index += size
+        return out
+
+    @state.setter
+    def state(self, state: npt.NDArray) -> None:
+        """Sets parameter values from a 2D ndarray of shape
+        ``(batch_size, per_element_size)``."""
+        with torch.no_grad():
+            index = 0
+            for name, param in self.parameters.items():
+                size = self._trailing_sizes[name]
+                vals = state[:, index : index + size]
+                param.copy_(
+                    torch.as_tensor(
+                        vals, device=param.device, dtype=param.dtype
+                    ).reshape(param.shape)
+                )
+                index += size
+
+    def __call__(
+        self,
+        state: npt.NDArray | None = None,
+        batch_indices: npt.NDArray | None = None,
+        **kwargs: Any,
+    ) -> tuple[npt.NDArray, npt.NDArray]:
+        """Evaluate the closure and return per-batch values and gradients.
+
+        Args:
+            state: Optional 2D ndarray to set as the current state before
+                evaluation. Shape ``(active_batch_size, per_element_size)``
+                if ``batch_indices`` is provided, else
+                ``(batch_size, per_element_size)``.
+            batch_indices: Optional 1D ndarray of indices into the original
+                batch, indicating which elements are being evaluated.
+                Used with ``fmin_l_bfgs_b_batched(pass_batch_indices=True)``.
+            **kwargs: Keyword arguments passed to ``self.forward``.
+
+        Returns:
+            A tuple ``(values, grads)`` where ``values`` has shape
+            ``(active_batch_size,)`` and ``grads`` has shape
+            ``(active_batch_size, per_element_size)``.
+        """
+        if state is not None:
+            if batch_indices is not None:
+                # Update only active batch elements
+                full_state = self.state
+                full_state[batch_indices] = state
+                self.state = full_state
+            else:
+                self.state = state
+
+        try:
+            with zero_grad_ctx(parameters=self.parameters):
+                per_batch_values = self.forward(**kwargs)
+                scalar = per_batch_values.sum()
+                scalar.backward()
+
+                values = as_ndarray(
+                    per_batch_values.detach().reshape(self.batch_size),
+                    dtype=np_float64,
+                )
+
+                grads = np.zeros(
+                    (self.batch_size, self._per_element_size), dtype=np_float64
+                )
+                index = 0
+                for name, param in self.parameters.items():
+                    size = self._trailing_sizes[name]
+                    if param.grad is not None:
+                        grads[:, index : index + size] = as_ndarray(
+                            param.grad.reshape(self.batch_size, size),
+                            dtype=np_float64,
+                        )
+                    index += size
+        except RuntimeError as e:
+            value, grad_flat = _handle_numerical_errors(
+                e, x=self.state.ravel(), dtype=np_float64
+            )
+            values = np.full(self.batch_size, value / self.batch_size, dtype=np_float64)
+            grads = np.zeros(
+                (self.batch_size, self._per_element_size), dtype=np_float64
+            )
+
+        if batch_indices is not None:
+            return values[batch_indices], grads[batch_indices]
+        return values, grads

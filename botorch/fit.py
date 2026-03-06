@@ -178,9 +178,12 @@ def _fit_fallback(
     ckpt_nograd: dict[str, TensorCheckpoint] = None  # pyre-ignore [9]
     ckpt: dict[str, TensorCheckpoint] = None  # pyre-ignore [9]
 
-    # Build closure
+    # Build closure. When no closure is provided and no closure_kwargs are
+    # needed, pass closure=None through to the optimizer so that it can use
+    # its own internal dispatch (e.g. batched independent fitting in
+    # fit_gpytorch_mll_scipy).
     mll.train()
-    if closure is None:
+    if closure is None and closure_kwargs is not None:
         closure = get_loss_closure_with_grads(
             mll, parameters=get_parameters(mll, requires_grad=True)
         )
