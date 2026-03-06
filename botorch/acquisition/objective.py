@@ -219,7 +219,7 @@ class ExpectationPosteriorTransform(PosteriorTransform):
         # ``n_w`` sized diagonal. The ``m`` outcomes are not interleaved.
         for i in range(q * m):
             weights[i, self.n_w * i : self.n_w * (i + 1)] = self.weights[:, i // q]
-        # Trasform the mean.
+        # Transform the mean.
         new_loc = (
             (weights @ org_mvn.loc.unsqueeze(-1))
             .view(*batch_shape, m, q)
@@ -452,7 +452,7 @@ class ConstrainedMCObjective(GenericMCObjective):
         """
         super().__init__(objective=objective)
         self.constraints = constraints
-        if type(eta) is not Tensor:
+        if not isinstance(eta, Tensor):
             eta = torch.full((len(constraints),), eta)
         self.register_buffer("eta", eta)
         self.register_buffer("infeasible_cost", torch.as_tensor(infeasible_cost))
@@ -528,7 +528,8 @@ class LearnedObjective(MCAcquisitionObjective):
         super().__init__()
         self.pref_model = pref_model
         if isinstance(pref_model, DeterministicModel):
-            assert sample_shape is None
+            if sample_shape is not None:
+                raise ValueError("sample_shape must be None for DeterministicModel.")
             self.sampler = None
         else:
             if sample_shape is None:
