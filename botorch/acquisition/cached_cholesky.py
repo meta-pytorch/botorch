@@ -12,6 +12,7 @@ decomposition of the posterior covariance over f(X_baseline).
 from __future__ import annotations
 
 import warnings
+from typing import Optional
 
 import torch
 from botorch.acquisition.acquisition import MCSamplerMixin
@@ -98,7 +99,7 @@ class CachedCholeskyMCSamplerMixin(MCSamplerMixin):
     def _compute_root_decomposition(
         self,
         posterior: Posterior,
-    ) -> Tensor:
+    ) -> Optional[Tensor]:
         r"""Cache Cholesky of the posterior covariance over f(X_baseline).
 
         Because ``LinearOperator.root_decomposition`` is decorated with LinearOperator's
@@ -113,6 +114,9 @@ class CachedCholeskyMCSamplerMixin(MCSamplerMixin):
           inaccessible if ``posterior.mvn`` is a ``MultitaskMultivariateNormal``,
           since in that case ``lazy_covar``'s scope is only this function.
 
+        Returns ``None`` when the root decomposition is low-rank (non-square),
+        signaling ``_get_f_X_samples`` to fall back to standard sampling.
+
         Args:
             posterior: The posterior over f(X_baseline).
         """
@@ -121,7 +125,22 @@ class CachedCholeskyMCSamplerMixin(MCSamplerMixin):
         else:
             lazy_covar = posterior.distribution.lazy_covariance_matrix
         lazy_covar_root = lazy_covar.root_decomposition()
-        return lazy_covar_root.root.to_dense()
+        root = lazy_covar_root.root
+        # If the root is non-square (low-rank), as produced by e.g.
+        # LinearPredictionStrategy for linear kernels, return None so that
+        # _get_f_X_samples falls back to the standard sampling path.
+        # Check shape on the lazy LinearOperator (O(1) metadata access)
+        # to avoid a wasteful .to_dense() call that would be discarded.
+        if root.shape[-2] != root.shape[-1]:
+            warnings.warn(
+                "Low-rank root decomposition detected "
+                f"(shape: {root.shape[-2]}x{root.shape[-1]}). "
+                "Falling back to standard sampling.",
+                BotorchWarning,
+                stacklevel=2,
+            )
+            return None
+        return root.to_dense()
 
     def _get_f_X_samples(self, posterior: GPyTorchPosterior, q_in: int) -> Tensor:
         r"""Get posterior samples at the ``q_in`` new points from the joint posterior.
@@ -139,7 +158,7 @@ class CachedCholeskyMCSamplerMixin(MCSamplerMixin):
         # cached covariance (and box decompositions) and the new block.
         # But recomputing box decompositions every time the jitter changes would
         # be quite slow.
-        if self._cache_root and hasattr(self, "_baseline_L"):
+        if self._cache_root and getattr(self, "_baseline_L", None) is not None:
             try:
                 return sample_cached_cholesky(
                     posterior=posterior,
