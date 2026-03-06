@@ -720,7 +720,7 @@ def _update_omega(
     identity = torch.diag_embed(torch.ones(cov_fX_fS.shape[:-1], **tkwargs))
     # remove the Pareto diagonal
     cov_fX_fS = _replace_pareto_diagonal(cov_fX_fS + jitter * identity)
-    nat_cov_fX_fS = torch.inverse(cov_fX_fS)
+    nat_cov_fX_fS = torch.linalg.inv(cov_fX_fS)
     nat_mean_fX_fS = torch.einsum("...ij,...j->...i", nat_cov_fX_fS, mean_fX_fS)
 
     ###############################################################################
@@ -735,7 +735,7 @@ def _update_omega(
     # remove the Pareto diagonal
     cav_nat_cov_f = _replace_pareto_diagonal(cav_nat_cov_f)
     identity = torch.diag_embed(torch.ones(cav_nat_cov_f.shape[:-1], **tkwargs))
-    cav_cov_f = torch.inverse(cav_nat_cov_f + jitter * identity)
+    cav_cov_f = torch.linalg.inv(cav_nat_cov_f + jitter * identity)
 
     cav_mean_f = torch.einsum("...ij,...j->...i", cav_cov_f, cav_nat_mean_f)
 
@@ -818,7 +818,7 @@ def _update_omega(
     cav_updated_cov_f = _replace_pareto_diagonal(cav_updated_cov_f)
 
     identity = torch.diag_embed(torch.ones(cav_updated_cov_f.shape[:-1], **tkwargs))
-    cav_updated_nat_cov_f = torch.inverse(cav_updated_cov_f + jitter * identity)
+    cav_updated_nat_cov_f = torch.linalg.inv(cav_updated_cov_f + jitter * identity)
 
     cav_updated_nat_mean_f = torch.einsum(
         "...ij,...j->...i", cav_updated_nat_cov_f, cav_updated_mean_f
@@ -830,7 +830,7 @@ def _update_omega(
 
     # it is also possible to calculate the update directly as in the original paper:
     # identity = torch.diag_embed(torch.ones(cav_d2logZ_dm2.shape[:-1], **tkwargs))
-    # denominator = torch.inverse(cav_cov_f @ cav_d2logZ_dm2 + identity)
+    # denominator = torch.linalg.inv(cav_cov_f @ cav_d2logZ_dm2 + identity)
     # omega_f_nat_cov_new = - cav_d2logZ_dm2 @ denominator
     # omega_f_nat_mean_new = torch.einsum(
     #     '...ij,...j->...i', denominator,

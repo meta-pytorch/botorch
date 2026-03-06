@@ -371,7 +371,7 @@ class qMaxValueEntropy(MaxValueBase, MCSamplerMixin):
         # s_m x batch_shape x num_fantasies x (m) x (1 + num_trace) x (1 + num_trace)
         L = psd_safe_cholesky(variance_m)
         temp_term = torch.cholesky_solve(covar_mM.unsqueeze(-1), L).transpose(-2, -1)
-        # equivalent to torch.matmul(covar_mM.unsqueeze(-2), torch.inverse(variance_m))
+        # equivalent to covar_mM.unsqueeze(-2) @ torch.linalg.inv(variance_m)
         # batch_shape x num_fantasies (m) x 1 x (1 + num_trace_observations)
 
         mean_pt1 = torch.matmul(temp_term, (samples_m - mean_m).unsqueeze(-1))
