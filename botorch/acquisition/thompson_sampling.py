@@ -60,7 +60,7 @@ class PathwiseThompsonSampling(AcquisitionFunction):
         self.ensemble_indices: Tensor | None = None
 
         # NOTE: This conditional block is copied from MCAcquisitionFunction, we should
-        # consider inherting from it and e.g. getting the X_pending logic as well.
+        # consider inheriting from it and e.g. getting the X_pending logic as well.
         if objective is None and model.num_outputs != 1:
             if posterior_transform is None:
                 raise UnsupportedError(
