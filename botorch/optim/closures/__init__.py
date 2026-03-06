@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 from botorch.optim.closures.core import (
+    BatchedNDarrayOptimizationClosure,
     ForwardBackwardClosure,
     NdarrayOptimizationClosure,
 )
@@ -15,6 +16,7 @@ from botorch.optim.closures.model_closures import (
 
 
 __all__ = [
+    "BatchedNDarrayOptimizationClosure",
     "ForwardBackwardClosure",
     "get_loss_closure",
     "get_loss_closure_with_grads",

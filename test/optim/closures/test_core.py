@@ -8,13 +8,17 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import torch
+from botorch.models import SingleTaskGP
+from botorch.optim.closures import get_loss_closure
 from botorch.optim.closures.core import (
+    BatchedNDarrayOptimizationClosure,
     FILL_VALUE,
     ForwardBackwardClosure,
     NdarrayOptimizationClosure,
 )
 from botorch.optim.utils import as_ndarray
 from botorch.utils.testing import BotorchTestCase
+from gpytorch.mlls import ExactMarginalLogLikelihood
 from linear_operator.utils.errors import NanError, NotPSDError
 from torch.nn import Module, Parameter
 
@@ -187,3 +191,111 @@ class TestNdarrayOptimizationClosure(BotorchTestCase):
             )
             with self.assertRaisesRegex(RuntimeError, "No parameters"):
                 wrapper.state
+
+
+class TestBatchedNDarrayOptimizationClosure(BotorchTestCase):
+    def _make_closure(
+        self, m: int = 2, d: int = 2, n: int = 5
+    ) -> tuple[BatchedNDarrayOptimizationClosure, SingleTaskGP]:
+        train_X = torch.rand(n, d, dtype=torch.double)
+        train_Y = torch.rand(n, m, dtype=torch.double)
+        model = SingleTaskGP(train_X, train_Y)
+        mll = ExactMarginalLogLikelihood(model.likelihood, model)
+        mll.train()
+        parameters = {name: p for name, p in mll.named_parameters() if p.requires_grad}
+        forward = get_loss_closure(mll)
+        closure = BatchedNDarrayOptimizationClosure(
+            forward=forward,
+            parameters=parameters,
+            batch_shape=model._aug_batch_shape,
+        )
+        return closure, model
+
+    def test_state_roundtrip(self):
+        closure, model = self._make_closure(m=2, d=2)
+
+        state = closure.state
+        self.assertEqual(state.ndim, 2)
+        self.assertEqual(state.shape[0], 2)
+
+        new_state = np.random.randn(*state.shape)
+        closure.state = new_state
+        np.testing.assert_array_almost_equal(closure.state, new_state)
+
+    def test_call_shapes(self):
+        closure, model = self._make_closure(m=2, d=2)
+
+        values, grads = closure()
+        self.assertEqual(values.shape, (2,))
+        self.assertEqual(grads.shape, (2, closure._per_element_size))
+
+    def test_call_with_batch_indices(self):
+        closure, model = self._make_closure(m=3, d=2)
+
+        all_values, all_grads = closure()
+        self.assertEqual(all_values.shape, (3,))
+
+        indices = np.array([0, 2])
+        state = closure.state[indices]
+        subset_values, subset_grads = closure(state=state, batch_indices=indices)
+        self.assertEqual(subset_values.shape, (2,))
+        self.assertEqual(subset_grads.shape, (2, closure._per_element_size))
+        np.testing.assert_array_almost_equal(subset_values, all_values[indices])
+
+    def test_gradients_are_correct(self):
+        closure, model = self._make_closure(m=2, d=2)
+
+        state = closure.state
+        values, grads = closure(state=state)
+
+        eps = 1e-6
+        for b in range(closure.batch_size):
+            for j in range(closure._per_element_size):
+                state_plus = state.copy()
+                state_plus[b, j] += eps
+                vals_plus, _ = closure(state=state_plus)
+
+                state_minus = state.copy()
+                state_minus[b, j] -= eps
+                vals_minus, _ = closure(state=state_minus)
+
+                fd_grad = (vals_plus[b] - vals_minus[b]) / (2 * eps)
+                self.assertAlmostEqual(
+                    grads[b, j],
+                    fd_grad,
+                    places=4,
+                    msg=f"Gradient mismatch at batch={b}, param={j}",
+                )
+
+    def test_runtime_error_handling(self):
+        closure, model = self._make_closure(m=2, d=2)
+
+        # Replace forward with one that raises RuntimeError
+        def failing_forward(**kwargs):
+            raise RuntimeError("singular")
+
+        closure.forward = failing_forward
+
+        values, grads = closure()
+        # _handle_numerical_errors returns NaN for singular errors
+        self.assertTrue(np.isnan(values).all())
+        self.assertEqual(values.shape, (2,))
+        # Grads should be zeros from the fallback path
+        np.testing.assert_array_equal(grads, 0.0)
+        self.assertEqual(grads.shape, (2, closure._per_element_size))
+
+    def test_runtime_error_with_batch_indices(self):
+        closure, model = self._make_closure(m=3, d=2)
+
+        def failing_forward(**kwargs):
+            raise RuntimeError("singular")
+
+        closure.forward = failing_forward
+
+        indices = np.array([0, 2])
+        values, grads = closure(batch_indices=indices)
+        # Should return filtered results for the requested batch indices
+        self.assertTrue(np.isnan(values).all())
+        self.assertEqual(values.shape, (2,))
+        np.testing.assert_array_equal(grads, 0.0)
+        self.assertEqual(grads.shape, (2, closure._per_element_size))
