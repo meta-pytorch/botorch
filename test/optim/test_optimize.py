@@ -314,6 +314,62 @@ class TestOptimizeAcqf(BotorchTestCase):
             )
 
     @mock.patch("botorch.optim.optimize.gen_batch_initial_conditions")
+    @mock.patch("botorch.optim.optimize.gen_candidates_scipy")
+    def test_optimize_acqf_return_acq_values(
+        self,
+        mock_gen_candidates_scipy,
+        mock_gen_batch_initial_conditions,
+    ):
+        """Test that return_acq_values defaults to True and can be turned off."""
+        q = 2
+        num_restarts = 2
+        raw_samples = 10
+        options = {}
+        mock_acq_function = MockAcquisitionFunction()
+        mock_gen_batch_initial_conditions.return_value = torch.zeros(
+            num_restarts, q, 3, device=self.device, dtype=torch.double
+        )
+        mock_candidates = torch.rand(
+            num_restarts, q, 3, device=self.device, dtype=torch.double
+        )
+        mock_acq_values = torch.rand(
+            num_restarts, device=self.device, dtype=torch.double
+        )
+        mock_gen_candidates_scipy.return_value = (mock_candidates, mock_acq_values)
+        bounds = torch.stack(
+            [
+                torch.zeros(3, device=self.device, dtype=torch.double),
+                4 * torch.ones(3, device=self.device, dtype=torch.double),
+            ]
+        )
+        # Default (return_acq_values=True): second element is not None
+        candidates, acq_vals = optimize_acqf(
+            acq_function=mock_acq_function,
+            bounds=bounds,
+            q=q,
+            num_restarts=num_restarts,
+            raw_samples=raw_samples,
+            options=options,
+            gen_candidates=mock_gen_candidates_scipy,
+        )
+        self.assertIsNotNone(acq_vals)
+        self.assertEqual(candidates.shape, (q, 3))
+        # return_acq_values=False: second element is None, candidates still valid
+        candidates_no_acq, acq_vals_no_acq = optimize_acqf(
+            acq_function=mock_acq_function,
+            bounds=bounds,
+            q=q,
+            num_restarts=num_restarts,
+            raw_samples=raw_samples,
+            options=options,
+            gen_candidates=mock_gen_candidates_scipy,
+            return_acq_values=False,
+        )
+        self.assertIsNone(acq_vals_no_acq)
+        self.assertIsNotNone(candidates_no_acq)
+        self.assertEqual(candidates_no_acq.shape, (q, 3))
+
+    @mock.patch("botorch.optim.optimize.gen_batch_initial_conditions")
     @mock.patch(
         "botorch.optim.optimize.gen_candidates_scipy", wraps=gen_candidates_scipy
     )
@@ -1974,6 +2030,46 @@ class TestOptimizeAcqfCyclic(BotorchTestCase):
                     else:
                         self.assertEqual(expected_call_args[k], v)
 
+    @mock.patch("botorch.optim.optimize._optimize_acqf")
+    def test_optimize_acqf_cyclic_return_acq_values(self, mock_optimize_acqf):
+        """Test that return_acq_values defaults to True and can be turned off."""
+        q = 1
+        num_restarts = 2
+        raw_samples = 10
+        options = {}
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        bounds = torch.stack([torch.zeros(3, **tkwargs), 4 * torch.ones(3, **tkwargs)])
+        mock_acq_function = MockAcquisitionFunction()
+        candidate_rv = torch.rand(1, 3, **tkwargs)
+        acq_val_rv = torch.rand(1, **tkwargs)
+        mock_optimize_acqf.return_value = (candidate_rv, acq_val_rv)
+        # Default (return_acq_values=True): second element is not None
+        candidates, acq_vals = optimize_acqf_cyclic(
+            acq_function=mock_acq_function,
+            bounds=bounds,
+            q=q,
+            num_restarts=num_restarts,
+            raw_samples=raw_samples,
+            options=options,
+            cyclic_options={"maxiter": 1},
+        )
+        self.assertIsNotNone(acq_vals)
+        self.assertEqual(candidates.shape, (q, 3))
+        # return_acq_values=False: second element is None
+        candidates_no_acq, acq_vals_no_acq = optimize_acqf_cyclic(
+            acq_function=mock_acq_function,
+            bounds=bounds,
+            q=q,
+            num_restarts=num_restarts,
+            raw_samples=raw_samples,
+            options=options,
+            cyclic_options={"maxiter": 1},
+            return_acq_values=False,
+        )
+        self.assertIsNone(acq_vals_no_acq)
+        self.assertIsNotNone(candidates_no_acq)
+        self.assertEqual(candidates_no_acq.shape, (q, 3))
+
 
 class TestOptimizeAcqfList(BotorchTestCase):
     @mock.patch("botorch.optim.optimize.optimize_acqf")  # noqa: C901
@@ -2135,6 +2231,38 @@ class TestOptimizeAcqfList(BotorchTestCase):
                 fixed_features={0: 0.5},
             )
 
+    @mock.patch("botorch.optim.optimize.optimize_acqf")
+    def test_optimize_acqf_list_return_acq_values(self, mock_optimize_acqf):
+        """Test that return_acq_values defaults to True and can be turned off."""
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        bounds = torch.stack([torch.zeros(3, **tkwargs), 4 * torch.ones(3, **tkwargs)])
+        mock_acq_function = MockAcquisitionFunction()
+        candidate_rv = torch.rand(1, 3, **tkwargs)
+        acq_val_rv = torch.rand(1, **tkwargs)
+        mock_optimize_acqf.return_value = (candidate_rv, acq_val_rv)
+        # Default (return_acq_values=True): second element is not None
+        candidates, acq_vals = optimize_acqf_list(
+            acq_function_list=[mock_acq_function],
+            bounds=bounds,
+            num_restarts=2,
+            raw_samples=10,
+            options={},
+        )
+        self.assertIsNotNone(acq_vals)
+        self.assertEqual(candidates.shape, (1, 3))
+        # return_acq_values=False: second element is None
+        candidates_no_acq, acq_vals_no_acq = optimize_acqf_list(
+            acq_function_list=[mock_acq_function],
+            bounds=bounds,
+            num_restarts=2,
+            raw_samples=10,
+            options={},
+            return_acq_values=False,
+        )
+        self.assertIsNone(acq_vals_no_acq)
+        self.assertIsNotNone(candidates_no_acq)
+        self.assertEqual(candidates_no_acq.shape, (1, 3))
+
 
 class TestOptimizeAcqfMixed(BotorchTestCase):
     @mock.patch("botorch.optim.optimize.optimize_acqf")  # noqa: C901
@@ -2215,6 +2343,7 @@ class TestOptimizeAcqfMixed(BotorchTestCase):
                 "ic_generator": None,
                 "timeout_sec": None,
                 "retry_on_optimization_warning": True,
+                "return_acq_values": True,
                 "nonlinear_inequality_constraints": None,
             }
             for i in range(len(call_args_list)):
@@ -2226,6 +2355,49 @@ class TestOptimizeAcqfMixed(BotorchTestCase):
                         self.assertIsInstance(v, MockAcquisitionFunction)
                     else:
                         self.assertEqual(expected_call_args[k], v)
+
+    @mock.patch("botorch.optim.optimize.optimize_acqf")
+    def test_optimize_acqf_mixed_return_acq_values(self, mock_optimize_acqf):
+        """Test that return_acq_values defaults to True and can be turned off."""
+        q = 1
+        num_restarts = 2
+        raw_samples = 10
+        options = {}
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        bounds = torch.stack([torch.zeros(3, **tkwargs), 4 * torch.ones(3, **tkwargs)])
+        mock_acq_function = MockAcquisitionFunction()
+        candidate_rv = torch.rand(num_restarts, 1, 3, **tkwargs)
+        acq_val_rv = torch.rand(num_restarts, **tkwargs)
+        mock_optimize_acqf.return_value = (candidate_rv, acq_val_rv)
+        fixed_features_list = [{0: 0.1}]
+        # Default (return_acq_values=True): second element is not None
+        candidates, acq_value = optimize_acqf_mixed(
+            acq_function=mock_acq_function,
+            q=q,
+            fixed_features_list=fixed_features_list,
+            bounds=bounds,
+            num_restarts=num_restarts,
+            raw_samples=raw_samples,
+            options=options,
+            post_processing_func=rounding_func,
+        )
+        self.assertIsNotNone(acq_value)
+        self.assertEqual(candidates.shape, (q, 3))
+        # return_acq_values=False: second element is None
+        candidates_no_acq, acq_value_no_acq = optimize_acqf_mixed(
+            acq_function=mock_acq_function,
+            q=q,
+            fixed_features_list=fixed_features_list,
+            bounds=bounds,
+            num_restarts=num_restarts,
+            raw_samples=raw_samples,
+            options=options,
+            post_processing_func=rounding_func,
+            return_acq_values=False,
+        )
+        self.assertIsNone(acq_value_no_acq)
+        self.assertIsNotNone(candidates_no_acq)
+        self.assertEqual(candidates_no_acq.shape, (q, 3))
 
     @mock.patch("botorch.optim.optimize.optimize_acqf")  # noqa: C901
     def test_optimize_acqf_mixed_q2(self, mock_optimize_acqf):
@@ -2556,6 +2728,32 @@ class TestOptimizeAcqfDiscrete(BotorchTestCase):
             )
         self.assertAllClose(candidates, choices[:1])
 
+    def test_optimize_acqf_discrete_return_acq_values(self):
+        """Test that return_acq_values defaults to True and can be turned off."""
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        mock_acq_function = SquaredAcquisitionFunction()
+        mock_acq_function.set_X_pending(None)
+        choices = torch.rand(5, 2, **tkwargs)
+        q = 1
+        # Default (return_acq_values=True): second element is not None
+        candidates, acq_value = optimize_acqf_discrete(
+            acq_function=mock_acq_function,
+            q=q,
+            choices=choices,
+        )
+        self.assertIsNotNone(acq_value)
+        self.assertEqual(candidates.shape, (q, 2))
+        # return_acq_values=False: second element is None
+        candidates_no_acq, acq_value_no_acq = optimize_acqf_discrete(
+            acq_function=mock_acq_function,
+            q=q,
+            choices=choices,
+            return_acq_values=False,
+        )
+        self.assertIsNone(acq_value_no_acq)
+        self.assertIsNotNone(candidates_no_acq)
+        self.assertEqual(candidates_no_acq.shape, (q, 2))
+
     def test_optimize_acqf_discrete_local_search(self):
         for q, dtype in itertools.product((1, 2), (torch.float, torch.double)):
             tkwargs = {"device": self.device, "dtype": dtype}
@@ -2709,6 +2907,40 @@ class TestOptimizeAcqfDiscrete(BotorchTestCase):
             )
             self.assertEqual(len(X), 20)
             self.assertAllClose(torch.unique(X, dim=0), X)
+
+    def test_optimize_acqf_discrete_local_search_return_acq_values(self):
+        """Test that return_acq_values defaults to True and can be turned off."""
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        mock_acq_function = SquaredAcquisitionFunction()
+        mock_acq_function.set_X_pending(None)
+        discrete_choices = [
+            torch.tensor([0, 1, 6], **tkwargs),
+            torch.tensor([2, 3, 4], **tkwargs),
+            torch.tensor([5, 6, 9], **tkwargs),
+        ]
+        q = 1
+        # Default (return_acq_values=True): second element is not None
+        candidates, acq_value = optimize_acqf_discrete_local_search(
+            acq_function=mock_acq_function,
+            q=q,
+            discrete_choices=discrete_choices,
+            raw_samples=1,
+            num_restarts=1,
+        )
+        self.assertIsNotNone(acq_value)
+        self.assertEqual(candidates.shape, (q, 3))
+        # return_acq_values=False: second element is None
+        candidates_no_acq, acq_value_no_acq = optimize_acqf_discrete_local_search(
+            acq_function=mock_acq_function,
+            q=q,
+            discrete_choices=discrete_choices,
+            raw_samples=1,
+            num_restarts=1,
+            return_acq_values=False,
+        )
+        self.assertIsNone(acq_value_no_acq)
+        self.assertIsNotNone(candidates_no_acq)
+        self.assertEqual(candidates_no_acq.shape, (q, 3))
 
     def test_no_precision_loss_with_fixed_features(self) -> None:
         acqf = SquaredAcquisitionFunction()
