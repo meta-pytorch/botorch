@@ -24,8 +24,57 @@ from torch import Tensor
 try:
     from pymoo.algorithms.moo.nsga2 import NSGA2
     from pymoo.core.problem import Problem
+    from pymoo.core.repair import Repair
     from pymoo.optimize import minimize
     from pymoo.termination.max_gen import MaximumGenerationTermination
+
+    class DiscreteParameterRepair(Repair):
+        """Pymoo Repair operator that rounds discrete parameters to valid values.
+
+        This repair operator is applied after each generation to ensure that
+        discrete parameters are snapped to their nearest allowed values.
+        """
+
+        def __init__(
+            self,
+            discrete_choices: dict[int, list[float]],
+        ) -> None:
+            """Initialize the repair operator.
+
+            Args:
+                discrete_choices: A mapping from dimension index to allowed discrete
+                    values. Only dimensions in this mapping will be rounded.
+            """
+            super().__init__()
+            self.discrete_choices = discrete_choices
+
+        def _do(
+            self,
+            problem: Problem,
+            X: np.ndarray,
+            **kwargs: dict,
+        ) -> np.ndarray:
+            """Round discrete dimensions to nearest allowed values.
+
+            Args:
+                problem: The pymoo Problem instance.
+                X: A ``pop_size x n_var`` array of candidate solutions.
+                **kwargs: Additional keyword arguments.
+
+            Returns:
+                The repaired array with discrete dimensions rounded.
+            """
+            for dim, allowed_values in self.discrete_choices.items():
+                allowed = np.array(allowed_values)
+                # For each candidate, find nearest allowed value
+                vals = X[:, dim]
+                # Compute distances to all allowed values: (pop_size, num_choices)
+                distances = np.abs(vals[:, np.newaxis] - allowed[np.newaxis, :])
+                # Find index of nearest allowed value
+                nearest_idx = np.argmin(distances, axis=1)
+                # Replace with nearest allowed value
+                X[:, dim] = allowed[nearest_idx]
+            return X
 
     class BotorchPymooProblem(Problem):
         def __init__(
@@ -40,6 +89,7 @@ try:
             ref_point: Tensor | None = None,
             objective: MCMultiOutputObjective | None = None,
             constraints: list[Callable[[Tensor], Tensor]] | None = None,
+            inequality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
         ) -> None:
             """PyMOO problem for optimizing the model posterior mean using NSGA-II.
 
@@ -70,10 +120,17 @@ try:
                     ``sample_shape x batch-shape x q x m`` to a Tensor of dimension
                     ``sample_shape x batch-shape x q``, where negative values imply
                     feasibility.
+                inequality_constraints: A list of tuples (indices, coefficients, rhs),
+                    representing inequality constraints of the form
+                    ``sum_i (X[indices[i]] * coefficients[i]) >= rhs``. These are
+                    parameter-space constraints (as opposed to outcome-space
+                    constraints).
             """
             num_constraints = 0 if constraints is None else len(constraints)
             if ref_point is not None:
                 num_constraints += ref_point.shape[0]
+            if inequality_constraints is not None:
+                num_constraints += len(inequality_constraints)
             super().__init__(
                 n_var=n_var,
                 n_obj=n_obj,
@@ -88,6 +145,7 @@ try:
                 IdentityMCMultiOutputObjective() if objective is None else objective
             )
             self.botorch_constraints = constraints
+            self.botorch_inequality_constraints = inequality_constraints
             self.torch_dtype = dtype
             self.torch_device = device
 
@@ -115,6 +173,26 @@ try:
                     )
                 else:
                     constraint_vals = ref_constraints
+            # Handle parameter-space inequality constraints
+            # These are of the form sum_i (X[indices[i]] * coefficients[i]) >= rhs
+            # PyMOO expects constraints in the form G(x) <= 0, so we transform:
+            # sum_i (X[indices[i]] * coefficients[i]) >= rhs
+            # => rhs - sum_i (X[indices[i]] * coefficients[i]) <= 0
+            if self.botorch_inequality_constraints is not None:
+                ineq_constraint_vals = []
+                for indices, coefficients, rhs in self.botorch_inequality_constraints:
+                    # X is (pop_size, n_var), indices is (num_terms,)
+                    # Extract relevant columns and compute linear combination
+                    lhs = (X[:, indices] * coefficients).sum(dim=-1)
+                    # Transform to G(x) <= 0 form: rhs - lhs <= 0
+                    ineq_constraint_vals.append(rhs - lhs)
+                ineq_constraints = torch.stack(ineq_constraint_vals, dim=-1)
+                if constraint_vals is not None:
+                    constraint_vals = torch.cat(
+                        [constraint_vals, ineq_constraints], dim=-1
+                    )
+                else:
+                    constraint_vals = ineq_constraints
             if constraint_vals is not None:
                 out["G"] = constraint_vals.cpu().numpy()
 
@@ -126,11 +204,13 @@ try:
         ref_point: list[float] | Tensor | None = None,
         objective: MCMultiOutputObjective | None = None,
         constraints: list[Callable[[Tensor], Tensor]] | None = None,
+        inequality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
         population_size: int = 250,
         max_gen: int | None = None,
         seed: int | None = None,
         fixed_features: dict[int, float] | None = None,
         max_attempts: int = 2,
+        discrete_choices: dict[int, list[float]] | None = None,
         post_processing_func: Callable[[Tensor], Tensor] | None = None,
     ) -> tuple[Tensor, Tensor]:
         """Optimize the posterior mean via NSGA-II, returning the Pareto set and front.
@@ -155,6 +235,11 @@ try:
                 ``sample_shape x batch-shape x q x m`` to a Tensor of dimension
                 ``sample_shape x batch-shape x q``, where negative values imply
                 feasibility.
+            inequality_constraints: A list of tuples (indices, coefficients, rhs),
+                representing inequality constraints of the form
+                ``sum_i (X[indices[i]] * coefficients[i]) >= rhs``. These are
+                parameter-space constraints (as opposed to outcome-space
+                constraints).
             population_size: the population size for NSGA-II.
             max_gen: The number of iterations for NSGA-II. If None, this uses the
                 default termination condition in pymoo for NSGA-II.
@@ -164,6 +249,12 @@ try:
                 should be non-negative.
             max_attempts: The total number of times to run the optimization if it
                 fails (usually due to NSGA-II failing to find a feasible point).
+            discrete_choices: A mapping from dimension index to allowed discrete
+                values. When provided, a repair operator is used during NSGA-II
+                optimization to ensure discrete dimensions are snapped to their
+                nearest allowed values after each generation. This provides better
+                handling of mixed continuous/discrete search spaces compared to
+                post-hoc rounding.
             post_processing_func: A function that post-processes optimization results,
                 e.g., to round discrete dimensions to valid values. The function
                 should take an ``n x d`` tensor and return a tensor of the same shape
@@ -189,6 +280,13 @@ try:
             for i, val in fixed_features.items():
                 bounds[:, i] = val
 
+        # Create repair operator for discrete parameters if needed
+        repair = None
+        if discrete_choices:
+            repair = DiscreteParameterRepair(
+                discrete_choices={k: list(v) for k, v in discrete_choices.items()}
+            )
+
         def _opt_with_nsgaii():
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", category=DeprecationWarning)
@@ -201,10 +299,15 @@ try:
                     ref_point=ref_point,
                     objective=objective,
                     constraints=constraints,
+                    inequality_constraints=inequality_constraints,
                     **tkwargs,
                 )
                 pop_size = max(population_size, q) if q is not None else population_size
-                algorithm = NSGA2(pop_size=pop_size, eliminate_duplicates=True)
+                algorithm = NSGA2(
+                    pop_size=pop_size,
+                    eliminate_duplicates=True,
+                    repair=repair,
+                )
                 res = minimize(
                     problem=pymoo_problem,
                     algorithm=algorithm,

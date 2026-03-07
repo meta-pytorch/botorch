@@ -16,6 +16,55 @@ from botorch.test_functions.multi_objective import DTLZ2
 from botorch.utils.testing import BotorchTestCase, skip_if_import_error
 
 
+class TestDiscreteParameterRepair(BotorchTestCase):
+    @skip_if_import_error
+    def test_discrete_parameter_repair(self) -> None:
+        """Test that optimize_with_nsgaii respects discrete_choices."""
+        from botorch.utils.multi_objective.optimize import optimize_with_nsgaii
+
+        tkwargs = {"device": self.device}
+        for dtype in (torch.float, torch.double):
+            tkwargs["dtype"] = dtype
+            dim = 6
+            num_objectives = 2
+            prob = DTLZ2(dim=dim, num_objectives=num_objectives, negate=True).to(
+                **tkwargs
+            )
+
+            model = GenericDeterministicModel(f=prob, num_outputs=2)
+            acqf = MultiOutputPosteriorMean(model=model)
+            bounds = torch.zeros(2, dim, **tkwargs)
+            bounds[1] = 1
+
+            # Define irregular discrete choices for dimensions 0 and 2
+            discrete_choices = {
+                0: [0.0, 0.5, 1.0],
+                2: [0.25, 0.4, 0.75],
+            }
+
+            pareto_X, pareto_Y = optimize_with_nsgaii(
+                acq_function=acqf,
+                bounds=bounds,
+                q=5,
+                num_objectives=num_objectives,
+                max_gen=4,
+                discrete_choices=discrete_choices,
+            )
+
+            # Verify discrete dimensions only contain allowed values
+            for dim_idx, allowed_values in discrete_choices.items():
+                allowed = torch.tensor(allowed_values, **tkwargs)
+                for val in pareto_X[:, dim_idx]:
+                    self.assertTrue(
+                        torch.any(torch.isclose(val, allowed)),
+                        f"Value {val} in dim {dim_idx} not in {allowed_values}",
+                    )
+
+            # Verify Y values match the model output
+            expected_Y = prob(pareto_X)
+            self.assertTrue(torch.allclose(pareto_Y, expected_Y, atol=1e-6))
+
+
 class TestOptimizeWithNSGAII(BotorchTestCase):
     @skip_if_import_error
     def test_optimize_with_nsgaii(self) -> None:
@@ -310,3 +359,82 @@ class TestOptimizeWithNSGAII(BotorchTestCase):
                 torch.allclose(pareto_Y, expected_Y, atol=1e-6),
                 "Y values should be re-evaluated with objective after post-processing",
             )
+
+    def _test_nsgaii_with_inequality_constraints(
+        self,
+        ref_point: list[float] | None = None,
+    ) -> None:
+        """Helper to test optimize_with_nsgaii with inequality constraints.
+
+        Args:
+            ref_point: Optional reference point. When provided, tests the code path
+                where inequality constraints are concatenated with ref_point
+                constraints.
+        """
+        from botorch.utils.multi_objective.optimize import optimize_with_nsgaii
+
+        tkwargs = {"device": self.device}
+        for dtype in (torch.float, torch.double):
+            tkwargs["dtype"] = dtype
+            dim = 6
+            num_objectives = 2
+            prob = DTLZ2(dim=dim, num_objectives=num_objectives, negate=True).to(
+                **tkwargs
+            )
+
+            model = GenericDeterministicModel(f=prob, num_outputs=2)
+            acqf = MultiOutputPosteriorMean(model=model)
+            bounds = torch.zeros(2, dim, **tkwargs)
+            bounds[1] = 1
+
+            # Define inequality constraint: x[0] + x[1] >= 1.0
+            inequality_constraints = [
+                (
+                    torch.tensor([0, 1], dtype=torch.long),
+                    torch.tensor([1.0, 1.0], **tkwargs),
+                    1.0,
+                )
+            ]
+
+            pareto_X, pareto_Y = optimize_with_nsgaii(
+                acq_function=acqf,
+                bounds=bounds,
+                q=5,
+                num_objectives=num_objectives,
+                max_gen=10,
+                population_size=50,
+                inequality_constraints=inequality_constraints,
+                ref_point=ref_point,
+            )
+
+            # Verify all solutions satisfy the constraint: x[0] + x[1] >= 1.0
+            constraint_values = pareto_X[:, 0] + pareto_X[:, 1]
+            self.assertTrue(
+                (constraint_values >= 1.0 - 1e-6).all(),
+                f"Constraint x[0] + x[1] >= 1.0 violated. Values: {constraint_values}",
+            )
+
+            # Verify solutions dominate the reference point if provided
+            if ref_point is not None:
+                self.assertTrue(
+                    (pareto_Y > torch.tensor(ref_point, **tkwargs)).all(),
+                    "All Pareto-optimal solutions should dominate the reference point",
+                )
+
+            # Verify Y values match the model output
+            expected_Y = prob(pareto_X)
+            self.assertTrue(torch.allclose(pareto_Y, expected_Y, atol=1e-6))
+
+    @skip_if_import_error
+    def test_optimize_with_nsgaii_inequality_constraints(self) -> None:
+        """Test that optimize_with_nsgaii respects inequality constraints."""
+        self._test_nsgaii_with_inequality_constraints()
+
+    @skip_if_import_error
+    def test_optimize_with_nsgaii_inequality_constraints_with_ref_point(self) -> None:
+        """Test inequality constraints combined with ref_point.
+
+        This test ensures the code path where inequality constraints are
+        concatenated with existing constraint values (from ref_point) is covered.
+        """
+        self._test_nsgaii_with_inequality_constraints(ref_point=[-2.0, -2.0])
