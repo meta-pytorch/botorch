@@ -16,6 +16,55 @@ from botorch.test_functions.multi_objective import DTLZ2
 from botorch.utils.testing import BotorchTestCase, skip_if_import_error
 
 
+class TestDiscreteParameterRepair(BotorchTestCase):
+    @skip_if_import_error
+    def test_discrete_parameter_repair(self) -> None:
+        """Test that optimize_with_nsgaii respects discrete_choices."""
+        from botorch.utils.multi_objective.optimize import optimize_with_nsgaii
+
+        tkwargs = {"device": self.device}
+        for dtype in (torch.float, torch.double):
+            tkwargs["dtype"] = dtype
+            dim = 6
+            num_objectives = 2
+            prob = DTLZ2(dim=dim, num_objectives=num_objectives, negate=True).to(
+                **tkwargs
+            )
+
+            model = GenericDeterministicModel(f=prob, num_outputs=2)
+            acqf = MultiOutputPosteriorMean(model=model)
+            bounds = torch.zeros(2, dim, **tkwargs)
+            bounds[1] = 1
+
+            # Define irregular discrete choices for dimensions 0 and 2
+            discrete_choices = {
+                0: [0.0, 0.5, 1.0],
+                2: [0.25, 0.4, 0.75],
+            }
+
+            pareto_X, pareto_Y = optimize_with_nsgaii(
+                acq_function=acqf,
+                bounds=bounds,
+                q=5,
+                num_objectives=num_objectives,
+                max_gen=4,
+                discrete_choices=discrete_choices,
+            )
+
+            # Verify discrete dimensions only contain allowed values
+            for dim_idx, allowed_values in discrete_choices.items():
+                allowed = torch.tensor(allowed_values, **tkwargs)
+                for val in pareto_X[:, dim_idx]:
+                    self.assertTrue(
+                        torch.any(torch.isclose(val, allowed)),
+                        f"Value {val} in dim {dim_idx} not in {allowed_values}",
+                    )
+
+            # Verify Y values match the model output
+            expected_Y = prob(pareto_X)
+            self.assertTrue(torch.allclose(pareto_Y, expected_Y, atol=1e-6))
+
+
 class TestOptimizeWithNSGAII(BotorchTestCase):
     @skip_if_import_error
     def test_optimize_with_nsgaii(self) -> None:
