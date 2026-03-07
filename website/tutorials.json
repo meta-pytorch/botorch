@@ -123,6 +123,12 @@
     {
       "id": "information_theoretic_acquisition_functions",
       "title": "Information-theoretic acquisition functions"
+    }
+  ],
+  "Gaussian Process Models": [
+    {
+      "id": "orthogonal_additive_gp",
+      "title": "Interpretable Modeling with the Orthogonal Additive Gaussian Process"
     },
     {
       "id": "relevance_pursuit_robust_regression",
