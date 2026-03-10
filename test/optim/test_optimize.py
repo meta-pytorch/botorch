@@ -369,6 +369,78 @@ class TestOptimizeAcqf(BotorchTestCase):
         self.assertIsNotNone(candidates_no_acq)
         self.assertEqual(candidates_no_acq.shape, (q, 3))
 
+        # All features fixed path: return_acq_values=True returns acq values
+        fixed_all = {0: 0.1, 1: 0.2, 2: 0.3}
+        candidates_fixed_with_acq, acq_fixed_with = optimize_acqf(
+            acq_function=mock_acq_function,
+            bounds=bounds,
+            q=1,
+            num_restarts=num_restarts,
+            raw_samples=raw_samples,
+            options=options,
+            fixed_features=fixed_all,
+            return_acq_values=True,
+        )
+        self.assertIsNotNone(acq_fixed_with)
+        self.assertEqual(candidates_fixed_with_acq.shape, (1, 3))
+        # All features fixed path: return_acq_values=False returns None for acq
+        candidates_fixed, acq_fixed = optimize_acqf(
+            acq_function=mock_acq_function,
+            bounds=bounds,
+            q=1,
+            num_restarts=num_restarts,
+            raw_samples=raw_samples,
+            options=options,
+            fixed_features=fixed_all,
+            return_acq_values=False,
+        )
+        self.assertIsNone(acq_fixed)
+        self.assertEqual(candidates_fixed.shape, (1, 3))
+        self.assertTrue(
+            torch.equal(
+                candidates_fixed,
+                torch.tensor(
+                    [[0.1, 0.2, 0.3]],
+                    device=self.device,
+                    dtype=torch.double,
+                ),
+            )
+        )
+
+        # Sequential path: return_acq_values=True and return_acq_values=False
+        mock_gen_candidates_scipy.return_value = (
+            torch.rand(1, 1, 3, device=self.device, dtype=torch.double),
+            torch.rand(1, device=self.device, dtype=torch.double),
+        )
+        seq_candidates, seq_acq = optimize_acqf(
+            acq_function=mock_acq_function,
+            bounds=bounds,
+            q=2,
+            num_restarts=num_restarts,
+            raw_samples=raw_samples,
+            options=options,
+            gen_candidates=mock_gen_candidates_scipy,
+            sequential=True,
+            return_acq_values=True,
+        )
+        self.assertIsNotNone(seq_acq)
+        self.assertEqual(seq_acq.shape, (2,))
+        self.assertEqual(seq_candidates.shape, (2, 3))
+        seq_candidates_no_acq, seq_acq_none = optimize_acqf(
+            acq_function=mock_acq_function,
+            bounds=bounds,
+            q=2,
+            num_restarts=num_restarts,
+            raw_samples=raw_samples,
+            options=options,
+            gen_candidates=mock_gen_candidates_scipy,
+            sequential=True,
+            return_acq_values=False,
+        )
+        self.assertIsNone(seq_acq_none)
+        self.assertIsNotNone(seq_candidates_no_acq)
+        self.assertEqual(seq_candidates_no_acq.shape, (2, 3))
+
     @mock.patch("botorch.optim.optimize.gen_batch_initial_conditions")
     @mock.patch(
         "botorch.optim.optimize.gen_candidates_scipy", wraps=gen_candidates_scipy
@@ -2398,6 +2470,61 @@ class TestOptimizeAcqfMixed(BotorchTestCase):
         self.assertIsNone(acq_value_no_acq)
         self.assertIsNotNone(candidates_no_acq)
         self.assertEqual(candidates_no_acq.shape, (q, 3))
+
+        # q=1, return_best_only=False, return_acq_values=False (covers line 1306)
+        fixed_features_list_multi = [{0: 0.1}, {0: 0.2}]
+        candidate_rvs_multi = [
+            torch.rand(num_restarts, 1, 3, **tkwargs),
+            torch.rand(num_restarts, 1, 3, **tkwargs),
+        ]
+        acq_val_rvs_multi = [
+            torch.rand(num_restarts, **tkwargs),
+            torch.rand(num_restarts, **tkwargs),
+        ]
+        mock_optimize_acqf.side_effect = list(
+            zip(candidate_rvs_multi, acq_val_rvs_multi)
+        )
+        candidates_mixed_1, acq_mixed_1 = optimize_acqf_mixed(
+            acq_function=mock_acq_function,
+            q=1,
+            fixed_features_list=fixed_features_list_multi,
+            bounds=bounds,
+            num_restarts=num_restarts,
+            raw_samples=raw_samples,
+            options=options,
+            post_processing_func=rounding_func,
+            return_best_only=False,
+            return_acq_values=False,
+        )
+        self.assertIsNone(acq_mixed_1)
+        self.assertEqual(candidates_mixed_1.shape, (num_restarts, 1, 3))
+
+        # q=2, return_acq_values=False (covers line 1360)
+        # Inner optimize_acqf_mixed(q=1) calls optimize_acqf with return_best_only=False
+        mock_optimize_acqf.side_effect = [
+            (
+                torch.rand(num_restarts, 1, 3, **tkwargs),
+                torch.rand(num_restarts, **tkwargs),
+            ),
+            (
+                torch.rand(num_restarts, 1, 3, **tkwargs),
+                torch.rand(num_restarts, **tkwargs),
+            ),
+        ]
+        candidates_mixed_2, acq_mixed_2 = optimize_acqf_mixed(
+            acq_function=mock_acq_function,
+            q=2,
+            fixed_features_list=[{0: 0.1}],
+            bounds=bounds,
+            num_restarts=num_restarts,
+            raw_samples=raw_samples,
+            options=options,
+            post_processing_func=rounding_func,
+            return_acq_values=False,
+        )
+        self.assertIsNone(acq_mixed_2)
+        self.assertIsNotNone(candidates_mixed_2)
+        self.assertEqual(candidates_mixed_2.shape, (2, 3))
 
     @mock.patch("botorch.optim.optimize.optimize_acqf")  # noqa: C901
     def test_optimize_acqf_mixed_q2(self, mock_optimize_acqf):
