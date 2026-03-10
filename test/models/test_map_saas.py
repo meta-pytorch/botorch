@@ -22,6 +22,7 @@ from botorch.models.map_saas import (
     EnsembleMapSaasSingleTaskGP,
     get_additive_map_saas_covar_module,
     get_gaussian_likelihood_with_gamma_prior,
+    get_map_saas_model,
     get_mean_module_with_normal_prior,
 )
 from botorch.models.transforms.input import (
@@ -168,6 +169,80 @@ class TestMapSaas(BotorchTestCase):
                 UnsupportedError, "must not specify a lengthscale prior"
             ):
                 add_saas_prior(base_kernel=kernel_with_prior)
+
+    def test_add_saas_prior_with_tensor_tau(self) -> None:
+        """Test that add_saas_prior works with a tensor of taus for batched models."""
+        tkwargs: dict[str, Any] = {"device": self.device, "dtype": torch.double}
+        batch_shape = torch.Size([3])
+        ard_num_dims = 4
+        taus = torch.tensor([0.05, 0.1, 0.2], **tkwargs)
+
+        # Test that a mismatched tensor tau shape raises a ValueError
+        wrong_taus = torch.tensor([0.05, 0.1], **tkwargs)
+        base_kernel_for_error = MaternKernel(
+            nu=2.5, ard_num_dims=ard_num_dims, batch_shape=batch_shape
+        ).to(**tkwargs)
+        with self.assertRaisesRegex(ValueError, "Expected tau to have shape"):
+            add_saas_prior(base_kernel=base_kernel_for_error, tau=wrong_taus)
+
+        base_kernel = MaternKernel(
+            nu=2.5, ard_num_dims=ard_num_dims, batch_shape=batch_shape
+        ).to(**tkwargs)
+        add_saas_prior(base_kernel=base_kernel, tau=taus)
+        # Tensor tau should NOT create a raw_tau parameter
+        self.assertFalse(hasattr(base_kernel, "raw_tau"))
+        # The inv_lengthscale_prior should still be registered
+        self.assertIsInstance(base_kernel.inv_lengthscale_prior, HalfCauchyPrior)
+        # Verify the prior closures work with tensor taus
+        _inv_lengthscale_prior = base_kernel._priors["inv_lengthscale_prior"]
+        param_or_closure_result = _inv_lengthscale_prior[1](base_kernel)
+        # Shape should be batch_shape x 1 x ard_num_dims
+        self.assertEqual(
+            param_or_closure_result.shape, torch.Size([3, 1, ard_num_dims])
+        )
+        # Test the setting closure with tensor taus
+        _inv_lengthscale_prior[2](base_kernel, torch.tensor(5.55, **tkwargs))
+        expected_lengthscales = (taus / 5.55).sqrt()
+        self.assertAllClose(
+            base_kernel.lengthscale.squeeze(-2),
+            expected_lengthscales.unsqueeze(-1).expand(-1, ard_num_dims),
+        )
+        # Test log_prob computation works (this exercises the prior closures)
+        base_kernel.lengthscale = torch.rand(
+            *batch_shape, 1, ard_num_dims, **tkwargs
+        ).clamp(0.01, 1e4)
+        for _, (prior, closure, _) in base_kernel._priors.items():
+            prior.log_prob(closure(base_kernel))
+
+    @mock_optimize
+    def test_get_map_saas_model_with_tensor_tau(self) -> None:
+        """Test that get_map_saas_model works with a tensor of taus for batch models."""
+        tkwargs: dict[str, Any] = {"device": self.device, "dtype": torch.double}
+        n, d = 10, 3
+        train_X = torch.rand(n, d, **tkwargs)
+        # Two outputs create a batch model with batch_shape = [2]
+        train_Y = torch.cat(
+            (torch.sin(train_X[:, :1]), torch.cos(train_X[:, :1])), dim=-1
+        )
+        taus = torch.tensor([0.05, 0.2], **tkwargs)
+        model = get_map_saas_model(train_X=train_X, train_Y=train_Y, tau=taus)
+        # Check input batch shape
+        self.assertEqual(model._aug_batch_shape, torch.Size([2]))
+        # No raw_tau since tau was provided as a tensor
+        self.assertFalse(hasattr(model.covar_module.base_kernel, "raw_tau"))
+        # Fit the model
+        mll = ExactMarginalLogLikelihood(model=model, likelihood=model.likelihood)
+        fit_gpytorch_mll(mll)
+        # Verify predictions work
+        test_X = torch.rand(5, d, **tkwargs)
+        posterior = model.posterior(test_X)
+        self.assertIsInstance(posterior, GPyTorchPosterior)
+        self.assertEqual(posterior.mean.shape, torch.Size([5, 2]))
+        # Verify lengthscale shapes are correct
+        self.assertEqual(
+            model.covar_module.base_kernel.lengthscale.shape,
+            torch.Size([2, 1, d]),
+        )
 
     def test_get_saas_model(self) -> None:
         for infer_tau, infer_noise in itertools.product([True, False], [True, False]):
