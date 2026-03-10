@@ -401,7 +401,7 @@ def get_fitted_map_saas_model(
     train_Yvar: Tensor | None = None,
     input_transform: InputTransform | None = None,
     outcome_transform: OutcomeTransform | None = None,
-    tau: float | None = None,
+    tau: Tensor | float | None = None,
     optimizer_kwargs: dict[str, Any] | None = None,
 ) -> SingleTaskGP:
     """Get a fitted MAP SAAS model with a Matern kernel.
@@ -414,7 +414,8 @@ def get_fitted_map_saas_model(
         input_transform: An optional input transform.
         outcome_transform: An optional outcome transform.
         tau: Fixed value of the global shrinkage tau. If None, the model
-            places a HC(0.1) prior on tau.
+            places a HC(0.1) prior on tau. Can be a tensor for batched models
+            where each batch has a different sparsity prior.
         optimizer_kwargs: A dict of options for the optimizer passed
             to fit_gpytorch_mll.
 
