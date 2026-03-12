@@ -940,6 +940,70 @@ class TestOptimizeAcqfMixed(BotorchTestCase):
                 num_restarts=2,
             )
 
+    def test_optimize_acqf_mixed_alternating_return_acq_values(self) -> None:
+        """Test that return_acq_values defaults to True and can be turned off."""
+        train_X, train_Y, binary_dims, cont_dims = self._get_data()
+        dim = len(binary_dims) + len(cont_dims)
+        bounds = self.single_bound.repeat(1, dim).to(**self.tkwargs)
+        torch.manual_seed(0)
+        model = SingleTaskGP(train_X=train_X, train_Y=train_Y)
+        acqf = LogExpectedImprovement(model=model, best_f=torch.max(train_Y))
+        options = {
+            "initialization_strategy": "random",
+            "maxiter_alternating": 2,
+            "maxiter_discrete": 8,
+            "maxiter_continuous": 32,
+            "num_spray_points": 32,
+            "std_cont_perturbation": 1e-2,
+        }
+        # Default (return_acq_values=True): second element is not None
+        candidates, acq_vals = optimize_acqf_mixed_alternating(
+            acq_function=acqf,
+            bounds=bounds,
+            discrete_dims=binary_dims,
+            options=options,
+            q=1,
+            raw_samples=32,
+            num_restarts=2,
+        )
+        self.assertIsNotNone(acq_vals)
+        self.assertEqual(candidates.shape, (1, dim))
+        # return_acq_values=False: second element is None
+        candidates_no_acq, acq_vals_no_acq = optimize_acqf_mixed_alternating(
+            acq_function=acqf,
+            bounds=bounds,
+            discrete_dims=binary_dims,
+            options=options,
+            q=1,
+            raw_samples=32,
+            num_restarts=2,
+            return_acq_values=False,
+        )
+        self.assertIsNone(acq_vals_no_acq)
+        self.assertIsNotNone(candidates_no_acq)
+        self.assertEqual(candidates_no_acq.shape, (1, dim))
+
+        # Fully continuous fallback: return_acq_values=False returns None
+        with mock.patch(
+            f"{OPT_MODULE}._optimize_acqf", wraps=_optimize_acqf
+        ) as mock_opt:
+            fallback_cands, fallback_acq = optimize_acqf_mixed_alternating(
+                acq_function=acqf,
+                bounds=bounds,
+                discrete_dims={},
+                options=options,
+                q=1,
+                raw_samples=4,
+                num_restarts=2,
+                return_acq_values=False,
+            )
+            self.assertIsNone(fallback_acq)
+            self.assertIsNotNone(fallback_cands)
+            # Verify _optimize_acqf was called with return_acq_values=False
+            mock_opt.assert_called_once()
+            call_kwargs = mock_opt.call_args.kwargs
+            self.assertFalse(call_kwargs["opt_inputs"].return_acq_values)
+
     def test_optimize_acqf_mixed_integer(self) -> None:
         # Testing with integer variables.
         train_X, train_Y, binary_dims, cont_dims = self._get_data()
