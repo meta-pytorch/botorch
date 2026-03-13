@@ -169,8 +169,8 @@ class PyroModel:
         train_X: Tensor,
         train_Y: Tensor,
         train_Yvar: Tensor | None = None,
-        task_feature: int | None = None,
-        task_rank: int | None = None,
+        task_feature: int | None = None,  # noqa: ARG002
+        task_rank: int | None = None,  # noqa: ARG002
     ) -> None:
         """Set the training data.
 
