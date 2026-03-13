@@ -1677,6 +1677,7 @@ def construct_inputs_qeubo(
     sampler: MCSampler | None = None,
     objective: MCAcquisitionObjective | None = None,
     posterior_transform: PosteriorTransform | None = None,
+    previous_winner: Tensor | None = None,
     X_pending: Tensor | None = None,
 ) -> dict[str, Any]:
     r"""Construct kwargs for the ``qExpectedUtilityOfBestOption`` (qEUBO) constructor.
@@ -1697,6 +1698,7 @@ def construct_inputs_qeubo(
         pref_model: The preference model to be used in preference exploration as in
             BOPE; if None, we are doing PBO and model is the preference model.
         sample_multiplier: The scale factor for the single-sample model.
+        previous_winner: The previous winner of the best option.
 
     Returns:
         A dict mapping kwarg names of the constructor to values.
@@ -1708,6 +1710,7 @@ def construct_inputs_qeubo(
             "sampler": sampler,
             "objective": objective,
             "posterior_transform": posterior_transform,
+            "previous_winner": previous_winner,
             "X_pending": X_pending,
         }
     else:
@@ -1725,6 +1728,7 @@ def construct_inputs_qeubo(
             "sampler": sampler,
             "objective": objective,
             "posterior_transform": posterior_transform,
+            "previous_winner": previous_winner,
             "X_pending": X_pending,
         }
 
