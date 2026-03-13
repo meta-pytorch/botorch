@@ -12,6 +12,7 @@ When adding tests for a new input constructor, please add a new case to
 from __future__ import annotations
 
 import math
+import warnings
 from collections.abc import Callable
 from functools import reduce
 from random import randint
@@ -39,6 +40,7 @@ from botorch.acquisition.bayesian_active_learning import (
 from botorch.acquisition.fixed_feature import FixedFeatureAcquisitionFunction
 from botorch.acquisition.input_constructors import (
     _field_is_shared,
+    _get_ref_point,
     _register_acqf_input_constructor,
     acqf_input_constructor,
     ACQF_INPUT_CONSTRUCTOR_REGISTRY,
@@ -1413,6 +1415,141 @@ class TestMultiObjectiveAcquisitionFunctionInputConstructors(
         )
         self.assertEqual(kwargs["alpha"], 0.0)
 
+    def test_get_ref_point(self) -> None:
+        objective_thresholds = torch.rand(2)
+        ref_point = torch.rand(2)
+
+        with self.subTest("ref_point provided"):
+            result = _get_ref_point(ref_point=ref_point)
+            self.assertTrue(torch.equal(result, ref_point))
+
+        with self.subTest("objective_thresholds with deprecation warning"):
+            with warnings.catch_warnings(record=True) as ws:
+                warnings.simplefilter("always")
+                result = _get_ref_point(
+                    objective_thresholds=objective_thresholds,
+                )
+                self.assertTrue(torch.equal(result, objective_thresholds))
+                self.assertEqual(len(ws), 1)
+                self.assertTrue(issubclass(ws[0].category, DeprecationWarning))
+                self.assertIn("ref_point", str(ws[0].message))
+
+        with self.subTest("both raises ValueError"):
+            with self.assertRaisesRegex(ValueError, "Cannot specify both"):
+                _get_ref_point(
+                    objective_thresholds=objective_thresholds,
+                    ref_point=ref_point,
+                )
+
+        with self.subTest("neither raises ValueError"):
+            with self.assertRaisesRegex(
+                ValueError, "Either `ref_point` or `objective_thresholds`"
+            ):
+                _get_ref_point()
+
+        with self.subTest("objective_thresholds with objective"):
+            weights = torch.rand(2)
+            obj = WeightedMCMultiOutputObjective(weights=weights)
+            with warnings.catch_warnings(record=True):
+                warnings.simplefilter("always")
+                result = _get_ref_point(
+                    objective_thresholds=objective_thresholds,
+                    objective=obj,
+                )
+                self.assertTrue(torch.equal(result, obj(objective_thresholds)))
+
+        with self.subTest("ref_point with objective (no transform)"):
+            weights = torch.rand(2)
+            obj = WeightedMCMultiOutputObjective(weights=weights)
+            result = _get_ref_point(
+                objective=obj,
+                ref_point=ref_point,
+            )
+            # ref_point is used directly, no objective transform
+            self.assertTrue(torch.equal(result, ref_point))
+
+    def test_construct_inputs_ref_point(self) -> None:
+        """Test ref_point parameter across MOO input constructors."""
+        ref_point = torch.rand(2)
+        objective_thresholds = torch.rand(2)
+
+        with self.subTest("EHVI with ref_point"):
+            Y_pmean = torch.rand(3, 2)
+            mock_model = mock.Mock()
+            c = get_acqf_input_constructor(ExpectedHypervolumeImprovement)
+            kwargs = c(
+                model=mock_model,
+                training_data=self.blockX_blockY,
+                ref_point=ref_point,
+                Y_pmean=Y_pmean,
+            )
+            self.assertTrue(torch.equal(kwargs["ref_point"], ref_point))
+
+        with self.subTest("EHVI with both raises ValueError"):
+            c = get_acqf_input_constructor(ExpectedHypervolumeImprovement)
+            with self.assertRaisesRegex(ValueError, "Cannot specify both"):
+                c(
+                    model=mock_model,
+                    training_data=self.blockX_blockY,
+                    objective_thresholds=objective_thresholds,
+                    ref_point=ref_point,
+                    Y_pmean=Y_pmean,
+                )
+
+        with self.subTest("qEHVI with ref_point"):
+            mm = SingleTaskGP(torch.rand(1, 2), torch.rand(1, 2))
+            c = get_acqf_input_constructor(qExpectedHypervolumeImprovement)
+            kwargs = c(
+                model=mm,
+                training_data=self.blockX_blockY,
+                ref_point=ref_point,
+            )
+            self.assertTrue(torch.equal(kwargs["ref_point"], ref_point))
+
+        with self.subTest("qNEHVI with ref_point"):
+            mm = SingleTaskGP(torch.rand(1, 2), torch.rand(1, 2))
+            c = get_acqf_input_constructor(qNoisyExpectedHypervolumeImprovement)
+            kwargs = c(
+                model=mm,
+                training_data=self.blockX_blockY,
+                ref_point=ref_point,
+            )
+            self.assertTrue(torch.equal(kwargs["ref_point"], ref_point))
+
+        with self.subTest("qLogNEHVI with ref_point"):
+            mm = SingleTaskGP(torch.rand(1, 2), torch.rand(1, 2))
+            c = get_acqf_input_constructor(qLogNoisyExpectedHypervolumeImprovement)
+            kwargs = c(
+                model=mm,
+                training_data=self.blockX_blockY,
+                ref_point=ref_point,
+            )
+            self.assertTrue(torch.equal(kwargs["ref_point"], ref_point))
+
+        with self.subTest("qNEHVI with neither raises ValueError"):
+            mm = SingleTaskGP(torch.rand(1, 2), torch.rand(1, 2))
+            c = get_acqf_input_constructor(qNoisyExpectedHypervolumeImprovement)
+            with self.assertRaisesRegex(ValueError, "Either"):
+                c(
+                    model=mm,
+                    training_data=self.blockX_blockY,
+                )
+
+        with self.subTest("objective_thresholds triggers deprecation warning"):
+            mm = SingleTaskGP(torch.rand(1, 2), torch.rand(1, 2))
+            c = get_acqf_input_constructor(qNoisyExpectedHypervolumeImprovement)
+            with warnings.catch_warnings(record=True) as ws:
+                warnings.simplefilter("always")
+                kwargs = c(
+                    model=mm,
+                    training_data=self.blockX_blockY,
+                    objective_thresholds=objective_thresholds,
+                )
+                dep_warnings = [
+                    w for w in ws if issubclass(w.category, DeprecationWarning)
+                ]
+                self.assertTrue(len(dep_warnings) >= 1)
+
     def test_construct_inputs_qLogNParEGO(self) -> None:
         # Focusing on the unique attributes since the rest are same as qLogNEI.
         c = get_acqf_input_constructor(qLogNParEGO)
@@ -1624,6 +1761,24 @@ class TestKGandESAcquisitionFunctionInputConstructors(InputConstructorBaseTestCa
                         else objective_thresholds
                     )
                     self.assertTrue(torch.equal(kwargs["ref_point"], expected_obj_t))
+
+            with self.subTest("ref_point direct"):
+                direct_ref_point = torch.rand(2)
+                with mock.patch(
+                    target="botorch.acquisition.input_constructors.optimize_acqf",
+                    return_value=(None, current_value),
+                ):
+                    kwargs = get_kwargs(
+                        model=model,
+                        training_data=self.blockX_blockY,
+                        ref_point=direct_ref_point,
+                        objective=objective,
+                        bounds=self.bounds,
+                        num_fantasies=33,
+                        num_pareto=11,
+                        **input_constructor_extra_kwargs,
+                    )
+                self.assertTrue(torch.equal(kwargs["ref_point"], direct_ref_point))
 
     def test_construct_inputs_mes(self) -> None:
         func = get_acqf_input_constructor(qMaxValueEntropy)
