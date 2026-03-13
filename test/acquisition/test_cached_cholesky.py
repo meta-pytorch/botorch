@@ -146,6 +146,60 @@ class TestCachedCholeskyMCSamplerMixin(BotorchTestCase):
                         mock_cholesky.assert_called_once()
                 self.assertTrue(torch.equal(baseline_L_acqf, baseline_L))
 
+    def test_cache_root_decomposition_low_rank(self):
+        """Test that _compute_root_decomposition returns None when the root
+        decomposition returns a non-square (low-rank) root, as produced by
+        LinearPredictionStrategy for linear kernels."""
+        tkwargs = {"device": self.device}
+        for dtype in (torch.float, torch.double):
+            with self.subTest(dtype=dtype):
+                tkwargs["dtype"] = dtype
+                n = 5
+                r = 3  # low-rank: r < n
+
+                # Mock a posterior whose covariance has a low-rank root
+                mock_root = mock.MagicMock()
+                mock_root.shape = torch.Size([n, r])  # non-square: n x r
+
+                mock_root_decomp = mock.MagicMock()
+                mock_root_decomp.root = mock_root
+
+                mock_lazy_covar = mock.MagicMock()
+                mock_lazy_covar.root_decomposition.return_value = mock_root_decomp
+
+                mock_dist = mock.MagicMock()
+                mock_dist.lazy_covariance_matrix = mock_lazy_covar
+                # Not a MultitaskMultivariateNormal
+                mock_dist.__class__ = torch.distributions.Distribution
+
+                mock_posterior = mock.MagicMock()
+                mock_posterior.distribution = mock_dist
+
+                train_x = torch.rand(2, 1, **tkwargs)
+                train_y = torch.rand(2, 1, **tkwargs)
+                model = SingleTaskGP(train_x, train_y)
+                sampler = IIDNormalSampler(sample_shape=torch.Size([1]))
+                acqf = DummyCachedCholeskyAcqf(model=model, sampler=sampler)
+
+                with warnings.catch_warnings(record=True) as ws:
+                    warnings.simplefilter("always")
+                    result = acqf._compute_root_decomposition(posterior=mock_posterior)
+
+                # Should return None for low-rank roots
+                self.assertIsNone(result)
+
+                # Verify .to_dense() was NOT called (the efficiency fix)
+                mock_root.to_dense.assert_not_called()
+
+                # Verify warning was emitted
+                low_rank_warnings = [
+                    w
+                    for w in ws
+                    if issubclass(w.category, BotorchWarning)
+                    and "Falling back to standard sampling" in str(w.message)
+                ]
+                self.assertEqual(len(low_rank_warnings), 1)
+
     def test_get_f_X_samples(self):
         sample_cached_cholesky_path = (
             "botorch.acquisition.cached_cholesky.sample_cached_cholesky"
@@ -190,6 +244,16 @@ class TestCachedCholeskyMCSamplerMixin(BotorchTestCase):
                         sample_shape=acqf.sampler.sample_shape,
                     )
                 self.assertTrue(torch.equal(rv, samples))
+
+                # test fallback to standard sampling when _baseline_L is None
+                # (as set by _compute_root_decomposition for low-rank roots)
+                acqf._baseline_L = None
+                with mock.patch(
+                    sample_cached_cholesky_path,
+                ) as mock_sample_cached_cholesky:
+                    samples = acqf._get_f_X_samples(posterior=posterior, q_in=q)
+                    mock_sample_cached_cholesky.assert_not_called()
+                self.assertEqual(samples.shape, torch.Size([1, q, 1]))
 
                 # test fall back when sampling from cached cholesky fails
                 for error_cls in (NanError, NotPSDError):
