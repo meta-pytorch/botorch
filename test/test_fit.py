@@ -117,6 +117,44 @@ class TestFitAPI(BotorchTestCase):
                 optimizer_kwargs=None,
             )
 
+    def test_custom_fit_protocol(self):
+        """If model has custom_fit, fit_gpytorch_mll calls it directly."""
+        mock_custom_fit = MagicMock(return_value=self.mll)
+        self.mll.model.custom_fit = mock_custom_fit
+
+        with self.subTest("custom_fit_called"):
+            result = fit_gpytorch_mll(mll=self.mll, optimizer_kwargs={"maxiter": 5})
+            mock_custom_fit.assert_called_once_with(
+                mll=self.mll,
+                closure=None,
+                closure_kwargs=None,
+                optimizer_kwargs={"maxiter": 5},
+            )
+            self.assertIs(result, self.mll)
+
+        with self.subTest("custom_fit_with_optimizer"):
+            mock_custom_fit.reset_mock()
+            result = fit_gpytorch_mll(
+                mll=self.mll, optimizer="my_opt", optimizer_kwargs={"a": 1}
+            )
+            mock_custom_fit.assert_called_once_with(
+                mll=self.mll,
+                closure=None,
+                closure_kwargs=None,
+                optimizer="my_opt",
+                optimizer_kwargs={"a": 1},
+            )
+
+        with self.subTest("dispatcher_not_called"):
+            # Ensure the dispatcher is NOT called when custom_fit exists
+            with patch.object(fit, "FitGPyTorchMLL") as mock_dispatcher:
+                mock_custom_fit.reset_mock()
+                fit_gpytorch_mll(mll=self.mll)
+                mock_dispatcher.assert_not_called()
+                mock_custom_fit.assert_called_once()
+
+        del self.mll.model.custom_fit
+
 
 class TestFitFallback(BotorchTestCase):
     def setUp(self, suppress_input_warnings: bool = True) -> None:

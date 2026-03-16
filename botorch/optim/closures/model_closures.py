@@ -9,6 +9,7 @@ r"""Utilities for building model-based closures."""
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from functools import partial
 from itertools import chain, repeat
 from types import NoneType
 from typing import Any
@@ -55,6 +56,11 @@ def get_loss_closure(
         A closure that takes zero positional arguments and returns the negated
         value of ``mll``.
     """
+    if hasattr(mll, "compute_custom_loss"):
+        return mll.compute_custom_loss
+    if hasattr(mll.model, "compute_custom_loss"):
+        return partial(mll.model.compute_custom_loss, mll=mll)
+
     return GetLossClosure(
         mll, type(mll.likelihood), type(mll.model), data_loader, **kwargs
     )
