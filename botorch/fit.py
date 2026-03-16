@@ -19,7 +19,6 @@ from botorch.exceptions.errors import ModelFittingError, UnsupportedError
 from botorch.exceptions.warnings import OptimizationWarning
 from botorch.logging import logger
 from botorch.models import SingleTaskGP
-from botorch.models.approximate_gp import ApproximateGPyTorchModel
 from botorch.models.fully_bayesian import AbstractFullyBayesianSingleTaskGP
 from botorch.models.fully_bayesian_multitask import SaasFullyBayesianMultiTaskGP
 from botorch.models.map_saas import get_map_saas_model
@@ -39,8 +38,6 @@ from botorch.utils.context_managers import (
     parameter_rollback_ctx,
     TensorCheckpoint,
 )
-from botorch.utils.dispatcher import Dispatcher, type_bypassing_encoder
-from gpytorch.likelihoods import Likelihood
 from gpytorch.mlls._approximate_mll import _ApproximateMarginalLogLikelihood
 from gpytorch.mlls.exact_marginal_log_likelihood import ExactMarginalLogLikelihood
 from gpytorch.mlls.marginal_log_likelihood import MarginalLogLikelihood
@@ -73,7 +70,6 @@ DEFAULT_WARNING_HANDLER = partial(
     debug=_debug_warn,
     rethrow=_rethrow_warn,
 )
-FitGPyTorchMLL = Dispatcher("fit_gpytorch_mll", encoder=type_bypassing_encoder)
 
 
 def fit_gpytorch_mll(
@@ -86,18 +82,22 @@ def fit_gpytorch_mll(
 ) -> MarginalLogLikelihood:
     r"""Clearing house for fitting models passed as GPyTorch MarginalLogLikelihoods.
 
+    If a model defines a ``custom_fit`` method, it will be called directly.
+    Otherwise, a fit method is determined based on the types of the model and
+    MLL.
+
     Args:
         mll: A GPyTorch MarginalLogLikelihood instance.
         closure: Forward-backward closure for obtaining objective values and gradients.
             Responsible for setting parameters' ``grad`` attributes. If no closure is
             provided, one will be obtained by calling ``get_loss_closure_with_grads``.
         optimizer: User specified optimization algorithm. When ``optimizer is None``,
-            this keyword argument is omitted when calling the dispatcher.
+            this keyword argument is omitted when calling the underlying fit routine.
         closure_kwargs: Keyword arguments passed when calling ``closure``.
         optimizer_kwargs: A dictionary of keyword arguments passed when
             calling ``optimizer``.
-        **kwargs: Keyword arguments passed down through the dispatcher to
-            fit subroutines. Unexpected keywords are ignored.
+        **kwargs: Keyword arguments passed to the underlying fit routine.
+            Unexpected keywords are ignored.
 
     Returns:
         The ``mll`` instance. If fitting succeeded, then ``mll`` will be in
@@ -116,10 +116,29 @@ def fit_gpytorch_mll(
             **kwargs,
         )
 
-    return FitGPyTorchMLL(
-        mll,
-        type(mll.likelihood),
-        type(mll.model),
+    if isinstance(mll, SumMarginalLogLikelihood) and isinstance(mll.model, ModelListGP):
+        mll.train()
+        for sub_mll in mll.mlls:
+            fit_gpytorch_mll(
+                mll=sub_mll,
+                closure=closure,
+                closure_kwargs=closure_kwargs,
+                optimizer_kwargs=optimizer_kwargs,
+                **kwargs,
+            )
+        return mll.eval() if not any(sub_mll.training for sub_mll in mll.mlls) else mll
+
+    if isinstance(mll, _ApproximateMarginalLogLikelihood):
+        return _fit_fallback_approximate(
+            mll=mll,
+            closure=closure,
+            closure_kwargs=closure_kwargs,
+            optimizer_kwargs=optimizer_kwargs,
+            **kwargs,
+        )
+
+    return _fit_fallback(
+        mll=mll,
         closure=closure,
         closure_kwargs=closure_kwargs,
         optimizer_kwargs=optimizer_kwargs,
@@ -127,11 +146,8 @@ def fit_gpytorch_mll(
     )
 
 
-@FitGPyTorchMLL.register(MarginalLogLikelihood, object, object)
 def _fit_fallback(
     mll: MarginalLogLikelihood,
-    _: type[object],
-    __: type[object],
     *,
     closure: Callable[[], tuple[Tensor, Sequence[Tensor | None]]] | None = None,
     optimizer: Callable = fit_gpytorch_mll_scipy,
@@ -272,35 +288,8 @@ def _fit_fallback(
     raise ModelFittingError("All attempts to fit the model have failed.")
 
 
-@FitGPyTorchMLL.register(SumMarginalLogLikelihood, object, ModelListGP)
-def _fit_list(
-    mll: SumMarginalLogLikelihood,
-    _: type[Likelihood],
-    __: type[ModelListGP],
-    **kwargs: Any,
-) -> SumMarginalLogLikelihood:
-    r"""Fitting routine for lists of independent Gaussian processes.
-
-    Args:
-        **kwargs: Passed to each of ``mll.mlls``.
-
-    Returns:
-        The ``mll`` instance. If fitting succeeded for all of ``mll.mlls``,
-        then ``mll`` will be in evaluation mode, i.e. ``mll.training == False``.
-        Otherwise, ``mll`` will be in training mode.
-    """
-    mll.train()
-    for sub_mll in mll.mlls:
-        fit_gpytorch_mll(sub_mll, **kwargs)
-
-    return mll.eval() if not any(sub_mll.training for sub_mll in mll.mlls) else mll
-
-
-@FitGPyTorchMLL.register(_ApproximateMarginalLogLikelihood, object, object)
 def _fit_fallback_approximate(
     mll: _ApproximateMarginalLogLikelihood,
-    _: type[Likelihood],
-    __: type[ApproximateGPyTorchModel],
     *,
     closure: Callable[[], tuple[Tensor, Sequence[Tensor | None]]] | None = None,
     data_loader: DataLoader | None = None,
@@ -342,7 +331,7 @@ def _fit_fallback_approximate(
             else fit_gpytorch_mll_torch
         )
 
-    return _fit_fallback(mll, _, __, closure=closure, optimizer=optimizer, **kwargs)
+    return _fit_fallback(mll=mll, closure=closure, optimizer=optimizer, **kwargs)
 
 
 def fit_fully_bayesian_model_nuts(
