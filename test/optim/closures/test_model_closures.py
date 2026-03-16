@@ -74,6 +74,61 @@ def _get_mlls(
     return train_X.to(device=device, dtype=torch.double), mlls
 
 
+class TestComputeLossProtocol(BotorchTestCase):
+    def test_compute_custom_loss_closure_dispatch_paths(self) -> None:
+        # If mll has a compute_custom_loss method, get_loss_closure returns it
+        # directly.
+        with self.subTest("compute_custom_loss_on_mll"):
+            _, mlls = _get_mlls(device=self.device)
+            mll = mlls[0]  # ExactMarginalLogLikelihood
+
+            sentinel = lambda **_kwargs: torch.tensor(42.0)  # noqa: E731
+            mll.compute_custom_loss = sentinel
+            result = get_loss_closure(mll)
+            self.assertIs(result, sentinel)
+            del mll.compute_custom_loss
+
+        # If mll.model has a compute_custom_loss method, get_loss_closure wraps it.
+        with self.subTest("compute_custom_loss_on_model"):
+            _, mlls = _get_mlls(device=self.device)
+            mll = mlls[0]
+
+            def my_compute_custom_loss(
+                *, mll: MarginalLogLikelihood, **_kwargs: object
+            ) -> Tensor:
+                return torch.tensor(-99.0)
+
+            mll.model.compute_custom_loss = my_compute_custom_loss
+            result = get_loss_closure(mll)
+            # Should be a partial wrapping my_compute_custom_loss with mll as first arg
+            self.assertEqual(result(), torch.tensor(-99.0))
+            del mll.model.compute_custom_loss
+
+        # Without compute_custom_loss, get_loss_closure uses the dispatcher.
+        with self.subTest("dispatcher_fallback"):
+            _, mlls = _get_mlls(device=self.device)
+            mll = mlls[0]
+            self.assertFalse(hasattr(mll, "compute_custom_loss"))
+            self.assertFalse(hasattr(mll.model, "compute_custom_loss"))
+            closure = get_loss_closure(mll)
+            loss = closure()
+            self.assertIsInstance(loss, Tensor)
+
+        # compute_custom_loss on mll takes priority over compute_custom_loss on model.
+        with self.subTest("mll_takes_priority_over_model"):
+            _, mlls = _get_mlls(device=self.device)
+            mll = mlls[0]
+
+            mll_sentinel = lambda **_kwargs: torch.tensor(1.0)  # noqa: E731
+            model_sentinel = lambda *, mll, **_kwargs: torch.tensor(2.0)  # noqa: E731
+            mll.compute_custom_loss = mll_sentinel
+            mll.model.compute_custom_loss = model_sentinel
+            result = get_loss_closure(mll)
+            self.assertIs(result, mll_sentinel)
+            del mll.compute_custom_loss
+            del mll.model.compute_custom_loss
+
+
 class TestLossClosures(BotorchTestCase):
     def test_main(self) -> None:
         for mll in _get_mlls(device=self.device)[1]:

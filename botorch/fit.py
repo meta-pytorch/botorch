@@ -107,6 +107,15 @@ def fit_gpytorch_mll(
     if optimizer is not None:  # defer to per-method defaults
         kwargs["optimizer"] = optimizer
 
+    if hasattr(mll.model, "custom_fit"):
+        return mll.model.custom_fit(
+            mll=mll,
+            closure=closure,
+            closure_kwargs=closure_kwargs,
+            optimizer_kwargs=optimizer_kwargs,
+            **kwargs,
+        )
+
     return FitGPyTorchMLL(
         mll,
         type(mll.likelihood),
