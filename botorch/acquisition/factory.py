@@ -20,6 +20,7 @@ from botorch.acquisition.multi_objective import (
 )
 from botorch.acquisition.objective import MCAcquisitionObjective, PosteriorTransform
 from botorch.acquisition.utils import compute_best_feasible_objective
+from botorch.acquisition.thompson_sampling import PathwiseThompsonSampling
 from botorch.models.model import Model
 from botorch.sampling.get_sampler import get_sampler
 from botorch.utils.multi_objective.box_decompositions.non_dominated import (
@@ -85,6 +86,13 @@ def get_acquisition_function(
         >>> obj = LinearMCObjective(weights=torch.tensor([1.0, 2.0]))
         >>> acqf = get_acquisition_function("qEI", model, obj, train_X)
     """
+    # thompson sampling does not need a sampler, so we do this first
+    if acquisition_function_name == "pTS":
+        return PathwiseThompsonSampling(
+            model=model,
+            objective=objective,
+            posterior_transform=posterior_transform,
+        )
     # initialize the sampler
     sampler = get_sampler(
         posterior=model.posterior(X_observed[:1]),
