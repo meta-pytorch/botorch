@@ -809,6 +809,7 @@ class AbstractFullyBayesianSingleTaskGP(ExactGP, BatchedMultiOutputGPyTorchModel
 
     _is_fully_bayesian = True
     _is_ensemble = True
+    _supports_batched_models = False
     _pyro_model_class: type[PyroModel] = PyroModel
 
     def __init__(
