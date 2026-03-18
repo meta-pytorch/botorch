@@ -146,6 +146,8 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
     different noise levels for the different tasks.
     """
 
+    _supports_batched_models = False
+
     def __init__(
         self,
         train_X: Tensor,

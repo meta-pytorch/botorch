@@ -541,6 +541,9 @@ class TestMapSaas(BotorchTestCase):
                 self.assertIsInstance(model.outcome_transform, Standardize)
                 self.assertFalse(hasattr(model, "input_transform"))
 
+    def test_ensemble_map_saas_supports_batched_models(self) -> None:
+        self.assertFalse(EnsembleMapSaasSingleTaskGP._supports_batched_models)
+
     def test_ensemble_map_saas_validation(self) -> None:
         with self.assertRaisesRegex(ValueError, "Expected taus to be of shape"):
             EnsembleMapSaasSingleTaskGP(

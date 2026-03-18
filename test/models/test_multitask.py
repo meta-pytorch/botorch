@@ -126,6 +126,9 @@ def _gen_kronecker_model_and_data(model_kwargs=None, batch_shape=None, **tkwargs
 
 
 class TestMultiTaskGP(BotorchTestCase):
+    def test_supports_batched_models(self) -> None:
+        self.assertFalse(MultiTaskGP._supports_batched_models)
+
     def test_MultiTaskGP(self) -> None:
         bounds = torch.tensor([[0.0, 0.0], [1.0, 1.0]])
         for dtype, use_intf, use_octf, task_values, fixed_noise in zip(

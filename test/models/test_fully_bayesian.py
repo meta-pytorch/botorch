@@ -347,6 +347,9 @@ class TestSaasFullyBayesianSingleTaskGP(BotorchTestCase):
                 mcmc_samples[k] = torch.rand(num_samples, 1, dim, **tkwargs)
         return mcmc_samples
 
+    def test_supports_batched_models(self) -> None:
+        self.assertFalse(self.model_cls._supports_batched_models)
+
     def test_raises(self) -> None:
         tkwargs = {"device": self.device, "dtype": torch.double}
         with self.assertRaisesRegex(

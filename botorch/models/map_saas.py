@@ -455,6 +455,7 @@ class AdditiveMapSaasSingleTaskGP(SingleTaskGP):
 
 class EnsembleMapSaasSingleTaskGP(SingleTaskGP):
     _is_ensemble = True
+    _supports_batched_models = False
 
     def __init__(
         self,
