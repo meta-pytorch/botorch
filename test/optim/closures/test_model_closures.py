@@ -104,8 +104,8 @@ class TestComputeLossProtocol(BotorchTestCase):
             self.assertEqual(result(), torch.tensor(-99.0))
             del mll.model.compute_custom_loss
 
-        # Without compute_custom_loss, get_loss_closure uses the dispatcher.
-        with self.subTest("dispatcher_fallback"):
+        # Without compute_custom_loss, get_loss_closure uses isinstance checks.
+        with self.subTest("isinstance_fallback"):
             _, mlls = _get_mlls(device=self.device)
             mll = mlls[0]
             self.assertFalse(hasattr(mll, "compute_custom_loss"))
