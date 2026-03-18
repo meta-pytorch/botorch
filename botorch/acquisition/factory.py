@@ -19,8 +19,8 @@ from botorch.acquisition.multi_objective import (
     monte_carlo as moo_monte_carlo,
 )
 from botorch.acquisition.objective import MCAcquisitionObjective, PosteriorTransform
-from botorch.acquisition.utils import compute_best_feasible_objective
 from botorch.acquisition.thompson_sampling import PathwiseThompsonSampling
+from botorch.acquisition.utils import compute_best_feasible_objective
 from botorch.models.model import Model
 from botorch.sampling.get_sampler import get_sampler
 from botorch.utils.multi_objective.box_decompositions.non_dominated import (

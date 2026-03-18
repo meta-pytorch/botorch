@@ -19,12 +19,12 @@ from botorch.acquisition.objective import (
     MCAcquisitionObjective,
     ScalarizedPosteriorTransform,
 )
+from botorch.acquisition.thompson_sampling import PathwiseThompsonSampling
 from botorch.acquisition.utils import compute_best_feasible_objective
 from botorch.utils.multi_objective.box_decompositions.non_dominated import (
     FastNondominatedPartitioning,
     NondominatedPartitioning,
 )
-from botorch.acquisition.thompson_sampling import PathwiseThompsonSampling
 from botorch.utils.testing import BotorchTestCase, MockModel, MockPosterior
 from gpytorch.distributions import MultivariateNormal
 from torch import Tensor
