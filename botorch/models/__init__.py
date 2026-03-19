@@ -8,6 +8,7 @@ from botorch.models.approximate_gp import (
     ApproximateGPyTorchModel,
     SingleTaskVariationalGP,
 )
+from botorch.models.classifier import SoftKNNClassifierModel
 from botorch.models.cost import AffineFidelityCostModel
 from botorch.models.deterministic import (
     AffineDeterministicModel,
@@ -52,4 +53,5 @@ __all__ = [
     "SingleTaskGP",
     "SingleTaskMultiFidelityGP",
     "SingleTaskVariationalGP",
+    "SoftKNNClassifierModel",
 ]
