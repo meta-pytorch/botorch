@@ -147,6 +147,7 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
     """
 
     _supports_batched_models = False
+    _supports_cache_root = False
 
     def __init__(
         self,
@@ -563,6 +564,8 @@ class KroneckerMultiTaskGP(ExactGP, GPyTorchModel, FantasizeMixin):
         >>> train_Y = torch.cat([f_1(X), f_2(X)], dim=-1)
         >>> model = KroneckerMultiTaskGP(train_X, train_Y)
     """
+
+    _supports_cache_root = False
 
     def __init__(
         self,
