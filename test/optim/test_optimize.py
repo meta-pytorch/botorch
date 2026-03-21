@@ -407,6 +407,36 @@ class TestOptimizeAcqf(BotorchTestCase):
             )
         )
 
+        # All features fixed: return shape consistency with normal path.
+        # return_best_only=True (default): candidates (q, d), acq_value scalar
+        candidates_rbo, acq_rbo = optimize_acqf(
+            acq_function=mock_acq_function,
+            bounds=bounds,
+            q=1,
+            num_restarts=num_restarts,
+            raw_samples=raw_samples,
+            options=options,
+            fixed_features=fixed_all,
+            return_best_only=True,
+        )
+        self.assertEqual(candidates_rbo.shape, (1, 3))
+        self.assertEqual(acq_rbo.shape, torch.Size([]))
+
+        # return_best_only=False: candidates (num_restarts, q, d),
+        # acq_value (num_restarts,)
+        candidates_all, acq_all = optimize_acqf(
+            acq_function=mock_acq_function,
+            bounds=bounds,
+            q=1,
+            num_restarts=num_restarts,
+            raw_samples=raw_samples,
+            options=options,
+            fixed_features=fixed_all,
+            return_best_only=False,
+        )
+        self.assertEqual(candidates_all.shape, (1, 1, 3))
+        self.assertEqual(acq_all.shape, (1,))
+
         # Sequential path: return_acq_values=True and return_acq_values=False
         mock_gen_candidates_scipy.return_value = (
             torch.rand(1, 1, 3, device=self.device, dtype=torch.double),
