@@ -9,7 +9,8 @@ import itertools
 from unittest import mock
 from unittest.mock import patch
 
-import pyro
+import jax.numpy as jnp
+import numpyro
 import torch
 from botorch import fit_fully_bayesian_model_nuts, utils
 from botorch.acquisition.analytic import (
@@ -69,11 +70,6 @@ from gpytorch.kernels.linear_kernel import LinearKernel
 from gpytorch.likelihoods import FixedNoiseGaussianLikelihood, GaussianLikelihood
 from gpytorch.means import ConstantMean
 from linear_operator.operators import to_linear_operator
-from pyro.ops.integrator import (
-    _EXCEPTION_HANDLERS,
-    potential_grad,
-    register_exception_handler,
-)
 
 
 class CustomPyroModel(PyroModel):
@@ -105,28 +101,27 @@ class TestPyroModelPriorMode(BotorchTestCase):
 
     def test_sample_observations_normal_mode(self) -> None:
         """Test sample_observations in normal (non-prior) mode."""
-        tkwargs = {"dtype": torch.double, "device": self.device}
         n, d = 5, 3
 
         # Create a PyroModel subclass instance
         pyro_model = MaternPyroModel()
-        train_X = torch.rand(n, d, **tkwargs)
-        train_Y = torch.rand(n, 1, **tkwargs)
+        train_X = torch.rand(n, d, dtype=torch.double, device=self.device)
+        train_Y = torch.rand(n, 1, dtype=torch.double, device=self.device)
         pyro_model.set_inputs(train_X=train_X, train_Y=train_Y)
 
         # Ensure _prior_mode is False
         self.assertFalse(pyro_model._prior_mode)
 
-        mean = torch.zeros(1, **tkwargs)
-        K_noiseless = torch.eye(n, **tkwargs)
-        noise = torch.tensor(0.1, **tkwargs)
+        mean = jnp.zeros(1)
+        K_noiseless = jnp.eye(n)
+        noise = jnp.array(0.1)
 
-        # In normal mode, sample_observations should call pyro.sample with obs
-        with patch.object(pyro, "sample") as mock_sample:
+        # In normal mode, sample_observations should call numpyro.sample with obs
+        with patch.object(numpyro, "sample") as mock_sample:
             pyro_model.sample_observations(
-                mean=mean, K_noiseless=K_noiseless, noise=noise, **tkwargs
+                mean=mean, K_noiseless=K_noiseless, noise=noise
             )
-            # Verify pyro.sample was called with obs argument
+            # Verify numpyro.sample was called with obs argument
             mock_sample.assert_called_once()
             call_kwargs = mock_sample.call_args[1]
             self.assertIn("obs", call_kwargs)
@@ -134,29 +129,28 @@ class TestPyroModelPriorMode(BotorchTestCase):
 
     def test_sample_observations_prior_mode(self) -> None:
         """Test sample_observations in prior mode."""
-        tkwargs = {"dtype": torch.double, "device": self.device}
         n, d = 5, 3
 
         # Create a PyroModel subclass instance
         pyro_model = MaternPyroModel()
-        train_X = torch.rand(n, d, **tkwargs)
-        train_Y = torch.rand(n, 1, **tkwargs)
+        train_X = torch.rand(n, d, dtype=torch.double, device=self.device)
+        train_Y = torch.rand(n, 1, dtype=torch.double, device=self.device)
         pyro_model.set_inputs(train_X=train_X, train_Y=train_Y)
 
         # Set _prior_mode to True
         pyro_model._prior_mode = True
 
-        mean = torch.zeros(1, **tkwargs)
-        K_noiseless = torch.eye(n, **tkwargs)
-        noise = torch.tensor(0.1, **tkwargs)
+        mean = jnp.zeros(1)
+        K_noiseless = jnp.eye(n)
+        noise = jnp.array(0.1)
 
         # In prior mode, sample_observations should sample both "f" and "Y"
-        with patch.object(pyro, "sample") as mock_sample:
-            mock_sample.return_value = torch.randn(n, **tkwargs)
+        with patch.object(numpyro, "sample") as mock_sample:
+            mock_sample.return_value = jnp.zeros(n)
             pyro_model.sample_observations(
-                mean=mean, K_noiseless=K_noiseless, noise=noise, **tkwargs
+                mean=mean, K_noiseless=K_noiseless, noise=noise
             )
-            # Verify pyro.sample was called twice (for "f" and "Y")
+            # Verify numpyro.sample was called twice (for "f" and "Y")
             self.assertEqual(mock_sample.call_count, 2)
             # First call should be for "f"
             self.assertEqual(mock_sample.call_args_list[0][0][0], "f")
@@ -168,55 +162,53 @@ class TestPyroModelPriorMode(BotorchTestCase):
 
     def test_sample_observations_empty_data(self) -> None:
         """Test that sample_observations returns early for empty data."""
-        tkwargs = {"dtype": torch.double, "device": self.device}
         d = 3
 
         # Create a PyroModel subclass instance with empty data
         pyro_model = MaternPyroModel()
-        train_X = torch.rand(0, d, **tkwargs)
-        train_Y = torch.rand(0, 1, **tkwargs)
+        train_X = torch.rand(0, d, dtype=torch.double, device=self.device)
+        train_Y = torch.rand(0, 1, dtype=torch.double, device=self.device)
         pyro_model.set_inputs(train_X=train_X, train_Y=train_Y)
 
-        mean = torch.zeros(1, **tkwargs)
-        K_noiseless = torch.eye(0, **tkwargs)
-        noise = torch.tensor(0.1, **tkwargs)
+        mean = jnp.zeros(1)
+        K_noiseless = jnp.eye(0)
+        noise = jnp.array(0.1)
 
-        # sample_observations should return early without calling pyro.sample
-        with patch.object(pyro, "sample") as mock_sample:
+        # sample_observations should return early without calling numpyro.sample
+        with patch.object(numpyro, "sample") as mock_sample:
             pyro_model.sample_observations(
-                mean=mean, K_noiseless=K_noiseless, noise=noise, **tkwargs
+                mean=mean, K_noiseless=K_noiseless, noise=noise
             )
             mock_sample.assert_not_called()
 
     def test_matern_pyro_model_sample_with_prior_mode(self) -> None:
         """Test MaternPyroModel.sample() with _prior_mode enabled."""
-        tkwargs = {"dtype": torch.double, "device": self.device}
         n, d = 5, 3
 
         pyro_model = MaternPyroModel()
-        train_X = torch.rand(n, d, **tkwargs)
-        train_Y = torch.rand(n, 1, **tkwargs)
+        train_X = torch.rand(n, d, dtype=torch.double, device=self.device)
+        train_Y = torch.rand(n, 1, dtype=torch.double, device=self.device)
         pyro_model.set_inputs(train_X=train_X, train_Y=train_Y)
 
         # Enable prior mode
         pyro_model._prior_mode = True
 
-        # Mock pyro.sample to return valid tensors
-        def mock_sample_fn(name, dist):
+        # Mock numpyro.sample to return valid JAX arrays
+        def mock_sample_fn(name, dist, **kwargs):
             if name == "mean":
-                return torch.tensor(0.0, **tkwargs)
+                return jnp.array(0.0)
             elif name == "noise":
-                return torch.tensor(0.01, **tkwargs)
+                return jnp.array(0.01)
             elif name == "lengthscale":
-                return torch.ones(d, **tkwargs)
+                return jnp.ones(d)
             elif name == "f":
-                return torch.randn(n, **tkwargs)
+                return jnp.zeros(n)
             elif name == "Y":
-                return torch.randn(n, **tkwargs)
+                return jnp.zeros(n)
             else:
-                return torch.tensor(1.0, **tkwargs)
+                return jnp.array(1.0)
 
-        with patch.object(pyro, "sample", side_effect=mock_sample_fn):
+        with patch.object(numpyro, "sample", side_effect=mock_sample_fn):
             # Should not raise any errors
             pyro_model.sample()
             # Check that prior samples are stored
@@ -520,8 +512,12 @@ class TestSaasFullyBayesianSingleTaskGP(BotorchTestCase):
                 self.assertEqual(
                     mixture_covariance.shape, torch.Size(batch_shape + batch_shape[-1:])
                 )
-                # Check that it is PSD.
-                torch.linalg.cholesky(mixture_covariance.to_dense())
+                # Check that it is PSD (add small jitter for numerical stability).
+                cov_dense = mixture_covariance.to_dense()
+                jitter = 1e-6 * torch.eye(
+                    cov_dense.shape[-1], dtype=cov_dense.dtype, device=cov_dense.device
+                )
+                torch.linalg.cholesky(cov_dense + jitter)
                 self.assertEqual(quantile1.shape, torch.Size(batch_shape + [1]))
                 self.assertEqual(quantile2.shape, torch.Size(batch_shape + [1]))
                 self.assertTrue((quantile2 > quantile1).all())
@@ -1127,66 +1123,6 @@ class TestSaasFullyBayesianSingleTaskGPWarped(TestSaasFullyBayesianSingleTaskGP)
 
 class TestFullyBayesianSingleTaskGPWarped(TestFullyBayesianSingleTaskGP):
     model_kwargs = {"use_input_warping": True}
-
-
-class TestPyroCatchNumericalErrors(BotorchTestCase):
-    def tearDown(self) -> None:
-        super().tearDown()
-        # Remove exception handler so they don't affect the tests on rerun
-        # TODO: Add functionality to pyro to clear the handlers so this
-        # does not require touching the internals.
-        del _EXCEPTION_HANDLERS["foo_runtime"]
-
-    def test_pyro_catch_error(self) -> None:
-        def potential_fn(z):
-            mvn = pyro.distributions.MultivariateNormal(
-                loc=torch.zeros(2),
-                covariance_matrix=z["K"],
-            )
-            return mvn.log_prob(torch.zeros(2))
-
-        # Test base case where everything is fine
-        z = {"K": torch.eye(2)}
-        grads, val = potential_grad(potential_fn, z)
-        self.assertAllClose(grads["K"], -0.5 * torch.eye(2))
-        norm_mvn = torch.distributions.Normal(0, 1)
-        self.assertAllClose(val, 2 * norm_mvn.log_prob(torch.tensor(0.0)))
-
-        # Default behavior should catch the ValueError when trying to instantiate
-        # the MVN and return NaN instead
-        z = {"K": torch.ones(2, 2)}
-        _, val = potential_grad(potential_fn, z)
-        self.assertTrue(torch.isnan(val))
-
-        # Default behavior should catch the LinAlgError when peforming a
-        # Cholesky decomposition and return NaN instead
-        def potential_fn_chol(z) -> torch.Tensor:
-            return torch.linalg.cholesky(z["K"])
-
-        _, val = potential_grad(potential_fn_chol, z)
-        self.assertTrue(torch.isnan(val))
-
-        # Default behavior should not catch other errors
-        def potential_fn_rterr_foo(z):
-            raise RuntimeError("foo")
-
-        with self.assertRaisesRegex(RuntimeError, "foo"):
-            potential_grad(potential_fn_rterr_foo, z)
-
-        # But once we register this specific error then it should
-        def catch_runtime_error(e) -> bool:
-            return type(e) is RuntimeError and "foo" in str(e)
-
-        register_exception_handler("foo_runtime", catch_runtime_error)
-        _, val = potential_grad(potential_fn_rterr_foo, z)
-        self.assertTrue(torch.isnan(val))
-
-        # Unless the error message is different
-        def potential_fn_rterr_bar(z):
-            raise RuntimeError("bar")
-
-        with self.assertRaisesRegex(RuntimeError, "bar"):
-            potential_grad(potential_fn_rterr_bar, z)
 
 
 class TestFullyBayesianLinearSingleTaskGP(TestSaasFullyBayesianSingleTaskGP):

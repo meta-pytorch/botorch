@@ -9,7 +9,9 @@ r"""Multi-task Gaussian Process Regression models with fully Bayesian inference.
 from collections.abc import Mapping
 from typing import Any, NoReturn, TypeVar
 
-import pyro
+import jax.numpy as jnp
+import numpyro
+import numpyro.distributions as numpyro_dist
 import torch
 from botorch.acquisition.objective import PosteriorTransform
 from botorch.models.fully_bayesian import (
@@ -85,17 +87,17 @@ class MultiTaskPyroMixin:
         self.task_rank = task_rank or self.num_tasks
         self.ard_num_dims = self.train_X.shape[-1] - 1
 
-    def sample_mean(self, **tkwargs: Any) -> Tensor:
+    def sample_mean(self) -> jnp.ndarray:
         r"""Sample per-task mean constants.
 
         Returns a vector of shape ``(num_tasks,)`` with one mean per task.
         """
-        return pyro.sample(
+        return numpyro.sample(
             "mean",
-            pyro.distributions.Normal(
-                torch.tensor(0.0, **tkwargs),
-                torch.tensor(1.0, **tkwargs),
-            ).expand(torch.Size([self.num_tasks])),
+            numpyro_dist.Normal(
+                jnp.array(0.0),
+                jnp.array(1.0),
+            ).expand((self.num_tasks,)),
         )
 
     def _get_task_indices_and_base_idxr(self, **tkwargs: Any) -> tuple[Tensor, Tensor]:
@@ -113,9 +115,18 @@ class MultiTaskPyroMixin:
         )
         return task_indices, base_idxr
 
-    def _prepare_features(self, X: Tensor, **tkwargs: Any) -> Tensor:
+    def _get_task_indices_and_base_idxr_jax(
+        self,
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        r"""JAX version of _get_task_indices_and_base_idxr for use in sample()."""
+        base_idxr = jnp.arange(self.ard_num_dims)
+        base_idxr = base_idxr.at[self.task_feature :].add(1)
+        task_indices = self.train_X_jax[..., self.task_feature].astype(jnp.int32)
+        return task_indices, base_idxr
+
+    def _prepare_features(self, X: jnp.ndarray) -> jnp.ndarray:
         """Strip the task column from X, selecting only base features."""
-        _, base_idxr = self._get_task_indices_and_base_idxr(**tkwargs)
+        _, base_idxr = self._get_task_indices_and_base_idxr_jax()
         return X[..., base_idxr]
 
 
@@ -134,29 +145,29 @@ class LatentFeatureMultiTaskPyroMixin(MultiTaskPyroMixin):
     and ``get_dummy_mcmc_samples``.
     """
 
-    def sample_latent_features(self, **tkwargs: Any) -> Tensor:
+    def sample_latent_features(self) -> jnp.ndarray:
         r"""Sample latent task feature embeddings."""
-        return pyro.sample(
+        return numpyro.sample(
             "latent_features",
-            pyro.distributions.Normal(
-                torch.tensor(0.0, **tkwargs),
-                torch.tensor(1.0, **tkwargs),
-            ).expand(torch.Size([self.num_tasks, self.task_rank])),
+            numpyro_dist.Normal(
+                jnp.array(0.0),
+                jnp.array(1.0),
+            ).expand((self.num_tasks, self.task_rank)),
         )
 
     def sample_task_lengthscale(
-        self, concentration: float = 6.0, rate: float = 3.0, **tkwargs: Any
-    ) -> Tensor:
+        self, concentration: float = 6.0, rate: float = 3.0
+    ) -> jnp.ndarray:
         r"""Sample the task kernel lengthscale."""
-        return pyro.sample(
+        return numpyro.sample(
             "task_lengthscale",
-            pyro.distributions.Gamma(
-                torch.tensor(concentration, **tkwargs),
-                torch.tensor(rate, **tkwargs),
-            ).expand(torch.Size([self.task_rank])),
+            numpyro_dist.Gamma(
+                jnp.array(concentration),
+                jnp.array(rate),
+            ).expand((self.task_rank,)),
         )
 
-    def _build_task_covar(self, **tkwargs: Any) -> tuple[Tensor, Tensor]:
+    def _build_task_covar(self) -> tuple[jnp.ndarray, jnp.ndarray]:
         r"""Sample latent features and task lengthscale and build n x n task covar.
 
         Returns:
@@ -164,20 +175,20 @@ class LatentFeatureMultiTaskPyroMixin(MultiTaskPyroMixin):
             ``n x n`` task covariance matrix and ``task_indices`` are the task
             assignments.
         """
-        task_indices, _ = self._get_task_indices_and_base_idxr(**tkwargs)
-        task_latent_features = self.sample_latent_features(**tkwargs)[task_indices]
-        task_lengthscale = self.sample_task_lengthscale(**tkwargs)
+        task_indices, _ = self._get_task_indices_and_base_idxr_jax()
+        task_latent_features = self.sample_latent_features()[task_indices]
+        task_lengthscale = self.sample_task_lengthscale()
         task_covar = matern52_kernel(
             X=task_latent_features, lengthscale=task_lengthscale
         )
         return task_covar, task_indices
 
     def _maybe_multitask_transform(
-        self, K_noiseless: Tensor, mean: Tensor, **tkwargs: Any
-    ) -> tuple[Tensor, Tensor]:
+        self, K_noiseless: jnp.ndarray, mean: jnp.ndarray
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
         r"""Multiply K by task covariance and index mean by task assignments."""
-        task_covar, task_indices = self._build_task_covar(**tkwargs)
-        K_noiseless = K_noiseless.mul(task_covar)
+        task_covar, task_indices = self._build_task_covar()
+        K_noiseless = K_noiseless * task_covar
         return K_noiseless, mean[task_indices]
 
     def _build_mean_module(
