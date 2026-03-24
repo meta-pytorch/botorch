@@ -27,23 +27,22 @@ def separate_mtmvn(mvn: MultitaskMultivariateNormal) -> list[MultivariateNormal]
 
     mvns = []
     for c in range(num_tasks):
-        # Compute indices for task c's data points
         if mvn._interleaved:
             # For interleaved: task c data points are at positions
             # c, c+num_tasks, c+2*num_tasks, ...
+            # Must use tensor indexing for strided access.
             task_indices = torch.arange(
                 c, num_data * num_tasks, num_tasks, device=full_covar.device
             )
+            task_covar = full_covar[..., task_indices, :]
+            task_covar = task_covar[..., :, task_indices]
         else:
-            # For non-interleaved: task c data points are at positions
-            # c*num_data to (c+1)*num_data
-            task_indices = torch.arange(
-                c * num_data, (c + 1) * num_data, device=full_covar.device
-            )
-
-        # Extract covariance submatrix for task c
-        task_covar = full_covar[..., task_indices, :]
-        task_covar = task_covar[..., :, task_indices]
+            # For non-interleaved: task c data points are at contiguous positions
+            # c*num_data to (c+1)*num_data. Use slice-based indexing which
+            # LinearOperator handles more efficiently than tensor indexing.
+            start = c * num_data
+            end = start + num_data
+            task_covar = full_covar[..., start:end, start:end]
 
         mvns.append(
             MultivariateNormal(mvn.mean[..., c], to_linear_operator(task_covar))
