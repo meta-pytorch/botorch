@@ -13,36 +13,38 @@ from gpytorch.distributions.multivariate_normal import MultivariateNormal
 
 
 class TestSeparateMTMVN(BotorchTestCase):
-    def _test_separate_mtmvn(self, interleaved=False):
+    def test_separate_mtmvn(self) -> None:
+        for interleaved in (True, False):
+            for batch_shape in (torch.Size([]), torch.Size([3])):
+                with self.subTest(interleaved=interleaved, batch_shape=batch_shape):
+                    self._test_separate_mtmvn(
+                        interleaved=interleaved, batch_shape=batch_shape
+                    )
+
+    def _test_separate_mtmvn(self, interleaved: bool, batch_shape: torch.Size) -> None:
         for dtype in (torch.float, torch.double):
             tkwargs = {"device": self.device, "dtype": dtype}
-            mean = torch.rand(2, 2, **tkwargs)
-            a = torch.rand(4, 4, **tkwargs)
-            covar = a @ a.transpose(-1, -2) + torch.eye(4, **tkwargs)
+            num_data = 10
+            num_tasks = 4
+            n = num_data * num_tasks
+            mean = torch.rand(*batch_shape, num_data, num_tasks, **tkwargs)
+            a = torch.rand(*batch_shape, n, n, **tkwargs)
+            covar = a @ a.transpose(-1, -2) + torch.eye(n, **tkwargs)
             mvn = MultitaskMultivariateNormal(
                 mean=mean, covariance_matrix=covar, interleaved=interleaved
             )
             mtmvn_list = separate_mtmvn(mvn)
 
-            mean_1 = mean[..., 0]
-            mean_2 = mean[..., 1]
-            if interleaved:
-                covar_1 = covar[::2, ::2]
-                covar_2 = covar[1::2, 1::2]
-            else:
-                covar_1 = covar[:2, :2]
-                covar_2 = covar[2:, 2:]
+            self.assertEqual(len(mtmvn_list), num_tasks)
+            dense_covar = covar.to_dense() if hasattr(covar, "to_dense") else covar
 
-            self.assertEqual(len(mtmvn_list), 2)
-            for mvn_i, mean_i, covar_i in zip(
-                mtmvn_list, (mean_1, mean_2), (covar_1, covar_2)
-            ):
-                self.assertIsInstance(mvn_i, MultivariateNormal)
-                self.assertTrue(torch.equal(mvn_i.mean, mean_i))
-                self.assertAllClose(mvn_i.covariance_matrix, covar_i)
-
-    def test_separate_mtmvn_interleaved(self) -> None:
-        self._test_separate_mtmvn(interleaved=True)
-
-    def test_separate_mtmvn_not_interleaved(self) -> None:
-        self._test_separate_mtmvn(interleaved=False)
+            for c, mvn_c in enumerate(mtmvn_list):
+                self.assertIsInstance(mvn_c, MultivariateNormal)
+                self.assertEqual(mvn_c.mean.shape, (*batch_shape, num_data))
+                self.assertTrue(torch.equal(mvn_c.mean, mean[..., c]))
+                if interleaved:
+                    idx = torch.arange(c, n, num_tasks)
+                else:
+                    idx = torch.arange(c * num_data, (c + 1) * num_data)
+                expected_covar = dense_covar[..., idx, :][..., :, idx]
+                self.assertAllClose(mvn_c.covariance_matrix, expected_covar, atol=1e-5)
