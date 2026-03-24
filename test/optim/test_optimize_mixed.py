@@ -745,6 +745,34 @@ class TestOptimizeAcqfMixed(BotorchTestCase):
         self.assertIs(X, X_out)  # testing pointer equality, to make sure no copy
         self.assertAllClose(ei_val, ei(X))
 
+        # Test edge case when discrete dims + user fixed_features cover all dims.
+        # This triggered a ValueError in _optimize_acqf_all_features_fixed
+        # because tensor-valued fixed_features were passed through.
+        d_total = 5
+        root = torch.rand(d_total, device=self.device)
+        model = QuadraticDeterministicModel(root)
+        mean_as_acq = PosteriorMean(model)
+        bounds_5d = self.single_bound.repeat(1, d_total)
+        # 3 binary dims, 2 fixed continuous dims -> all dims covered
+        binary_dims_5d = torch.tensor([0, 1, 2], device=self.device)
+        X_5d = torch.rand(2, d_total, device=self.device)
+        X_5d[:, :3] = X_5d[:, :3].round()  # make binary dims 0/1
+        X_out, acq_val = continuous_step(
+            opt_inputs=_make_opt_inputs(
+                acq_function=mean_as_acq,
+                bounds=bounds_5d,
+                options={"maxiter_continuous": 32},
+                fixed_features={3: 0.5, 4: 0.7},
+                return_best_only=False,
+            ),
+            discrete_dims=binary_dims_5d,
+            cat_dims=torch.tensor([], device=self.device, dtype=torch.long),
+            current_x=X_5d,
+        )
+        # Since all dims are fixed, output should equal input.
+        self.assertAllClose(X_out, X_5d)
+        self.assertAllClose(acq_val, mean_as_acq(X_5d.unsqueeze(1)))
+
         # test that error is raised if opt_inputs
         with self.assertRaisesRegex(
             UnsupportedError,
