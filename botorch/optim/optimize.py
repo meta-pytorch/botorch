@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import dataclasses
 import warnings
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
 import torch
@@ -77,7 +77,7 @@ class OptimizeAcqfInputs:
     inequality_constraints: list[tuple[Tensor, Tensor, float]] | None
     equality_constraints: list[tuple[Tensor, Tensor, float]] | None
     nonlinear_inequality_constraints: list[tuple[Callable, bool]] | None
-    fixed_features: dict[int, float] | None
+    fixed_features: Mapping[int, float | Tensor] | None
     post_processing_func: Callable[[Tensor], Tensor] | None
     batch_initial_conditions: Tensor | None
     return_best_only: bool
@@ -603,7 +603,7 @@ def optimize_acqf(
     inequality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
     equality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
     nonlinear_inequality_constraints: list[tuple[Callable, bool]] | None = None,
-    fixed_features: dict[int, float] | None = None,
+    fixed_features: Mapping[int, float | Tensor] | None = None,
     post_processing_func: Callable[[Tensor], Tensor] | None = None,
     batch_initial_conditions: Tensor | None = None,
     return_best_only: bool = True,
@@ -692,7 +692,13 @@ def optimize_acqf(
             is set to 1, which will be done automatically if not specified in
             ``options``.
         fixed_features: A map ``{feature_index: value}`` for features that
-            should be fixed to a particular value during generation.
+            should be fixed to a particular value during generation. The value
+            can be a float, in which case the feature is fixed across the
+            entire batch, or a Tensor, in which case the feature can be fixed
+            to different values for each batch element (used for batched
+            optimization with different fixed features per restart). When
+            passing tensors as values, they should have shape ``b`` or
+            ``b x q``.
         post_processing_func: A function that post-processes an optimization
             result appropriately (i.e., according to ``round-trip``
             transformations).
@@ -824,7 +830,7 @@ def optimize_acqf_cyclic(
     options: dict[str, bool | float | int | str] | None = None,
     inequality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
     equality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
-    fixed_features: dict[int, float] | None = None,
+    fixed_features: Mapping[int, float | Tensor] | None = None,
     post_processing_func: Callable[[Tensor], Tensor] | None = None,
     batch_initial_conditions: Tensor | None = None,
     cyclic_options: dict[str, bool | float | int | str] | None = None,
@@ -856,7 +862,10 @@ def optimize_acqf_cyclic(
             with each tuple encoding an inequality constraint of the form
             ``\sum_i (X[indices[i]] * coefficients[i]) = rhs``
         fixed_features: A map ``{feature_index: value}`` for features that
-            should be fixed to a particular value during generation.
+            should be fixed to a particular value during generation. The value
+            can be a float, in which case the feature is fixed across the
+            entire batch, or a Tensor, in which case the feature can be fixed
+            to different values for each batch element.
         post_processing_func: A function that post-processes an optimization
             result appropriately (i.e., according to ``round-trip``
             transformations).
