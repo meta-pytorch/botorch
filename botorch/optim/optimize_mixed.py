@@ -872,7 +872,15 @@ def continuous_step(
     options = opt_inputs.options or {}
     non_cont_dims = torch.cat((discrete_dims, cat_dims), dim=0)
 
-    if len(non_cont_dims) == d:  # nothing continuous to optimize
+    # Check if all features are fixed (discrete/cat dims + user fixed features).
+    # The user's fixed_features may cover additional continuous dims, so we need
+    # to account for both. Note: user fixed features on discrete/cat dims are
+    # already filtered out in optimize_acqf_mixed_alternating, so there's no
+    # double-counting.
+    n_fixed = len(non_cont_dims)
+    if opt_inputs.fixed_features is not None:
+        n_fixed += len(opt_inputs.fixed_features)
+    if n_fixed >= d:  # nothing continuous to optimize
         with torch.no_grad():
             return current_x, opt_inputs.acq_function(current_x.unsqueeze(1))
 
