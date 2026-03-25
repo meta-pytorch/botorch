@@ -198,6 +198,7 @@ def _optimize_acqf_all_features_fixed(
     fixed_features: dict[int, float],
     q: int,
     acq_function: AcquisitionFunction,
+    return_best_only: bool = True,
     return_acq_values: bool = True,
 ) -> tuple[Tensor, Tensor | None]:
     """
@@ -210,10 +211,21 @@ def _optimize_acqf_all_features_fixed(
         dtype=bounds.dtype,
     )
     X = X.expand(q, *X.shape)
+    if not return_best_only:
+        # When return_best_only=False, candidates have shape
+        # `num_restarts x q x d`. With all features fixed there is only one
+        # candidate, so num_restarts=1.
+        X = X.unsqueeze(0)
     if not return_acq_values:
         return X, None
     with torch.no_grad():
-        acq_value = acq_function(X)
+        acq_value = acq_function(X if return_best_only else X.squeeze(0))
+    # Ensure acq_value is a scalar (consistent with return_best_only=True)
+    # or 1-d with shape `(1,)` (consistent with return_best_only=False).
+    if return_best_only:
+        acq_value = acq_value.squeeze()
+    else:
+        acq_value = acq_value.view(1)
     return X, acq_value
 
 
@@ -810,6 +822,7 @@ def _optimize_acqf(opt_inputs: OptimizeAcqfInputs) -> tuple[Tensor, Tensor | Non
             fixed_features=opt_inputs.fixed_features,
             q=opt_inputs.q,
             acq_function=opt_inputs.acq_function,
+            return_best_only=opt_inputs.return_best_only,
             return_acq_values=opt_inputs.return_acq_values,
         )
 
