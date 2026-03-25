@@ -34,6 +34,7 @@ from botorch.exceptions.errors import (
 )
 from botorch.exceptions.warnings import BotorchWarning
 from botorch.models import SingleTaskGP
+from botorch.utils.test_helpers import get_fully_bayesian_model, get_model
 from botorch.utils.testing import BotorchTestCase, MockModel, MockPosterior
 from gpytorch.distributions import MultivariateNormal
 
@@ -444,17 +445,14 @@ class TestFidelityUtils(BotorchTestCase):
 
 
 class TestGetOptimalSamples(BotorchTestCase):
-    def test_get_optimal_samples(self):
-        dims = 3
-        dtype = torch.float64
+    def _test_get_optimal_samples_base(self, model):
+        dims = model.train_inputs[0].shape[1]
+        dtype = model.train_targets.dtype
+        batch_shape = model.batch_shape
         for_testing_speed_kwargs = {"raw_samples": 20, "num_restarts": 2}
         num_optima = 7
-        batch_shape = (3,)
 
         bounds = torch.tensor([[0, 1]] * dims, dtype=dtype).T
-        X = torch.rand(*batch_shape, 4, dims, dtype=dtype)
-        Y = torch.sin(2 * 3.1415 * X).sum(dim=-1, keepdim=True).to(dtype)
-        model = SingleTaskGP(train_X=X, train_Y=Y)
         posterior_transform = ScalarizedPosteriorTransform(
             weights=torch.ones(1, dtype=dtype)
         )
@@ -469,6 +467,7 @@ class TestGetOptimalSamples(BotorchTestCase):
                 num_optima=num_optima,
                 **for_testing_speed_kwargs,
             )
+
         correct_X_shape = (num_optima,) + batch_shape + (dims,)
         correct_f_shape = (num_optima,) + batch_shape + (1,)
         self.assertEqual(X_opt_def.shape, correct_X_shape)
@@ -549,6 +548,22 @@ class TestGetOptimalSamples(BotorchTestCase):
                 objective=obj,
                 **for_testing_speed_kwargs,
             )
+
+    def test_optimal_samples(self):
+        dims = 3
+        dtype = torch.float64
+        X = torch.rand(4, dims, dtype=dtype)
+        Y = torch.sin(2 * 3.1415 * X).sum(dim=-1, keepdim=True).to(dtype)
+        model = get_model(train_X=X, train_Y=Y)
+        self._test_get_optimal_samples_base(model)
+        fully_bayesian_model = get_fully_bayesian_model(
+            train_X=X,
+            train_Y=Y,
+            num_models=4,
+            standardize_model=True,
+            infer_noise=True,
+        )
+        self._test_get_optimal_samples_base(fully_bayesian_model)
 
 
 class TestPreferenceUtils(BotorchTestCase):
