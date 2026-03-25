@@ -450,21 +450,25 @@ class TestSmoothNonLinearities(BotorchTestCase):
             self.assertAllClose(fatmaximum(x, y, tau=tau), x.maximum(y), atol=tau)
 
             # testing fatmaximum with custom alpha
-            alpha_default = fatmaximum(x, y, tau=tau)
-            alpha_custom = fatmaximum(x, y, tau=tau, alpha=5.0)
+            # Use a larger tau so that the difference between alpha values
+            # is detectable (with small tau, both approximate the true max
+            # so tightly that they become allclose).
+            tau_alpha = 1.0
+            alpha_default = fatmaximum(x, y, tau=tau_alpha)
+            alpha_custom = fatmaximum(x, y, tau=tau_alpha, alpha=5.0)
             # different alpha should produce different results
             self.assertFalse(torch.allclose(alpha_default, alpha_custom))
             # but both should still approximate the true maximum
-            self.assertAllClose(alpha_custom, x.maximum(y), atol=tau)
+            self.assertAllClose(alpha_custom, x.maximum(y), atol=tau_alpha)
 
             # testing fatminimum
             self.assertAllClose(fatminimum(x, y, tau=tau), x.minimum(y), atol=tau)
 
             # testing fatminimum with custom alpha
-            alpha_default = fatminimum(x, y, tau=tau)
-            alpha_custom = fatminimum(x, y, tau=tau, alpha=5.0)
+            alpha_default = fatminimum(x, y, tau=tau_alpha)
+            alpha_custom = fatminimum(x, y, tau=tau_alpha, alpha=5.0)
             self.assertFalse(torch.allclose(alpha_default, alpha_custom))
-            self.assertAllClose(alpha_custom, x.minimum(y), atol=tau)
+            self.assertAllClose(alpha_custom, x.minimum(y), atol=tau_alpha)
 
             # testing fatmoid
             X = torch.arange(-a, a, step=2 * a / n, requires_grad=True, **tkwargs)

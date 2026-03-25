@@ -17,8 +17,8 @@ MAP. The fully Bayesian method generally results in a better and more
 well-calibrated model, but is more computationally intensive. For a full
 description, see [Eriksson2021saasbo].
 
-We use a lightweight PyTorch implementation of a Matern-5/2 kernel as there are
-some performance issues with running NUTS on top of standard GPyTorch models.
+We use a lightweight JAX/NumPyro implementation of a Matern-5/2 kernel as there
+are some performance issues with running NUTS on top of standard GPyTorch models.
 The resulting hyperparameter samples are loaded into a batched GPyTorch model
 after fitting.
 
@@ -36,7 +36,19 @@ from collections.abc import Mapping
 from math import log, sqrt
 from typing import Any, TypeVar
 
-import pyro
+import jax.numpy as jnp
+import numpy as np
+
+if np.lib.NumpyVersion(np.__version__) < "2.0.0":
+    raise ImportError(
+        "BoTorch's fully Bayesian models require NumPy >= 2.0 "
+        "(python-scientific-stack version 3). "
+        "Please update your PACKAGE file to set "
+        '"python-scientific-stack": "3".'
+    )
+
+import numpyro
+import numpyro.distributions as numpyro_dist
 import torch
 from botorch.acquisition.objective import PosteriorTransform
 from botorch.models.gpytorch import BatchedMultiOutputGPyTorchModel
@@ -56,7 +68,7 @@ from botorch.utils.datasets import SupervisedDataset
 from gpytorch.constraints import GreaterThan
 from gpytorch.distributions.multivariate_normal import MultivariateNormal
 from gpytorch.kernels import LinearKernel, MaternKernel, ScaleKernel
-from gpytorch.kernels.kernel import dist, Kernel
+from gpytorch.kernels.kernel import Kernel
 from gpytorch.likelihoods.gaussian_likelihood import (
     FixedNoiseGaussianLikelihood,
     GaussianLikelihood,
@@ -65,7 +77,7 @@ from gpytorch.likelihoods.likelihood import Likelihood
 from gpytorch.means.constant_mean import ConstantMean
 from gpytorch.means.mean import Mean
 from gpytorch.models.exact_gp import ExactGP
-from pyro.ops.integrator import register_exception_handler
+from jax import Array
 from torch import Tensor
 
 # Can replace with Self type once 3.11 is the minimum version
@@ -76,37 +88,33 @@ TFullyBayesianSingleTaskGP = TypeVar(
 _sqrt5 = math.sqrt(5)
 
 
-def _handle_torch_linalg(exception: Exception) -> bool:
-    return type(exception) is torch.linalg.LinAlgError
-
-
-def _handle_valerr_in_dist_init(exception: Exception) -> bool:
-    if type(exception) is not ValueError:
-        return False
-    return "satisfy the constraint PositiveDefinite()" in str(exception)
-
-
-register_exception_handler("torch_linalg", _handle_torch_linalg)
-register_exception_handler("valerr_in_dist_init", _handle_valerr_in_dist_init)
-
-
-def matern52_kernel(X: Tensor, lengthscale: Tensor) -> Tensor:
-    """Matern-5/2 kernel."""
+def matern52_kernel(X: Array, lengthscale: Array) -> Array:
+    """Matern-5/2 kernel (JAX implementation)."""
     dist = compute_dists(X=X, lengthscale=lengthscale)
     sqrt5_dist = _sqrt5 * dist
-    return sqrt5_dist.add(1 + 5 / 3 * (dist**2)) * torch.exp(-sqrt5_dist)
+    return (1 + sqrt5_dist + 5.0 / 3.0 * dist**2) * jnp.exp(-sqrt5_dist)
 
 
-def linear_kernel(X: Tensor, weight_variance: Tensor) -> Tensor:
-    """Linear kernel."""
-    Xw = X * weight_variance.sqrt()
-    return Xw @ Xw.t()
+def linear_kernel(X: Array, weight_variance: Array) -> Array:
+    """Linear kernel (JAX implementation).
+
+    Supports batched inputs: X can be (..., n, d).
+    """
+    Xw = X * jnp.sqrt(weight_variance)
+    return jnp.matmul(Xw, jnp.swapaxes(Xw, -2, -1))
 
 
-def compute_dists(X: Tensor, lengthscale: Tensor) -> Tensor:
-    """Compute kernel distances."""
+def compute_dists(X: Array, lengthscale: Array) -> Array:
+    """Compute kernel distances (JAX implementation).
+
+    Supports batched inputs: X can be (..., n, d) and lengthscale (..., d).
+    """
     scaled_X = X / lengthscale
-    return dist(scaled_X, scaled_X, x1_eq_x2=True)
+    # Use einsum-based approach that handles arbitrary batch dims
+    # diff[..., i, j, :] = scaled_X[..., i, :] - scaled_X[..., j, :]
+    diff = jnp.expand_dims(scaled_X, -2) - jnp.expand_dims(scaled_X, -3)
+    sq_dists = jnp.sum(diff**2, axis=-1)
+    return jnp.sqrt(jnp.maximum(sq_dists, 1e-30))
 
 
 def reshape_and_detach(target: Tensor, new_value: Tensor) -> None:
@@ -156,13 +164,29 @@ class PyroModel:
         r"""Warp the input through a Kumaraswamy CDF."""
         return kumaraswamy_warp(X=X, c0=c0, c1=c1, eps=self._eps)
 
-    def _maybe_input_warp(self, X: Tensor, **tkwargs: Any) -> Tensor:
+    def _maybe_input_warp(self, X_jax: Array) -> Array:
         if self.use_input_warping:
-            c0, c1 = self.sample_concentrations(**tkwargs)
+            c0, c1 = self.sample_concentrations()
             # unnormalize X from [0, 1] to [eps, 1-eps]
-            return self.warp(X=self.train_X, c0=c0, c1=c1)
+            # Use JAX version of kumaraswamy warp
+            return self._warp_jax(X=X_jax, c0=c0, c1=c1)
         else:
-            return self.train_X
+            return X_jax
+
+    def _warp_jax(self, X: Array, c0: Array, c1: Array) -> Array:
+        r"""Warp the input through a Kumaraswamy CDF (JAX version)."""
+        eps = self._eps
+        indices = (
+            list(range(self.ard_num_dims)) if self.indices is None else self.indices
+        )
+        X_warped = X.copy()
+        X_sub = X_warped[:, indices]
+        # Clamp to [eps, 1-eps]
+        X_sub = jnp.clip(X_sub, eps, 1 - eps)
+        # Kumaraswamy CDF: 1 - (1 - x^c0)^c1
+        warped = 1 - (1 - X_sub**c0) ** c1
+        X_warped = X_warped.at[:, indices].set(warped)
+        return X_warped
 
     def set_inputs(
         self,
@@ -187,6 +211,14 @@ class PyroModel:
         self.train_Y = train_Y
         self.train_Yvar = train_Yvar
         self.ard_num_dims = self.train_X.shape[-1]
+        # JAX versions for use in sample()
+        self.train_X_jax: Array = jnp.array(train_X.detach().cpu().numpy())
+        self.train_Y_jax: Array = jnp.array(train_Y.detach().cpu().numpy())
+        self.train_Yvar_jax: Array | None = (
+            jnp.array(train_Yvar.detach().cpu().numpy())
+            if train_Yvar is not None
+            else None
+        )
 
     @abstractmethod
     def sample(self) -> None:
@@ -220,48 +252,48 @@ class PyroModel:
     ) -> tuple[Mean, Kernel, Likelihood]:
         pass  # pragma: no cover
 
-    def sample_noise(self, **tkwargs: Any) -> Tensor:
+    def sample_noise(self) -> Array:
         r"""Sample the noise variance."""
-        if self.train_Yvar is None:
-            return MIN_INFERRED_NOISE_LEVEL + pyro.sample(
+        if self.train_Yvar_jax is None:
+            return MIN_INFERRED_NOISE_LEVEL + numpyro.sample(
                 "noise",
-                pyro.distributions.Gamma(
-                    torch.tensor(0.9, **tkwargs),
-                    torch.tensor(10.0, **tkwargs),
+                numpyro_dist.Gamma(
+                    jnp.array(0.9),
+                    jnp.array(10.0),
                 ),
             )
         else:
-            return self.train_Yvar
+            return self.train_Yvar_jax
 
-    def sample_mean(self, **tkwargs: Any) -> Tensor:
+    def sample_mean(self) -> Array:
         r"""Sample the mean constant."""
-        return pyro.sample(
+        return numpyro.sample(
             "mean",
-            pyro.distributions.Normal(
-                torch.tensor(0.0, **tkwargs),
-                torch.tensor(1.0, **tkwargs),
+            numpyro_dist.Normal(
+                jnp.array(0.0),
+                jnp.array(1.0),
             ),
         )
 
-    def sample_concentrations(self, **tkwargs: Any) -> tuple[Tensor, Tensor]:
+    def sample_concentrations(self) -> tuple[Array, Array]:
         r"""Sample concentrations for input warping.
 
         The prior has a mean value of 1 for each concentration and is very
         concentrated around the mean.
         """
         d = len(self.indices) if self.indices is not None else self.ard_num_dims
-        c0 = pyro.sample(
+        c0 = numpyro.sample(
             "c0",
-            pyro.distributions.LogNormal(
-                torch.tensor([0.0] * d, **tkwargs),
-                torch.tensor([0.1**0.5] * d, **tkwargs),
+            numpyro_dist.LogNormal(
+                jnp.zeros(d),
+                jnp.full(d, 0.1**0.5),
             ),
         )
-        c1 = pyro.sample(
+        c1 = numpyro.sample(
             "c1",
-            pyro.distributions.LogNormal(
-                torch.tensor([0.0] * d, **tkwargs),
-                torch.tensor([0.1**0.5] * d, **tkwargs),
+            numpyro_dist.LogNormal(
+                jnp.zeros(d),
+                jnp.full(d, 0.1**0.5),
             ),
         )
 
@@ -282,7 +314,7 @@ class PyroModel:
             mcmc_samples["c1"] = torch.ones(num_mcmc_samples, dim, **tkwargs)
         return mcmc_samples
 
-    def _prepare_features(self, X: Tensor, **tkwargs: Any) -> Tensor:
+    def _prepare_features(self, X: Array) -> Array:
         """Select feature columns for kernel computation.
 
         Overridden by multi-task mixins to strip the task column.
@@ -290,8 +322,8 @@ class PyroModel:
         return X
 
     def _maybe_multitask_transform(
-        self, K_noiseless: Tensor, mean: Tensor, **tkwargs: Any
-    ) -> tuple[Tensor, Tensor]:
+        self, K_noiseless: Array, mean: Array
+    ) -> tuple[Array, Array]:
         r"""Apply multi-task covariance transform to the kernel and mean.
 
         No-op for single-task models. Overridden by multi-task mixins.
@@ -331,10 +363,9 @@ class PyroModel:
 
     def sample_observations(
         self,
-        mean: Tensor,
-        K_noiseless: Tensor,
-        noise: Tensor,
-        **tkwargs: Any,
+        mean: Array,
+        K_noiseless: Array,
+        noise: Array,
     ) -> None:
         r"""Sample the observations Y (or prior samples in prior mode).
 
@@ -342,41 +373,38 @@ class PyroModel:
             mean: The mean constant.
             K_noiseless: The kernel matrix without noise.
             noise: The noise variance.
-            **tkwargs: dtype and device keyword arguments.
         """
-        if self.train_Y.shape[-2] == 0:
+        if self.train_Y_jax.shape[-2] == 0:
             # Do not attempt to sample Y if the data is empty.
             return
 
-        n = self.train_X.shape[0]
-        K = K_noiseless + noise * torch.eye(n, **tkwargs)
+        n = self.train_X_jax.shape[0]
+        K = K_noiseless + noise * jnp.eye(n)
 
         if self._prior_mode:
-            self.f_prior_sample = pyro.sample(
+            self.f_prior_sample = numpyro.sample(
                 "f",
-                pyro.distributions.MultivariateNormal(
-                    loc=mean.view(-1).expand(n),
+                numpyro_dist.MultivariateNormal(
+                    loc=jnp.broadcast_to(jnp.reshape(mean, (-1,)), (n,)),
                     covariance_matrix=K_noiseless
-                    + self._noiseless_eps_for_sampleability * torch.eye(n, **tkwargs),
-                    # sadly need to add a little bit of noise to be possible
-                    # to sample from this
+                    + self._noiseless_eps_for_sampleability * jnp.eye(n),
                 ),
             )
-            self.Y_prior_sample = pyro.sample(
+            self.Y_prior_sample = numpyro.sample(
                 "Y",
-                pyro.distributions.Normal(
+                numpyro_dist.Normal(
                     loc=self.f_prior_sample,
-                    scale=noise.sqrt(),
+                    scale=jnp.sqrt(noise),
                 ),
             )
         else:
-            pyro.sample(
+            numpyro.sample(
                 "Y",
-                pyro.distributions.MultivariateNormal(
-                    loc=mean.view(-1).expand(n),
+                numpyro_dist.MultivariateNormal(
+                    loc=jnp.broadcast_to(jnp.reshape(mean, (-1,)), (n,)),
                     covariance_matrix=K,
                 ),
-                obs=self.train_Y.squeeze(-1),
+                obs=jnp.squeeze(self.train_Y_jax, axis=-1),
             )
 
 
@@ -396,32 +424,26 @@ class MaternPyroModel(PyroModel):
         This samples the mean, noise variance, (optional) outputscale, and
         lengthscales according to a dimension-scaled prior.
         """
-        tkwargs = {"dtype": self.train_X.dtype, "device": self.train_X.device}
         outputscale = self.sample_outputscale(
             concentration=self._outputscale_prior_concentration,
             rate=self._outputscale_prior_rate,
-            **tkwargs,
         )
-        mean = self.sample_mean(**tkwargs)
-        noise = self.sample_noise(**tkwargs)
-        lengthscale = self.sample_lengthscale(dim=self.ard_num_dims, **tkwargs)
-        X_tf = self._maybe_input_warp(self.train_X, **tkwargs)
-        X_tf = self._prepare_features(X_tf, **tkwargs)
+        mean = self.sample_mean()
+        noise = self.sample_noise()
+        lengthscale = self.sample_lengthscale(dim=self.ard_num_dims)
+        X_tf = self._maybe_input_warp(X_jax=self.train_X_jax)
+        X_tf = self._prepare_features(X=X_tf)
         K_noiseless = outputscale * matern52_kernel(X=X_tf, lengthscale=lengthscale)
-        K_noiseless, mean = self._maybe_multitask_transform(
-            K_noiseless, mean, **tkwargs
-        )
-        self.sample_observations(
-            mean=mean, K_noiseless=K_noiseless, noise=noise, **tkwargs
-        )
+        K_noiseless, mean = self._maybe_multitask_transform(K_noiseless, mean)
+        self.sample_observations(mean=mean, K_noiseless=K_noiseless, noise=noise)
 
-    def sample_lengthscale(self, dim: int, **tkwargs: Any) -> Tensor:
+    def sample_lengthscale(self, dim: int) -> Array:
         r"""Sample the lengthscale."""
-        return pyro.sample(
+        return numpyro.sample(
             "lengthscale",
-            pyro.distributions.LogNormal(
-                loc=torch.full((dim,), sqrt(2) + log(dim) * 0.5, **tkwargs),
-                scale=torch.full((dim,), sqrt(3), **tkwargs),
+            numpyro_dist.LogNormal(
+                loc=jnp.full((dim,), sqrt(2) + log(dim) * 0.5),
+                scale=jnp.full((dim,), sqrt(3)),
             ),
         )
 
@@ -429,8 +451,7 @@ class MaternPyroModel(PyroModel):
         self,
         concentration: float | None = None,
         rate: float | None = None,
-        **tkwargs: Any,
-    ) -> Tensor:
+    ) -> Array:
         r"""Sample the outputscale.
 
         If the concentration or rate arguments are None, then an outputscale
@@ -444,24 +465,28 @@ class MaternPyroModel(PyroModel):
             The outputscale.
         """
         if concentration is None or rate is None:
-            return torch.ones(1, **tkwargs)
-        return pyro.sample(
+            return jnp.ones(1)
+        return numpyro.sample(
             "outputscale",
-            pyro.distributions.Gamma(
-                torch.tensor(concentration, **tkwargs),
-                torch.tensor(rate, **tkwargs),
+            numpyro_dist.Gamma(
+                jnp.array(concentration),
+                jnp.array(rate),
             ),
         )
 
     def postprocess_mcmc_samples(
-        self, mcmc_samples: dict[str, Tensor]
+        self, mcmc_samples: dict[str, Array]
     ) -> dict[str, Tensor]:
         r"""Post-process the MCMC samples.
 
-        This computes the true lengthscales and removes the inverse lengthscales and
-        tausq (global shrinkage).
+        Converts JAX arrays to torch tensors.
         """
-        return mcmc_samples
+        return {
+            k: torch.tensor(
+                np.asarray(v), dtype=self.train_X.dtype, device=self.train_X.device
+            )
+            for k, v in mcmc_samples.items()
+        }
 
     def get_dummy_mcmc_samples(
         self,
@@ -595,44 +620,47 @@ class SaasPyroModel(MaternPyroModel):
     _outputscale_prior_concentration: float | None = 2.0
     _outputscale_prior_rate: float | None = 0.15
 
-    def sample_lengthscale(
-        self, dim: int, alpha: float = 0.1, **tkwargs: Any
-    ) -> Tensor:
+    def sample_lengthscale(self, dim: int, alpha: float = 0.1) -> Array:
         r"""Sample the lengthscale."""
-        tausq = pyro.sample(
+        tausq = numpyro.sample(
             "kernel_tausq",
-            pyro.distributions.HalfCauchy(torch.tensor(alpha, **tkwargs)),
+            numpyro_dist.HalfCauchy(jnp.array(alpha)),
         )
-        inv_length_sq = pyro.sample(
+        inv_length_sq = numpyro.sample(
             "_kernel_inv_length_sq",
-            pyro.distributions.HalfCauchy(torch.ones(dim, **tkwargs)),
+            numpyro_dist.HalfCauchy(jnp.ones(dim)),
         )
-        inv_length_sq = pyro.deterministic(
+        inv_length_sq = numpyro.deterministic(
             "kernel_inv_length_sq", tausq * inv_length_sq
         )
-        lengthscale = pyro.deterministic(
+        lengthscale = numpyro.deterministic(
             "lengthscale",
-            inv_length_sq.rsqrt(),
+            1.0 / jnp.sqrt(inv_length_sq),
         )
         return lengthscale
 
     def postprocess_mcmc_samples(
-        self, mcmc_samples: dict[str, Tensor]
+        self, mcmc_samples: dict[str, Array]
     ) -> dict[str, Tensor]:
         r"""Post-process the MCMC samples.
 
-        This computes the true lengthscales and removes the inverse lengthscales and
-        tausq (global shrinkage).
+        This computes the true lengthscales, removes the inverse lengthscales and
+        tausq (global shrinkage), and converts JAX arrays to torch tensors.
         """
         inv_length_sq = (
-            mcmc_samples["kernel_tausq"].unsqueeze(-1)
+            jnp.expand_dims(mcmc_samples["kernel_tausq"], axis=-1)
             * mcmc_samples["_kernel_inv_length_sq"]
         )
-        mcmc_samples["lengthscale"] = inv_length_sq.rsqrt()
+        mcmc_samples["lengthscale"] = 1.0 / jnp.sqrt(inv_length_sq)
         # Delete ``kernel_tausq`` and ``_kernel_inv_length_sq`` since they aren't loaded
         # into the final model.
         del mcmc_samples["kernel_tausq"], mcmc_samples["_kernel_inv_length_sq"]
-        return mcmc_samples
+        return {
+            k: torch.tensor(
+                np.asarray(v), dtype=self.train_X.dtype, device=self.train_X.device
+            )
+            for k, v in mcmc_samples.items()
+        }
 
     def get_dummy_mcmc_samples(
         self,
@@ -659,22 +687,17 @@ class LinearPyroModel(PyroModel):
 
     def sample(self) -> None:
         r"""Sample from the model."""
-        tkwargs = {"dtype": self.train_X.dtype, "device": self.train_X.device}
-        mean = self.sample_mean(**tkwargs)
-        weight_variance = self.sample_weight_variance(**tkwargs)
-        X_tf = self._maybe_input_warp(X=self.train_X, **tkwargs)
-        X_tf = self._prepare_features(X_tf, **tkwargs)
+        mean = self.sample_mean()
+        weight_variance = self.sample_weight_variance()
+        X_tf = self._maybe_input_warp(X_jax=self.train_X_jax)
+        X_tf = self._prepare_features(X=X_tf)
         X_tf = X_tf - 0.5  # center transformed data at 0 (for linear model)
         K_noiseless = linear_kernel(X=X_tf, weight_variance=weight_variance)
-        noise = self.sample_noise(**tkwargs)
-        K_noiseless, mean = self._maybe_multitask_transform(
-            K_noiseless, mean, **tkwargs
-        )
-        self.sample_observations(
-            mean=mean, K_noiseless=K_noiseless, noise=noise, **tkwargs
-        )
+        noise = self.sample_noise()
+        K_noiseless, mean = self._maybe_multitask_transform(K_noiseless, mean)
+        self.sample_observations(mean=mean, K_noiseless=K_noiseless, noise=noise)
 
-    def sample_weight_variance(self, alpha: float = 0.1, **tkwargs: Any) -> Tensor:
+    def sample_weight_variance(self, alpha: float = 0.1) -> Array:
         r"""Sample the weight variance.
 
         This is a hierarchical prior is a half-Cauchy prior on the prior weight
@@ -685,30 +708,37 @@ class LinearPyroModel(PyroModel):
         dimension being irrelevant. This choice of prior is motivated by Saas
         priors.
         """
-        tau_sq = pyro.sample(
+        tau_sq = numpyro.sample(
             "tau_sq",
-            pyro.distributions.HalfCauchy(torch.tensor(alpha, **tkwargs)),
+            numpyro_dist.HalfCauchy(jnp.array(alpha)),
         )
-        weight_variance_sq = pyro.sample(
+        weight_variance_sq = numpyro.sample(
             "_weight_variance_sq",
-            pyro.distributions.HalfCauchy(torch.ones(self.ard_num_dims, **tkwargs)),
+            numpyro_dist.HalfCauchy(jnp.ones(self.ard_num_dims)),
         )
-        return pyro.deterministic(
-            "weight_variance", (tau_sq * weight_variance_sq).sqrt()
+        return numpyro.deterministic(
+            "weight_variance", jnp.sqrt(tau_sq * weight_variance_sq)
         )
 
     def postprocess_mcmc_samples(
-        self, mcmc_samples: dict[str, Tensor]
+        self, mcmc_samples: dict[str, Array]
     ) -> dict[str, Tensor]:
         r"""Post-process the MCMC samples.
 
-        This computes the true weight variance and removes tausq (global shrinkage).
+        This computes the true weight variance, removes tausq (global shrinkage),
+        and converts JAX arrays to torch tensors.
         """
-        mcmc_samples["weight_variance"] = (
-            mcmc_samples["tau_sq"].unsqueeze(-1) * mcmc_samples["_weight_variance_sq"]
-        ).sqrt()
+        mcmc_samples["weight_variance"] = jnp.sqrt(
+            jnp.expand_dims(mcmc_samples["tau_sq"], axis=-1)
+            * mcmc_samples["_weight_variance_sq"]
+        )
         del mcmc_samples["tau_sq"], mcmc_samples["_weight_variance_sq"]
-        return mcmc_samples
+        return {
+            k: torch.tensor(
+                np.asarray(v), dtype=self.train_X.dtype, device=self.train_X.device
+            )
+            for k, v in mcmc_samples.items()
+        }
 
     def get_dummy_mcmc_samples(
         self,
