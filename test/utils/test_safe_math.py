@@ -285,6 +285,7 @@ class TestLogMeanExp(BotorchTestCase):
 
 class TestSmoothNonLinearities(BotorchTestCase):
     def test_smooth_non_linearities(self):
+        torch.manual_seed(0)
         for dtype in (torch.float, torch.double):
             tkwargs = {"dtype": dtype, "device": self.device}
             n = 17
