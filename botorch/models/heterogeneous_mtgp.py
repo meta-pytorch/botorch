@@ -17,7 +17,6 @@ References:
     Heterogeneous Search Spaces. AutoML Conference, 2024.
 """
 
-from itertools import chain
 from typing import Any
 
 import torch
@@ -200,12 +199,10 @@ class HeterogeneousMTGP(MultiTaskGP):
         r"""Computes the posterior for the target task at the provided points.
 
         Args:
-            X: A tensor of shape ``batch_shape x q x d_0(+1)``, where ``d_0`` is the
-                dimension of the feature space for task 0 (not including task indices)
-                and ``q`` is the number of points considered jointly.
-            output_indices: Not supported. Must be ``None`` or ``[0]``. The model will
-                only produce predictions for the target task regardless of
-                the value of ``output_indices``.
+            X: A tensor of shape ``batch_shape x q x (d_0 + 1)``, where ``d_0``
+                is the dimension of the feature space for task 0 and the last
+                column is the task indicator (must be 0 for the target task).
+            output_indices: Not supported. Must be ``None`` or ``[0]``.
             observation_noise: If True, add observation noise from the respective
                 likelihoods. If a Tensor, specifies the observation noise levels
                 to add.
@@ -219,13 +216,18 @@ class HeterogeneousMTGP(MultiTaskGP):
             raise UnsupportedError(
                 "Heterogeneous MTGP does not support `output_indices`. "
             )
-        if X.shape[-1] == len(self.feature_indices[0]) + 1:
-            # X contains task feature
-            if (X[..., -1] != 0).any():
-                raise UnsupportedError(
-                    "Posterior can only be called for the target task."
-                )
-            X = X[..., :-1]
+
+        d_target = len(self.feature_indices[0])
+        if X.shape[-1] != d_target + 1:
+            raise ValueError(
+                f"Expected X with {d_target + 1} columns "
+                f"({d_target} target features + 1 task column), "
+                f"got {X.shape[-1]}."
+            )
+
+        if (X[..., -1] != 0).any():
+            raise UnsupportedError("Posterior can only be called for the target task.")
+        X = X[..., :-1]
         X_full = self.map_to_full_tensor(X=X, task_index=0)
         return super().posterior(
             X=X_full,
@@ -296,11 +298,13 @@ class HeterogeneousMTGP(MultiTaskGP):
         child_datasets = training_data.datasets.copy()
         target_dataset = child_datasets.pop(training_data.target_outcome_name)
         all_datasets = [target_dataset] + list(child_datasets.values())
-        # We want all parameters to be in the same order, and include the full X.
-        # remove task feature
-        all_features = sorted(
-            set(chain(*(ds.feature_names[:-1] for ds in all_datasets)))
-        )
+        # Use target's feature order as canonical (NO alphabetical sort).
+        # Source-only features are appended at the end.
+        all_features: list[str] = list(target_dataset.feature_names[:-1])
+        for ds in all_datasets[1:]:
+            for fn in ds.feature_names[:-1]:
+                if fn not in all_features:
+                    all_features.append(fn)
         # Get indices mapping the features from a given dataset to all features.
         feature_indices = [
             [all_features.index(fn) for fn in ds.feature_names[:-1]]
