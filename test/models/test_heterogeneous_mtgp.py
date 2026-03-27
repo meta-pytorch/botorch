@@ -122,9 +122,10 @@ class TestHeterogeneousMTGP(BotorchTestCase):
                 model.likelihood.noise_covar.noise.shape[-1], model.num_tasks
             )
 
-        # Evaluate the posterior.
+        # Evaluate the posterior (task column required).
         with self.assertRaisesRegex(UnsupportedError, "output_indices"):
             model.posterior(self.ds1.X, output_indices=[0, 1])
+        # ds1.X already has task column (last col = 0)
         posterior = model.posterior(self.ds1.X)
         self.assertIsInstance(posterior, GPyTorchPosterior)
         self.assertIsInstance(posterior.distribution, MultivariateNormal)
@@ -191,7 +192,7 @@ class TestHeterogeneousMTGP(BotorchTestCase):
         self.assertEqual(model.train_inputs[0].shape, torch.Size([8, 4]))
         data_covar_module = model.covar_module.kernels[0]
         self.assertEqual(len(data_covar_module.kernels), 1)
-        # Evaluate the posterior.
+        # Evaluate the posterior (ds1.X has task col = 0).
         posterior = model.posterior(self.ds1.X)
         self.assertEqual(posterior.mean.shape, torch.Size([5, 1]))
         posterior = model.posterior(self.ds1.X.repeat(3, 1, 1))
@@ -243,10 +244,82 @@ class TestHeterogeneousMTGP(BotorchTestCase):
             model.forward(model.map_to_full_tensor(X=torch.zeros(5, 3), task_index=0))
             # Evaluation with task 2 -- requires all_tasks to be passed in to the model.
             model.forward(model.map_to_full_tensor(X=torch.zeros(5, 4), task_index=2))
-            # Evaluate the posterior.
-            posterior = model.posterior(torch.rand(5, 3))
+            # Evaluate the posterior (task column required).
+            X_with_task = torch.cat([torch.rand(5, 3), torch.zeros(5, 1)], dim=-1)
+            posterior = model.posterior(X_with_task)
             self.assertIsInstance(posterior, GPyTorchPosterior)
             self.assertIsInstance(posterior.mvn, MultivariateNormal)
             self.assertEqual(posterior.mean.shape, torch.Size([5, 1]))
-            posterior = model.posterior(torch.rand(3, 5, 3))
+            X_batch_with_task = torch.cat(
+                [torch.rand(3, 5, 3), torch.zeros(3, 5, 1)], dim=-1
+            )
+            posterior = model.posterior(X_batch_with_task)
             self.assertEqual(posterior.mean.shape, torch.Size([3, 5, 1]))
+
+    def test_feature_ordering_preserves_target_order(self) -> None:
+        """Test that construct_inputs uses target's feature order as canonical."""
+        # Create target dataset with features in order: A, B, C
+        target_ds = SupervisedDataset(
+            X=torch.cat([torch.rand(3, 3), torch.zeros(3, 1)], dim=-1),
+            Y=torch.rand(3, 1),
+            feature_names=["A", "B", "C", "task"],
+            outcome_names=["target"],
+        )
+        # Create source dataset with features in different order: C, A, B
+        source_ds = SupervisedDataset(
+            X=torch.cat([torch.rand(2, 3), torch.ones(2, 1)], dim=-1),
+            Y=torch.rand(2, 1),
+            feature_names=["C", "A", "B", "task"],
+            outcome_names=["source"],
+        )
+        mtds = MultiTaskDataset(
+            datasets=[target_ds, source_ds],
+            target_outcome_name="target",
+            task_feature_index=-1,
+        )
+        model_inputs = HeterogeneousMTGP.construct_inputs(training_data=mtds)
+
+        with self.subTest("feature_indices_preserve_target_order"):
+            # Target: A, B, C -> canonical [0, 1, 2]
+            # Source: C, A, B -> maps to [2, 0, 1] in canonical order
+            self.assertEqual(model_inputs["feature_indices"], [[0, 1, 2], [2, 0, 1]])
+
+        with self.subTest("source_only_features_appended_at_end"):
+            # Target: A, B; Source: B, C -> canonical should be [A, B, C]
+            target_ds2 = SupervisedDataset(
+                X=torch.cat([torch.rand(3, 2), torch.zeros(3, 1)], dim=-1),
+                Y=torch.rand(3, 1),
+                feature_names=["A", "B", "task"],
+                outcome_names=["target"],
+            )
+            source_ds2 = SupervisedDataset(
+                X=torch.cat([torch.rand(2, 2), torch.ones(2, 1)], dim=-1),
+                Y=torch.rand(2, 1),
+                feature_names=["B", "C", "task"],
+                outcome_names=["source"],
+            )
+            mtds2 = MultiTaskDataset(
+                datasets=[target_ds2, source_ds2],
+                target_outcome_name="target",
+                task_feature_index=-1,
+            )
+            model_inputs2 = HeterogeneousMTGP.construct_inputs(training_data=mtds2)
+            # Target: A, B -> [0, 1]; Source: B, C -> [1, 2]
+            self.assertEqual(model_inputs2["feature_indices"], [[0, 1], [1, 2]])
+            self.assertEqual(model_inputs2["full_feature_dim"], 3)
+
+    def test_posterior_requires_task_column(self) -> None:
+        """Test that posterior rejects X without task column."""
+        model_inputs = HeterogeneousMTGP.construct_inputs(training_data=self.mtds)
+        model = HeterogeneousMTGP(**model_inputs)
+        model.eval()
+        # d_target=3, so posterior requires exactly 4 columns
+
+        with self.subTest("rejects_no_task_column"):
+            with self.assertRaisesRegex(ValueError, "Expected X with 4 columns"):
+                model.posterior(torch.rand(4, 3))
+
+        with self.subTest("rejects_full_space"):
+            X_full = torch.cat([torch.rand(4, 5), torch.zeros(4, 1)], dim=-1)
+            with self.assertRaisesRegex(ValueError, "Expected X with 4 columns"):
+                model.posterior(X_full)
