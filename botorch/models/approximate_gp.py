@@ -128,6 +128,41 @@ class ApproximateGPyTorchModel(GPyTorchModel):
             self.likelihood = likelihood
         self._desired_num_outputs = num_outputs
 
+    def _untransform_targets(
+        self,
+    ) -> tuple[Tensor, Tensor | None, Tensor] | None:
+        r"""Extract and untransform training targets from the inner model.
+
+        Overrides ``GPyTorchModel._untransform_targets`` because
+        ``ApproximateGPyTorchModel`` stores ``train_targets`` and
+        ``train_inputs`` on ``self.model`` (the inner ``ApproximateGP``),
+        not directly on ``self``.
+        """
+        if not hasattr(self.model, "train_targets"):
+            return None
+        if getattr(self, "outcome_transform", None) is None:
+            return None
+
+        Y = self.model.train_targets.unsqueeze(-1)
+        X = self.model.train_inputs[0]
+        Y, Yvar = self.outcome_transform.untransform(Y=Y, Yvar=None, X=X)
+        return Y, Yvar, X
+
+    def _retransform_and_set_targets(
+        self,
+        Y: Tensor,
+        Yvar: Tensor | None,
+        X: Tensor,
+    ) -> None:
+        r"""Re-apply the outcome transform and store targets on the inner model.
+
+        Overrides ``GPyTorchModel._retransform_and_set_targets`` because
+        targets must be written to ``self.model.train_targets``.
+        """
+        self.outcome_transform.eval()
+        retransformed_Y, _ = self.outcome_transform(Y=Y, Yvar=Yvar, X=X)
+        self.model.train_targets = retransformed_Y.squeeze(-1)
+
     @property
     def num_outputs(self):
         return self._desired_num_outputs
