@@ -39,6 +39,7 @@ from botorch.models.fully_bayesian import (
     SaasPyroModel,
 )
 from botorch.models.fully_bayesian_multitask import (
+    FullyBayesianMultiTaskGP,
     LatentFeatureMultiTaskPyroMixin,
     MultiTaskPyroMixin,
     MultitaskSaasPyroModel,
@@ -914,6 +915,77 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
             )
             self.assertEqual(model._task_feature, d)
             self.assertEqual(model.pyro_model.task_feature, d)
+
+    def test_constructor_validation_and_defaults(self):
+        """Test FullyBayesianMultiTaskGP constructor validation and defaults."""
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X, train_Y, train_Yvar = self._get_base_data(**tkwargs)
+
+        with self.subTest("rejects_single_task_pyro_model"):
+            with self.assertRaisesRegex(
+                ValueError, "pyro_model must be a multi-task model"
+            ):
+                FullyBayesianMultiTaskGP(
+                    train_X=train_X,
+                    train_Y=train_Y,
+                    train_Yvar=train_Yvar,
+                    task_feature=4,
+                    pyro_model=MaternPyroModel(),
+                )
+
+        with self.subTest("accepts_explicit_multitask_pyro_model"):
+            pyro_model = MultitaskSaasPyroModel()
+            model = FullyBayesianMultiTaskGP(
+                train_X=train_X,
+                train_Y=train_Y,
+                train_Yvar=train_Yvar,
+                task_feature=4,
+                pyro_model=pyro_model,
+            )
+            self.assertIs(model.pyro_model, pyro_model)
+            self.assertIsInstance(model.pyro_model, MultiTaskPyroMixin)
+
+    def test_non_saas_mt_model_load_state_dict(self):
+        """Test round-trip load_state_dict with a non-SAAS multi-task PyroModel."""
+        tkwargs = {"device": self.device, "dtype": torch.double}
+
+        class MultitaskMaternPyroModel(
+            LatentFeatureMultiTaskPyroMixin, MaternPyroModel
+        ):
+            pass
+
+        train_X, train_Y, train_Yvar = self._get_base_data(**tkwargs)
+
+        pyro_model = MultitaskMaternPyroModel()
+        model = FullyBayesianMultiTaskGP(
+            train_X=train_X,
+            train_Y=train_Y,
+            train_Yvar=train_Yvar,
+            task_feature=4,
+            pyro_model=pyro_model,
+        )
+        self.assertIsInstance(model.pyro_model, MultiTaskPyroMixin)
+
+        fit_fully_bayesian_model_nuts(
+            model, warmup_steps=8, num_samples=5, thinning=2, disable_progbar=True
+        )
+        state_dict = model.state_dict()
+        test_X = torch.rand(3, 4, **tkwargs)
+        preds1 = model.posterior(test_X)
+
+        pyro_model2 = MultitaskMaternPyroModel()
+        m_new = FullyBayesianMultiTaskGP(
+            train_X=train_X,
+            train_Y=train_Y,
+            train_Yvar=train_Yvar,
+            task_feature=4,
+            pyro_model=pyro_model2,
+        )
+        m_new.load_state_dict(state_dict)
+
+        preds2 = m_new.posterior(test_X)
+        self.assertTrue(torch.equal(preds1.mean, preds2.mean))
+        self.assertTrue(torch.equal(preds1.variance, preds2.variance))
 
 
 class TestPyroModelMultitaskMixin(BotorchTestCase):
