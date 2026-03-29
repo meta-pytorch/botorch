@@ -15,6 +15,7 @@ from itertools import filterfalse
 from typing import Any
 from warnings import catch_warnings, simplefilter, warn_explicit, WarningMessage
 
+import jax
 from botorch.exceptions.errors import ModelFittingError, UnsupportedError
 from botorch.exceptions.warnings import OptimizationWarning
 from botorch.logging import logger
@@ -43,7 +44,7 @@ from gpytorch.mlls.exact_marginal_log_likelihood import ExactMarginalLogLikeliho
 from gpytorch.mlls.marginal_log_likelihood import MarginalLogLikelihood
 from gpytorch.mlls.sum_marginal_log_likelihood import SumMarginalLogLikelihood
 from linear_operator.utils.errors import NotPSDError
-from pyro.infer.mcmc import MCMC, NUTS
+from numpyro.infer import MCMC, NUTS
 from torch import device, Tensor
 from torch.nn import Parameter
 from torch.utils.data import DataLoader
@@ -342,9 +343,11 @@ def fit_fully_bayesian_model_nuts(
     thinning: int = 16,
     disable_progbar: bool = False,
     jit_compile: bool = False,
+    seed: int = 0,
 ) -> None:
     r"""Fit a fully Bayesian model using the No-U-Turn-Sampler (NUTS)
 
+    Uses NumPyro's NUTS implementation (backed by JAX) for MCMC inference.
 
     Args:
         model: Fully Bayesian GP to be fitted.
@@ -357,7 +360,8 @@ def fit_fully_bayesian_model_nuts(
             bar and diagnostics during MCMC.
         jit_compile: Whether to use jit. Using jit may be ~2X faster (rough estimate),
             but it will also increase the memory usage and sometimes result in runtime
-            errors, e.g., https://github.com/pyro-ppl/pyro/issues/3136.
+            errors.
+        seed: Random seed for JAX PRNG.
 
     Example:
         >>> gp = SaasFullyBayesianSingleTaskGP(train_X, train_Y)
@@ -368,20 +372,18 @@ def fit_fully_bayesian_model_nuts(
     # Do inference with NUTS
     nuts = NUTS(
         model.pyro_model.sample,
-        jit_compile=jit_compile,
-        full_mass=True,
-        ignore_jit_warnings=True,
+        dense_mass=True,
         max_tree_depth=max_tree_depth,
     )
     mcmc = MCMC(
         nuts,
-        warmup_steps=warmup_steps,
+        num_warmup=warmup_steps,
         num_samples=num_samples,
-        disable_progbar=disable_progbar,
+        progress_bar=not disable_progbar,
     )
-    mcmc.run()
+    mcmc.run(jax.random.PRNGKey(seed))
 
-    # Get final MCMC samples from the Pyro model
+    # Get final MCMC samples from the NumPyro model
     mcmc_samples = model.pyro_model.postprocess_mcmc_samples(
         mcmc_samples=mcmc.get_samples()
     )
