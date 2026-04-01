@@ -6,6 +6,8 @@
 
 r"""Multi-task Gaussian Process Regression models with fully Bayesian inference."""
 
+from __future__ import annotations
+
 from collections.abc import Mapping
 from typing import Any, NoReturn, TypeVar
 
