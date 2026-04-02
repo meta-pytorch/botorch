@@ -39,6 +39,7 @@ from botorch.optim.optimize import (
     _filter_invalid,
     _gen_batch_initial_conditions_local_search,
     _generate_neighbors,
+    _optimize_acqf_batch,
     gen_batch_initial_conditions,
     optimize_acqf,
     optimize_acqf_cyclic,
@@ -1883,6 +1884,113 @@ class TestOptimizeAcqf(BotorchTestCase):
             self._verify_projection_called_and_constraints_satisfied(
                 mock_project_slsqp, candidates, bounds, [check_mixed_constraints]
             )
+
+
+class TestTensorValuedFixedFeaturesProjection(BotorchTestCase):
+    """Regression test for tensor-valued fixed_features with infeasible projection.
+
+    When _optimize_acqf_batch projects infeasible candidates via
+    project_to_feasible_space_via_slsqp, it must filter tensor-valued
+    fixed_features to match the infeasible subset. Previously, the full
+    tensor was passed, causing a shape mismatch RuntimeError.
+    """
+
+    @mock.patch(
+        "botorch.optim.optimize.project_to_feasible_space_via_slsqp",
+        wraps=project_to_feasible_space_via_slsqp,
+    )
+    @mock.patch("botorch.generation.gen.minimize_with_timeout")
+    def test_projection_with_tensor_valued_fixed_features(
+        self,
+        mock_minimize: mock.Mock,
+        mock_project: mock.Mock,
+    ) -> None:
+        num_restarts = 4
+        q = 1
+        d = 3
+        dtype = torch.double
+
+        mock_acq_function = MockAcquisitionFunction()
+        bounds = torch.zeros(2, d, dtype=dtype, device=self.device)
+        bounds[1] = 2.0
+
+        # Create initial conditions: 4 restarts, q=1, d=3
+        batch_ics = torch.ones(num_restarts, q, d, dtype=dtype, device=self.device)
+
+        # Mock optimizer to return candidates where some violate the
+        # constraint x[0] + x[1] >= 1.5. With max_aggregation_size=1,
+        # minimize is called once per restart, each getting a reduced
+        # 2D input (d=3 minus 1 fixed = 2 free dims).
+        call_count = 0
+
+        def side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count in (1, 3):
+                # Infeasible: x[0]=0.3, x[1]=0.3 => sum=0.6 < 1.5
+                x = np.array([0.3, 0.3])
+            else:
+                # Feasible: x[0]=1.0, x[1]=1.0 => sum=2.0 >= 1.5
+                x = np.array([1.0, 1.0])
+            return OptimizeResult(x=x, success=True, status=0)
+
+        mock_minimize.side_effect = side_effect
+
+        # Tensor-valued fixed features (one value per restart), as
+        # created by continuous_step for discrete dims.
+        tensor_fixed_features = {
+            2: torch.tensor([0.5, 0.6, 0.7, 0.8], dtype=dtype, device=self.device),
+        }
+
+        inequality_constraints = [
+            (
+                torch.tensor([0, 1], dtype=torch.long, device=self.device),
+                torch.tensor([1.0, 1.0], dtype=dtype, device=self.device),
+                1.5,
+            )
+        ]
+
+        # Before the fix, this would raise:
+        # RuntimeError: The expanded size of the tensor (1) must match the
+        # existing size (4) at non-singleton dimension 0.
+        opt_inputs = OptimizeAcqfInputs(
+            acq_function=mock_acq_function,
+            bounds=bounds,
+            q=q,
+            num_restarts=num_restarts,
+            raw_samples=None,
+            options={
+                "batch_limit": num_restarts,
+                "max_optimization_problem_aggregation_size": 1,
+            },
+            inequality_constraints=inequality_constraints,
+            equality_constraints=None,
+            nonlinear_inequality_constraints=None,
+            fixed_features=tensor_fixed_features,
+            post_processing_func=None,
+            batch_initial_conditions=batch_ics,
+            return_best_only=False,
+            gen_candidates=gen_candidates_scipy,
+            sequential=False,
+        )
+
+        candidates, acq_values = _optimize_acqf_batch(opt_inputs=opt_inputs)
+        self.assertEqual(candidates.shape, (num_restarts, q, d))
+
+        # Verify projection was called with correctly subsetted fixed features.
+        if mock_project.called:
+            call_kwargs = mock_project.call_args
+            ff = call_kwargs.kwargs.get(
+                "fixed_features", call_kwargs[1].get("fixed_features")
+            )
+            if ff is not None:
+                X_arg = (
+                    call_kwargs.args[0] if call_kwargs.args else call_kwargs.kwargs["X"]
+                )
+                n_infeasible = X_arg.shape[0]
+                for v in ff.values():
+                    if torch.is_tensor(v) and v.ndim > 0:
+                        self.assertEqual(v.shape[0], n_infeasible)
 
 
 class TestAllOptimizers(BotorchTestCase):
