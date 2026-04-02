@@ -552,12 +552,22 @@ def _optimize_acqf_batch(
     )
     infeasible = ~is_feasible
     if nonlinear_inequality_constraints is None and infeasible.any():
+        # Filter tensor-valued fixed features to match the infeasible subset.
+        # This is needed because fixed_features may contain per-element tensor
+        # values (e.g., from continuous_step in mixed optimization), and we
+        # must subset them to match batch_candidates[infeasible].
+        fixed_features = opt_inputs.fixed_features
+        if fixed_features is not None:
+            fixed_features = {
+                k: v[infeasible] if torch.is_tensor(v) and v.ndim > 0 else v
+                for k, v in fixed_features.items()
+            }
         projected_candidates = project_to_feasible_space_via_slsqp(
             X=batch_candidates[infeasible],
             bounds=opt_inputs.bounds,
             equality_constraints=equality_constraints,
             inequality_constraints=inequality_constraints,
-            fixed_features=opt_inputs.fixed_features,
+            fixed_features=fixed_features,
         )
         if opt_inputs.post_processing_func is not None:
             projected_candidates = opt_inputs.post_processing_func(projected_candidates)
