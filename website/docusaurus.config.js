@@ -21,7 +21,10 @@ module.exports={
     "https://cdnjs.cloudflare.com/ajax/libs/clipboard.js/2.0.0/clipboard.min.js",
   ],
   "markdown": {
-    format: "detect"
+    format: "detect",
+    hooks: {
+      onBrokenMarkdownLinks: "warn"
+    }
   },
   "stylesheets": [
     "/css/code_block_buttons.css",
@@ -39,7 +42,6 @@ module.exports={
     "wrapPagesHTML": true
   },
   "onBrokenLinks": "throw",
-  "onBrokenMarkdownLinks": "warn",
   "presets": [
     [
       "@docusaurus/preset-classic",
