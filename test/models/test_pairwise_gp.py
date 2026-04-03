@@ -281,14 +281,13 @@ class TestPairwiseGP(BotorchTestCase):
             self.assertTrue(model.training)
             pred = model(dup_X)
             # posterior shape in training should match the consolidated utility
-            pred_shape = pred.batch_shape + pred.event_shape
-            self.assertEqual(pred_shape, model.utility.shape)
+            self.assertEqual(pred.shape(), model.utility.shape)
             if batch_shape:
                 # do not perform consolidation in batch mode
                 # because the block structure cannot be guaranteed
-                self.assertEqual(pred_shape, dup_X.shape[:-1])
+                self.assertEqual(pred.shape(), dup_X.shape[:-1])
             else:
-                self.assertEqual(pred_shape, train_X.shape[:-1])
+                self.assertEqual(pred.shape(), train_X.shape[:-1])
             # Pass the original comparisons through mll should work
             mll(pred, dup_comp)
 
