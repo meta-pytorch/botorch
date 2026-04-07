@@ -209,6 +209,11 @@ Inducing Point Allocators
     :members:
     :private-members: _pivoted_cholesky_init
 
+Priors
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.. automodule:: botorch.models.utils.priors
+    :members:
+
 Other Utilties
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 .. automodule:: botorch.models.utils.assorted
