@@ -30,7 +30,6 @@ class PositiveIndexKernel(IndexKernel):
         num_tasks: int,
         rank: int = 1,
         task_prior: Prior | None = None,
-        diag_prior: Prior | None = None,
         normalize_covar_matrix: bool = False,
         var_constraint: Interval | None = None,
         target_task_index: int = 0,
@@ -43,7 +42,6 @@ class PositiveIndexKernel(IndexKernel):
             num_tasks (int): Total number of indices.
             rank (int): Rank of the covariance matrix parameterization.
             task_prior (Prior, optional): Prior for the covariance matrix.
-            diag_prior (Prior, optional): Prior for the diagonal elements.
             normalize_covar_matrix (bool): Whether to normalize the covariance matrix.
             target_task_index (int): Index of the task whose diagonal element should be
                 normalized to 1. Defaults to 0 (first task).
@@ -88,11 +86,11 @@ class PositiveIndexKernel(IndexKernel):
                     f"{type(task_prior).__name__}"
                 )
             self.register_prior(
-                "IndexKernelPrior", task_prior, lambda m: m._lower_triangle_corr
+                "IndexKernelPrior",
+                task_prior,
+                lambda m: m._lower_triangle_corr,
+                lambda m, v: m._set_lower_triangle_corr(v),
             )
-        if diag_prior is not None:
-            self.register_prior("ScalePrior", diag_prior, lambda m: m._diagonal)
-
         self.register_constraint("raw_covar_factor", GreaterThan(0.0))
 
     def _covar_factor_params(self, m):
@@ -127,15 +125,49 @@ class PositiveIndexKernel(IndexKernel):
 
         return low_tri
 
-    @property
-    def _diagonal(self):
-        return torch.diagonal(self.covar_matrix, dim1=-2, dim2=-1)
+    def _set_lower_triangle_corr(self, value):
+        """Set covar_factor to produce the given lower-triangle correlations.
+
+        Assembles a symmetric correlation matrix from the lower-triangle values,
+        then projects it to the nearest positive-definite correlation matrix via
+        eigenvalue clamping before Cholesky decomposition. This guarantees the
+        setter never fails even when independently sampled correlation values
+        do not form a PD matrix.
+
+        Args:
+            value: Tensor of lower-triangle correlation values.
+        """
+        n = self.num_tasks
+        eps = 1e-6
+        n_lower = n * (n - 1) // 2
+        lower_row, lower_col = torch.tril_indices(n, n, offset=-1)
+        # Expand under-batched input (e.g. scalar from sample_from_prior)
+        if value.dim() == 0 or (value.dim() == 1 and value.shape[0] != n_lower):
+            value = value.unsqueeze(-1).expand(*self.batch_shape, n_lower)
+        elif value.shape[:-1] != self.batch_shape:
+            value = value.expand(*self.batch_shape, n_lower)
+        batch_shape = value.shape[:-1]
+        corr = (
+            torch.eye(n, dtype=value.dtype, device=value.device)
+            .expand(*batch_shape, n, n)
+            .clone()
+        )
+        corr[..., lower_row, lower_col] = value.clamp(0.0, 1.0)
+        corr[..., lower_col, lower_row] = value.clamp(0.0, 1.0)
+        # Project to nearest PD correlation matrix via eigenvalue clamping
+        eigvals, eigvecs = torch.linalg.eigh(corr)
+        eigvals = eigvals.clamp(min=eps)
+        corr = eigvecs @ torch.diag_embed(eigvals) @ eigvecs.transpose(-1, -2)
+        # Re-normalize diagonals to 1
+        d = corr.diagonal(dim1=-1, dim2=-2).sqrt()
+        corr = corr / (d.unsqueeze(-1) * d.unsqueeze(-2))
+        chol = torch.linalg.cholesky(corr)
+        rank = self.raw_covar_factor.shape[-1]
+        self._set_covar_factor(chol[..., :, :rank].clamp(min=eps))
 
     def _eval_covar_matrix(self):
         cf = self.covar_factor
-        covar = cf @ cf.transpose(-1, -2) + self.var * torch.eye(
-            self.num_tasks, dtype=cf.dtype, device=cf.device
-        )
+        covar = cf @ cf.transpose(-1, -2) + torch.diag_embed(self.var)
         # Normalize by the target task's diagonal element
         if self.unit_scale_for_target:
             norm_factor = covar[..., self.target_task_index, self.target_task_index]

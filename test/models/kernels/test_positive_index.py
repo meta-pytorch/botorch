@@ -6,8 +6,10 @@
 
 import torch
 from botorch.models.kernels.positive_index import PositiveIndexKernel
+from botorch.models.utils.priors import BetaPrior
+from botorch.optim.utils import sample_all_priors
 from botorch.utils.testing import BotorchTestCase
-from gpytorch.priors import NormalPrior
+from gpytorch.priors import NormalPrior, UniformPrior
 
 
 class TestPositiveIndexKernel(BotorchTestCase):
@@ -125,18 +127,15 @@ class TestPositiveIndexKernel(BotorchTestCase):
             with self.subTest("with_priors", dtype=dtype):
                 num_tasks = 4
                 task_prior = NormalPrior(0, 1)
-                diag_prior = NormalPrior(1, 0.1)
 
                 kernel = PositiveIndexKernel(
                     num_tasks=num_tasks,
                     rank=2,
                     task_prior=task_prior,
-                    diag_prior=diag_prior,
                     initialize_to_mode=False,
                 ).to(dtype=dtype)
                 prior_names = [p[0] for p in kernel.named_priors()]
                 self.assertIn("IndexKernelPrior", prior_names)
-                self.assertIn("ScalePrior", prior_names)
 
             # Test batch forward
             with self.subTest("batch_forward", dtype=dtype):
@@ -153,25 +152,6 @@ class TestPositiveIndexKernel(BotorchTestCase):
 
                 # Check that batch dimensions are preserved
                 self.assertEqual(result.shape[0], 2)
-
-            # Test diagonal property (default target_task_index=0)
-            with self.subTest("diagonal", dtype=dtype):
-                kernel = PositiveIndexKernel(num_tasks=4, rank=2).to(dtype=dtype)
-                diag = kernel._diagonal
-
-                self.assertEqual(diag.shape, torch.Size([4]))
-                # First diagonal element should be 1.0 (default target_task_index=0)
-                self.assertAllClose(diag[0], torch.tensor(1.0, dtype=dtype), atol=1e-4)
-
-                # Test diagonal property with custom target_task_index
-                kernel = PositiveIndexKernel(
-                    num_tasks=4, rank=2, target_task_index=1
-                ).to(dtype=dtype)
-                diag = kernel._diagonal
-
-                self.assertEqual(diag.shape, torch.Size([4]))
-                # Second diagonal element should be 1.0 (target_task_index=1)
-                self.assertAllClose(diag[1], torch.tensor(1.0, dtype=dtype), atol=1e-4)
 
             # Test lower triangle property
             with self.subTest("lower_triangle", dtype=dtype):
@@ -222,3 +202,153 @@ class TestPositiveIndexKernel(BotorchTestCase):
                 new_value = torch.ones(3, 2, dtype=dtype) * 3.0
                 kernel._covar_factor_closure(kernel, new_value)
                 self.assertAllClose(kernel.covar_factor, new_value, atol=1e-5)
+
+            # Test _set_lower_triangle_corr produces valid covariance
+            with self.subTest("set_lower_triangle_corr", dtype=dtype):
+                kernel = PositiveIndexKernel(num_tasks=3, rank=3).to(dtype=dtype)
+                target_corr = torch.tensor([0.8, 0.5, 0.6], dtype=dtype)
+                kernel._set_lower_triangle_corr(target_corr)
+
+                # Covariance matrix should be PD and symmetric
+                covar = kernel.covar_matrix
+                eigvals = torch.linalg.eigvalsh(covar)
+                self.assertTrue((eigvals > 0).all())
+                self.assertAllClose(covar, covar.T, atol=1e-5)
+
+                # Recovered correlations should be positive
+                recovered = kernel._lower_triangle_corr
+                self.assertTrue((recovered >= 0).all())
+                self.assertTrue((recovered <= 1).all())
+
+            # Test _set_lower_triangle_corr with batch shape
+            with self.subTest("set_lower_triangle_corr_batch", dtype=dtype):
+                batch_shape = torch.Size([2])
+                kernel = PositiveIndexKernel(
+                    num_tasks=3, rank=3, batch_shape=batch_shape
+                ).to(dtype=dtype)
+                target_corr = torch.rand(*batch_shape, 3, dtype=dtype)
+                kernel._set_lower_triangle_corr(target_corr)
+                covar = kernel.covar_matrix
+                eigvals = torch.linalg.eigvalsh(covar)
+                self.assertTrue((eigvals > 0).all())
+                self.assertEqual(covar.shape, torch.Size([2, 3, 3]))
+
+            # Test sample_all_priors with batch shape
+            with self.subTest("sample_all_priors_batch", dtype=dtype):
+                batch_shape = torch.Size([2])
+                task_prior = UniformPrior(0.0, 1.0)
+                kernel = PositiveIndexKernel(
+                    num_tasks=3,
+                    rank=3,
+                    task_prior=task_prior,
+                    batch_shape=batch_shape,
+                ).to(dtype=dtype)
+                sample_all_priors(kernel)
+                covar = kernel.covar_matrix
+                eigvals = torch.linalg.eigvalsh(covar)
+                self.assertTrue((eigvals > 0).all())
+                self.assertEqual(covar.shape, torch.Size([2, 3, 3]))
+
+            # Test _set_lower_triangle_corr with scalar input (under-batched)
+            with self.subTest("set_lower_triangle_corr_scalar", dtype=dtype):
+                batch_shape = torch.Size([2])
+                kernel = PositiveIndexKernel(
+                    num_tasks=3, rank=3, batch_shape=batch_shape
+                ).to(dtype=dtype)
+                # Scalar value — exercises dim()==0 branch
+                kernel._set_lower_triangle_corr(torch.tensor(0.5, dtype=dtype))
+                covar = kernel.covar_matrix
+                eigvals = torch.linalg.eigvalsh(covar)
+                self.assertTrue((eigvals > 0).all())
+                self.assertEqual(covar.shape, torch.Size([2, 3, 3]))
+
+            # Test _set_lower_triangle_corr with unbatched input on batched kernel
+            with self.subTest(
+                "set_lower_triangle_corr_unbatched_on_batch", dtype=dtype
+            ):
+                batch_shape = torch.Size([2])
+                kernel = PositiveIndexKernel(
+                    num_tasks=3, rank=3, batch_shape=batch_shape
+                ).to(dtype=dtype)
+                # 1D input with correct n_lower but no batch — exercises expand branch
+                target_corr = torch.rand(3, dtype=dtype)
+                kernel._set_lower_triangle_corr(target_corr)
+                covar = kernel.covar_matrix
+                eigvals = torch.linalg.eigvalsh(covar)
+                self.assertTrue((eigvals > 0).all())
+                self.assertEqual(covar.shape, torch.Size([2, 3, 3]))
+
+            # Test _set_lower_triangle_corr with boundary values
+            with self.subTest("set_lower_triangle_corr_boundary", dtype=dtype):
+                kernel = PositiveIndexKernel(num_tasks=2, rank=2).to(dtype=dtype)
+                kernel._set_lower_triangle_corr(torch.tensor([0.0], dtype=dtype))
+                self.assertTrue(kernel._lower_triangle_corr.isfinite().all())
+                kernel._set_lower_triangle_corr(torch.tensor([0.999], dtype=dtype))
+                self.assertTrue(kernel._lower_triangle_corr.isfinite().all())
+
+            # Test _set_lower_triangle_corr with non-PD input
+            with self.subTest("set_lower_triangle_corr_non_pd", dtype=dtype):
+                kernel = PositiveIndexKernel(num_tasks=3, rank=3).to(dtype=dtype)
+                # [0.99, 0.01, 0.99] does not form a PD correlation matrix
+                non_pd_corr = torch.tensor([0.99, 0.01, 0.99], dtype=dtype)
+                kernel._set_lower_triangle_corr(non_pd_corr)
+                covar = kernel.covar_matrix
+                eigvals = torch.linalg.eigvalsh(covar)
+                self.assertTrue((eigvals > 0).all())
+
+            # Test roundtrip accuracy for full-rank
+            with self.subTest("set_lower_triangle_corr_roundtrip", dtype=dtype):
+                kernel = PositiveIndexKernel(
+                    num_tasks=3, rank=3, unit_scale_for_target=False
+                ).to(dtype=dtype)
+                # Set var to small known value to isolate correlation effect
+                kernel.initialize(raw_var=torch.full((3,), -5.0, dtype=dtype))
+                target_corr = torch.tensor([0.8, 0.5, 0.6], dtype=dtype)
+                kernel._set_lower_triangle_corr(target_corr)
+                recovered = kernel._lower_triangle_corr
+                self.assertAllClose(recovered, target_corr, atol=0.05)
+
+            # Test sample_all_priors with task_prior
+            with self.subTest("sample_all_priors_unbatched", dtype=dtype):
+                task_prior = UniformPrior(0.0, 1.0)
+                kernel = PositiveIndexKernel(
+                    num_tasks=3,
+                    rank=3,
+                    task_prior=task_prior,
+                ).to(dtype=dtype)
+
+                corr_before = kernel._lower_triangle_corr.clone()
+                sample_all_priors(kernel)
+
+                corr_after = kernel._lower_triangle_corr
+                self.assertFalse(torch.allclose(corr_before, corr_after))
+
+                covar = kernel.covar_matrix
+                eigvals = torch.linalg.eigvalsh(covar)
+                self.assertTrue((eigvals > 0).all())
+
+            # Test with BetaPrior
+            with self.subTest("beta_prior", dtype=dtype):
+                task_prior = BetaPrior(1.2, 0.9)
+                kernel = PositiveIndexKernel(
+                    num_tasks=4,
+                    rank=4,
+                    task_prior=task_prior,
+                ).to(dtype=dtype)
+                sample_all_priors(kernel)
+                covar = kernel.covar_matrix
+                eigvals = torch.linalg.eigvalsh(covar)
+                self.assertTrue((eigvals > 0).all())
+
+            # Test sample_all_priors
+            with self.subTest("sample_all_priors", dtype=dtype):
+                task_prior = UniformPrior(0.0, 1.0)
+                kernel = PositiveIndexKernel(
+                    num_tasks=3,
+                    rank=3,
+                    task_prior=task_prior,
+                ).to(dtype=dtype)
+                sample_all_priors(kernel)
+                covar = kernel.covar_matrix
+                eigvals = torch.linalg.eigvalsh(covar)
+                self.assertTrue((eigvals > 0).all())
