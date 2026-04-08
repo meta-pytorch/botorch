@@ -12,6 +12,10 @@
     "title": "H-Entropy Search"
   },
   {
+    "id": "local_entropy_search",
+    "title": "Local Entropy Search"
+  },
+  {
     "id": "multi_source_bo",
     "title": "Multi-Information Source BO with Augmented GP"
   },
