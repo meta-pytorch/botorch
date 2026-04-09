@@ -19,6 +19,7 @@ from botorch.acquisition.objective import (
     MCAcquisitionObjective,
     ScalarizedPosteriorTransform,
 )
+from botorch.acquisition.thompson_sampling import PathwiseThompsonSampling
 from botorch.acquisition.utils import compute_best_feasible_objective
 from botorch.utils.multi_objective.box_decompositions.non_dominated import (
     FastNondominatedPartitioning,
@@ -731,3 +732,18 @@ class TestGetAcquisitionFunction(BotorchTestCase):
             X_pending=self.X_pending,
             eta=eta,
         )
+
+    def test_GetPTS(self):
+        acqf = get_acquisition_function(
+            acquisition_function_name="pTS",
+            model=self.model,
+            objective=self.objective,
+            posterior_transform=None,
+            X_observed=self.X_observed,
+            X_pending=self.X_pending,
+            mc_samples=self.mc_samples,
+            seed=self.seed,
+        )
+        assert isinstance(acqf, PathwiseThompsonSampling)
+        assert acqf.model is self.model
+        assert acqf.objective is self.objective
