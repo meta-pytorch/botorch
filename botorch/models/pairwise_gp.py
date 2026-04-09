@@ -902,8 +902,18 @@ class PairwiseGP(Model, GP, FantasizeMixin):
     def load_state_dict(
         self, state_dict: dict[str, Tensor], strict: bool = False
     ) -> _IncompatibleKeys:
-        r"""Removes data related buffers from the ``state_dict`` and calls
-        ``super().load_state_dict`` with ``strict=False``.
+        r"""Load kernel hyperparameters and recompute Laplace approximation.
+
+        ``_load_from_state_dict`` filters out data-dependent buffers (utility,
+        covariance Cholesky, likelihood Hessian, etc.), loading only kernel
+        hyperparameters (lengthscale, outputscale). After loading, we recompute
+        the Laplace approximation so that the MAP utility and derived tensors
+        are consistent with both the loaded hyperparameters and the current
+        training data. Without this recomputation, the model would use stale
+        Laplace tensors computed during ``__init__`` with default hyperparameters,
+        producing an inconsistent (non-PSD) posterior -- e.g., during
+        cross-validation where the model is constructed on fold data and then
+        loaded with hyperparameters from the full model.
 
         Args:
             state_dict: The state dict.
@@ -919,7 +929,15 @@ class PairwiseGP(Model, GP, FantasizeMixin):
         if strict:
             raise UnsupportedError("Passing strict=True is not supported.")
 
-        return super().load_state_dict(state_dict=state_dict, strict=False)
+        result = super().load_state_dict(state_dict=state_dict, strict=False)
+
+        # Recompute Laplace approximation with the newly loaded kernel
+        # hyperparameters on the current training data.
+        if self.datapoints is not None and self.comparisons is not None:
+            transformed_dp = self.transform_inputs(self.datapoints)
+            self._update(transformed_dp)
+
+        return result
 
     def _load_from_state_dict(
         self,
@@ -1021,15 +1039,25 @@ class PairwiseGP(Model, GP, FantasizeMixin):
                 self._update_utility_derived_values()
 
             X, X_new = self._transform_batch_shape(transformed_dp, transformed_new_dp)
-            covar_chol, _ = self._transform_batch_shape(self.covar_chol, X_new)
-            hl, _ = self._transform_batch_shape(self.likelihood_hess, X_new)
-            hlcov_eye, _ = self._transform_batch_shape(self.hlcov_eye, X_new)
+
+            # Detach stored tensors from their training-time computation
+            # graphs. During training, these tensors (especially self.utility,
+            # computed via Newton updates) carry graphs through kernel
+            # hyperparameters for fit_gpytorch_mll backward. After training,
+            # those graphs are freed by the final training backward. In eval
+            # mode, we only need the tensor values for prediction — not the
+            # stale training graphs. Detaching enables callers (e.g.,
+            # sensitivity analysis) to call .backward() on predictions
+            # without hitting "backward through the graph a second time."
+            covar_chol, _ = self._transform_batch_shape(self.covar_chol.detach(), X_new)
+            hl, _ = self._transform_batch_shape(self.likelihood_hess.detach(), X_new)
+            hlcov_eye, _ = self._transform_batch_shape(self.hlcov_eye.detach(), X_new)
 
             # otherwise compute predictive mean and covariance
             covar_xnew_x = self._calc_covar(X_new, X)
             covar_x_xnew = covar_xnew_x.transpose(-1, -2)
             covar_xnew = self._calc_covar(X_new, X_new)
-            p = self.utility - self._prior_mean(X)
+            p = self.utility.detach() - self._prior_mean(X)
 
             covar_inv_p = torch.cholesky_solve(p.unsqueeze(-1), covar_chol)
             pred_mean = (covar_xnew_x @ covar_inv_p).squeeze(-1)
