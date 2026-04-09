@@ -22,6 +22,7 @@ from botorch.models.multitask import (
 )
 from botorch.models.transforms.input import InputTransform, Normalize
 from botorch.models.transforms.outcome import OutcomeTransform, Standardize
+from botorch.models.utils.priors import BetaPrior
 from botorch.posteriors import GPyTorchPosterior
 from botorch.posteriors.transformed import TransformedPosterior
 from botorch.utils.test_helpers import gen_multi_task_dataset
@@ -128,6 +129,58 @@ def _gen_kronecker_model_and_data(model_kwargs=None, batch_shape=None, **tkwargs
 class TestMultiTaskGP(BotorchTestCase):
     def test_supports_batched_models(self) -> None:
         self.assertFalse(MultiTaskGP._supports_batched_models)
+
+    def test_default_task_covar_prior(self) -> None:
+        tkwargs: dict[str, Any] = {"device": self.device, "dtype": torch.double}
+        _, (train_X, train_Y, _) = gen_multi_task_dataset(**tkwargs)
+
+        def _get_task_kernel(model):
+            _, task_covar_module = model.covar_module.kernels
+            return task_covar_module
+
+        # Default: BetaPrior is used
+        model = MultiTaskGP(train_X, train_Y, task_feature=0).to(**tkwargs)
+        task_kernel = _get_task_kernel(model)
+        self.assertTrue(hasattr(task_kernel, "IndexKernelPrior"))
+        self.assertIsInstance(task_kernel.IndexKernelPrior, BetaPrior)
+
+        # Explicit None: no prior
+        model_no_prior = MultiTaskGP(
+            train_X, train_Y, task_feature=0, task_covar_prior=None
+        ).to(**tkwargs)
+        task_kernel_none = _get_task_kernel(model_no_prior)
+        self.assertFalse(hasattr(task_kernel_none, "IndexKernelPrior"))
+
+        # Custom prior: passed through
+        custom_prior = SmoothedBoxPrior(0.0, 1.0)
+        model_custom = MultiTaskGP(
+            train_X, train_Y, task_feature=0, task_covar_prior=custom_prior
+        ).to(**tkwargs)
+        task_kernel_custom = _get_task_kernel(model_custom)
+        self.assertTrue(hasattr(task_kernel_custom, "IndexKernelPrior"))
+        self.assertIsInstance(task_kernel_custom.IndexKernelPrior, SmoothedBoxPrior)
+
+    def test_construct_inputs_task_covar_prior(self) -> None:
+        tkwargs: dict[str, Any] = {"device": self.device, "dtype": torch.double}
+        dataset, _ = gen_multi_task_dataset(**tkwargs)
+
+        # Default: task_covar_prior not in base_inputs (model uses DEFAULT)
+        base_inputs = MultiTaskGP.construct_inputs(dataset, task_feature=0)
+        self.assertNotIn("task_covar_prior", base_inputs)
+
+        # Explicit None: task_covar_prior=None passed through
+        base_inputs_none = MultiTaskGP.construct_inputs(
+            dataset, task_feature=0, task_covar_prior=None
+        )
+        self.assertIn("task_covar_prior", base_inputs_none)
+        self.assertIsNone(base_inputs_none["task_covar_prior"])
+
+        # Custom prior: passed through
+        custom_prior = SmoothedBoxPrior(0.0, 1.0)
+        base_inputs_custom = MultiTaskGP.construct_inputs(
+            dataset, task_feature=0, task_covar_prior=custom_prior
+        )
+        self.assertIs(base_inputs_custom["task_covar_prior"], custom_prior)
 
     def test_MultiTaskGP(self) -> None:
         bounds = torch.tensor([[0.0, 0.0], [1.0, 1.0]])
