@@ -16,7 +16,7 @@ from botorch import (
     test_functions,
 )
 from botorch.cross_validation import batch_cross_validation
-from botorch.fit import fit_fully_bayesian_model_nuts, fit_gpytorch_mll
+from botorch.fit import fit_gpytorch_mll
 from botorch.generation.gen import (
     gen_candidates_scipy,
     gen_candidates_torch,
@@ -47,6 +47,14 @@ linop_settings._fast_solves._default = False
 linop_settings.cholesky_max_tries._global_value = 6
 linop_settings.max_cholesky_size._global_value = 4096
 gp_settings.max_eager_kernel_size._global_value = 4096
+
+
+def __getattr__(name: str):
+    if name == "fit_fully_bayesian_model_nuts":
+        from botorch.fit import fit_fully_bayesian_model_nuts
+
+        return fit_fully_bayesian_model_nuts
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 __all__ = [

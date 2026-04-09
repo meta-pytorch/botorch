@@ -12,15 +12,13 @@ from collections.abc import Callable, Sequence
 from copy import deepcopy
 from functools import partial
 from itertools import filterfalse
-from typing import Any
+from typing import Any, TYPE_CHECKING
 from warnings import catch_warnings, simplefilter, warn_explicit, WarningMessage
 
 from botorch.exceptions.errors import ModelFittingError, UnsupportedError
 from botorch.exceptions.warnings import OptimizationWarning
 from botorch.logging import logger
 from botorch.models import SingleTaskGP
-from botorch.models.fully_bayesian import AbstractFullyBayesianSingleTaskGP
-from botorch.models.fully_bayesian_multitask import SaasFullyBayesianMultiTaskGP
 from botorch.models.map_saas import get_map_saas_model
 from botorch.models.model_list_gp_regression import ModelListGP
 from botorch.models.transforms.input import InputTransform
@@ -43,10 +41,13 @@ from gpytorch.mlls.exact_marginal_log_likelihood import ExactMarginalLogLikeliho
 from gpytorch.mlls.marginal_log_likelihood import MarginalLogLikelihood
 from gpytorch.mlls.sum_marginal_log_likelihood import SumMarginalLogLikelihood
 from linear_operator.utils.errors import NotPSDError
-from pyro.infer.mcmc import MCMC, NUTS
 from torch import device, Tensor
 from torch.nn import Parameter
 from torch.utils.data import DataLoader
+
+if TYPE_CHECKING:
+    from botorch.models.fully_bayesian import AbstractFullyBayesianSingleTaskGP
+    from botorch.models.fully_bayesian_multitask import SaasFullyBayesianMultiTaskGP
 
 
 def _debug_warn(w: WarningMessage) -> bool:
@@ -363,6 +364,8 @@ def fit_fully_bayesian_model_nuts(
         >>> gp = SaasFullyBayesianSingleTaskGP(train_X, train_Y)
         >>> fit_fully_bayesian_model_nuts(gp)
     """
+    from pyro.infer.mcmc import MCMC, NUTS
+
     model.train()
 
     # Do inference with NUTS
