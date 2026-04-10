@@ -45,6 +45,7 @@ from botorch.models.utils.gpytorch_modules import (
     get_covar_module_with_dim_scaled_prior,
     MIN_INFERRED_NOISE_LEVEL,
 )
+from botorch.models.utils.priors import BetaPrior
 from botorch.posteriors.multitask import MultitaskGPPosterior
 from botorch.utils.datasets import MultiTaskDataset, SupervisedDataset
 from botorch.utils.types import _DefaultType, DEFAULT
@@ -158,7 +159,7 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
         mean_module: Module | None = None,
         covar_module: Module | None = None,
         likelihood: Likelihood | None = None,
-        task_covar_prior: Prior | None = None,
+        task_covar_prior: Prior | _DefaultType | None = DEFAULT,
         output_tasks: list[int] | None = None,
         rank: int | None = None,
         all_tasks: list[int] | None = None,
@@ -189,8 +190,9 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
                 outputs for. If omitted, return outputs for all task indices.
             rank: The rank to be used for the index kernel. If omitted, use a
                 full rank (i.e. number of tasks) kernel.
-            task_covar_prior : A Prior on the task covariance matrix. Must operate
-                on p.s.d. matrices. A common prior for this is the ``LKJ`` prior.
+            task_covar_prior : A Prior on the task covariance matrix. Defaults to
+                ``BetaPrior(2.5, 1.5)`` which biases task correlations toward
+                positive values. Pass ``None`` to use no prior.
             all_tasks: By default, multi-task GPs infer the list of all tasks from
                 the task features in ``train_X``. This is an experimental feature that
                 enables creation of multi-task GPs with tasks that don't appear in the
@@ -330,6 +332,8 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
                 data_covar_module.active_dims = self._base_idxr
 
         self._rank = rank if rank is not None else self.num_tasks
+        if task_covar_prior is DEFAULT:
+            task_covar_prior = BetaPrior(concentration1=2.5, concentration0=1.5)
         task_covar_module = PositiveIndexKernel(
             num_tasks=self.num_tasks,
             rank=self._rank,
@@ -479,7 +483,7 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
         training_data: SupervisedDataset | MultiTaskDataset,
         task_feature: int,
         output_tasks: list[int] | None = None,
-        task_covar_prior: Prior | None = None,
+        task_covar_prior: Prior | _DefaultType | None = DEFAULT,
         prior_config: dict | None = None,
         rank: int | None = None,
     ) -> dict[str, Any]:
@@ -491,14 +495,20 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
             output_tasks: A list of task indices for which to compute model
                 outputs for. If omitted, return outputs for all task indices.
             task_covar_prior: A GPyTorch ``Prior`` object to use as prior on
-                the cross-task covariance matrix,
+                the cross-task covariance matrix. Defaults to ``DEFAULT``
+                which uses ``BetaPrior(2.5, 1.5)`` in the model. Pass
+                ``None`` to use no prior.
             prior_config: Configuration for inter-task covariance prior.
                 Should only be used if ``task_covar_prior`` is not passed directly.
                 Must contain ``use_LKJ_prior`` indicator and should contain float
                 value ``eta``.
             rank: The rank of the cross-task covariance matrix.
         """
-        if task_covar_prior is not None and prior_config is not None:
+        if (
+            task_covar_prior is not DEFAULT
+            and task_covar_prior is not None
+            and prior_config is not None
+        ):
             raise ValueError(
                 "Only one of `task_covar_prior` and `prior_config` arguments expected."
             )
@@ -525,7 +535,7 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
         ):
             all_tasks = list(range(len(training_data.datasets)))
             base_inputs["all_tasks"] = all_tasks
-        if task_covar_prior is not None:
+        if task_covar_prior is not DEFAULT:
             base_inputs["task_covar_prior"] = task_covar_prior
         if rank is not None:
             base_inputs["rank"] = rank
