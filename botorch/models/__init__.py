@@ -14,8 +14,6 @@ from botorch.models.deterministic import (
     GenericDeterministicModel,
     PosteriorMeanModel,
 )
-from botorch.models.fully_bayesian import SaasFullyBayesianSingleTaskGP
-from botorch.models.fully_bayesian_multitask import SaasFullyBayesianMultiTaskGP
 from botorch.models.gp_regression import SingleTaskGP
 from botorch.models.gp_regression_fidelity import SingleTaskMultiFidelityGP
 from botorch.models.gp_regression_mixed import MixedSingleTaskGP
@@ -29,6 +27,21 @@ from botorch.models.model import ModelList
 from botorch.models.model_list_gp_regression import ModelListGP
 from botorch.models.multitask import KroneckerMultiTaskGP, MultiTaskGP
 from botorch.models.pairwise_gp import PairwiseGP, PairwiseLaplaceMarginalLogLikelihood
+
+_FULLY_BAYESIAN_LAZY_IMPORTS = {
+    "SaasFullyBayesianSingleTaskGP": "botorch.models.fully_bayesian",
+    "SaasFullyBayesianMultiTaskGP": "botorch.models.fully_bayesian_multitask",
+}
+
+
+def __getattr__(name: str):
+    if name in _FULLY_BAYESIAN_LAZY_IMPORTS:
+        import importlib
+
+        module = importlib.import_module(_FULLY_BAYESIAN_LAZY_IMPORTS[name])
+        return getattr(module, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 __all__ = [
     "add_saas_prior",
