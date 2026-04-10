@@ -45,8 +45,13 @@ jobs:
       run: |
         git config --global user.name "github-actions[bot]"
         git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-        git merge origin/main
+        git merge origin/main --no-edit
         # To avoid a large number of commits we don't push this sync commit to github until a new release.
+    - if: ${{ github.event_name == 'pull_request' }}
+      name: Merge PR head into release branch
+      run: |
+        git fetch origin "refs/pull/${{ github.event.pull_request.number }}/head:pr-head"
+        git merge pr-head --no-edit
     - name: Set up Python
       uses: actions/setup-python@v6
       with:
