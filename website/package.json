@@ -24,9 +24,9 @@
     "react-plotly.js": "^2.5.1",
     "rehype-katex": "7",
     "remark-math": "6",
-    "webpack": "5.97.1"
+    "webpack": "5.104.1"
   },
   "resolutions": {
-    "webpack": "5.97.1"
+    "webpack": "5.104.1"
   }
 }
