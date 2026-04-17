@@ -64,8 +64,10 @@ class PosteriorTransform(Module, ABC):
         pass  # pragma: no cover
 
 
-# import DeterministicModel after PosteriorTransform to avoid circular import
-from botorch.models.deterministic import DeterministicModel  # noqa
+def _is_deterministic_model(model: Model) -> bool:
+    from botorch.models.deterministic import DeterministicModel
+
+    return isinstance(model, DeterministicModel)
 
 
 class ScalarizedPosteriorTransform(PosteriorTransform):
@@ -527,7 +529,7 @@ class LearnedObjective(MCAcquisitionObjective):
         """
         super().__init__()
         self.pref_model = pref_model
-        if isinstance(pref_model, DeterministicModel):
+        if _is_deterministic_model(pref_model):
             if sample_shape is not None:
                 raise ValueError("sample_shape must be None for DeterministicModel.")
             self.sampler = None
@@ -566,7 +568,7 @@ class LearnedObjective(MCAcquisitionObjective):
             raise ValueError("samples should have at least 3 dimensions.")
 
         posterior = self.pref_model.posterior(samples)
-        if isinstance(self.pref_model, DeterministicModel):
+        if _is_deterministic_model(self.pref_model):
             # return preference posterior mean
             return posterior.mean.squeeze(-1)
         else:
