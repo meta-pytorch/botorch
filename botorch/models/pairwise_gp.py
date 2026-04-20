@@ -887,7 +887,7 @@ class PairwiseGP(Model, GP, FantasizeMixin):
         self.D = torch.zeros(
             D_size, dtype=self.datapoints.dtype, device=self.datapoints.device
         )
-        comp_view = self.comparisons.view(-1, self.m, 2).long()
+        comp_view = self.comparisons.view(-1, self.m, 2).long().to(self.D.device)
         for i, sub_D in enumerate(self.D.view(-1, self.m, self.n)):
             sub_D.scatter_(1, comp_view[i, :, [0]], 1)
             sub_D.scatter_(1, comp_view[i, :, [1]], -1)
