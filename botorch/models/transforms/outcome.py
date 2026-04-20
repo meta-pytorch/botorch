@@ -36,7 +36,11 @@ from botorch.models.transforms.utils import (
 from botorch.models.utils.assorted import get_task_value_remapping
 from botorch.posteriors import GPyTorchPosterior, Posterior, TransformedPosterior
 from botorch.utils.transforms import normalize_indices
-from linear_operator.operators import CholLinearOperator, DiagLinearOperator
+from linear_operator.operators import (
+    CholLinearOperator,
+    DiagLinearOperator,
+    TriangularLinearOperator,
+)
 from torch import Tensor
 from torch.nn import Module, ModuleDict
 
@@ -491,7 +495,9 @@ class Standardize(OutcomeTransform):
             or mvn._MultivariateNormal__unbroadcasted_scale_tril is not None
         ):
             # if already computed, we can save a lot of time using scale_tril
-            covar_tf = CholLinearOperator(mvn.scale_tril * scale_fac.unsqueeze(-1))
+            covar_tf = CholLinearOperator(
+                TriangularLinearOperator(mvn.scale_tril * scale_fac.unsqueeze(-1))
+            )
         else:
             lcv = mvn.lazy_covariance_matrix
             scale_fac = scale_fac.expand(lcv.shape[:-1])
