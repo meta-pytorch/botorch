@@ -4,15 +4,14 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-import unittest
-
 import torch
 from botorch.models.utils.priors import BetaPrior
+from botorch.utils.testing import BotorchTestCase
 from gpytorch.priors.utils import BUFFERED_PREFIX
 from torch.distributions import Beta
 
 
-class TestBetaPrior(unittest.TestCase):
+class TestBetaPrior(BotorchTestCase):
     def test_init(self):
         prior = BetaPrior(1.2, 0.9)
         self.assertAlmostEqual(prior.concentration1.item(), 1.2)
@@ -82,3 +81,10 @@ class TestBetaPrior(unittest.TestCase):
         expanded = prior.expand(torch.Size([3, 2]))
         self.assertIs(expanded._transform, torch.sigmoid)
         self.assertEqual(expanded._validate_args, prior._validate_args)
+
+    def test_to_device(self) -> None:
+        prior = BetaPrior(1.2, 0.9).to(device=self.device)
+        self.assertEqual(prior._dirichlet.concentration.device.type, self.device.type)
+        self.assertEqual(prior._dirichlet.concentration.dtype, torch.float)
+        prior = prior.to(dtype=torch.double)
+        self.assertEqual(prior._dirichlet.concentration.dtype, torch.double)
