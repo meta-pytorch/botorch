@@ -6,16 +6,30 @@
 r"""
 Multi-objective variants of the LogEI family of acquisition functions, see
 [Ament2023logei]_ for details.
+
+A fused C++ kernel is available that accelerates the inner loop of
+``_compute_log_qehvi`` by ~1.5-3x on CPU.  It is loaded lazily on first
+acquisition function construction — either from a pre-compiled extension
+(Buck builds) or via JIT compilation (pip installs).  If loading fails the
+pure-Python implementation is used transparently.
+
+For pip installs, JIT compilation requires a C++ compiler (``gcc`` or
+``clang``) to be available on the system.  The ``ninja`` build system is
+included as a dependency.  The kernel is compiled once on first use (~7 s)
+and cached by PyTorch for subsequent imports.
 """
 
 from __future__ import annotations
 
+import os
+import warnings
 from collections.abc import Callable
 
 import torch
 from botorch.acquisition.logei import TAU_MAX, TAU_RELU
 from botorch.acquisition.multi_objective.base import MultiObjectiveMCAcquisitionFunction
 from botorch.acquisition.multi_objective.objective import MCMultiOutputObjective
+from botorch.logging import logger
 from botorch.models.model import Model
 from botorch.sampling.base import MCSampler
 from botorch.utils.multi_objective.box_decompositions.non_dominated import (
@@ -42,6 +56,116 @@ from botorch.utils.transforms import (
     t_batch_mode_transform,
 )
 from torch import Tensor
+
+_C = None  # Fused C++ kernel module, loaded lazily by _try_load_fused_kernel().
+_load_attempted = False  # Sentinel to avoid retrying after a failed load.
+
+
+def _try_load_fused_kernel() -> None:
+    """Load the fused C++ kernel if available, storing it in module-level ``_C``.
+
+    Tries the pre-compiled Buck extension first, then falls back to JIT
+    compilation for pip/source installs.  Called from ``__init__`` of the
+    acquisition functions so the cost is deferred until actually needed.
+    Only attempts loading once; subsequent calls are no-ops.
+    """
+    global _C, _load_attempted
+    if _load_attempted:
+        return
+    _load_attempted = True
+    try:  # pragma: no cover
+        import logei_fused_ext
+
+        _C = logei_fused_ext
+        return
+    except ImportError:
+        pass
+    try:
+        from torch.utils.cpp_extension import load as _load_ext
+
+        _cpp_src = os.path.join(
+            os.path.dirname(__file__), os.pardir, os.pardir, "csrc", "logei_fused.cpp"
+        )
+        _C = _load_ext(
+            name="logei_fused_ext",
+            sources=[os.path.abspath(_cpp_src)],
+            extra_cflags=["-O3", "-march=native"],
+            verbose=False,
+        )
+    except Exception as exc:  # pragma: no cover
+        warnings.warn(
+            f"Failed to compile fused qLogEHVI C++ extension: {exc}. "
+            "Falling back to the pure-Python implementation. "
+            "To get ~3x speedup, ensure a C++ compiler and the `ninja` "
+            "package are installed.",
+            stacklevel=2,
+        )
+        logger.debug("C++ extension compilation error", exc_info=True)
+
+
+class _FusedLogAreas(torch.autograd.Function):
+    """Custom autograd function wrapping the fused C++ kernel.
+
+    Fuses steps 1-4 of ``_compute_log_qehvi`` into a single C++ call.
+    In the pure-Python path these steps are:
+
+    1. ``_log_improvement`` — log smoothed ReLU of (obj - cell_lower),
+    2. ``_smooth_min`` — smooth minimum over subset elements,
+    3. ``_log_cell_lengths`` — smooth minimum with log cell side lengths,
+    4. ``sum`` over objectives to get log areas.
+    """
+
+    @staticmethod
+    def forward(
+        ctx: torch.autograd.function.FunctionCtx,
+        obj_subsets: Tensor,
+        cell_lower: Tensor,
+        cell_upper: Tensor,
+        tau_relu: float,
+        tau_max: float,
+    ) -> Tensor:
+        batch_shape = obj_subsets.shape[:-3]
+        B = max(1, int(torch.Size(batch_shape).numel()))
+        obj_flat = obj_subsets.reshape(B, *obj_subsets.shape[-3:])
+
+        # Reshape cell bounds to 3-D (B_cells, nc, m) for the C++ kernel.
+        # Non-batched (2-D) bounds are left as-is; the kernel handles both.
+        nc, m_cells = cell_lower.shape[-2], cell_lower.shape[-1]
+        if cell_lower.ndim > 2:
+            cell_lower = cell_lower.reshape(-1, nc, m_cells)
+            cell_upper = cell_upper.reshape(-1, nc, m_cells)
+
+        result = _C.forward(obj_flat, cell_lower, cell_upper, tau_relu, tau_max)
+
+        ctx.save_for_backward(obj_flat, cell_lower, cell_upper)
+        ctx.tau_relu = tau_relu
+        ctx.tau_max = tau_max
+        ctx.orig_shape = obj_subsets.shape
+
+        return result.reshape(*batch_shape, result.shape[-2], result.shape[-1])
+
+    @staticmethod
+    def backward(
+        ctx: torch.autograd.function.FunctionCtx,
+        grad_output: Tensor,
+    ) -> tuple[Tensor | None, ...]:
+        obj_flat, cell_lower, cell_upper = ctx.saved_tensors
+        B = obj_flat.shape[0]
+
+        grad_flat = grad_output.reshape(B, *grad_output.shape[-2:])
+
+        grad_obj = _C.backward(
+            grad_flat,
+            obj_flat,
+            cell_lower,
+            cell_upper,
+            ctx.tau_relu,
+            ctx.tau_max,
+        )
+
+        # Gradients for: obj_subsets, cell_lower, cell_upper, tau_relu, tau_max.
+        # Only obj_subsets needs a gradient; the rest are non-differentiable.
+        return grad_obj.reshape(ctx.orig_shape), None, None, None, None
 
 
 class qLogExpectedHypervolumeImprovement(
@@ -142,9 +266,15 @@ class qLogExpectedHypervolumeImprovement(
         self.tau_relu = tau_relu
         self.tau_max = tau_max
         self.fat = fat
+        _try_load_fused_kernel()
 
     def _compute_log_qehvi(self, samples: Tensor, X: Tensor | None = None) -> Tensor:
         r"""Compute the expected (feasible) hypervolume improvement given MC samples.
+
+        When the fused C++ kernel is available and the cell bounds are not
+        batched (the common case for ``qLogEHVI``), steps 1-4 of the inner
+        loop are replaced by a single fused call for ~1.5-3x speedup on CPU.
+        Otherwise the pure-Python path is used.
 
         Args:
             samples: A ``sample_shape x batch_shape x q' x m``-dim tensor of samples.
@@ -181,29 +311,58 @@ class qLogExpectedHypervolumeImprovement(
             device=device,
         )
 
+        # The fused C++ kernel supports non-batched (qLogEHVI) and batched
+        # (qLogNEHVI, fully Bayesian) cell bounds, with fat=True on CPU.
+        # When obj has extra t-batch dims that broadcast against the cell
+        # bounds, we expand cell bounds to match before flattening.
         cell_batch_ndim = self.cell_lower_bounds.ndim - 2
-        # conditionally adding mc_samples dim if cell_batch_ndim > 0
-        # adding ones to shape equal in number to to batch_shape_ndim - cell_batch_ndim
-        # adding cell_bounds batch shape w/o 1st dimension
-        sample_batch_view_shape = torch.Size(
-            [
-                batch_shape[0] if cell_batch_ndim > 0 else 1,
-                *[1 for _ in range(len(batch_shape) - max(cell_batch_ndim, 1))],
-                *self.cell_lower_bounds.shape[1:-2],
-            ]
-        )
-        view_shape = (
-            *sample_batch_view_shape,
-            self.cell_upper_bounds.shape[-2],  # num_cells
-            1,  # adding for q_choose_i dimension
-            self.cell_upper_bounds.shape[-1],  # num_objectives
-        )
+        use_fused = _C is not None and self.fat and obj.device.type == "cpu"
+
+        if use_fused and cell_batch_ndim > 0:
+            # Expand cell bounds to match obj batch shape for 1:1 mapping.
+            # Insert 1-dims at t-batch positions, then expand + reshape to 3-D.
+            n_tbatch = len(batch_shape) - cell_batch_ndim
+            if n_tbatch > 0:
+                # cell shape: (mc, *model_batch, nc, m)
+                # target:     (mc, *t_batch, *model_batch, nc, m)
+                expand_shape = (
+                    self.cell_lower_bounds.shape[0],  # mc_samples
+                    *[1] * n_tbatch,  # 1s for t-batch dims
+                    *self.cell_lower_bounds.shape[1:],  # model_batch + nc + m
+                )
+                fused_cell_lower = self.cell_lower_bounds.view(expand_shape).expand(
+                    *batch_shape, *self.cell_lower_bounds.shape[-2:]
+                )
+                fused_cell_upper = self.cell_upper_bounds.view(expand_shape).expand(
+                    *batch_shape, *self.cell_upper_bounds.shape[-2:]
+                )
+            else:
+                fused_cell_lower = self.cell_lower_bounds
+                fused_cell_upper = self.cell_upper_bounds
+        elif use_fused:
+            fused_cell_lower = self.cell_lower_bounds
+            fused_cell_upper = self.cell_upper_bounds
+
+        if not use_fused:
+            # conditionally adding mc_samples dim if cell_batch_ndim > 0
+            # adding ones to shape equal in number to batch_shape_ndim -
+            # cell_batch_ndim
+            # adding cell_bounds batch shape w/o 1st dimension
+            sample_batch_view_shape = torch.Size(
+                [
+                    batch_shape[0] if cell_batch_ndim > 0 else 1,
+                    *[1 for _ in range(len(batch_shape) - max(cell_batch_ndim, 1))],
+                    *self.cell_lower_bounds.shape[1:-2],
+                ]
+            )
+            view_shape = (
+                *sample_batch_view_shape,
+                self.cell_upper_bounds.shape[-2],  # num_cells
+                1,  # adding for q_choose_i dimension
+                self.cell_upper_bounds.shape[-1],  # num_objectives
+            )
 
         for i in range(1, self.q_out + 1):
-            # TODO: we could use batches to compute (q choose i) and (q choose q-i)
-            # simultaneously since subsets of size i and q-i have the same number of
-            # elements. This would decrease the number of iterations, but increase
-            # memory usage.
             q_choose_i = q_subset_indices[f"q_choose_{i}"]  # q_choose_i x i
             # this tensor is mc_samples x batch_shape x i x q_choose_i x m
             obj_subsets = obj.index_select(dim=-2, index=q_choose_i.view(-1))
@@ -211,30 +370,33 @@ class qLogExpectedHypervolumeImprovement(
                 obj.shape[:-2] + q_choose_i.shape + obj.shape[-1:]
             )  # mc_samples x batch_shape x q_choose_i x i x m
 
-            # NOTE: the order of operations in non-log _compute_qehvi is 3), 1), 2).
-            # since 3) moved above 1), _log_improvement adds another Tensor dimension
-            # that keeps track of num_cells.
+            if use_fused:
+                # Fused C++ kernel: steps 1-4 in one pass.
+                # Input:  (*batch, n_subsets, i, m)
+                # Output: (*batch, num_cells, n_subsets)
+                log_areas_i = _FusedLogAreas.apply(
+                    obj_subsets,
+                    fused_cell_lower,
+                    fused_cell_upper,
+                    self.tau_relu,
+                    self.tau_max,
+                )
+            else:
+                # Pure-Python path (steps 1-4).
+                # 1) computes log smoothed improvement over cell lower bounds.
+                log_improvement_i = self._log_improvement(obj_subsets, view_shape)
 
-            # 1) computes log smoothed improvement over the cell lower bounds.
-            # mc_samples x batch_shape x num_cells x q_choose_i x i x m
-            log_improvement_i = self._log_improvement(obj_subsets, view_shape)
+                # 2) take the minimum log improvement over all i subsets.
+                log_improvement_i = self._smooth_min(
+                    log_improvement_i,
+                    dim=-2,
+                )
 
-            # 2) take the minimum log improvement over all i subsets.
-            # since all hyperrectangles share one vertex, the opposite vertex of the
-            # overlap is given by the component-wise minimum.
-            # negative of maximum of negative log_improvement is approximation to min.
-            log_improvement_i = self._smooth_min(
-                log_improvement_i,
-                dim=-2,
-            )  # mc_samples x batch_shape x num_cells x q_choose_i x m
+                # 3) compute the log lengths of the cells' sides.
+                log_lengths_i = self._log_cell_lengths(log_improvement_i, view_shape)
 
-            # 3) compute the log lengths of the cells' sides.
-            # mc_samples x batch_shape x num_cells x q_choose_i x m
-            log_lengths_i = self._log_cell_lengths(log_improvement_i, view_shape)
-
-            # 4) take product over hyperrectangle side lengths to compute area (m-dim).
-            # after, log_areas_i is mc_samples x batch_shape x num_cells x q_choose_i
-            log_areas_i = log_lengths_i.sum(dim=-1)  # areas_i = lengths_i.prod(dim=-1)
+                # 4) take product over hyperrectangle side lengths.
+                log_areas_i = log_lengths_i.sum(dim=-1)
 
             # 5) if constraints are present, apply a differentiable approximation of
             # the indicator function.
@@ -250,8 +412,6 @@ class qLogExpectedHypervolumeImprovement(
 
             # 7) Using the inclusion-exclusion principle, set the sign to be positive
             # for subsets of odd sizes and negative for subsets of even size
-            # in non-log space: areas_per_segment += (-1) ** (i + 1) * areas_i,
-            # but here in log space, we need to keep track of sign:
             log_areas_per_segment[..., i % 2] = logplusexp(
                 log_areas_per_segment[..., i % 2],
                 log_areas_i,
@@ -439,6 +599,7 @@ class qLogNoisyExpectedHypervolumeImprovement(
         self.tau_relu = tau_relu
         self.tau_max = tau_max
         self.fat = fat
+        _try_load_fused_kernel()
 
     @t_batch_mode_transform()
     @average_over_ensemble_models

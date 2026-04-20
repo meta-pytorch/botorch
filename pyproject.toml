@@ -32,6 +32,7 @@ dependencies = [
     "scipy",
     "multipledispatch",
     "threadpoolctl",
+    "ninja",
 ]
 
 [project.optional-dependencies]
@@ -78,6 +79,7 @@ Repository = "https://github.com/meta-pytorch/botorch"
 
 [tool.setuptools]
 packages.find.exclude = ["test", "test.*", "test_community.*"]
+package-data.botorch = ["csrc/*.cpp"]
 
 [tool.setuptools_scm]
 local_scheme = "node-and-date"
