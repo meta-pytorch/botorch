@@ -59,12 +59,22 @@ class BetaPrior(Prior, Beta):
             )
         self._transform = transform
 
-    def _load_from_state_dict(self, state_dict, prefix, *args, **kwargs):
-        super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
-        # Sync buffered values back into the underlying Dirichlet distribution.
+    def _update_dirichlet_concentration(self) -> None:
+        """
+        Sync buffered values back into the underlying Dirichlet distribution.
+        """
         c1 = getattr(self, f"{BUFFERED_PREFIX}concentration1")
         c0 = getattr(self, f"{BUFFERED_PREFIX}concentration0")
         self._dirichlet.concentration = torch.stack([c1, c0], dim=-1)
+
+    def _apply(self, fn: Callable):
+        to_return = super()._apply(fn)
+        self._update_dirichlet_concentration()
+        return to_return
+
+    def _load_from_state_dict(self, state_dict, prefix, *args, **kwargs):
+        super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
+        self._update_dirichlet_concentration()
 
     def expand(self, batch_shape: torch.Size) -> "BetaPrior":
         batch_shape = torch.Size(batch_shape)
