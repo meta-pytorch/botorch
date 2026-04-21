@@ -99,6 +99,14 @@ Heterogeneous Search Space Multitask GP Models
 .. automodule:: botorch.models.heterogeneous_mtgp
     :members:
 
+Hierarchical Search Space GP Models
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.. automodule:: botorch.models.hierarchical.conditional_kernel_gp
+    :members:
+
+.. automodule:: botorch.models.hierarchical.utils
+    :members:
+
 Multi-Fidelity GP Regression Models
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 .. automodule:: botorch.models.gp_regression_fidelity
