@@ -114,6 +114,11 @@ Relevance Pursuit Models
 .. automodule:: botorch.models.relevance_pursuit
     :members:
 
+Target-Aware GP Models
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.. automodule:: botorch.models.target_aware_gp
+    :members:
+
 Sparse Axis-Aligned Subspaces (SAAS) GP Models
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 .. automodule:: botorch.models.map_saas
