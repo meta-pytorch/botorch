@@ -542,6 +542,46 @@ class MultiTaskDataset(SupervisedDataset):
             and self.task_feature_index == other.task_feature_index
         )
 
+    def get_heterogeneous_feature_mapping(
+        self,
+    ) -> tuple[list["SupervisedDataset"], list[list[int]], int]:
+        """Compute canonical feature ordering for heterogeneous datasets.
+
+        Target features come first (preserving order), then source-only
+        features are appended. The task column (at ``task_feature_index``)
+        is excluded from the mapping.
+
+        Returns:
+            A 3-tuple of:
+            - Ordered datasets (target first, then sources).
+            - Feature indices mapping each dataset's non-task features
+              to the canonical ordering.
+            - Full feature dimensionality (number of unique non-task features).
+
+        Raises:
+            NotImplementedError: If ``task_feature_index`` is not ``-1``.
+        """
+        if self.task_feature_index != -1:
+            raise NotImplementedError(
+                "Heterogeneous feature mapping requires `task_feature_index` to be -1."
+            )
+        child_datasets = self.datasets.copy()
+        target_dataset = child_datasets.pop(self.target_outcome_name)
+        all_datasets = [target_dataset] + list(child_datasets.values())
+
+        # Target's feature order is canonical; source-only features appended.
+        all_features: list[str] = list(target_dataset.feature_names[:-1])
+        for ds in all_datasets[1:]:
+            for fn in ds.feature_names[:-1]:
+                if fn not in all_features:
+                    all_features.append(fn)
+
+        feature_indices = [
+            [all_features.index(fn) for fn in ds.feature_names[:-1]]
+            for ds in all_datasets
+        ]
+        return all_datasets, feature_indices, len(all_features)
+
     def clone(
         self, deepcopy: bool = False, mask: Tensor | None = None
     ) -> MultiTaskDataset:
