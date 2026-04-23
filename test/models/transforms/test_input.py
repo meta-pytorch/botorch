@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import itertools
+import warnings
 from abc import ABC
 from copy import deepcopy
 from functools import partial
@@ -24,6 +25,7 @@ from botorch.models.transforms.input import (
     InputStandardize,
     InputTransform,
     InteractionFeatures,
+    LearnedFeatureImputation,
     Log10,
     Normalize,
     NumericToCategoricalEncoding,
@@ -1632,6 +1634,355 @@ class TestInputTransforms(BotorchTestCase):
             dim=dim, categorical_features={}, transform_on_train=False
         )
         self.assertFalse(tf3.equals(tf2))
+
+    def test_learned_feature_imputation(self) -> None:
+        with self.subTest("public_import"):
+            from botorch.models.transforms import LearnedFeatureImputation as _LFI
+
+            self.assertIs(_LFI, LearnedFeatureImputation)
+
+        # Setup: 2 tasks, 4 features total.
+        # Task 0 observes features [0, 1, 2], task 1 observes [0, 1, 3].
+        feature_indices = {0: [0, 1, 2], 1: [0, 1, 3]}
+        d = 4
+
+        for dtype in (torch.float, torch.double):
+            tkwargs = {"device": self.device, "dtype": dtype}
+
+            with self.subTest("init", dtype=dtype):
+                tf = LearnedFeatureImputation(
+                    feature_indices=feature_indices,
+                    d=d,
+                    task_feature_index=-1,
+                    **tkwargs,
+                )
+                self.assertEqual(tf.num_tasks, 2)
+                self.assertEqual(tf.raw_imputation_values.shape, torch.Size([2, d + 1]))
+                # missing_mask: shape (num_tasks, d+1), task col always False.
+                self.assertTrue(tf.missing_mask[0, 3].item())
+                self.assertFalse(tf.missing_mask[0, 0].item())
+                self.assertTrue(tf.missing_mask[1, 2].item())
+                self.assertFalse(tf.missing_mask[:, d].any().item())
+
+            with self.subTest("transform_correctness", dtype=dtype):
+                tf = LearnedFeatureImputation(
+                    feature_indices=feature_indices,
+                    d=d,
+                    **tkwargs,
+                )
+                tf.raw_imputation_values.data = torch.tensor(
+                    [
+                        [0.0, 0.0, 0.0, 0.5, 0.0],
+                        [0.0, 0.0, 0.7, 0.0, 0.0],
+                    ],
+                    **tkwargs,
+                )
+                X = torch.tensor(
+                    [
+                        [1.0, 2.0, 3.0, 9.0, 0.0],  # task 0, feat 3 is junk
+                        [4.0, 5.0, 6.0, 9.0, 0.0],  # task 0
+                        [7.0, 8.0, 9.0, 9.0, 1.0],  # task 1, feat 2 is junk
+                        [0.1, 0.2, 9.0, 0.4, 1.0],  # task 1
+                    ],
+                    **tkwargs,
+                )
+                X_tf = tf(X)
+                # Task 0: features 0-2 unchanged, feat 3 imputed.
+                self.assertEqual(X_tf[0, :3].tolist(), [1.0, 2.0, 3.0])
+                self.assertAlmostEqual(X_tf[0, 3].item(), 0.5)
+                self.assertAlmostEqual(X_tf[1, 3].item(), 0.5)
+                # Task 1: features 0,1,3 unchanged, feat 2 imputed.
+                self.assertAlmostEqual(X_tf[2, 2].item(), 0.7)
+                self.assertAlmostEqual(X_tf[3, 2].item(), 0.7)
+                self.assertEqual(X_tf[2, 3].item(), 9.0)
+                # Task column unchanged, original X unmodified.
+                self.assertTrue(torch.equal(X_tf[:, -1], X[:, -1]))
+                self.assertEqual(X[0, 3].item(), 9.0)
+
+                # Batch: same transform works with leading batch dim.
+                X_batch = X[:3].unsqueeze(0).expand(2, -1, -1).clone()
+                X_tf_batch = tf(X_batch)
+                self.assertEqual(X_tf_batch.shape, X_batch.shape)
+                self.assertAlmostEqual(X_tf_batch[0, 0, 3].item(), 0.5)
+                self.assertAlmostEqual(X_tf_batch[1, 2, 2].item(), 0.7)
+
+            with self.subTest("task_feature_index_not_last_raises", dtype=dtype):
+                with self.assertRaisesRegex(ValueError, "task_feature_index=-1"):
+                    LearnedFeatureImputation(
+                        feature_indices={0: [1, 2], 1: [1]},
+                        d=2,
+                        task_feature_index=0,
+                        **tkwargs,
+                    )
+
+            with self.subTest("train_eval_modes", dtype=dtype):
+                tf = LearnedFeatureImputation(
+                    feature_indices={0: [0], 1: [1]},
+                    d=2,
+                    transform_on_train=True,
+                    transform_on_eval=False,
+                    **tkwargs,
+                )
+                X_simple = torch.tensor(
+                    [[1.0, 9.0, 0.0], [9.0, 2.0, 1.0]],
+                    **tkwargs,
+                )
+                tf.train()
+                self.assertAlmostEqual(tf(X_simple)[0, 1].item(), 0.0)
+                tf.eval()
+                self.assertEqual(tf(X_simple)[0, 1].item(), 9.0)
+
+            with self.subTest("gradient_flow", dtype=dtype):
+                tf = LearnedFeatureImputation(
+                    feature_indices={0: [0, 1], 1: [0]},
+                    d=2,
+                    **tkwargs,
+                )
+                X_grad = torch.tensor(
+                    [[1.0, 2.0, 0.0], [3.0, 9.0, 1.0]],
+                    **tkwargs,
+                )
+                tf.train()
+                tf(X_grad).sum().backward()
+                grad = tf.raw_imputation_values.grad
+                self.assertIsNotNone(grad)
+                self.assertNotEqual(grad[1, 1].item(), 0.0)
+                # Task 0 observes both features → no imputation → no grad.
+                self.assertEqual(grad[0, 0].item(), 0.0)
+                self.assertEqual(grad[0, 1].item(), 0.0)
+
+            with self.subTest("untransform_raises", dtype=dtype):
+                tf = LearnedFeatureImputation(feature_indices={0: [0]}, d=1, **tkwargs)
+                with self.assertRaises(NotImplementedError):
+                    tf.untransform(torch.zeros(1, 2, **tkwargs))
+
+            with self.subTest("task_col_overlap_raises", dtype=dtype):
+                with self.assertRaisesRegex(ValueError, "task column index"):
+                    LearnedFeatureImputation(
+                        feature_indices={0: [0, 1, 2]}, d=2, **tkwargs
+                    )
+
+            with self.subTest("asymmetric_feature_counts", dtype=dtype):
+                tf = LearnedFeatureImputation(
+                    feature_indices={0: [0, 1, 2], 1: [0, 1, 3, 4]},
+                    d=5,
+                    **tkwargs,
+                )
+                tf.raw_imputation_values.data = torch.tensor(
+                    [
+                        [0.0, 0.0, 0.0, 0.5, 0.6, 0.0],
+                        [0.0, 0.0, 0.7, 0.0, 0.0, 0.0],
+                    ],
+                    **tkwargs,
+                )
+                # Imputation with asymmetric observed feature counts.
+                X_full = torch.tensor([[1.0, 2.0, 3.0, 9.0, 9.0, 0.0]], **tkwargs)
+                X_tf = tf(X_full)
+                self.assertAlmostEqual(X_tf[0, 3].item(), 0.5)
+                self.assertAlmostEqual(X_tf[0, 4].item(), 0.6)
+
+            with self.subTest("bounds", dtype=dtype):
+                # Unit bounds: no warning.
+                unit_bounds = torch.stack(
+                    [torch.zeros(d, **tkwargs), torch.ones(d, **tkwargs)]
+                )
+                with warnings.catch_warnings(record=True) as caught:
+                    warnings.simplefilter("always")
+                    tf = LearnedFeatureImputation(
+                        feature_indices=feature_indices,
+                        d=d,
+                        bounds=unit_bounds,
+                        **tkwargs,
+                    )
+                self.assertEqual(
+                    [w for w in caught if issubclass(w.category, UserInputWarning)],
+                    [],
+                )
+                self.assertIsNotNone(tf.bounds)
+
+                # Non-unit bounds: warning.
+                non_unit = torch.stack(
+                    [torch.zeros(d, **tkwargs), 2 * torch.ones(d, **tkwargs)]
+                )
+                with self.assertWarnsRegex(UserInputWarning, "Non-default bounds"):
+                    LearnedFeatureImputation(
+                        feature_indices=feature_indices,
+                        d=d,
+                        bounds=non_unit,
+                        **tkwargs,
+                    )
+
+                # Shape validation.
+                with self.assertRaisesRegex(ValueError, "bounds must have shape"):
+                    LearnedFeatureImputation(
+                        feature_indices=feature_indices,
+                        d=d,
+                        bounds=torch.ones(2, d + 1, **tkwargs),
+                        **tkwargs,
+                    )
+
+                # Interval constraint: raw=0 → sigmoid(0)=0.5 → midpoint.
+                bounds = torch.tensor(
+                    [[0.0, 0.0, 1.0, 2.0], [1.0, 1.0, 3.0, 4.0]], **tkwargs
+                )
+                with self.assertWarns(UserInputWarning):
+                    tf = LearnedFeatureImputation(
+                        feature_indices=feature_indices,
+                        d=d,
+                        bounds=bounds,
+                        **tkwargs,
+                    )
+                # Imputation values have shape (num_tasks, d+1). Feature cols
+                # 0..d-1 are constrained; task col d has dummy [0,1] constraint.
+                expected_features = bounds[0] + (bounds[1] - bounds[0]) * 0.5
+                imp = tf.imputation_values
+                self.assertTrue(
+                    torch.allclose(imp[:, :d], expected_features.expand(2, d))
+                )
+
+                # Gradient flows through constraint.
+                tf_g = LearnedFeatureImputation(
+                    feature_indices={0: [0, 1], 1: [0]},
+                    d=2,
+                    bounds=torch.stack(
+                        [torch.zeros(2, **tkwargs), torch.ones(2, **tkwargs)]
+                    ),
+                    **tkwargs,
+                )
+                tf_g.train()
+                tf_g(
+                    torch.tensor([[1.0, 2.0, 0.0], [3.0, 9.0, 1.0]], **tkwargs)
+                ).sum().backward()
+                self.assertNotEqual(tf_g.raw_imputation_values.grad[1, 1].item(), 0.0)
+
+            with self.subTest("three_tasks", dtype=dtype):
+                tf = LearnedFeatureImputation(
+                    feature_indices={0: [0, 1], 1: [1, 2], 2: [0, 2]},
+                    d=3,
+                    **tkwargs,
+                )
+                tf.raw_imputation_values.data = torch.tensor(
+                    [
+                        [0.0, 0.0, 0.3, 0.0],
+                        [0.4, 0.0, 0.0, 0.0],
+                        [0.0, 0.5, 0.0, 0.0],
+                    ],
+                    **tkwargs,
+                )
+                X_three_tasks = torch.tensor(
+                    [
+                        [1.0, 2.0, 9.0, 0.0],
+                        [9.0, 3.0, 4.0, 1.0],
+                        [5.0, 9.0, 6.0, 2.0],
+                    ],
+                    **tkwargs,
+                )
+                X_tf = tf(X_three_tasks)
+                self.assertAlmostEqual(X_tf[0, 2].item(), 0.3)
+                self.assertAlmostEqual(X_tf[1, 0].item(), 0.4)
+                self.assertAlmostEqual(X_tf[2, 1].item(), 0.5)
+
+            with self.subTest("non_contiguous_task_values", dtype=dtype):
+                tf = LearnedFeatureImputation(
+                    feature_indices={5: [0, 1, 2], 12: [0, 1, 3]},
+                    d=d,
+                    **tkwargs,
+                )
+                self.assertTrue(
+                    torch.equal(
+                        tf._task_values,
+                        torch.tensor([5, 12], dtype=torch.long),
+                    )
+                )
+                tf.raw_imputation_values.data = torch.tensor(
+                    [[0.0, 0.0, 0.0, 0.5, 0.0], [0.0, 0.0, 0.7, 0.0, 0.0]],
+                    **tkwargs,
+                )
+                X_noncontig = torch.tensor(
+                    [
+                        [1.0, 2.0, 3.0, 9.0, 5.0],
+                        [7.0, 8.0, 9.0, 9.0, 12.0],
+                    ],
+                    **tkwargs,
+                )
+                X_tf = tf(X_noncontig)
+                self.assertAlmostEqual(X_tf[0, 3].item(), 0.5)
+                self.assertAlmostEqual(X_tf[1, 2].item(), 0.7)
+                self.assertTrue(torch.equal(X_tf[:, -1], X_noncontig[:, -1]))
+
+            with self.subTest("batch_dim", dtype=dtype):
+                tf = LearnedFeatureImputation(
+                    feature_indices=feature_indices,
+                    d=d,
+                    **tkwargs,
+                )
+                tf.raw_imputation_values.data = torch.tensor(
+                    [[0.0, 0.0, 0.0, 0.5, 0.0], [0.0, 0.0, 0.7, 0.0, 0.0]],
+                    **tkwargs,
+                )
+                X_batch = torch.tensor(
+                    [
+                        [[1.0, 2.0, 3.0, 9.0, 0.0], [7.0, 8.0, 9.0, 9.0, 1.0]],
+                        [[0.1, 0.2, 0.3, 9.0, 0.0], [0.4, 0.5, 9.0, 0.6, 1.0]],
+                    ],
+                    **tkwargs,
+                )
+                X_tf = tf(X_batch)
+                self.assertEqual(X_tf.shape, torch.Size([2, 2, 5]))
+                self.assertAlmostEqual(X_tf[0, 0, 3].item(), 0.5)
+                self.assertAlmostEqual(X_tf[1, 1, 2].item(), 0.7)
+
+            with self.subTest("d_dim_input_with_target_task", dtype=dtype):
+                tf = LearnedFeatureImputation(
+                    feature_indices=feature_indices,
+                    d=d,
+                    target_task=0,
+                    **tkwargs,
+                )
+                tf.raw_imputation_values.data = torch.tensor(
+                    [[0.0, 0.0, 0.0, 0.5, 0.0], [0.0, 0.0, 0.7, 0.0, 0.0]],
+                    **tkwargs,
+                )
+                X_no_task = torch.tensor(
+                    [[1.0, 2.0, 3.0, 9.0], [4.0, 5.0, 6.0, 9.0]],
+                    **tkwargs,
+                )
+                X_tf = tf(X_no_task)
+                self.assertEqual(X_tf.shape[-1], d + 1)
+                self.assertAlmostEqual(X_tf[0, 3].item(), 0.5)
+                self.assertAlmostEqual(X_tf[1, 3].item(), 0.5)
+                self.assertTrue((X_tf[:, -1] == 0).all())
+
+            with self.subTest("d_dim_input_without_target_task_raises", dtype=dtype):
+                tf = LearnedFeatureImputation(
+                    feature_indices=feature_indices,
+                    d=d,
+                    **tkwargs,
+                )
+                X_no_task = torch.tensor(
+                    [[1.0, 2.0, 3.0, 9.0]],
+                    **tkwargs,
+                )
+                with self.assertRaisesRegex(ValueError, "target_task"):
+                    tf(X_no_task)
+
+            with self.subTest("target_task_not_in_feature_indices_raises", dtype=dtype):
+                with self.assertRaisesRegex(ValueError, "target_task=99"):
+                    LearnedFeatureImputation(
+                        feature_indices=feature_indices,
+                        d=d,
+                        target_task=99,
+                        **tkwargs,
+                    )
+
+            with self.subTest("wrong_x_dim_raises", dtype=dtype):
+                tf = LearnedFeatureImputation(
+                    feature_indices=feature_indices,
+                    d=d,
+                    **tkwargs,
+                )
+                with self.assertRaisesRegex(ValueError, "Expected X.shape"):
+                    tf(torch.zeros(2, d + 3, **tkwargs))
 
 
 class TestAppendFeatures(BotorchTestCase):
