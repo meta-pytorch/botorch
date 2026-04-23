@@ -486,6 +486,7 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
         task_covar_prior: Prior | _DefaultType | None = DEFAULT,
         prior_config: dict | None = None,
         rank: int | None = None,
+        map_heterogeneous_to_full: bool = False,
     ) -> dict[str, Any]:
         r"""Construct ``Model`` keyword arguments from a dataset and other args.
 
@@ -503,6 +504,13 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
                 Must contain ``use_LKJ_prior`` indicator and should contain float
                 value ``eta``.
             rank: The rank of the cross-task covariance matrix.
+            map_heterogeneous_to_full: If True and ``training_data`` is a
+                ``MultiTaskDataset`` with heterogeneous features, zero-pad each
+                task's features into the union feature space and concatenate into
+                a single ``train_X`` tensor. The zero-padded entries are intended
+                to be overwritten by a ``LearnedFeatureImputation`` input
+                transform. If False (default), heterogeneous features will raise
+                ``UnsupportedError`` via ``training_data.X``.
         """
         if (
             task_covar_prior is not DEFAULT
@@ -524,6 +532,50 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
             if not isinstance(eta, float) and not isinstance(eta, int):
                 raise ValueError(f"eta must be a real number, your eta was {eta}.")
             task_covar_prior = LKJCovariancePrior(num_tasks, eta, sd_prior)
+
+        # Handle heterogeneous MultiTaskDataset by zero-padding into the union
+        # feature space. This branch bypasses super().construct_inputs() since
+        # training_data.X would raise UnsupportedError.
+        if (
+            map_heterogeneous_to_full
+            and isinstance(training_data, MultiTaskDataset)
+            and training_data.has_heterogeneous_features
+        ):
+            all_datasets, feature_indices, full_feature_dim = (
+                training_data.get_heterogeneous_feature_mapping()
+            )
+
+            # Zero-pad each task's X into the full feature space + task column.
+            all_Xs = []
+            for task_idx, (ds, fi) in enumerate(
+                zip(all_datasets, feature_indices, strict=True)
+            ):
+                X_task = ds.X[..., :-1]  # strip task feature column
+                X_full = torch.zeros(
+                    *X_task.shape[:-1],
+                    full_feature_dim + 1,
+                    dtype=X_task.dtype,
+                    device=X_task.device,
+                )
+                X_full[..., fi] = X_task
+                X_full[..., -1] = task_idx
+                all_Xs.append(X_full)
+
+            all_Yvars = [ds.Yvar for ds in all_datasets]
+            base_inputs: dict[str, Any] = {
+                "train_X": torch.cat(all_Xs, dim=0),
+                "train_Y": torch.cat([ds.Y for ds in all_datasets], dim=0),
+            }
+            if all_Yvars[0] is not None:
+                base_inputs["train_Yvar"] = torch.cat(all_Yvars, dim=0)
+            base_inputs["task_feature"] = -1
+            base_inputs["all_tasks"] = list(range(len(all_datasets)))
+            base_inputs["output_tasks"] = output_tasks
+            if task_covar_prior is not DEFAULT:
+                base_inputs["task_covar_prior"] = task_covar_prior
+            if rank is not None:
+                base_inputs["rank"] = rank
+            return base_inputs
 
         # Call Model.construct_inputs to parse training data
         base_inputs = super().construct_inputs(training_data=training_data)
