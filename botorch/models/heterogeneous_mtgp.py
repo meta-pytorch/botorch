@@ -295,25 +295,13 @@ class HeterogeneousMTGP(MultiTaskGP):
                 "Heterogeneous MTGP currently only supports output_tasks=[0]. "
                 "The target task will be given the task value of 0."
             )
-        child_datasets = training_data.datasets.copy()
-        target_dataset = child_datasets.pop(training_data.target_outcome_name)
-        all_datasets = [target_dataset] + list(child_datasets.values())
-        # Use target's feature order as canonical (NO alphabetical sort).
-        # Source-only features are appended at the end.
-        all_features: list[str] = list(target_dataset.feature_names[:-1])
-        for ds in all_datasets[1:]:
-            for fn in ds.feature_names[:-1]:
-                if fn not in all_features:
-                    all_features.append(fn)
-        # Get indices mapping the features from a given dataset to all features.
-        feature_indices = [
-            [all_features.index(fn) for fn in ds.feature_names[:-1]]
-            for ds in all_datasets
-        ]
+        all_datasets, feature_indices, full_feature_dim = (
+            training_data.get_heterogeneous_feature_mapping()
+        )
         Xs = [ds.X[..., :-1] for ds in all_datasets]
         Ys = [ds.Y for ds in all_datasets]
         Yvars = (
-            None if target_dataset.Yvar is None else [ds.Yvar for ds in all_datasets]
+            None if all_datasets[0].Yvar is None else [ds.Yvar for ds in all_datasets]
         )
         all_tasks = list(range(len(all_datasets)))
         return {
@@ -321,7 +309,7 @@ class HeterogeneousMTGP(MultiTaskGP):
             "train_Ys": Ys,
             "train_Yvars": Yvars,
             "feature_indices": feature_indices,
-            "full_feature_dim": len(all_features),
+            "full_feature_dim": full_feature_dim,
             "rank": rank,
             "use_saas_prior": use_saas_prior,
             "use_combinatorial_kernel": use_combinatorial_kernel,
