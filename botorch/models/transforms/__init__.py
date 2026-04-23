@@ -7,6 +7,7 @@
 from botorch.models.transforms.factory import get_rounding_input_transform
 from botorch.models.transforms.input import (
     ChainedInputTransform,
+    LearnedFeatureImputation,
     Normalize,
     Round,
     Warp,
@@ -25,6 +26,7 @@ __all__ = [
     "Bilog",
     "ChainedInputTransform",
     "ChainedOutcomeTransform",
+    "LearnedFeatureImputation",
     "Log",
     "Normalize",
     "Power",

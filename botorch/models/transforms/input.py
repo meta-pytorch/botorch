@@ -35,7 +35,7 @@ from botorch.models.transforms.utils import (
 from botorch.models.utils import fantasize
 from botorch.utils.rounding import approximate_round, OneHotArgmaxSTE, RoundSTE
 from gpytorch import Module as GPyTorchModule
-from gpytorch.constraints import GreaterThan
+from gpytorch.constraints import GreaterThan, Interval
 from gpytorch.priors import Prior
 from torch import LongTensor, nn, Tensor
 from torch.nn import Module, ModuleDict
@@ -1915,3 +1915,222 @@ class OneHotToNumeric(InputTransform):
             and (self.transform_on_fantasize == other.transform_on_fantasize)
             and self.categorical_features == other.categorical_features
         )
+
+
+class LearnedFeatureImputation(InputTransform, GPyTorchModule):
+    r"""An input transform that learns imputation values for missing features
+    in heterogeneous multi-task settings.
+
+    In multi-task problems where different tasks observe different subsets of
+    features, this transform fills in the unobserved feature columns with
+    learned parameter values. This enables using a standard ``MultiTaskGP``
+    with composable input transforms instead of specialized model classes.
+
+    The input tensor ``X`` is expected to have shape ``batch_shape x n x (d+1)``,
+    where the column at ``task_feature_index`` contains the task identifier.
+    For each task, feature columns not listed in ``feature_indices[task_value]``
+    are replaced with the corresponding learned imputation values. Task values
+    need not be contiguous or 0-indexed.
+    """
+
+    def __init__(
+        self,
+        feature_indices: dict[int, list[int]],
+        d: int,
+        task_feature_index: int = -1,
+        target_task: int | None = None,
+        bounds: Tensor | None = None,
+        transform_on_train: bool = True,
+        transform_on_eval: bool = True,
+        transform_on_fantasize: bool = True,
+        dtype: torch.dtype = torch.float64,
+        device: torch.device | None = None,
+    ) -> None:
+        r"""Initialize LearnedFeatureImputation.
+
+        Args:
+            feature_indices: A mapping from integer task values (as they appear
+                in the task column of ``X``) to lists of observed X-column
+                indices for that task. Indices refer directly to columns of the
+                input tensor ``X`` and must not include the task column. When
+                ``task_feature_index=-1`` (the common case), the ``d`` feature
+                columns are ``0, 1, ..., d-1``. Task values need not be
+                contiguous or 0-indexed.
+            d: The total number of feature columns (excluding the task column).
+            task_feature_index: The column index in ``X`` that contains the
+                task identifier. Must be ``-1`` (last column). Defaults to ``-1``.
+            target_task: The task identifier to use when ``X`` has ``d``
+                columns (no task column). Required for d-dim inputs since the
+                task cannot be inferred from shape alone — two tasks may share
+                the same number of active dimensions. Must be a key in
+                ``feature_indices``. If ``None``, only ``(d+1)``-dim inputs
+                are supported.
+            bounds: A ``2 x d`` tensor of ``[lower, upper]`` bounds for each
+                feature. If provided, imputation values are constrained to lie
+                within these bounds via a GPyTorch ``Interval`` constraint.
+                Defaults to ``None`` (unconstrained). This transform is designed
+                to operate on normalized inputs; if bounds differ from
+                ``[0, 1]^d``, a warning is emitted suggesting to chain
+                ``Normalize`` before this transform.
+            transform_on_train: If ``True``, apply the transform in train mode.
+            transform_on_eval: If ``True``, apply the transform in eval mode.
+            transform_on_fantasize: If ``True``, apply the transform inside
+                ``fantasize`` calls.
+            dtype: The dtype for the imputation parameters.
+            device: The device for the imputation parameters.
+        """
+        super().__init__()
+        self.transform_on_train = transform_on_train
+        self.transform_on_eval = transform_on_eval
+        self.transform_on_fantasize = transform_on_fantasize
+
+        if target_task is not None and target_task not in feature_indices:
+            raise ValueError(
+                f"target_task={target_task} is not a key in feature_indices. "
+                f"Available tasks: {sorted(feature_indices.keys())}."
+            )
+        self.target_task = target_task
+
+        if task_feature_index != -1:
+            raise ValueError(
+                "LearnedFeatureImputation requires task_feature_index=-1 "
+                "(task column last). Different tasks may have different "
+                "feature counts, so a fixed non-last position is ambiguous."
+            )
+
+        task_values_sorted = sorted(feature_indices.keys())
+        self.num_tasks = len(task_values_sorted)
+        self.d = d
+
+        # Sorted task identifiers as they appear in the task column of X.
+        self.register_buffer(
+            "_task_values",
+            torch.tensor(task_values_sorted, dtype=torch.long, device=device),
+        )
+
+        if bounds is not None:
+            if bounds.shape != (2, d):
+                raise ValueError(f"bounds must have shape (2, {d}), got {bounds.shape}")
+            bounds = bounds.to(dtype=dtype, device=device)
+            if not ((bounds[0] == 0).all() and (bounds[1] == 1).all()):
+                warn(
+                    "Non-default bounds passed to LearnedFeatureImputation. "
+                    "This transform expects normalized [0, 1] inputs -- chain "
+                    "Normalize before this transform so that the default "
+                    "bounds=[0, 1]^d are appropriate.",
+                    UserInputWarning,
+                    stacklevel=2,
+                )
+            self.register_buffer("bounds", bounds)
+        else:
+            self.register_buffer("bounds", None)
+
+        # Validate that no feature index overlaps with the task column.
+        for task_value, feat_cols in feature_indices.items():
+            if d in feat_cols:
+                raise ValueError(
+                    f"feature_indices[{task_value}] contains the task column "
+                    f"index {d}. Feature indices must not include the "
+                    f"task column."
+                )
+
+        missing_mask = torch.ones(
+            self.num_tasks, d + 1, dtype=torch.bool, device=device
+        )
+        missing_mask[:, -1] = False
+        for task_pos, task_value in enumerate(task_values_sorted):
+            missing_mask[task_pos, feature_indices[task_value]] = False
+        self.register_buffer("missing_mask", missing_mask)
+
+        # Learnable imputation values, shape (num_tasks, d+1). The task column
+        # slot is unused but kept for index alignment with X columns.
+        self.register_parameter(
+            "raw_imputation_values",
+            nn.Parameter(
+                torch.zeros(self.num_tasks, d + 1, dtype=dtype, device=device)
+            ),
+        )
+        if bounds is not None:
+            # Pad bounds with dummy [0, 1] for the task column so the Interval
+            # constraint has shape (d+1,) matching raw_imputation_values.
+            padded_lower = torch.zeros(d + 1, dtype=dtype, device=device)
+            padded_upper = torch.ones(d + 1, dtype=dtype, device=device)
+            padded_lower[:d] = bounds[0]
+            padded_upper[:d] = bounds[1]
+            self.register_constraint(
+                "raw_imputation_values",
+                Interval(
+                    lower_bound=padded_lower,
+                    upper_bound=padded_upper,
+                ),
+            )
+
+    @property
+    def imputation_values(self) -> Tensor:
+        r"""The imputation values, mapped through the Interval constraint when
+        bounds are present, or the raw values otherwise."""
+        if self.bounds is not None:
+            return self.raw_imputation_values_constraint.transform(
+                self.raw_imputation_values
+            )
+        return self.raw_imputation_values
+
+    def transform(self, X: Tensor) -> Tensor:
+        r"""Impute missing features with learned values.
+
+        Args:
+            X: A ``batch_shape x n x (d+1)``-dim tensor of inputs where the
+                last column contains integer task identifiers, or a
+                ``batch_shape x n x d``-dim tensor when ``target_task`` was
+                configured at init (the task column is appended automatically).
+
+        Returns:
+            A ``batch_shape x n x (d+1)``-dim tensor with missing features
+            replaced by learned imputation values.
+        """
+        x_dim = X.shape[-1]
+        if x_dim == self.d:
+            if self.target_task is None:
+                raise ValueError(
+                    f"Received d-dim input (X.shape[-1]={self.d}) but no "
+                    "target_task was configured. When X lacks a task column, "
+                    "target_task must be specified at init so the transform "
+                    "knows which task's imputation pattern to apply."
+                )
+            task_col = torch.full(
+                X.shape[:-1] + (1,),
+                self.target_task,
+                dtype=X.dtype,
+                device=X.device,
+            )
+            X = torch.cat([X, task_col], dim=-1)
+        elif x_dim != self.d + 1:
+            raise ValueError(
+                f"Expected X.shape[-1] to be {self.d} (no task column) or "
+                f"{self.d + 1} (with task column), got {x_dim}."
+            )
+
+        X_new = X.clone()
+
+        task_ids = X_new[..., -1].long()
+        imputation_vals = self.imputation_values
+
+        # For each task, replace unobserved feature columns with learned values.
+        # torch.where with task_mask ensures rows belonging to other tasks are
+        # left untouched, even if the same column is observed for those tasks.
+        for task_pos in range(self.num_tasks):
+            task_value = self._task_values[task_pos]
+            task_mask = task_ids == task_value
+            if not task_mask.any():
+                continue
+            missing_cols = (
+                self.missing_mask[task_pos].nonzero(as_tuple=False).squeeze(-1)
+            )
+            if missing_cols.numel() == 0:
+                continue
+            X_new[..., missing_cols] = torch.where(
+                task_mask.unsqueeze(-1),
+                imputation_vals[task_pos, missing_cols],
+                X_new[..., missing_cols],
+            )
+        return X_new
