@@ -1612,7 +1612,8 @@ class TestOptimizeAcqfMixed(BotorchTestCase):
         self.assertAllClose(X[..., all_integer_dims], X[..., all_integer_dims].round())
 
     def test_setup_continuous_relaxation_excludes_constrained_dims(self) -> None:
-        """Test that _setup_continuous_relaxation keeps constrained discrete dims."""
+        """Test that _setup_continuous_relaxation keeps constrained discrete dims
+        when constraints are passed to it."""
         for dtype in (torch.float, torch.double):
             # Setup: 3 discrete dimensions
             # - Dim 0: Low cardinality (2 values) - kept regardless
@@ -1632,7 +1633,6 @@ class TestOptimizeAcqfMixed(BotorchTestCase):
                     10.0,
                 )
             ]
-            # Execute: call _setup_continuous_relaxation
             dims_kept, post_processing_func = _setup_continuous_relaxation(
                 discrete_dims=discrete_dims,
                 max_discrete_values=max_discrete_values,
@@ -1664,6 +1664,143 @@ class TestOptimizeAcqfMixed(BotorchTestCase):
             self.assertAllClose(
                 X_processed[2], torch.tensor(31.0, dtype=dtype, device=self.device)
             )
+
+    def test_setup_continuous_relaxation_excludes_equality_constrained(self) -> None:
+        """Test that equality-constrained dims are excluded from relaxation."""
+        for dtype in (torch.float, torch.double):
+            discrete_dims: dict[int, list[float]] = {
+                0: [0.0, 1.0],  # Low cardinality - kept
+                1: list(range(50)),  # High card, equality constrained - kept
+                2: list(range(50)),  # High card, unconstrained - relaxed
+            }
+            max_discrete_values = 20
+            equality_constraints = [
+                (
+                    torch.tensor([1], dtype=torch.long, device=self.device),
+                    torch.tensor([1.0], dtype=dtype, device=self.device),
+                    25.0,
+                )
+            ]
+            dims_kept, post_processing_func = _setup_continuous_relaxation(
+                discrete_dims=discrete_dims,
+                max_discrete_values=max_discrete_values,
+                post_processing_func=None,
+                equality_constraints=equality_constraints,
+            )
+            # Dims 0 and 1 kept; dim 2 relaxed
+            self.assertIn(0, dims_kept)
+            self.assertIn(1, dims_kept)
+            self.assertNotIn(2, dims_kept)
+            self.assertIsNotNone(post_processing_func)
+            X = torch.tensor(
+                [0.4, 25.3, 30.7],
+                dtype=dtype,
+                device=self.device,
+            )
+            X_processed = post_processing_func(X)
+            # Dim 1 should NOT be rounded (equality-constrained, kept discrete)
+            self.assertAllClose(
+                X_processed[1], torch.tensor(25.3, dtype=dtype, device=self.device)
+            )
+            # Dim 2 should be rounded
+            self.assertAllClose(
+                X_processed[2], torch.tensor(31.0, dtype=dtype, device=self.device)
+            )
+
+    def test_fallback_on_infeasible_relaxation(self) -> None:
+        """Test that the fallback triggers when relaxed optimization produces
+        infeasible candidates, and retries with constrained dims kept discrete."""
+        for dtype in (torch.float, torch.double):
+            d = 2  # 1 continuous + 1 discrete
+            train_X = torch.rand(5, d, dtype=dtype, device=self.device)
+            train_X[:, 1] = torch.randint(0, 51, (5,), device=self.device).to(
+                dtype=dtype
+            )
+            train_Y = train_X.sum(dim=-1, keepdim=True)
+            model = SingleTaskGP(train_X, train_Y)
+            acqf = PosteriorMean(model=model)
+            bounds = torch.tensor(
+                [[0.0, 0.0], [1.0, 50.0]], dtype=dtype, device=self.device
+            )
+            # High cardinality (51 > 20) → will be relaxed on first attempt
+            discrete_dims: dict[int, list[float]] = {1: list(range(51))}
+            # Constraint: x[1] >= 10
+            inequality_constraints = [
+                (
+                    torch.tensor([1], dtype=torch.long, device=self.device),
+                    torch.tensor([1.0], dtype=dtype, device=self.device),
+                    10.0,
+                )
+            ]
+            # First call returns infeasible (x[1]=5 < 10), second returns feasible
+            infeasible_candidate = torch.tensor(
+                [[0.5, 5.0]], dtype=dtype, device=self.device
+            )
+            feasible_candidate = torch.tensor(
+                [[0.5, 25.0]], dtype=dtype, device=self.device
+            )
+            call_count = [0]
+
+            def mock_run(
+                opt_inputs,
+                discrete_dims,
+                cat_dims,
+                return_acq_values,
+                _infeasible=infeasible_candidate,
+                _feasible=feasible_candidate,
+                _count=call_count,
+            ):
+                _count[0] += 1
+                candidate = _infeasible if _count[0] == 1 else _feasible
+                acq = (
+                    torch.tensor([1.0], dtype=candidate.dtype, device=candidate.device)
+                    if return_acq_values
+                    else None
+                )
+                return candidate, acq
+
+            with (
+                mock.patch(
+                    f"{OPT_MODULE}._run_alternating_optimization",
+                    side_effect=mock_run,
+                ),
+                mock.patch(
+                    f"{OPT_MODULE}._setup_continuous_relaxation",
+                    wraps=_setup_continuous_relaxation,
+                ) as wrapped_setup,
+                warnings.catch_warnings(record=True) as ws,
+            ):
+                warnings.simplefilter("always")
+                X, _ = optimize_acqf_mixed_alternating(
+                    acq_function=acqf,
+                    bounds=bounds,
+                    discrete_dims=discrete_dims,
+                    q=1,
+                    num_restarts=2,
+                    raw_samples=32,
+                    inequality_constraints=inequality_constraints,
+                )
+
+            # Fallback was triggered: _run_alternating_optimization called twice
+            self.assertEqual(call_count[0], 2)
+            # Warning was emitted
+            self.assertTrue(
+                any(
+                    issubclass(w.category, OptimizationWarning)
+                    and "infeasible" in str(w.message)
+                    for w in ws
+                ),
+            )
+            # _setup_continuous_relaxation called twice:
+            # 1st with inequality_constraints=None (relaxed)
+            # 2nd with the actual inequality_constraints (fallback)
+            self.assertEqual(wrapped_setup.call_count, 2)
+            first_call_kwargs = wrapped_setup.call_args_list[0].kwargs
+            second_call_kwargs = wrapped_setup.call_args_list[1].kwargs
+            self.assertIsNone(first_call_kwargs["inequality_constraints"])
+            self.assertIsNotNone(second_call_kwargs["inequality_constraints"])
+            # Result is the feasible candidate from the fallback
+            self.assertAllClose(X, feasible_candidate)
 
     def test_optimize_acqf_mixed_alternating_constrained_discrete_dims(self) -> None:
         """Test full workflow produces valid discrete values with constrained dims.
