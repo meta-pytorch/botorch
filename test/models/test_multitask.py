@@ -25,6 +25,7 @@ from botorch.models.transforms.outcome import OutcomeTransform, Standardize
 from botorch.models.utils.priors import BetaPrior
 from botorch.posteriors import GPyTorchPosterior
 from botorch.posteriors.transformed import TransformedPosterior
+from botorch.utils.datasets import MultiTaskDataset, SupervisedDataset
 from botorch.utils.test_helpers import gen_multi_task_dataset
 from botorch.utils.testing import BotorchTestCase
 from gpytorch.distributions import MultitaskMultivariateNormal, MultivariateNormal
@@ -802,6 +803,209 @@ class TestMultiTaskGP(BotorchTestCase):
         # Verify we can sample from the posterior
         samples = posterior.rsample(sample_shape=torch.Size([2]))
         self.assertEqual(samples.shape, torch.Size([2, 3, 1]))
+
+    def test_construct_inputs_heterogeneous(self) -> None:
+        tkwargs: dict[str, Any] = {"device": self.device, "dtype": torch.double}
+
+        # Build a heterogeneous MultiTaskDataset: target has features [a, b],
+        # source has features [a, c].
+        n_target, n_source = 10, 8
+        X_target = torch.rand(n_target, 2, **tkwargs)
+        X_source = torch.rand(n_source, 2, **tkwargs)
+        Y_target = torch.rand(n_target, 1, **tkwargs)
+        Y_source = torch.rand(n_source, 1, **tkwargs)
+
+        ds_target = SupervisedDataset(
+            X=torch.cat([X_target, torch.zeros(n_target, 1, **tkwargs)], dim=-1),
+            Y=Y_target,
+            feature_names=["a", "b", "task"],
+            outcome_names=["target"],
+        )
+        ds_source = SupervisedDataset(
+            X=torch.cat([X_source, torch.ones(n_source, 1, **tkwargs)], dim=-1),
+            Y=Y_source,
+            feature_names=["a", "c", "task"],
+            outcome_names=["source"],
+        )
+        mt_dataset = MultiTaskDataset(
+            datasets=[ds_target, ds_source],
+            target_outcome_name="target",
+            task_feature_index=-1,
+        )
+        self.assertTrue(mt_dataset.has_heterogeneous_features)
+
+        # map_heterogeneous_to_full=False (default) → raises UnsupportedError
+        with self.assertRaises(UnsupportedError):
+            MultiTaskGP.construct_inputs(mt_dataset, task_feature=-1)
+
+        # map_heterogeneous_to_full=True → zero-padded train_X
+        data_dict = MultiTaskGP.construct_inputs(
+            mt_dataset, task_feature=-1, map_heterogeneous_to_full=True
+        )
+        train_X = data_dict["train_X"]
+        # Full features: [a, b, c] + task → 4 columns
+        self.assertEqual(train_X.shape, (n_target + n_source, 4))
+        # Task column is last
+        self.assertTrue((train_X[:n_target, -1] == 0).all())
+        self.assertTrue((train_X[n_target:, -1] == 1).all())
+        # Target rows: a, b filled; c (index 2) is zero
+        self.assertAllClose(train_X[:n_target, 0], X_target[:, 0])
+        self.assertAllClose(train_X[:n_target, 1], X_target[:, 1])
+        self.assertTrue((train_X[:n_target, 2] == 0).all())
+        # Source rows: a filled at index 0; b (index 1) is zero; c at index 2
+        self.assertAllClose(train_X[n_target:, 0], X_source[:, 0])
+        self.assertTrue((train_X[n_target:, 1] == 0).all())
+        self.assertAllClose(train_X[n_target:, 2], X_source[:, 1])
+
+        self.assertEqual(data_dict["task_feature"], -1)
+        self.assertEqual(data_dict["all_tasks"], [0, 1])
+        self.assertTrue(
+            torch.equal(data_dict["train_Y"], torch.cat([Y_target, Y_source]))
+        )
+
+        # Cover rank and task_covar_prior conditional branches.
+        data_dict = MultiTaskGP.construct_inputs(
+            mt_dataset, task_feature=-1, map_heterogeneous_to_full=True, rank=2
+        )
+        self.assertEqual(data_dict["rank"], 2)
+        prior = LKJCovariancePrior(2, 1.0, SmoothedBoxPrior(0.1, 2.0))
+        data_dict = MultiTaskGP.construct_inputs(
+            mt_dataset,
+            task_feature=-1,
+            map_heterogeneous_to_full=True,
+            task_covar_prior=prior,
+        )
+        self.assertIs(data_dict["task_covar_prior"], prior)
+
+        # task_feature_index != -1 → NotImplementedError
+        mt_bad = MultiTaskDataset(
+            datasets=[ds_target, ds_source],
+            target_outcome_name="target",
+            task_feature_index=0,
+        )
+        mt_bad.has_heterogeneous_features = True
+        with self.assertRaises(NotImplementedError):
+            MultiTaskGP.construct_inputs(
+                mt_bad, task_feature=-1, map_heterogeneous_to_full=True
+            )
+
+    def test_construct_inputs_heterogeneous_with_yvar(self) -> None:
+        tkwargs: dict[str, Any] = {"device": self.device, "dtype": torch.double}
+
+        n_target, n_source = 6, 4
+        ds_target = SupervisedDataset(
+            X=torch.cat(
+                [
+                    torch.rand(n_target, 2, **tkwargs),
+                    torch.zeros(n_target, 1, **tkwargs),
+                ],
+                dim=-1,
+            ),
+            Y=torch.rand(n_target, 1, **tkwargs),
+            Yvar=torch.full((n_target, 1), 0.1, **tkwargs),
+            feature_names=["a", "b", "task"],
+            outcome_names=["target"],
+        )
+        ds_source = SupervisedDataset(
+            X=torch.cat(
+                [
+                    torch.rand(n_source, 1, **tkwargs),
+                    torch.ones(n_source, 1, **tkwargs),
+                ],
+                dim=-1,
+            ),
+            Y=torch.rand(n_source, 1, **tkwargs),
+            Yvar=torch.full((n_source, 1), 0.2, **tkwargs),
+            feature_names=["a", "task"],
+            outcome_names=["source"],
+        )
+        mt_dataset = MultiTaskDataset(
+            datasets=[ds_target, ds_source],
+            target_outcome_name="target",
+            task_feature_index=-1,
+        )
+        data_dict = MultiTaskGP.construct_inputs(
+            mt_dataset, task_feature=-1, map_heterogeneous_to_full=True
+        )
+        # Full features: [a, b] + task → 3 columns
+        self.assertEqual(data_dict["train_X"].shape, (n_target + n_source, 3))
+        self.assertIn("train_Yvar", data_dict)
+        self.assertEqual(data_dict["train_Yvar"].shape, (n_target + n_source, 1))
+
+    def test_e2e_multitask_gp_with_learned_feature_imputation(self) -> None:
+        from botorch.models.transforms.input import (
+            ChainedInputTransform,
+            LearnedFeatureImputation,
+        )
+
+        tkwargs: dict[str, Any] = {"device": self.device, "dtype": torch.double}
+
+        # Heterogeneous dataset: target has [a, b], source has [a, c].
+        n_target, n_source = 15, 10
+        X_target = torch.rand(n_target, 2, **tkwargs)
+        X_source = torch.rand(n_source, 2, **tkwargs)
+        Y_target = torch.sin(X_target.sum(dim=-1, keepdim=True))
+        Y_source = torch.cos(X_source.sum(dim=-1, keepdim=True))
+
+        ds_target = SupervisedDataset(
+            X=torch.cat([X_target, torch.zeros(n_target, 1, **tkwargs)], dim=-1),
+            Y=Y_target,
+            feature_names=["a", "b", "task"],
+            outcome_names=["target"],
+        )
+        ds_source = SupervisedDataset(
+            X=torch.cat([X_source, torch.ones(n_source, 1, **tkwargs)], dim=-1),
+            Y=Y_source,
+            feature_names=["a", "c", "task"],
+            outcome_names=["source"],
+        )
+        mt_dataset = MultiTaskDataset(
+            datasets=[ds_target, ds_source],
+            target_outcome_name="target",
+            task_feature_index=-1,
+        )
+
+        model_inputs = MultiTaskGP.construct_inputs(
+            mt_dataset, task_feature=-1, map_heterogeneous_to_full=True
+        )
+
+        # Full features = [a, b, c], d=3, task at -1.
+        d = 3
+        feature_indices = {0: [0, 1], 1: [0, 2]}
+        input_transform = ChainedInputTransform(
+            normalize=Normalize(d=d + 1, indices=list(range(d))),
+            impute=LearnedFeatureImputation(
+                feature_indices=feature_indices,
+                d=d,
+                task_feature_index=-1,
+                **tkwargs,
+            ),
+        )
+        model = MultiTaskGP(**model_inputs, input_transform=input_transform)
+
+        # Verify the model can produce posteriors.
+        test_X = torch.cat(
+            [torch.rand(5, 2, **tkwargs), torch.zeros(5, 1, **tkwargs)], dim=-1
+        )
+        # Posterior call on target-task-dimensioned input won't work directly
+        # because MultiTaskGP expects full-dimensional input; test with full X.
+        test_X_full = torch.zeros(5, d + 1, **tkwargs)
+        test_X_full[:, :2] = test_X[:, :2]
+        test_X_full[:, -1] = 0
+        posterior = model.posterior(test_X_full)
+        self.assertEqual(posterior.mean.shape, torch.Size([5, 1]))
+        self.assertFalse(torch.isnan(posterior.mean).any())
+
+        # Fit the model briefly and verify imputation values change.
+        mll = ExactMarginalLogLikelihood(model.likelihood, model)
+        initial_imp = model.input_transform.impute.imputation_values.clone().detach()
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=OptimizationWarning)
+            fit_gpytorch_mll(
+                mll, optimizer_kwargs={"options": {"maxiter": 5}}, max_attempts=1
+            )
+        final_imp = model.input_transform.impute.imputation_values.detach()
+        self.assertFalse(torch.allclose(initial_imp, final_imp, atol=1e-6))
 
 
 class TestKroneckerMultiTaskGP(BotorchTestCase):
