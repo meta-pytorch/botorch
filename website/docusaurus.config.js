@@ -42,6 +42,7 @@ module.exports={
     "wrapPagesHTML": true
   },
   "onBrokenLinks": "throw",
+  "trailingSlash": false,
   "presets": [
     [
       "@docusaurus/preset-classic",
