@@ -110,6 +110,11 @@ class HeterogeneousMTGP(MultiTaskGP):
         """
         self.full_feature_dim = full_feature_dim
         self.feature_indices = feature_indices
+        self.feature_imputation_values = self._compute_imputation_values(
+            train_Xs=train_Xs,
+            feature_indices=feature_indices,
+            full_feature_dim=full_feature_dim,
+        )
         full_X = torch.cat(
             [self.map_to_full_tensor(X=X, task_index=i) for i, X in enumerate(train_Xs)]
         )
@@ -162,8 +167,11 @@ class HeterogeneousMTGP(MultiTaskGP):
         """Map a tensor of task-specific features to the full tensor of features,
         utilizing the feature indices to map each feature to its corresponding
         position in the full tensor. Also append the task index as the last column.
-        The columns of the full tensor that are not used by the given task will be
-        filled with zeros.
+        The columns of the full tensor that are not used by the given task are
+        filled with the per-dimension empirical mean computed across all tasks
+        that contain that dimension (see ``_compute_imputation_values``). This
+        avoids out-of-domain padding values that would otherwise be squashed by
+        an input transform with fixed bounds (e.g. ``Normalize``).
 
         Args:
             X: A tensor of shape ``(n x d_i)`` where ``d_i`` is the number of features
@@ -175,18 +183,50 @@ class HeterogeneousMTGP(MultiTaskGP):
             mapped features.
 
         Example:
-            >>> # Suppose full feature dim is 3 and the feature indices for
-            >>> # task 5 are [2, 0].
+            >>> # Suppose full feature dim is 3, the feature indices for task 5
+            >>> # are [2, 0], and the empirical mean for missing dim 1 is 7.0.
             >>> X = torch.tensor([[1.0, 2.0], [3.0, 4.0]])
             >>> X_full = self.map_to_full_tensor(X=X, task_index=5)
-            >>> # X_full = torch.tensor([[2.0, 0.0, 1.0, 5.0], [4.0, 0.0, 3.0, 5.0]])
+            >>> # X_full = torch.tensor([[2.0, 7.0, 1.0, 5.0], [4.0, 7.0, 3.0, 5.0]])
         """
         X_full = torch.zeros(
             *X.shape[:-1], self.full_feature_dim + 1, dtype=X.dtype, device=X.device
         )
+        X_full[..., : self.full_feature_dim] = self.feature_imputation_values
         X_full[..., self.feature_indices[task_index]] = X
         X_full[..., -1] = task_index
         return X_full
+
+    @staticmethod
+    def _compute_imputation_values(
+        train_Xs: list[Tensor],
+        feature_indices: list[list[int]],
+        full_feature_dim: int,
+    ) -> Tensor:
+        """Compute per-dimension empirical mean across all tasks that contain
+        each dimension of the joint feature space.
+
+        For each dimension ``d`` in ``[0, full_feature_dim)``, collects the values
+        from every task's ``train_X`` column that maps to ``d`` and takes the mean.
+        These values are used by ``map_to_full_tensor`` to impute missing dims when
+        embedding a per-task ``X`` into the full feature space.
+
+        Returns:
+            A tensor of shape ``(full_feature_dim,)`` with the per-dim mean. If a
+            dimension is not present in any task (which should not occur under the
+            constructor's invariants), the value defaults to 0.
+        """
+        dtype = train_Xs[0].dtype
+        device = train_Xs[0].device
+        imputation = torch.zeros(full_feature_dim, dtype=dtype, device=device)
+        for d in range(full_feature_dim):
+            values: list[Tensor] = []
+            for indices, X in zip(feature_indices, train_Xs):
+                if d in indices and X.numel() > 0:
+                    values.append(X[..., indices.index(d)].reshape(-1))
+            if values:
+                imputation[d] = torch.cat(values).mean()
+        return imputation
 
     def posterior(
         self,
