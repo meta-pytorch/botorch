@@ -29,6 +29,7 @@ from botorch.optim.parameter_constraints import (
     make_scipy_bounds,
     make_scipy_linear_constraints,
     make_scipy_nonlinear_inequality_constraints,
+    project_to_equality_constraints,
 )
 from botorch.optim.stopping import ExpMAStoppingCriterion
 from botorch.optim.utils import (
@@ -321,6 +322,23 @@ def gen_candidates_scipy(
                 f_np_wrapper,
                 fixed_features=fixed_features_,
             )
+
+            # Project initial conditions onto the equality constraint
+            # manifold so they satisfy constraints to numerical precision.
+            # MCMC-sampled initial conditions (from HitAndRunPolytopeSampler)
+            # may only approximately satisfy equality constraints.
+            unfixed_eq = _no_fixed_features.equality_constraints
+            if unfixed_eq:
+                candidates_ = project_to_equality_constraints(
+                    X=candidates_, equality_constraints=unfixed_eq
+                )
+                # Re-clamp after projection to stay within bounds.
+                candidates_ = columnwise_clamp(
+                    X=candidates_,
+                    lower=lower_bounds,
+                    upper=upper_bounds,
+                    raise_on_violation=False,
+                )
 
             x0 = candidates_.flatten()
 
