@@ -19,6 +19,7 @@ from botorch.models.gpytorch import GPyTorchModel
 from botorch.models.multitask import MultiTaskGP
 from botorch.posteriors.fully_bayesian import GaussianMixturePosterior
 from botorch.posteriors.gpytorch import GPyTorchPosterior
+from botorch.posteriors.posterior import Posterior
 from gpytorch.distributions import MultitaskMultivariateNormal, MultivariateNormal
 from gpytorch.likelihoods import FixedNoiseGaussianLikelihood
 from gpytorch.mlls.marginal_log_likelihood import MarginalLogLikelihood
@@ -223,7 +224,11 @@ def batch_cross_validation(
     )
 
 
-def loo_cv(model: GPyTorchModel, observation_noise: bool = True) -> CVResults:
+def loo_cv(
+    model: GPyTorchModel,
+    observation_noise: bool = True,
+    untransform: bool = True,
+) -> CVResults:
     r"""Compute efficient Leave-One-Out cross-validation for a GP model.
 
     This is a high-level convenience function that automatically dispatches to
@@ -252,6 +257,12 @@ def loo_cv(model: GPyTorchModel, observation_noise: bool = True) -> CVResults:
             observation noise). The posterior variance is computed by
             subtracting the observation noise from the posterior predictive
             variance.
+        untransform: If True (default), untransform the LOO predictions and
+            observed values back to the original outcome space when the model
+            has an outcome transform (e.g., ``Standardize``). This makes the
+            results consistent with ``model.posterior()`` and
+            ``batch_cross_validation``. If False, return results in the
+            model's internal (transformed) space.
 
     Returns:
         CVResults: A named tuple containing:
@@ -284,14 +295,19 @@ def loo_cv(model: GPyTorchModel, observation_noise: bool = True) -> CVResults:
         - ``batch_cross_validation``: Full LOO CV with model refitting.
     """
     if getattr(model, "_is_ensemble", False):
-        return ensemble_loo_cv(model, observation_noise=observation_noise)
+        return ensemble_loo_cv(
+            model, observation_noise=observation_noise, untransform=untransform
+        )
     else:
-        return efficient_loo_cv(model, observation_noise=observation_noise)
+        return efficient_loo_cv(
+            model, observation_noise=observation_noise, untransform=untransform
+        )
 
 
 def efficient_loo_cv(
     model: GPyTorchModel,
     observation_noise: bool = True,
+    untransform: bool = True,
 ) -> CVResults:
     r"""Compute efficient Leave-One-Out cross-validation for a GP model.
 
@@ -332,6 +348,12 @@ def efficient_loo_cv(
             predictive variance (including observation noise). If False,
             return the posterior variance of the latent function (excluding
             observation noise).
+        untransform: If True (default), untransform the LOO predictions and
+            observed values back to the original outcome space when the model
+            has an outcome transform (e.g., ``Standardize``). This makes the
+            results consistent with ``model.posterior()`` and
+            ``batch_cross_validation``. If False, return results in the
+            model's internal (transformed) space.
 
     Returns:
         CVResults: A named tuple containing:
@@ -385,12 +407,80 @@ def efficient_loo_cv(
     if isinstance(model.likelihood, FixedNoiseGaussianLikelihood):
         observed_Yvar = _reshape_to_loo_cv_format(model.likelihood.noise, num_outputs)
 
+    # Untransform predictions and observed values back to original space
+    if untransform and hasattr(model, "outcome_transform"):
+        posterior, observed_Y, observed_Yvar = _untransform_loo_results(
+            model=model,
+            posterior=posterior,
+            observed_Y=observed_Y,
+            observed_Yvar=observed_Yvar,
+        )
+
     return CVResults(
         model=model,
         posterior=posterior,
         observed_Y=observed_Y,
         observed_Yvar=observed_Yvar,
     )
+
+
+def _untransform_loo_results(
+    model: GPyTorchModel,
+    posterior: Posterior,
+    observed_Y: Tensor,
+    observed_Yvar: Tensor | None,
+) -> tuple[Posterior, Tensor, Tensor | None]:
+    r"""Untransform LOO CV results from model-internal space to original space.
+
+    Applies the model's outcome transform to map the LOO posterior and observed
+    values back to the original (untransformed) outcome space. This uses
+    ``outcome_transform.untransform_posterior`` for the posterior and
+    ``outcome_transform.untransform`` for the observed values.
+
+    For linear transforms like ``Standardize``, the posterior is analytically
+    rescaled and remains a ``GPyTorchPosterior``. For nonlinear transforms like
+    ``Log``, the posterior is wrapped in a ``TransformedPosterior``.
+
+    NOTE: For ``GaussianMixturePosterior`` (from ensemble models),
+    ``Standardize.untransform_posterior`` returns a ``TransformedPosterior``
+    rather than preserving the ``GaussianMixturePosterior`` type. This means
+    ``mixture_mean`` and ``mixture_variance`` attributes are not available
+    on the untransformed posterior. Use ``untransform=False`` and manually
+    untransform if you need mixture statistics with outcome transforms.
+
+    Args:
+        model: The GP model with an ``outcome_transform`` attribute.
+        posterior: The LOO posterior in the model's internal (transformed) space.
+            Shape: ``n x 1 x m`` or ``batch_shape x n x 1 x m``.
+        observed_Y: The observed Y values in transformed space with shape
+            ``n x 1 x m`` or ``batch_shape x n x 1 x m``.
+        observed_Yvar: The observed noise variances in transformed space (if
+            applicable) with shape ``n x 1 x m`` or ``batch_shape x n x 1 x m``.
+
+    Returns:
+        A tuple of (posterior, observed_Y, observed_Yvar) in the original
+        (untransformed) outcome space.
+    """
+    outcome_transform = model.outcome_transform
+
+    posterior = outcome_transform.untransform_posterior(posterior)
+
+    # Untransform observed_Y (and observed_Yvar if present).
+    # observed_Y has shape n x 1 x m; Standardize.untransform expects
+    # batch_shape x n x m. We squeeze the q=1 dim, untransform, and restore it.
+    observed_Y_squeezed = observed_Y.squeeze(-2)
+    observed_Yvar_squeezed = (
+        observed_Yvar.squeeze(-2) if observed_Yvar is not None else None
+    )
+    observed_Y_utf, observed_Yvar_utf = outcome_transform.untransform(
+        observed_Y_squeezed, observed_Yvar_squeezed
+    )
+    observed_Y = observed_Y_utf.unsqueeze(-2)
+    observed_Yvar = (
+        observed_Yvar_utf.unsqueeze(-2) if observed_Yvar_utf is not None else None
+    )
+
+    return posterior, observed_Y, observed_Yvar
 
 
 def _subtract_observation_noise(model: GPyTorchModel, loo_variance: Tensor) -> Tensor:
@@ -636,6 +726,7 @@ def _reshape_to_loo_cv_format(tensor: Tensor, num_outputs: int) -> Tensor:
 def ensemble_loo_cv(
     model: GPyTorchModel,
     observation_noise: bool = True,
+    untransform: bool = True,
 ) -> CVResults:
     r"""Compute efficient LOO cross-validation for ensemble models.
 
@@ -673,6 +764,12 @@ def ensemble_loo_cv(
             predictive variance (including observation noise). If False,
             return the posterior variance of the latent function (excluding
             observation noise).
+        untransform: If True (default), untransform the LOO predictions and
+            observed values back to the original outcome space when the model
+            has an outcome transform (e.g., ``Standardize``). This makes the
+            results consistent with ``model.posterior()`` and
+            ``batch_cross_validation``. If False, return results in the
+            model's internal (transformed) space.
 
     Returns:
         CVResults: A named tuple containing:
@@ -734,6 +831,15 @@ def ensemble_loo_cv(
     observed_Y, observed_Yvar = _get_ensemble_observed_data(
         model=model, train_Y=train_Y, num_outputs=num_outputs
     )
+
+    # Untransform predictions and observed values back to original space
+    if untransform and hasattr(model, "outcome_transform"):
+        posterior, observed_Y, observed_Yvar = _untransform_loo_results(
+            model=model,
+            posterior=posterior,
+            observed_Y=observed_Y,
+            observed_Yvar=observed_Yvar,
+        )
 
     return CVResults(
         model=model,

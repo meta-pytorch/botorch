@@ -155,7 +155,7 @@ class TestEfficientLOOCV(BotorchTestCase):
                 model = SingleTaskGP(train_X, train_Y)
                 model.eval()
 
-                loo_results = efficient_loo_cv(model)
+                loo_results = efficient_loo_cv(model, untransform=False)
 
                 # Output shape: batch_shape x n x 1 x m
                 expected_shape = batch_shape + torch.Size([n, 1, m])
@@ -217,7 +217,9 @@ class TestEfficientLOOCV(BotorchTestCase):
                 model.eval()
 
                 # Compare efficient vs naive
-                loo_results = efficient_loo_cv(model, observation_noise=obs_noise)
+                loo_results = efficient_loo_cv(
+                    model, observation_noise=obs_noise, untransform=False
+                )
                 naive_mean, naive_var = naive_loo_cv(
                     model, observation_noise=obs_noise, batch_shape=batch_shape
                 )
@@ -315,6 +317,129 @@ class TestEfficientLOOCV(BotorchTestCase):
         ):
             efficient_loo_cv(model)
 
+    def test_untransform(self) -> None:
+        """Test that untransform correctly maps results to original space.
+
+        Verifies that:
+        - untransform=True (default) returns results in the original outcome space
+        - untransform=False returns results in the model's internal (transformed) space
+        - The untransformed observed_Y matches the original training data
+        - The untransformed posterior mean is in the same space as the original data
+        - Without outcome_transform, untransform=True has no effect
+        """
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        n, d = 10, 2
+
+        for m in (1, 3):
+            with self.subTest(m=m):
+                train_X, train_Y = get_random_data(
+                    batch_shape=torch.Size(), m=m, n=n, d=d, **tkwargs
+                )
+
+                model = SingleTaskGP(
+                    train_X,
+                    train_Y,
+                    input_transform=Normalize(d=d),
+                    outcome_transform=Standardize(m=m),
+                )
+                model.eval()
+
+                # Get results in both spaces
+                results_original = efficient_loo_cv(model, untransform=True)
+                results_transformed = efficient_loo_cv(model, untransform=False)
+
+                # Shapes should be the same
+                expected_shape = torch.Size([n, 1, m])
+                self.assertEqual(results_original.posterior.mean.shape, expected_shape)
+                self.assertEqual(
+                    results_transformed.posterior.mean.shape, expected_shape
+                )
+
+                # The observed_Y with untransform=True should match original train_Y
+                self.assertAllClose(
+                    results_original.observed_Y.squeeze(-2),
+                    train_Y,
+                    rtol=1e-5,
+                    atol=1e-5,
+                )
+
+                # The observed_Y with untransform=False should be standardized
+                # (mean ~0, std ~1), so it should differ from the original data
+                # unless the data happens to already be standardized
+                transformed_Y = results_transformed.observed_Y.squeeze(-2)
+                # Verify it's standardized (approximately zero mean, unit variance)
+                self.assertAllClose(
+                    transformed_Y.mean(dim=-2),
+                    torch.zeros(m, **tkwargs),
+                    atol=0.5,  # loose check, small n
+                )
+
+                # The means should differ between transformed and untransformed space
+                # (unless Standardize is a no-op, which is unlikely for random data)
+                self.assertFalse(
+                    torch.allclose(
+                        results_original.posterior.mean,
+                        results_transformed.posterior.mean,
+                    )
+                )
+
+                # Variances should also differ (scaled by std^2)
+                self.assertFalse(
+                    torch.allclose(
+                        results_original.posterior.variance,
+                        results_transformed.posterior.variance,
+                    )
+                )
+
+    def test_untransform_no_transform(self) -> None:
+        """Test that untransform=True is a no-op when no outcome_transform exists."""
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        n, d, m = 10, 2, 1
+
+        train_X, train_Y = get_random_data(
+            batch_shape=torch.Size(), m=m, n=n, d=d, **tkwargs
+        )
+        model = SingleTaskGP(train_X, train_Y, outcome_transform=None)
+        model.eval()
+
+        results_true = efficient_loo_cv(model, untransform=True)
+        results_false = efficient_loo_cv(model, untransform=False)
+
+        self.assertAllClose(results_true.posterior.mean, results_false.posterior.mean)
+        self.assertAllClose(
+            results_true.posterior.variance, results_false.posterior.variance
+        )
+        self.assertAllClose(results_true.observed_Y, results_false.observed_Y)
+
+    def test_untransform_with_fixed_noise(self) -> None:
+        """Test that observed_Yvar is correctly untransformed."""
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        n, d, m = 10, 2, 1
+
+        train_X, train_Y = get_random_data(
+            batch_shape=torch.Size(), m=m, n=n, d=d, **tkwargs
+        )
+        train_Yvar = torch.full_like(train_Y, 5e-3)
+
+        model = SingleTaskGP(
+            train_X,
+            train_Y,
+            train_Yvar,
+            outcome_transform=Standardize(m=m),
+        )
+        model.eval()
+
+        results = efficient_loo_cv(model, untransform=True)
+        self.assertIsNotNone(results.observed_Yvar)
+
+        results_tf = efficient_loo_cv(model, untransform=False)
+        self.assertIsNotNone(results_tf.observed_Yvar)
+
+        # Untransformed Yvar should differ from transformed (scaled by std^2)
+        self.assertFalse(
+            torch.allclose(results.observed_Yvar, results_tf.observed_Yvar)
+        )
+
 
 class TestLOOCV(BotorchTestCase):
     """Test the high-level loo_cv dispatch function."""
@@ -350,7 +475,7 @@ class TestLOOCV(BotorchTestCase):
 
                     # Verify correct function was called with the model
                     mock_func.assert_called_once_with(
-                        mock_model, observation_noise=True
+                        mock_model, observation_noise=True, untransform=True
                     )
                     self.assertIs(result, mock_results)
 
@@ -441,6 +566,71 @@ class TestEnsembleLOOCV(BotorchTestCase):
                 )
                 self.assertTrue((loo_results_no_noise.posterior.variance >= 0).all())
 
+    def test_untransform(self) -> None:
+        """Test that untransform works for ensemble models with outcome transforms.
+
+        Exercises the untransform branch in ensemble_loo_cv. When the model
+        has an outcome_transform and untransform=True, the posterior and
+        observed_Y should be mapped back to the original outcome space.
+
+        NOTE: Standardize.untransform_posterior wraps GaussianMixturePosterior
+        in a TransformedPosterior, so mixture_mean/mixture_variance are not
+        available on the untransformed posterior.
+        """
+        from botorch.posteriors.transformed import TransformedPosterior
+
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        n, d, num_models = 8, 2, 3
+
+        train_X = torch.rand(n, d, **tkwargs)
+        train_Y = torch.rand(n, 1, **tkwargs)
+
+        # Create ensemble model WITH Standardize outcome_transform so that
+        # internal training data is standardized and untransform recovers
+        # the original values.
+        train_X_batched = train_X.unsqueeze(0).expand(num_models, -1, -1).contiguous()
+        train_Y_batched = train_Y.unsqueeze(0).expand(num_models, -1, -1).contiguous()
+        ensemble_model = SingleTaskGP(
+            train_X_batched,
+            train_Y_batched,
+            outcome_transform=Standardize(m=1, batch_shape=torch.Size([num_models])),
+        )
+        ensemble_model._is_ensemble = True
+
+        # untransform=True should exercise the _untransform_loo_results path
+        results_utf = ensemble_loo_cv(ensemble_model, untransform=True)
+
+        # The posterior should be wrapped in TransformedPosterior
+        # (since Standardize.untransform_posterior uses strict type check)
+        self.assertIsInstance(results_utf.posterior, TransformedPosterior)
+
+        # The mean and variance should still be accessible.
+        # TransformedPosterior preserves the num_models dimension.
+        per_member_shape = torch.Size([n, num_models, 1, 1])
+        self.assertEqual(results_utf.posterior.mean.shape, per_member_shape)
+        self.assertEqual(results_utf.posterior.variance.shape, per_member_shape)
+
+        # untransform=False should give GaussianMixturePosterior
+        results_tf = ensemble_loo_cv(ensemble_model, untransform=False)
+        self.assertIsInstance(results_tf.posterior, GaussianMixturePosterior)
+
+        # observed_Y should differ between transformed and untransformed.
+        # The untransform broadcasts over Standardize's batch_shape=[num_models],
+        # so results_utf.observed_Y has shape [num_models, n, 1, 1] while
+        # results_tf.observed_Y has shape [n, 1, 1].
+        self.assertFalse(torch.allclose(results_utf.observed_Y, results_tf.observed_Y))
+
+        # Untransformed observed_Y should recover the original training data.
+        # Since the Standardize was fitted during model creation, the internal
+        # data is standardized. Untransforming reverses this. Each slice along
+        # the num_models dimension should match train_Y.
+        self.assertAllClose(
+            results_utf.observed_Y[0].squeeze(-2),
+            train_Y,
+            rtol=1e-5,
+            atol=1e-5,
+        )
+
     def test_matches_naive(self) -> None:
         """Test that ensemble_loo_cv matches naive per-model LOO CV."""
         from botorch.fit import fit_gpytorch_mll
@@ -487,7 +677,7 @@ class TestEnsembleLOOCV(BotorchTestCase):
 
                 # Get ensemble LOO CV results
                 loo_results = ensemble_loo_cv(
-                    ensemble_model, observation_noise=obs_noise
+                    ensemble_model, observation_noise=obs_noise, untransform=False
                 )
                 ensemble_mean = loo_results.posterior.mean
                 ensemble_var = loo_results.posterior.variance
