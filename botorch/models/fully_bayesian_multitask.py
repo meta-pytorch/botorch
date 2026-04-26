@@ -11,18 +11,22 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, NoReturn, TypeVar
 
-import jax.numpy as jnp
-import numpyro
-import numpyro.distributions as numpyro_dist
 import torch
 from botorch.acquisition.objective import PosteriorTransform
 from botorch.models.fully_bayesian import (
+    _check_jax_available,
+    _HAS_JAX,
     matern52_kernel,
     MCMC_DIM,
     MIN_INFERRED_NOISE_LEVEL,
     reshape_and_detach,
     SaasPyroModel,
 )
+
+if _HAS_JAX:
+    import jax.numpy as jnp
+    import numpyro
+    import numpyro.distributions as numpyro_dist
 from botorch.models.gpytorch import (
     BatchedMultiOutputGPyTorchModel,
     MultiTaskGPyTorchModel,
@@ -353,6 +357,7 @@ class SaasFullyBayesianMultiTaskGP(MultiTaskGP):
                 input are expected tasks values. If false, unexpected task values
                 will be mapped to the first output_task if supplied.
         """
+        _check_jax_available()
         if not (
             train_X.ndim == train_Y.ndim == 2
             and len(train_X) == len(train_Y)
