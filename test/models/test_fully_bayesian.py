@@ -12,7 +12,7 @@ from unittest.mock import patch
 import jax.numpy as jnp
 import numpyro
 import torch
-from botorch import fit_fully_bayesian_model_nuts, utils
+from botorch import utils
 from botorch.acquisition.analytic import (
     ExpectedImprovement,
     PosteriorMean,
@@ -41,6 +41,7 @@ from botorch.acquisition.multi_objective.logei import (
     qLogNoisyExpectedHypervolumeImprovement,
 )
 from botorch.acquisition.utils import prune_inferior_points
+from botorch.fit import fit_fully_bayesian_model_nuts
 from botorch.models import ModelList, ModelListGP
 from botorch.models.deterministic import GenericDeterministicModel
 from botorch.models.fully_bayesian import (
