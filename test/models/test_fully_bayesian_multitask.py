@@ -6,6 +6,7 @@
 
 
 import itertools
+from unittest.mock import patch
 
 import jax.numpy as jnp
 import numpyro.handlers
@@ -181,6 +182,21 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
             ),
         }
         return mcmc_samples
+
+    def test_missing_jax_raises_on_instantiation(self) -> None:
+        """Test that missing JAX raises ImportError at model instantiation."""
+        from botorch.models import fully_bayesian
+
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X, train_Y, train_Yvar = self._get_base_data(**tkwargs)
+        with patch.object(fully_bayesian, "_HAS_JAX", False):
+            with self.assertRaises(ImportError):
+                SaasFullyBayesianMultiTaskGP(
+                    train_X=train_X,
+                    train_Y=train_Y,
+                    train_Yvar=train_Yvar,
+                    task_feature=4,
+                )
 
     def test_raises(self):
         tkwargs = {"device": self.device, "dtype": torch.double}
