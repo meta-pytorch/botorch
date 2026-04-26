@@ -12,7 +12,7 @@ from unittest.mock import patch
 import jax.numpy as jnp
 import numpyro
 import torch
-from botorch import fit_fully_bayesian_model_nuts, utils
+from botorch import utils
 from botorch.acquisition.analytic import (
     ExpectedImprovement,
     PosteriorMean,
@@ -41,6 +41,7 @@ from botorch.acquisition.multi_objective.logei import (
     qLogNoisyExpectedHypervolumeImprovement,
 )
 from botorch.acquisition.utils import prune_inferior_points
+from botorch.fit import fit_fully_bayesian_model_nuts
 from botorch.models import ModelList, ModelListGP
 from botorch.models.deterministic import GenericDeterministicModel
 from botorch.models.fully_bayesian import (
@@ -1283,20 +1284,16 @@ class TestFullyBayesianLinearWarpingSingleTaskGP(TestFullyBayesianLinearSingleTa
 
 
 class TestNumpyVersionCheck(BotorchTestCase):
-    def test_old_numpy_raises_import_error(self) -> None:
-        """Test that importing fully_bayesian with NumPy < 2.0 raises ImportError."""
-        import importlib
-        import sys
+    def test_missing_jax_raises_on_instantiation(self) -> None:
+        """Test that missing JAX raises ImportError at model instantiation."""
+        from botorch.models import fully_bayesian
+        from botorch.models.fully_bayesian import _check_jax_available
 
-        from numpy.lib import NumpyVersion
-
-        with patch.object(NumpyVersion, "__lt__", return_value=True):
-            # Remove cached module so the version check re-runs on import.
-            mod_name = "botorch.models.fully_bayesian"
-            saved = sys.modules.pop(mod_name)
-            try:
-                with self.assertRaises(ImportError):
-                    importlib.import_module(mod_name)
-            finally:
-                # Restore the module so other tests are not affected.
-                sys.modules[mod_name] = saved
+        with patch.object(fully_bayesian, "_HAS_JAX", False):
+            with self.assertRaises(ImportError):
+                _check_jax_available()
+            with self.assertRaises(ImportError):
+                SaasFullyBayesianSingleTaskGP(
+                    train_X=torch.rand(10, 2),
+                    train_Y=torch.rand(10, 1),
+                )

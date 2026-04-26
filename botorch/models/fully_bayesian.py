@@ -38,20 +38,17 @@ from collections.abc import Mapping
 from math import log, sqrt
 from typing import Any, TypeVar
 
-import jax.numpy as jnp
 import numpy as np
 
-if np.lib.NumpyVersion(np.__version__) < "2.0.0":
-    raise ImportError(
-        "BoTorch's fully Bayesian models require NumPy >= 2.0 "
-        "(python-scientific-stack version 3). "
-        "Please update your PACKAGE file to set "
-        '"python-scientific-stack": "3".'
-    )
+try:
+    import jax
+    import jax.numpy as jnp
+    import numpyro
+    import numpyro.distributions as numpyro_dist
 
-import jax
-import numpyro
-import numpyro.distributions as numpyro_dist
+    _HAS_JAX = True
+except ImportError:  # pragma: no cover
+    _HAS_JAX = False
 import torch
 from botorch.acquisition.objective import PosteriorTransform
 from botorch.models.gpytorch import BatchedMultiOutputGPyTorchModel
@@ -88,6 +85,16 @@ TFullyBayesianSingleTaskGP = TypeVar(
 )
 
 _sqrt5 = math.sqrt(5)
+
+
+def _check_jax_available() -> None:
+    if not _HAS_JAX:
+        raise ImportError(
+            "BoTorch's fully Bayesian models require JAX, numpyro, and "
+            "NumPy >= 2.0 (python-scientific-stack version 3). "
+            "Please update your PACKAGE file to set "
+            '"python-scientific-stack": "3".'
+        )
 
 
 def matern52_kernel(X: jax.Array, lengthscale: jax.Array) -> jax.Array:
@@ -872,6 +879,7 @@ class AbstractFullyBayesianSingleTaskGP(ExactGP, BatchedMultiOutputGPyTorchModel
             indices_to_warp: An optional list of indices to warp. The default
                 is to warp all inputs.
         """
+        _check_jax_available()
         if not (
             train_X.ndim == train_Y.ndim == 2
             and len(train_X) == len(train_Y)

@@ -11,13 +11,17 @@ Utilities for acquisition functions.
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
+import botorch.acquisition.logei as logei
+import botorch.acquisition.monte_carlo as monte_carlo
+import botorch.acquisition.multi_objective.logei as moo_logei
+import botorch.acquisition.multi_objective.monte_carlo as moo_monte_carlo
 import torch
-from botorch.acquisition import logei, monte_carlo
-from botorch.acquisition.multi_objective import (
-    logei as moo_logei,
-    monte_carlo as moo_monte_carlo,
-)
+
+if TYPE_CHECKING:
+    from botorch.acquisition.monte_carlo import MCAcquisitionFunction
+
 from botorch.acquisition.objective import MCAcquisitionObjective, PosteriorTransform
 from botorch.acquisition.thompson_sampling import PathwiseThompsonSampling
 from botorch.acquisition.utils import compute_best_feasible_objective
@@ -51,7 +55,7 @@ def get_acquisition_function(
     ref_point: None | list[float] | Tensor = None,
     Y: Tensor | None = None,
     alpha: float = 0.0,
-) -> monte_carlo.MCAcquisitionFunction:
+) -> MCAcquisitionFunction:
     r"""Convenience function for initializing botorch acquisition functions.
 
     Args:

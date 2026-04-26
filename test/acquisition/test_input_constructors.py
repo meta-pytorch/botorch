@@ -111,8 +111,9 @@ from botorch.acquisition.utils import (
     project_to_target_fidelity,
 )
 from botorch.exceptions.errors import BotorchError, UnsupportedError
-from botorch.models import MultiTaskGP, SaasFullyBayesianSingleTaskGP, SingleTaskGP
+from botorch.models import MultiTaskGP, SingleTaskGP
 from botorch.models.deterministic import FixedSingleSampleModel
+from botorch.models.fully_bayesian import SaasFullyBayesianSingleTaskGP
 from botorch.models.model_list_gp_regression import ModelListGP
 from botorch.optim.optimize import optimize_acqf
 from botorch.sampling.normal import IIDNormalSampler, SobolQMCNormalSampler

@@ -16,7 +16,6 @@ from math import ceil
 from typing import Any
 
 import torch
-from botorch.acquisition import monte_carlo  # noqa F401
 from botorch.acquisition.multi_objective.objective import MCMultiOutputObjective
 from botorch.acquisition.utils import _prune_inferior_shared_processing
 from botorch.exceptions.errors import UnsupportedError
