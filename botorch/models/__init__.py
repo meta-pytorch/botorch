@@ -14,8 +14,6 @@ from botorch.models.deterministic import (
     GenericDeterministicModel,
     PosteriorMeanModel,
 )
-from botorch.models.fully_bayesian import SaasFullyBayesianSingleTaskGP
-from botorch.models.fully_bayesian_multitask import SaasFullyBayesianMultiTaskGP
 from botorch.models.gp_regression import SingleTaskGP
 from botorch.models.gp_regression_fidelity import SingleTaskMultiFidelityGP
 from botorch.models.gp_regression_mixed import MixedSingleTaskGP
@@ -47,8 +45,6 @@ __all__ = [
     "PairwiseGP",
     "PairwiseLaplaceMarginalLogLikelihood",
     "PosteriorMeanModel",
-    "SaasFullyBayesianMultiTaskGP",
-    "SaasFullyBayesianSingleTaskGP",
     "SingleTaskGP",
     "SingleTaskMultiFidelityGP",
     "SingleTaskVariationalGP",

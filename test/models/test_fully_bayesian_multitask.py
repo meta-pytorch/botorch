@@ -10,7 +10,6 @@ import itertools
 import jax.numpy as jnp
 import numpyro.handlers
 import torch
-from botorch import fit_fully_bayesian_model_nuts
 from botorch.acquisition.analytic import (
     LogExpectedImprovement,
     PosteriorMean,
@@ -30,6 +29,7 @@ from botorch.acquisition.multi_objective.logei import (
     qLogExpectedHypervolumeImprovement,
     qLogNoisyExpectedHypervolumeImprovement,
 )
+from botorch.fit import fit_fully_bayesian_model_nuts
 from botorch.models import ModelList, ModelListGP
 from botorch.models.deterministic import GenericDeterministicModel
 from botorch.models.fully_bayesian import (
@@ -48,7 +48,7 @@ from botorch.models.fully_bayesian_multitask import (
 )
 from botorch.models.transforms.input import Normalize
 from botorch.models.transforms.outcome import Standardize
-from botorch.posteriors import GaussianMixturePosterior
+from botorch.posteriors.fully_bayesian import GaussianMixturePosterior
 from botorch.sampling.get_sampler import get_sampler
 from botorch.sampling.normal import IIDNormalSampler
 from botorch.utils.multi_objective.box_decompositions.non_dominated import (
