@@ -1891,7 +1891,7 @@ class TestInputTransforms(BotorchTestCase):
                 self.assertTrue(
                     torch.equal(
                         tf._task_values,
-                        torch.tensor([5, 12], dtype=torch.long),
+                        torch.tensor([5, 12], dtype=torch.long, device=self.device),
                     )
                 )
                 tf.raw_imputation_values.data = torch.tensor(
