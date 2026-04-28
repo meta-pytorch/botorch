@@ -2042,17 +2042,16 @@ class LearnedFeatureImputation(InputTransform, GPyTorchModule):
             missing_mask[task_pos, feature_indices[task_value]] = False
         self.register_buffer("missing_mask", missing_mask)
 
-        # Learnable imputation values, shape (num_tasks, d+1). The task column
-        # slot is unused but kept for index alignment with X columns.
+        # Learnable imputation values stored as 1-D so that gpytorch's scipy
+        # fitting path (which flattens parameters) sees a bound tensor with
+        # matching numel. Reshaped to (num_tasks, d+1) in `imputation_values`.
         self.register_parameter(
             "raw_imputation_values",
             nn.Parameter(
-                torch.zeros(self.num_tasks, d + 1, dtype=dtype, device=device)
+                torch.zeros(self.num_tasks * (d + 1), dtype=dtype, device=device)
             ),
         )
         if bounds is not None:
-            # Pad bounds with dummy [0, 1] for the task column so the Interval
-            # constraint has shape (d+1,) matching raw_imputation_values.
             padded_lower = torch.zeros(d + 1, dtype=dtype, device=device)
             padded_upper = torch.ones(d + 1, dtype=dtype, device=device)
             padded_lower[:d] = bounds[0]
@@ -2060,20 +2059,19 @@ class LearnedFeatureImputation(InputTransform, GPyTorchModule):
             self.register_constraint(
                 "raw_imputation_values",
                 Interval(
-                    lower_bound=padded_lower,
-                    upper_bound=padded_upper,
+                    lower_bound=padded_lower.repeat(self.num_tasks),
+                    upper_bound=padded_upper.repeat(self.num_tasks),
                 ),
             )
 
     @property
     def imputation_values(self) -> Tensor:
-        r"""The imputation values, mapped through the Interval constraint when
-        bounds are present, or the raw values otherwise."""
+        r"""The imputation values reshaped to ``(num_tasks, d+1)``, mapped
+        through the Interval constraint when bounds are present."""
+        raw = self.raw_imputation_values
         if self.bounds is not None:
-            return self.raw_imputation_values_constraint.transform(
-                self.raw_imputation_values
-            )
-        return self.raw_imputation_values
+            raw = self.raw_imputation_values_constraint.transform(raw)
+        return raw.view(self.num_tasks, self.d + 1)
 
     def transform(self, X: Tensor) -> Tensor:
         r"""Impute missing features with learned values.

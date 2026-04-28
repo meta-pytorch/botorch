@@ -15,6 +15,8 @@ from random import randint
 import torch
 from botorch.exceptions.errors import BotorchTensorDimensionError
 from botorch.exceptions.warnings import UserInputWarning
+from botorch.fit import fit_gpytorch_mll
+from botorch.models.multitask import MultiTaskGP
 from botorch.models.transforms.input import (
     AffineInputTransform,
     AppendFeatures,
@@ -36,8 +38,10 @@ from botorch.models.transforms.input import (
 )
 from botorch.models.transforms.utils import expand_and_copy_tensor
 from botorch.models.utils import fantasize
+from botorch.test_utils.mock import mock_optimize_context_manager
 from botorch.utils.testing import BotorchTestCase
 from gpytorch import Module as GPyTorchModule
+from gpytorch.mlls import ExactMarginalLogLikelihood
 from gpytorch.priors import LogNormalPrior
 from torch import Tensor
 from torch.distributions import Kumaraswamy
@@ -1657,7 +1661,9 @@ class TestInputTransforms(BotorchTestCase):
                     **tkwargs,
                 )
                 self.assertEqual(tf.num_tasks, 2)
-                self.assertEqual(tf.raw_imputation_values.shape, torch.Size([2, d + 1]))
+                self.assertEqual(
+                    tf.raw_imputation_values.shape, torch.Size([2 * (d + 1)])
+                )
                 # missing_mask: shape (num_tasks, d+1), task col always False.
                 self.assertTrue(tf.missing_mask[0, 3].item())
                 self.assertFalse(tf.missing_mask[0, 0].item())
@@ -1671,10 +1677,7 @@ class TestInputTransforms(BotorchTestCase):
                     **tkwargs,
                 )
                 tf.raw_imputation_values.data = torch.tensor(
-                    [
-                        [0.0, 0.0, 0.0, 0.5, 0.0],
-                        [0.0, 0.0, 0.7, 0.0, 0.0],
-                    ],
+                    [0.0, 0.0, 0.0, 0.5, 0.0, 0.0, 0.0, 0.7, 0.0, 0.0],
                     **tkwargs,
                 )
                 X = torch.tensor(
@@ -1746,10 +1749,11 @@ class TestInputTransforms(BotorchTestCase):
                 tf(X_grad).sum().backward()
                 grad = tf.raw_imputation_values.grad
                 self.assertIsNotNone(grad)
-                self.assertNotEqual(grad[1, 1].item(), 0.0)
+                # d=2 → stride is d+1=3. Task 1, feature 1 → index 4.
+                self.assertNotEqual(grad[4].item(), 0.0)
                 # Task 0 observes both features → no imputation → no grad.
-                self.assertEqual(grad[0, 0].item(), 0.0)
-                self.assertEqual(grad[0, 1].item(), 0.0)
+                self.assertEqual(grad[0].item(), 0.0)
+                self.assertEqual(grad[1].item(), 0.0)
 
             with self.subTest("untransform_raises", dtype=dtype):
                 tf = LearnedFeatureImputation(feature_indices={0: [0]}, d=1, **tkwargs)
@@ -1769,10 +1773,7 @@ class TestInputTransforms(BotorchTestCase):
                     **tkwargs,
                 )
                 tf.raw_imputation_values.data = torch.tensor(
-                    [
-                        [0.0, 0.0, 0.0, 0.5, 0.6, 0.0],
-                        [0.0, 0.0, 0.7, 0.0, 0.0, 0.0],
-                    ],
+                    [0.0, 0.0, 0.0, 0.5, 0.6, 0.0, 0.0, 0.0, 0.7, 0.0, 0.0, 0.0],
                     **tkwargs,
                 )
                 # Imputation with asymmetric observed feature counts.
@@ -1853,7 +1854,8 @@ class TestInputTransforms(BotorchTestCase):
                 tf_g(
                     torch.tensor([[1.0, 2.0, 0.0], [3.0, 9.0, 1.0]], **tkwargs)
                 ).sum().backward()
-                self.assertNotEqual(tf_g.raw_imputation_values.grad[1, 1].item(), 0.0)
+                # d=2 → stride is 3. Task 1, feature 1 → index 4.
+                self.assertNotEqual(tf_g.raw_imputation_values.grad[4].item(), 0.0)
 
             with self.subTest("three_tasks", dtype=dtype):
                 tf = LearnedFeatureImputation(
@@ -1862,11 +1864,7 @@ class TestInputTransforms(BotorchTestCase):
                     **tkwargs,
                 )
                 tf.raw_imputation_values.data = torch.tensor(
-                    [
-                        [0.0, 0.0, 0.3, 0.0],
-                        [0.4, 0.0, 0.0, 0.0],
-                        [0.0, 0.5, 0.0, 0.0],
-                    ],
+                    [0.0, 0.0, 0.3, 0.0, 0.4, 0.0, 0.0, 0.0, 0.0, 0.5, 0.0, 0.0],
                     **tkwargs,
                 )
                 X_three_tasks = torch.tensor(
@@ -1895,7 +1893,7 @@ class TestInputTransforms(BotorchTestCase):
                     )
                 )
                 tf.raw_imputation_values.data = torch.tensor(
-                    [[0.0, 0.0, 0.0, 0.5, 0.0], [0.0, 0.0, 0.7, 0.0, 0.0]],
+                    [0.0, 0.0, 0.0, 0.5, 0.0, 0.0, 0.0, 0.7, 0.0, 0.0],
                     **tkwargs,
                 )
                 X_noncontig = torch.tensor(
@@ -1917,7 +1915,7 @@ class TestInputTransforms(BotorchTestCase):
                     **tkwargs,
                 )
                 tf.raw_imputation_values.data = torch.tensor(
-                    [[0.0, 0.0, 0.0, 0.5, 0.0], [0.0, 0.0, 0.7, 0.0, 0.0]],
+                    [0.0, 0.0, 0.0, 0.5, 0.0, 0.0, 0.0, 0.7, 0.0, 0.0],
                     **tkwargs,
                 )
                 X_batch = torch.tensor(
@@ -1940,7 +1938,7 @@ class TestInputTransforms(BotorchTestCase):
                     **tkwargs,
                 )
                 tf.raw_imputation_values.data = torch.tensor(
-                    [[0.0, 0.0, 0.0, 0.5, 0.0], [0.0, 0.0, 0.7, 0.0, 0.0]],
+                    [0.0, 0.0, 0.0, 0.5, 0.0, 0.0, 0.0, 0.7, 0.0, 0.0],
                     **tkwargs,
                 )
                 X_no_task = torch.tensor(
@@ -1983,6 +1981,48 @@ class TestInputTransforms(BotorchTestCase):
                 )
                 with self.assertRaisesRegex(ValueError, "Expected X.shape"):
                     tf(torch.zeros(2, d + 3, **tkwargs))
+
+            with self.subTest("fit_gpytorch_mll_with_bounds", dtype=dtype):
+                n = 5
+                X = torch.cat(
+                    [
+                        torch.cat(
+                            [
+                                torch.rand(n, d, **tkwargs),
+                                i * torch.ones(n, 1, **tkwargs),
+                            ],
+                            dim=-1,
+                        )
+                        for i in range(len(feature_indices))
+                    ]
+                )
+                Y = torch.randn(len(feature_indices) * n, 1, **tkwargs)
+                bounds = torch.stack(
+                    [torch.zeros(d, **tkwargs), torch.ones(d, **tkwargs)]
+                )
+                lfi = LearnedFeatureImputation(
+                    feature_indices=feature_indices, d=d, bounds=bounds, **tkwargs
+                )
+                model = MultiTaskGP(
+                    train_X=X,
+                    train_Y=Y,
+                    task_feature=-1,
+                    input_transform=ChainedInputTransform(
+                        tf0=Normalize(d=d + 1, indices=list(range(d))),
+                        tf1=lfi,
+                    ),
+                )
+                mll = ExactMarginalLogLikelihood(model.likelihood, model)
+                with mock_optimize_context_manager():
+                    fit_gpytorch_mll(mll, max_attempts=1)
+                # Check raw values (not constrained, which maps 0 → 0.5
+                # via the Interval transform).
+                raw = lfi.raw_imputation_values.view(2, d + 1)
+                # Missing features should have moved from raw init (zero).
+                self.assertNotEqual(raw[0, 3].item(), 0.0)
+                self.assertNotEqual(raw[1, 2].item(), 0.0)
+                # Observed feature should stay at raw init (zero).
+                self.assertEqual(raw[0, 1].item(), 0.0)
 
 
 class TestAppendFeatures(BotorchTestCase):
