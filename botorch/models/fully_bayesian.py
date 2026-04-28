@@ -47,7 +47,7 @@ try:
     import numpyro.distributions as numpyro_dist
 
     _HAS_JAX = True
-except ImportError:  # pragma: no cover
+except (ImportError, AttributeError):  # pragma: no cover
     _HAS_JAX = False
 import torch
 from botorch.acquisition.objective import PosteriorTransform
