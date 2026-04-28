@@ -122,6 +122,23 @@ class TestHeterogeneousMTGP(BotorchTestCase):
                 model.likelihood.noise_covar.noise.shape[-1], model.num_tasks
             )
 
+        with self.subTest("imputation_uses_per_dim_empirical_mean"):
+            # Full feature space is [x1, x2, x3, x4, x5]. x3 is only in task 0,
+            # x4 and x5 are only in task 2. Imputation values for missing dims
+            # should equal the empirical mean of those columns across tasks.
+            expected_x3_mean = self.ds1.X[:, 2].mean()
+            expected_x4_mean = self.ds3.X[:, 2].mean()
+            expected_x5_mean = self.ds3.X[:, 3].mean()
+            self.assertAllClose(model.feature_imputation_values[2], expected_x3_mean)
+            self.assertAllClose(model.feature_imputation_values[3], expected_x4_mean)
+            self.assertAllClose(model.feature_imputation_values[4], expected_x5_mean)
+            # Task 1 (ds2) does not have x3, x4, x5 -- those columns in the
+            # full training tensor must equal the imputation values, not zero.
+            task1_rows = model.train_inputs[0][model.train_inputs[0][:, -1] == 1]
+            self.assertAllClose(task1_rows[:, 2], expected_x3_mean.expand(3))
+            self.assertAllClose(task1_rows[:, 3], expected_x4_mean.expand(3))
+            self.assertAllClose(task1_rows[:, 4], expected_x5_mean.expand(3))
+
         # Evaluate the posterior (task column required).
         with self.assertRaisesRegex(UnsupportedError, "output_indices"):
             model.posterior(self.ds1.X, output_indices=[0, 1])
