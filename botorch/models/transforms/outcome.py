@@ -35,6 +35,7 @@ from botorch.models.transforms.utils import (
 )
 from botorch.models.utils.assorted import get_task_value_remapping
 from botorch.posteriors import GPyTorchPosterior, Posterior, TransformedPosterior
+from botorch.posteriors.fully_bayesian import GaussianMixturePosterior
 from botorch.utils.transforms import normalize_indices
 from linear_operator.operators import (
     CholLinearOperator,
@@ -440,8 +441,9 @@ class Standardize(OutcomeTransform):
 
         Returns:
             The un-standardized posterior. If the input posterior is a
-            ``GPyTorchPosterior``, return a ``GPyTorchPosterior``. Otherwise, return a
-            ``TransformedPosterior``.
+            ``GPyTorchPosterior`` or ``GaussianMixturePosterior``, return
+            the same type with analytically rescaled distribution. Otherwise,
+            return a ``TransformedPosterior``.
         """
         if self._outputs is not None:
             raise NotImplementedError(
@@ -455,7 +457,7 @@ class Standardize(OutcomeTransform):
                 "means and standard deviations need to be computed."
             )
         is_mtgp_posterior = False
-        if type(posterior) is GPyTorchPosterior:
+        if type(posterior) in (GPyTorchPosterior, GaussianMixturePosterior):
             is_mtgp_posterior = posterior._is_mt
         if not self._m == posterior._extended_shape()[-1] and not is_mtgp_posterior:
             raise RuntimeError(
@@ -464,7 +466,7 @@ class Standardize(OutcomeTransform):
                 f"{posterior._extended_shape()[-1]}."
             )
 
-        if type(posterior) is not GPyTorchPosterior:
+        if type(posterior) not in (GPyTorchPosterior, GaussianMixturePosterior):
             # fall back to TransformedPosterior
             # this applies to subclasses of GPyTorchPosterior like MultitaskGPPosterior
             return TransformedPosterior(
@@ -506,7 +508,7 @@ class Standardize(OutcomeTransform):
 
         kwargs = {"interleaved": mvn._interleaved} if posterior._is_mt else {}
         mvn_tf = mvn.__class__(mean=mean_tf, covariance_matrix=covar_tf, **kwargs)
-        return GPyTorchPosterior(mvn_tf)
+        return type(posterior)(mvn_tf)
 
 
 class StratifiedStandardize(Standardize):
@@ -721,8 +723,9 @@ class StratifiedStandardize(Standardize):
 
         Returns:
             The un-standardized posterior. If the input posterior is a
-            ``GPyTorchPosterior``, return a ``GPyTorchPosterior``. Otherwise, return a
-            ``TransformedPosterior``.
+            ``GPyTorchPosterior`` or ``GaussianMixturePosterior``, return
+            the same type with analytically rescaled distribution. Otherwise,
+            return a ``TransformedPosterior``.
         """
         if X is None:
             raise ValueError("X is required for StratifiedStandardize.")

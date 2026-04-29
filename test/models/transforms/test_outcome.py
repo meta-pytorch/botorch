@@ -24,6 +24,7 @@ from botorch.models.transforms.utils import (
     norm_to_lognorm_variance,
 )
 from botorch.posteriors import GPyTorchPosterior, TransformedPosterior
+from botorch.posteriors.fully_bayesian import GaussianMixturePosterior
 from botorch.utils.testing import BotorchTestCase
 from gpytorch.distributions import MultitaskMultivariateNormal, MultivariateNormal
 from gpytorch.settings import min_variance
@@ -354,6 +355,55 @@ class TestOutcomeTransforms(BotorchTestCase):
             # error on untransform_posterior
             with self.assertRaises(NotImplementedError):
                 tf.untransform_posterior(None)
+
+    def test_standardize_untransform_gaussian_mixture_posterior(self) -> None:
+        """Test Standardize.untransform_posterior with GaussianMixturePosterior.
+
+        Verifies that when a GaussianMixturePosterior (from ensemble/fully Bayesian
+        models) is passed to Standardize.untransform_posterior, the return type is
+        GaussianMixturePosterior (not TransformedPosterior), and mixture_mean/
+        mixture_variance are accessible and correctly rescaled.
+        """
+
+        # Create a batched MVN simulating MCMC samples: num_mcmc x n x 1
+        num_mcmc, n = 5, 10
+        mean = torch.randn(num_mcmc, n, 1)
+        var = torch.rand(num_mcmc, n, 1).clamp(min=0.01)
+        mvn = MultivariateNormal(
+            mean=mean.squeeze(-1),
+            covariance_matrix=DiagLinearOperator(var.squeeze(-1)),
+        )
+        gmp = GaussianMixturePosterior(distribution=mvn)
+
+        # Verify mixture stats are available before untransform
+        self.assertEqual(gmp.mixture_mean.shape, torch.Size([n, 1]))
+
+        # Fit a Standardize transform
+        Y = torch.randn(n, 1)
+        tf = Standardize(m=1)
+        tf.train()
+        tf(Y)
+        tf.eval()
+
+        # Untransform should preserve the GaussianMixturePosterior type
+        result = tf.untransform_posterior(gmp)
+        self.assertIsInstance(result, GaussianMixturePosterior)
+        self.assertNotIsInstance(result, TransformedPosterior)
+
+        # Per-member statistics should be accessible
+        self.assertEqual(result.mean.shape, torch.Size([num_mcmc, n, 1]))
+        self.assertEqual(result.variance.shape, torch.Size([num_mcmc, n, 1]))
+
+        # Mixture statistics should be accessible
+        self.assertEqual(result.mixture_mean.shape, torch.Size([n, 1]))
+        self.assertEqual(result.mixture_variance.shape, torch.Size([n, 1]))
+        self.assertTrue((result.mixture_variance > 0).all())
+
+        # Verify mean is correctly rescaled: result.mean ≈ stdvs * input.mean + means
+        expected_mean = tf.means.squeeze(-1) + tf.stdvs.squeeze(-1) * mean.squeeze(-1)
+        self.assertAllClose(
+            result.mean.squeeze(-1), expected_mean, rtol=1e-5, atol=1e-5
+        )
 
     def test_standardize_state_dict(self):
         for m in (1, 2):
