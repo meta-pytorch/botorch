@@ -1449,7 +1449,7 @@ def _filter_infeasible(
 
 def _filter_invalid(X: Tensor, X_avoid: Tensor) -> Tensor:
     """Remove all occurences of ``X_avoid`` from ``X``."""
-    return X[~(X == X_avoid.unsqueeze(-2)).all(dim=-1).any(dim=-2)]
+    return X[~(torch.isclose(X, X_avoid.unsqueeze(-2))).all(dim=-1).any(dim=-2)]
 
 
 def _gen_batch_initial_conditions_local_search(

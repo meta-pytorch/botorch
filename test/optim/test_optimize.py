@@ -2664,6 +2664,8 @@ class TestOptimizeAcqfDiscrete(BotorchTestCase):
             # test _filter_invalid
             X_filtered = _filter_invalid(X=X, X_avoid=X[1].unsqueeze(0))
             self.assertAllClose(X[[0, 2]], X_filtered)
+            X_filtered = _filter_invalid(X=X, X_avoid=X[1].unsqueeze(0) + 1e-8)
+            self.assertAllClose(X[[0, 2]], X_filtered)
             X_filtered = _filter_invalid(X=X, X_avoid=X[[0, 2]])
             self.assertAllClose(X[1].unsqueeze(0), X_filtered)
 
