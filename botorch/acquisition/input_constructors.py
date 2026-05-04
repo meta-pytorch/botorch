@@ -12,8 +12,9 @@ constructors programmatically from a consistent input format.
 from __future__ import annotations
 
 import inspect
+import warnings
 from collections.abc import Callable, Hashable, Iterable, Sequence
-from typing import Any, TypeVar, Union
+from typing import Any, TypeVar
 
 import torch
 from botorch.acquisition.acquisition import AcquisitionFunction
@@ -118,19 +119,19 @@ from torch import Tensor
 ACQF_INPUT_CONSTRUCTOR_REGISTRY = {}
 
 T = TypeVar("T")
-MaybeDict = Union[T, dict[Hashable, T]]
-TOptimizeObjectiveKwargs = Union[
-    None,
-    MCAcquisitionObjective,
-    PosteriorTransform,
-    tuple[Tensor, Tensor],
-    dict[int, float],
-    bool,
-    int,
-    dict[str, Any],
-    Callable[[Tensor], Tensor],
-    Tensor,
-]
+MaybeDict = T | dict[Hashable, T]
+TOptimizeObjectiveKwargs = (
+    None
+    | MCAcquisitionObjective
+    | PosteriorTransform
+    | tuple[Tensor, Tensor]
+    | dict[int, float]
+    | bool
+    | int
+    | dict[str, Any]
+    | Callable[[Tensor], Tensor]
+    | Tensor
+)
 
 
 def _field_is_shared(
@@ -223,6 +224,9 @@ def allow_only_specific_variable_kwargs(f: Callable[..., T]) -> Callable[..., T]
         # Objective thresholds are needed for defining hypervolumes in
         # multi-objective optimization.
         "objective_thresholds",
+        # ref_point is the new preferred way to pass reference points
+        # for multi-objective optimization.
+        "ref_point",
         # Used in input constructors for some lookahead acquisition functions
         # such as qKnowledgeGradient.
         "bounds",
@@ -602,7 +606,7 @@ def construct_inputs_qLogEI(
     tau_max: float = TAU_MAX,
     tau_relu: float = TAU_RELU,
 ) -> dict[str, Any]:
-    r"""Construct kwargs for the ``qExpectedImprovement`` constructor.
+    r"""Construct kwargs for the ``qLogExpectedImprovement`` constructor.
 
     Args:
         model: The model to be used in the acquisition function.
@@ -662,7 +666,7 @@ def construct_inputs_LogPF(
     fat: bool = True,
     tau_max: float = TAU_MAX,
 ) -> dict[str, Any]:
-    r"""Construct kwargs for the ``qExpectedImprovement`` constructor.
+    r"""Construct kwargs for the ``qLogProbabilityOfFeasibility`` constructor.
 
     Args:
         model: The model to be used in the acquisition function.
@@ -985,14 +989,19 @@ def _get_sampler(mc_samples: int, qmc: bool) -> MCSampler:
 def construct_inputs_EHVI(
     model: Model,
     training_data: MaybeDict[SupervisedDataset],
-    objective_thresholds: Tensor,
+    objective_thresholds: Tensor | None = None,
     posterior_transform: PosteriorTransform | None = None,
     constraints: list[Callable[[Tensor], Tensor]] | None = None,
     alpha: float | None = None,
     Y_pmean: Tensor | None = None,
+    ref_point: Tensor | None = None,
 ) -> dict[str, Any]:
     r"""Construct kwargs for ``ExpectedHypervolumeImprovement`` constructor."""
-    num_objectives = objective_thresholds.shape[0]
+    ref_point = _get_ref_point(
+        objective_thresholds=objective_thresholds,
+        ref_point=ref_point,
+    )
+    num_objectives = ref_point.shape[0]
     if constraints is not None:
         raise NotImplementedError("EHVI does not yet support outcome constraints.")
 
@@ -1016,19 +1025,19 @@ def construct_inputs_EHVI(
             Y_pmean = model.posterior(X).mean
     if alpha > 0:
         partitioning = NondominatedPartitioning(
-            ref_point=objective_thresholds,
+            ref_point=ref_point,
             Y=Y_pmean,
             alpha=alpha,
         )
     else:
         partitioning = FastNondominatedPartitioning(
-            ref_point=objective_thresholds,
+            ref_point=ref_point,
             Y=Y_pmean,
         )
 
     kwargs = {
         "model": model,
-        "ref_point": objective_thresholds,
+        "ref_point": ref_point,
         "partitioning": partitioning,
     }
     if posterior_transform is not None:
@@ -1042,7 +1051,7 @@ def construct_inputs_EHVI(
 def construct_inputs_qEHVI(
     model: Model,
     training_data: MaybeDict[SupervisedDataset],
-    objective_thresholds: Tensor,
+    objective_thresholds: Tensor | None = None,
     objective: MCMultiOutputObjective | None = None,
     constraints: list[Callable[[Tensor], Tensor]] | None = None,
     alpha: float | None = None,
@@ -1051,6 +1060,7 @@ def construct_inputs_qEHVI(
     eta: float = 1e-3,
     mc_samples: int = 128,
     qmc: bool = True,
+    ref_point: Tensor | None = None,
 ) -> dict[str, Any]:
     r"""
     Construct kwargs for ``qExpectedHypervolumeImprovement`` and
@@ -1072,7 +1082,12 @@ def construct_inputs_qEHVI(
         feas = torch.stack([c(Y_pmean) <= 0 for c in constraints], dim=-1).all(dim=-1)
         Y_pmean = Y_pmean[feas]
 
-    num_objectives = objective_thresholds.shape[0]
+    ref_point = _get_ref_point(
+        objective_thresholds=objective_thresholds,
+        objective=objective,
+        ref_point=ref_point,
+    )
+    num_objectives = ref_point.shape[0]
 
     alpha = (
         get_default_partitioning_alpha(num_objectives=num_objectives)
@@ -1081,13 +1096,10 @@ def construct_inputs_qEHVI(
     )
 
     if objective is None:
-        ref_point = objective_thresholds
         Y = Y_pmean
     elif isinstance(objective, RiskMeasureMCObjective):
-        ref_point = objective.preprocessing_function(objective_thresholds)
         Y = objective.preprocessing_function(Y_pmean)
     else:
-        ref_point = objective(objective_thresholds)
         Y = objective(Y_pmean)
 
     if alpha > 0:
@@ -1121,7 +1133,7 @@ def construct_inputs_qEHVI(
 def construct_inputs_qNEHVI(
     model: Model,
     training_data: MaybeDict[SupervisedDataset],
-    objective_thresholds: Tensor,
+    objective_thresholds: Tensor | None = None,
     objective: MCMultiOutputObjective | None = None,
     X_baseline: Tensor | None = None,
     constraints: list[Callable[[Tensor], Tensor]] | None = None,
@@ -1137,6 +1149,7 @@ def construct_inputs_qNEHVI(
     max_iep: int = 0,
     incremental_nehvi: bool = True,
     cache_root: bool | None = None,
+    ref_point: Tensor | None = None,
 ) -> dict[str, Any]:
     r"""Construct kwargs for ``qNoisyExpectedHypervolumeImprovement``'s constructor."""
     if X_baseline is None:
@@ -1161,12 +1174,13 @@ def construct_inputs_qNEHVI(
     if sampler is None and isinstance(model, GPyTorchModel):
         sampler = _get_sampler(mc_samples=mc_samples, qmc=qmc)
 
-    if isinstance(objective, RiskMeasureMCObjective):
-        ref_point = objective.preprocessing_function(objective_thresholds)
-    else:
-        ref_point = objective(objective_thresholds)
+    ref_point = _get_ref_point(
+        objective_thresholds=objective_thresholds,
+        objective=objective,
+        ref_point=ref_point,
+    )
 
-    num_objectives = objective_thresholds[~torch.isnan(objective_thresholds)].shape[0]
+    num_objectives = ref_point[~torch.isnan(ref_point)].shape[0]
     if alpha is None:
         alpha = get_default_partitioning_alpha(num_objectives=num_objectives)
 
@@ -1193,7 +1207,7 @@ def construct_inputs_qNEHVI(
 def construct_inputs_qLogNEHVI(
     model: Model,
     training_data: MaybeDict[SupervisedDataset],
-    objective_thresholds: Tensor,
+    objective_thresholds: Tensor | None = None,
     objective: MCMultiOutputObjective | None = None,
     X_baseline: Tensor | None = None,
     constraints: list[Callable[[Tensor], Tensor]] | None = None,
@@ -1211,6 +1225,7 @@ def construct_inputs_qLogNEHVI(
     cache_root: bool | None = None,
     tau_relu: float = TAU_RELU,
     tau_max: float = TAU_MAX,
+    ref_point: Tensor | None = None,
 ) -> dict[str, Any]:
     """
     Construct kwargs for ``qLogNoisyExpectedHypervolumeImprovement``'s constructor."
@@ -1221,6 +1236,7 @@ def construct_inputs_qLogNEHVI(
             training_data=training_data,
             objective_thresholds=objective_thresholds,
             objective=objective,
+            ref_point=ref_point,
             X_baseline=X_baseline,
             constraints=constraints,
             alpha=alpha,
@@ -1258,7 +1274,7 @@ def construct_inputs_qLogNParEGO(
     tau_max: float = TAU_MAX,
     tau_relu: float = TAU_RELU,
 ):
-    r"""Construct kwargs for the ``qLogNoisyExpectedImprovement`` constructor.
+    r"""Construct kwargs for the ``qLogNParEGO`` constructor.
 
     Args:
         model: The model to be used in the acquisition function.
@@ -1351,7 +1367,7 @@ def construct_inputs_mf_base(
 ) -> dict[str, Any]:
     r"""Construct kwargs for a multifidelity acquisition function's constructor."""
     if fidelity_weights is None:
-        fidelity_weights = {f: 1.0 for f in target_fidelities}
+        fidelity_weights = dict.fromkeys(target_fidelities, 1.0)
 
     if set(target_fidelities) != set(fidelity_weights):
         raise RuntimeError(
@@ -1374,7 +1390,7 @@ def construct_inputs_mf_base(
             num_trace_obs=num_trace_observations,
         ),
         "project": lambda X: project_to_target_fidelity(
-            X=X, target_fidelities=target_fidelities
+            X=X, target_fidelities=target_fidelities, d=X.shape[-1]
         ),
     }
 
@@ -1421,11 +1437,12 @@ def construct_inputs_qHVKG(
     model: Model,
     training_data: MaybeDict[SupervisedDataset],
     bounds: list[tuple[float, float]],
-    objective_thresholds: Tensor,
+    objective_thresholds: Tensor | None = None,
     objective: MCMultiOutputObjective | None = None,
     posterior_transform: PosteriorTransform | None = None,
     num_fantasies: int = 8,
     num_pareto: int = 10,
+    ref_point: Tensor | None = None,
     **optimize_objective_kwargs: TOptimizeObjectiveKwargs,
 ) -> dict[str, Any]:
     r"""Construct kwargs for ``qKnowledgeGradient`` constructor."""
@@ -1434,7 +1451,9 @@ def construct_inputs_qHVKG(
     _bounds = torch.as_tensor(bounds, dtype=X.dtype, device=X.device)
 
     ref_point = _get_ref_point(
-        objective_thresholds=objective_thresholds, objective=objective
+        objective_thresholds=objective_thresholds,
+        objective=objective,
+        ref_point=ref_point,
     )
 
     acq_function = _get_hv_value_function(
@@ -1514,7 +1533,7 @@ def construct_inputs_qMFHVKG(
     training_data: MaybeDict[SupervisedDataset],
     bounds: list[tuple[float, float]],
     target_fidelities: dict[int, int | float],
-    objective_thresholds: Tensor,
+    objective_thresholds: Tensor | None = None,
     objective: MCMultiOutputObjective | None = None,
     posterior_transform: PosteriorTransform | None = None,
     fidelity_weights: dict[int, float] | None = None,
@@ -1522,6 +1541,7 @@ def construct_inputs_qMFHVKG(
     num_trace_observations: int = 0,
     num_fantasies: int = 8,
     num_pareto: int = 10,
+    ref_point: Tensor | None = None,
     **optimize_objective_kwargs: TOptimizeObjectiveKwargs,
 ) -> dict[str, Any]:
     r"""
@@ -1547,7 +1567,9 @@ def construct_inputs_qMFHVKG(
     _bounds = torch.as_tensor(bounds, dtype=X.dtype, device=X.device)
 
     ref_point = _get_ref_point(
-        objective_thresholds=objective_thresholds, objective=objective
+        objective_thresholds=objective_thresholds,
+        objective=objective,
+        ref_point=ref_point,
     )
 
     acq_function = _get_hv_value_function(
@@ -2010,17 +2032,52 @@ def construct_inputs_NIPV(
 
 
 def _get_ref_point(
-    objective_thresholds: Tensor,
+    objective_thresholds: Tensor | None = None,
     objective: MCMultiOutputObjective | None = None,
+    ref_point: Tensor | None = None,
 ) -> Tensor:
-    if objective is None:
-        ref_point = objective_thresholds
-    elif isinstance(objective, RiskMeasureMCObjective):
-        ref_point = objective.preprocessing_function(objective_thresholds)
-    else:
-        ref_point = objective(objective_thresholds)
+    """Get the reference point for multi-objective acquisition functions.
 
-    return ref_point
+    Args:
+        objective_thresholds: Deprecated. Raw objective thresholds that will be
+            transformed through the objective (if provided) to produce the
+            reference point. Use ``ref_point`` instead.
+        objective: The multi-output objective, used only with the deprecated
+            ``objective_thresholds`` path to transform thresholds into the
+            objective space.
+        ref_point: The maximization-aligned reference point of shape
+            ``(num_objectives,)``, used directly without any further processing.
+            This is the preferred way to specify the reference point.
+
+    Returns:
+        A ``(num_objectives,)``-dim Tensor representing the reference point
+        in the objective space, suitable for hypervolume computation.
+    """
+    if ref_point is not None:
+        if objective_thresholds is not None:
+            raise ValueError(
+                "Cannot specify both `ref_point` and `objective_thresholds`."
+            )
+        return ref_point
+    if objective_thresholds is None:
+        raise ValueError(
+            "Either `ref_point` or `objective_thresholds` must be provided."
+        )
+    warnings.warn(
+        "`objective_thresholds` is deprecated in favor of `ref_point`. "
+        "Unlike `objective_thresholds`, which gets transformed through the "
+        "objective, `ref_point` should be a maximization-aligned reference "
+        "point of shape `(num_objectives,)` and is used directly without "
+        "any further processing.",
+        DeprecationWarning,
+        stacklevel=3,
+    )
+    if objective is None:
+        return objective_thresholds
+    elif isinstance(objective, RiskMeasureMCObjective):
+        return objective.preprocessing_function(objective_thresholds)
+    else:
+        return objective(objective_thresholds)
 
 
 def _construct_constraint_dict_from_tuple(

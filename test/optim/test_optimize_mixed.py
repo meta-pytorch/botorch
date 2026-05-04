@@ -745,6 +745,34 @@ class TestOptimizeAcqfMixed(BotorchTestCase):
         self.assertIs(X, X_out)  # testing pointer equality, to make sure no copy
         self.assertAllClose(ei_val, ei(X))
 
+        # Test edge case when discrete dims + user fixed_features cover all dims.
+        # This triggered a ValueError in _optimize_acqf_all_features_fixed
+        # because tensor-valued fixed_features were passed through.
+        d_total = 5
+        root = torch.rand(d_total, device=self.device)
+        model = QuadraticDeterministicModel(root)
+        mean_as_acq = PosteriorMean(model)
+        bounds_5d = self.single_bound.repeat(1, d_total)
+        # 3 binary dims, 2 fixed continuous dims -> all dims covered
+        binary_dims_5d = torch.tensor([0, 1, 2], device=self.device)
+        X_5d = torch.rand(2, d_total, device=self.device)
+        X_5d[:, :3] = X_5d[:, :3].round()  # make binary dims 0/1
+        X_out, acq_val = continuous_step(
+            opt_inputs=_make_opt_inputs(
+                acq_function=mean_as_acq,
+                bounds=bounds_5d,
+                options={"maxiter_continuous": 32},
+                fixed_features={3: 0.5, 4: 0.7},
+                return_best_only=False,
+            ),
+            discrete_dims=binary_dims_5d,
+            cat_dims=torch.tensor([], device=self.device, dtype=torch.long),
+            current_x=X_5d,
+        )
+        # Since all dims are fixed, output should equal input.
+        self.assertAllClose(X_out, X_5d)
+        self.assertAllClose(acq_val, mean_as_acq(X_5d.unsqueeze(1)))
+
         # test that error is raised if opt_inputs
         with self.assertRaisesRegex(
             UnsupportedError,
@@ -939,6 +967,70 @@ class TestOptimizeAcqfMixed(BotorchTestCase):
                 raw_samples=20,
                 num_restarts=2,
             )
+
+    def test_optimize_acqf_mixed_alternating_return_acq_values(self) -> None:
+        """Test that return_acq_values defaults to True and can be turned off."""
+        train_X, train_Y, binary_dims, cont_dims = self._get_data()
+        dim = len(binary_dims) + len(cont_dims)
+        bounds = self.single_bound.repeat(1, dim).to(**self.tkwargs)
+        torch.manual_seed(0)
+        model = SingleTaskGP(train_X=train_X, train_Y=train_Y)
+        acqf = LogExpectedImprovement(model=model, best_f=torch.max(train_Y))
+        options = {
+            "initialization_strategy": "random",
+            "maxiter_alternating": 2,
+            "maxiter_discrete": 8,
+            "maxiter_continuous": 32,
+            "num_spray_points": 32,
+            "std_cont_perturbation": 1e-2,
+        }
+        # Default (return_acq_values=True): second element is not None
+        candidates, acq_vals = optimize_acqf_mixed_alternating(
+            acq_function=acqf,
+            bounds=bounds,
+            discrete_dims=binary_dims,
+            options=options,
+            q=1,
+            raw_samples=32,
+            num_restarts=2,
+        )
+        self.assertIsNotNone(acq_vals)
+        self.assertEqual(candidates.shape, (1, dim))
+        # return_acq_values=False: second element is None
+        candidates_no_acq, acq_vals_no_acq = optimize_acqf_mixed_alternating(
+            acq_function=acqf,
+            bounds=bounds,
+            discrete_dims=binary_dims,
+            options=options,
+            q=1,
+            raw_samples=32,
+            num_restarts=2,
+            return_acq_values=False,
+        )
+        self.assertIsNone(acq_vals_no_acq)
+        self.assertIsNotNone(candidates_no_acq)
+        self.assertEqual(candidates_no_acq.shape, (1, dim))
+
+        # Fully continuous fallback: return_acq_values=False returns None
+        with mock.patch(
+            f"{OPT_MODULE}._optimize_acqf", wraps=_optimize_acqf
+        ) as mock_opt:
+            fallback_cands, fallback_acq = optimize_acqf_mixed_alternating(
+                acq_function=acqf,
+                bounds=bounds,
+                discrete_dims={},
+                options=options,
+                q=1,
+                raw_samples=4,
+                num_restarts=2,
+                return_acq_values=False,
+            )
+            self.assertIsNone(fallback_acq)
+            self.assertIsNotNone(fallback_cands)
+            # Verify _optimize_acqf was called with return_acq_values=False
+            mock_opt.assert_called_once()
+            call_kwargs = mock_opt.call_args.kwargs
+            self.assertFalse(call_kwargs["opt_inputs"].return_acq_values)
 
     def test_optimize_acqf_mixed_integer(self) -> None:
         # Testing with integer variables.
@@ -1440,6 +1532,8 @@ class TestOptimizeAcqfMixed(BotorchTestCase):
                 discrete_dims=discrete_dims,
                 max_discrete_values=max_discrete_values or MAX_DISCRETE_VALUES,
                 post_processing_func=post_processing_func,
+                inequality_constraints=None,
+                equality_constraints=None,
             )
             discrete_call_args = wrapped_discrete.call_args.kwargs
             expected_dims = [0, 4] if max_discrete_values is None else [0]
@@ -1516,3 +1610,113 @@ class TestOptimizeAcqfMixed(BotorchTestCase):
         # Check that generated points are rounded.
         self.assertEqual(X.shape, torch.Size([4, train_X.shape[-1]]))
         self.assertAllClose(X[..., all_integer_dims], X[..., all_integer_dims].round())
+
+    def test_setup_continuous_relaxation_excludes_constrained_dims(self) -> None:
+        """Test that _setup_continuous_relaxation keeps constrained discrete dims."""
+        for dtype in (torch.float, torch.double):
+            # Setup: 3 discrete dimensions
+            # - Dim 0: Low cardinality (2 values) - kept regardless
+            # - Dim 1: High cardinality (50 values), participates in constraint - kept
+            # - Dim 2: High cardinality (50 values), not constrained - relaxed
+            discrete_dims: dict[int, list[float]] = {
+                0: [0.0, 1.0],  # Low cardinality - should be kept
+                1: list(range(50)),  # High cardinality, constrained - should be kept
+                2: list(range(50)),  # High cardinality, not constrained - relaxed
+            }
+            max_discrete_values = 20
+            # Constraint on dim 1: x[1] >= 10
+            inequality_constraints = [
+                (
+                    torch.tensor([1], dtype=torch.long, device=self.device),
+                    torch.tensor([1.0], dtype=dtype, device=self.device),
+                    10.0,
+                )
+            ]
+            # Execute: call _setup_continuous_relaxation
+            dims_kept, post_processing_func = _setup_continuous_relaxation(
+                discrete_dims=discrete_dims,
+                max_discrete_values=max_discrete_values,
+                post_processing_func=None,
+                inequality_constraints=inequality_constraints,
+            )
+            # Assert: dims 0 and 1 are kept (low cardinality and constrained)
+            self.assertIn(0, dims_kept)
+            self.assertIn(1, dims_kept)
+            # Assert: dim 2 is NOT in dims_kept (relaxed)
+            self.assertNotIn(2, dims_kept)
+            # Assert: post_processing_func is not None since dim 2 was relaxed
+            self.assertIsNotNone(post_processing_func)
+            # Assert: post_processing_func rounds dim 2 but not dims 0 or 1
+            X = torch.tensor(
+                [0.4, 25.3, 30.7],  # dim 0, 1, 2 with non-integer values
+                dtype=dtype,
+                device=self.device,
+            )
+            X_processed = post_processing_func(X)
+            # Dim 0 and 1 should remain unchanged (not rounded by this func)
+            self.assertAllClose(
+                X_processed[0], torch.tensor(0.4, dtype=dtype, device=self.device)
+            )
+            self.assertAllClose(
+                X_processed[1], torch.tensor(25.3, dtype=dtype, device=self.device)
+            )
+            # Dim 2 should be rounded to nearest valid value
+            self.assertAllClose(
+                X_processed[2], torch.tensor(31.0, dtype=dtype, device=self.device)
+            )
+
+    def test_optimize_acqf_mixed_alternating_constrained_discrete_dims(self) -> None:
+        """Test full workflow produces valid discrete values with constrained dims.
+
+        Uses non-contiguous choices [8, 16, 24, 32, 40, 48] to exercise the failure
+        mode where rounding to nearest integer (e.g. 47) differs from rounding to
+        nearest valid choice (48).
+        """
+        for dtype in (torch.float, torch.double):
+            # Setup: GP model with posterior mean as acquisition function
+            d = 2  # 1 continuous + 1 discrete dimension
+            train_X = torch.rand(5, d, dtype=dtype, device=self.device)
+            # Non-contiguous discrete values: multiples of 8 from 8 to 48
+            valid_choices = [8.0, 16.0, 24.0, 32.0, 40.0, 48.0]
+            train_X[:, 1] = torch.tensor(
+                [valid_choices[i % len(valid_choices)] for i in range(5)],
+                dtype=dtype,
+                device=self.device,
+            )
+            train_Y = train_X.sum(dim=-1, keepdim=True)
+            model = SingleTaskGP(train_X, train_Y)
+            acqf = PosteriorMean(model=model)
+            # Define bounds: [0, 1] for continuous, [8, 48] for discrete
+            bounds = torch.tensor(
+                [[0.0, 8.0], [1.0, 48.0]], dtype=dtype, device=self.device
+            )
+            # Non-contiguous discrete dimension (6 values)
+            discrete_dims: dict[int, list[float]] = {1: valid_choices}
+            # Constraint: x[1] >= 20 (discrete dim must be at least 20)
+            inequality_constraints = [
+                (
+                    torch.tensor([1], dtype=torch.long, device=self.device),
+                    torch.tensor([1.0], dtype=dtype, device=self.device),
+                    20.0,
+                )
+            ]
+            X, _ = optimize_acqf_mixed_alternating(
+                acq_function=acqf,
+                bounds=bounds,
+                discrete_dims=discrete_dims,
+                q=1,
+                num_restarts=2,
+                raw_samples=32,
+                inequality_constraints=inequality_constraints,
+                options={"max_discrete_values": 2, "maxiter_alternating": 4},
+            )
+            # Assert: discrete value is within the valid set (not just rounded int)
+            valid_choices_tensor = torch.tensor(
+                valid_choices, dtype=dtype, device=self.device
+            )
+            self.assertTrue(
+                torch.all(torch.isin(X[..., 1], valid_choices_tensor)),
+                f"Returned candidate {X[..., 1].item()} not in {valid_choices}",
+            )
+            # Assert: constraint is satisfied (x[1] >= 20)
+            self.assertTrue(torch.all(X[..., 1] >= 20.0 - 1e-6))

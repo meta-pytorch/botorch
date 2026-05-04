@@ -12,7 +12,10 @@ import numpy as np
 import torch
 from botorch.optim.closures.core import as_ndarray
 from botorch.optim.utils import get_bounds_as_ndarray
-from botorch.optim.utils.numpy_utils import torch_to_numpy_dtype_dict
+from botorch.optim.utils.numpy_utils import (
+    get_per_element_bounds,
+    torch_to_numpy_dtype_dict,
+)
 from botorch.utils.testing import BotorchTestCase
 from torch.nn import Parameter
 
@@ -89,3 +92,28 @@ class TestNumpyUtils(BotorchTestCase):
         test[2:, 1] = 1
         array = get_bounds_as_ndarray(parameters=params, bounds=bounds)
         self.assertTrue(np.array_equal(test, array))
+
+
+class TestGetPerElementBounds(BotorchTestCase):
+    def test_per_element_bounds(self):
+        parameters = {
+            "a": torch.zeros(2, 3),
+            "b": torch.zeros(2, 1),
+        }
+        bounds = {
+            "a": (0.0, 1.0),
+            "b": (-1.0, 2.0),
+        }
+        result = get_per_element_bounds(parameters, bounds, batch_shape=torch.Size([2]))
+        self.assertIsNotNone(result)
+        self.assertEqual(result.shape, (4, 2))
+        np.testing.assert_array_equal(result[:3, 0], 0.0)
+        np.testing.assert_array_equal(result[:3, 1], 1.0)
+        np.testing.assert_array_equal(result[3:, 0], -1.0)
+        np.testing.assert_array_equal(result[3:, 1], 2.0)
+
+    def test_all_inf_returns_none(self):
+        parameters = {"a": torch.zeros(2, 3)}
+        bounds = {}
+        result = get_per_element_bounds(parameters, bounds, batch_shape=torch.Size([2]))
+        self.assertIsNone(result)

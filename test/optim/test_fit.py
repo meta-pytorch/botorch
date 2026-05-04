@@ -9,6 +9,7 @@ import re
 from unittest.mock import MagicMock, patch
 from warnings import catch_warnings
 
+import numpy as np
 import torch
 from botorch.exceptions.warnings import OptimizationWarning
 from botorch.models import SingleTaskGP
@@ -235,3 +236,278 @@ class TestFitGPyTorchMLLTorch(BotorchTestCase):
                     mll, closure=mock_closure, closure_kwargs={"ab": "cd"}
                 )
             mock_closure.assert_called_once_with(ab="cd")
+
+
+class TestFitGPyTorchMLLScipyIndependent(BotorchTestCase):
+    """Tests for the batched independent fitting path of fit_gpytorch_mll_scipy."""
+
+    def test_dispatches_to_independent_for_multi_output(self):
+        """Verify that fit_gpytorch_mll_scipy dispatches to
+        _fit_gpytorch_mll_scipy_independent when using a batched
+        multi-output model (aug_batch_shape.numel() > 1)."""
+        with torch.random.fork_rng():
+            torch.manual_seed(0)
+            train_X = torch.rand(10, 2, dtype=torch.double)
+            train_Y = torch.rand(10, 3, dtype=torch.double)  # 3 outputs
+        model = SingleTaskGP(train_X, train_Y)
+        mll = ExactMarginalLogLikelihood(model.likelihood, model)
+        mll.train()
+
+        with patch(
+            "botorch.optim.fit._fit_gpytorch_mll_scipy_independent"
+        ) as mock_independent:
+            mock_independent.return_value = OptimizationResult(
+                fval=0.0, step=1, status=OptimizationStatus.SUCCESS
+            )
+            fit.fit_gpytorch_mll_scipy(mll)
+            mock_independent.assert_called_once()
+
+    def test_dispatches_to_independent_for_ensemble_model(self):
+        """Verify that fit_gpytorch_mll_scipy dispatches to
+        _fit_gpytorch_mll_scipy_independent when using an ensemble
+        model (aug_batch_shape.numel() > 1)."""
+        from botorch.models.map_saas import EnsembleMapSaasSingleTaskGP
+
+        with torch.random.fork_rng():
+            torch.manual_seed(0)
+            train_X = torch.rand(10, 3, dtype=torch.double)
+            train_Y = torch.rand(10, 1, dtype=torch.double)
+        model = EnsembleMapSaasSingleTaskGP(train_X, train_Y, num_taus=3)
+        mll = ExactMarginalLogLikelihood(model.likelihood, model)
+        mll.train()
+
+        with patch(
+            "botorch.optim.fit._fit_gpytorch_mll_scipy_independent"
+        ) as mock_independent:
+            mock_independent.return_value = OptimizationResult(
+                fval=0.0, step=1, status=OptimizationStatus.SUCCESS
+            )
+            fit.fit_gpytorch_mll_scipy(mll)
+            mock_independent.assert_called_once()
+
+    def test_does_not_dispatch_to_independent_for_single_output(self):
+        """Verify that fit_gpytorch_mll_scipy does NOT dispatch to
+        _fit_gpytorch_mll_scipy_independent for single-output models."""
+        with torch.random.fork_rng():
+            torch.manual_seed(0)
+            train_X = torch.rand(10, 2, dtype=torch.double)
+            train_Y = torch.rand(10, 1, dtype=torch.double)  # single output
+        model = SingleTaskGP(train_X, train_Y)
+        mll = ExactMarginalLogLikelihood(model.likelihood, model)
+        mll.train()
+
+        with patch(
+            "botorch.optim.fit._fit_gpytorch_mll_scipy_independent"
+        ) as mock_independent:
+            # The standard path should be used, not the independent path
+            fit.fit_gpytorch_mll_scipy(mll, options={"maxiter": 2})
+            mock_independent.assert_not_called()
+
+    def test_does_not_dispatch_to_independent_when_closure_provided(self):
+        """Verify that fit_gpytorch_mll_scipy does NOT dispatch to
+        _fit_gpytorch_mll_scipy_independent when a custom closure is provided,
+        even for multi-output models."""
+        from botorch.optim.closures import get_loss_closure_with_grads
+        from botorch.optim.utils import get_parameters
+
+        with torch.random.fork_rng():
+            torch.manual_seed(0)
+            train_X = torch.rand(10, 2, dtype=torch.double)
+            train_Y = torch.rand(10, 3, dtype=torch.double)  # multi-output
+        model = SingleTaskGP(train_X, train_Y)
+        mll = ExactMarginalLogLikelihood(model.likelihood, model)
+        mll.train()
+
+        closure = get_loss_closure_with_grads(
+            mll, parameters=get_parameters(mll, requires_grad=True)
+        )
+
+        with patch(
+            "botorch.optim.fit._fit_gpytorch_mll_scipy_independent"
+        ) as mock_independent:
+            fit.fit_gpytorch_mll_scipy(mll, closure=closure, options={"maxiter": 2})
+            mock_independent.assert_not_called()
+
+    def test_multi_output(self):
+        with torch.random.fork_rng():
+            torch.manual_seed(0)
+            train_X = torch.rand(10, 2, dtype=torch.double)
+            train_Y = torch.rand(10, 3, dtype=torch.double)
+        model = SingleTaskGP(train_X, train_Y)
+        mll = ExactMarginalLogLikelihood(model.likelihood, model)
+        mll.train()
+        result = fit.fit_gpytorch_mll_scipy(mll)
+        self.assertIsInstance(result, OptimizationResult)
+        self.assertEqual(result.status, OptimizationStatus.SUCCESS)
+        # Verify model can produce predictions after fitting.
+        model.eval()
+        test_X = torch.rand(3, 2, dtype=torch.double)
+        posterior = model.posterior(test_X)
+        self.assertEqual(posterior.mean.shape, torch.Size([3, 3]))
+
+    def test_single_output_fallback(self):
+        with torch.random.fork_rng():
+            torch.manual_seed(0)
+            train_X = torch.rand(10, 2, dtype=torch.double)
+            train_Y = torch.rand(10, 1, dtype=torch.double)
+        model = SingleTaskGP(train_X, train_Y)
+        mll = ExactMarginalLogLikelihood(model.likelihood, model)
+        mll.train()
+        result = fit.fit_gpytorch_mll_scipy(mll, options={"maxiter": 2})
+        self.assertIsInstance(result, OptimizationResult)
+
+    def test_with_fit_gpytorch_mll(self):
+        from botorch.fit import fit_gpytorch_mll
+
+        with torch.random.fork_rng():
+            torch.manual_seed(0)
+            train_X = torch.rand(10, 2, dtype=torch.double)
+            train_Y = torch.rand(10, 2, dtype=torch.double)
+        model = SingleTaskGP(train_X, train_Y)
+        mll = ExactMarginalLogLikelihood(model.likelihood, model)
+        with catch_warnings(record=True):
+            fit_gpytorch_mll(
+                mll,
+                optimizer_kwargs={"options": {"maxiter": 2}},
+                max_attempts=1,
+            )
+        self.assertFalse(model.training)
+
+    def test_callback_passed_through(self):
+        with torch.random.fork_rng():
+            torch.manual_seed(0)
+            train_X = torch.rand(5, 2, dtype=torch.double)
+            train_Y = torch.rand(5, 2, dtype=torch.double)
+        model = SingleTaskGP(train_X, train_Y)
+        mll = ExactMarginalLogLikelihood(model.likelihood, model)
+        mll.train()
+
+        callback_called = []
+
+        def my_callback(*args, **kwargs):
+            callback_called.append(True)
+
+        fit.fit_gpytorch_mll_scipy(
+            mll,
+            callback=my_callback,
+            options={"maxiter": 1},
+        )
+        self.assertTrue(len(callback_called) > 0)
+
+    def test_ensemble_model(self):
+        from botorch.models.map_saas import EnsembleMapSaasSingleTaskGP
+
+        with torch.random.fork_rng():
+            torch.manual_seed(0)
+            train_X = torch.rand(10, 3, dtype=torch.double)
+            train_Y = torch.rand(10, 1, dtype=torch.double)
+        model = EnsembleMapSaasSingleTaskGP(train_X, train_Y, num_taus=3)
+        mll = ExactMarginalLogLikelihood(model.likelihood, model)
+        mll.train()
+        result = fit.fit_gpytorch_mll_scipy(mll, options={"maxiter": 3})
+        self.assertIsInstance(result, OptimizationResult)
+        # Verify the model can produce predictions.
+        model.eval()
+        test_X = torch.rand(4, 3, dtype=torch.double)
+        posterior = model.posterior(test_X)
+        self.assertEqual(posterior.mean.shape, torch.Size([3, 4, 1]))
+
+    def test_timeout_sec_warning(self):
+        with torch.random.fork_rng():
+            torch.manual_seed(0)
+            train_X = torch.rand(5, 2, dtype=torch.double)
+            train_Y = torch.rand(5, 2, dtype=torch.double)
+        model = SingleTaskGP(train_X, train_Y)
+        mll = ExactMarginalLogLikelihood(model.likelihood, model)
+        mll.train()
+        with self.assertWarns(OptimizationWarning):
+            fit.fit_gpytorch_mll_scipy(
+                mll,
+                timeout_sec=60.0,
+                options={"maxiter": 1},
+            )
+
+    def test_gtol_option_mapping(self):
+        with torch.random.fork_rng():
+            torch.manual_seed(0)
+            train_X = torch.rand(10, 2, dtype=torch.double)
+            train_Y = torch.rand(10, 2, dtype=torch.double)
+        model = SingleTaskGP(train_X, train_Y)
+        mll = ExactMarginalLogLikelihood(model.likelihood, model)
+        mll.train()
+        # gtol should be mapped to pgtol for fmin_l_bfgs_b_batched
+        result = fit.fit_gpytorch_mll_scipy(
+            mll,
+            options={"gtol": 1e-3, "maxiter": 2},
+        )
+        self.assertIsInstance(result, OptimizationResult)
+
+    def test_unrecognized_options_warning(self):
+        with torch.random.fork_rng():
+            torch.manual_seed(0)
+            train_X = torch.rand(5, 2, dtype=torch.double)
+            train_Y = torch.rand(5, 2, dtype=torch.double)
+        model = SingleTaskGP(train_X, train_Y)
+        mll = ExactMarginalLogLikelihood(model.likelihood, model)
+        mll.train()
+        with self.assertWarns(OptimizationWarning):
+            fit.fit_gpytorch_mll_scipy(
+                mll,
+                options={"maxiter": 1, "disp": True, "unknown_opt": 42},
+            )
+
+    def test_stopped_status(self):
+        """Test STOPPED status when some outputs hit maxiter (warnflag=1)."""
+        with torch.random.fork_rng():
+            torch.manual_seed(0)
+            train_X = torch.rand(10, 2, dtype=torch.double)
+            train_Y = torch.rand(10, 2, dtype=torch.double)
+        model = SingleTaskGP(train_X, train_Y)
+        mll = ExactMarginalLogLikelihood(model.likelihood, model)
+        mll.train()
+
+        def mock_fmin(func, x0, bounds, **kwargs):
+            return (
+                x0,
+                np.zeros(x0.shape[0]),
+                [
+                    {"success": False, "nit": 1, "warnflag": 1}
+                    for _ in range(x0.shape[0])
+                ],
+            )
+
+        with patch(
+            "botorch.optim.batched_lbfgs_b.fmin_l_bfgs_b_batched",
+            side_effect=mock_fmin,
+        ):
+            result = fit.fit_gpytorch_mll_scipy(mll)
+
+        self.assertEqual(result.status, OptimizationStatus.STOPPED)
+
+    def test_failure_status(self):
+        """Test FAILURE status when outputs fail without hitting maxiter."""
+        with torch.random.fork_rng():
+            torch.manual_seed(0)
+            train_X = torch.rand(10, 2, dtype=torch.double)
+            train_Y = torch.rand(10, 2, dtype=torch.double)
+        model = SingleTaskGP(train_X, train_Y)
+        mll = ExactMarginalLogLikelihood(model.likelihood, model)
+        mll.train()
+
+        def mock_fmin(func, x0, bounds, **kwargs):
+            return (
+                x0,
+                np.zeros(x0.shape[0]),
+                [
+                    {"success": False, "nit": 1, "warnflag": 2}
+                    for _ in range(x0.shape[0])
+                ],
+            )
+
+        with patch(
+            "botorch.optim.batched_lbfgs_b.fmin_l_bfgs_b_batched",
+            side_effect=mock_fmin,
+        ):
+            result = fit.fit_gpytorch_mll_scipy(mll)
+
+        self.assertEqual(result.status, OptimizationStatus.FAILURE)

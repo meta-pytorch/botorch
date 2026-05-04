@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import dataclasses
 import warnings
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
 import torch
@@ -60,7 +60,7 @@ INIT_OPTION_KEYS = {
 }
 
 
-@dataclasses.dataclass(frozen=True)
+@dataclasses.dataclass(frozen=True, slots=True, kw_only=True)
 class OptimizeAcqfInputs:
     """
     Container for inputs to ``optimize_acqf``.
@@ -77,7 +77,7 @@ class OptimizeAcqfInputs:
     inequality_constraints: list[tuple[Tensor, Tensor, float]] | None
     equality_constraints: list[tuple[Tensor, Tensor, float]] | None
     nonlinear_inequality_constraints: list[tuple[Callable, bool]] | None
-    fixed_features: dict[int, float] | None
+    fixed_features: Mapping[int, float | Tensor] | None
     post_processing_func: Callable[[Tensor], Tensor] | None
     batch_initial_conditions: Tensor | None
     return_best_only: bool
@@ -85,6 +85,7 @@ class OptimizeAcqfInputs:
     sequential: bool
     ic_generator: TGenInitialConditions | None = None
     timeout_sec: float | None = None
+    return_acq_values: bool = True
     return_full_tree: bool = False
     retry_on_optimization_warning: bool = True
     ic_gen_kwargs: dict = dataclasses.field(default_factory=dict)
@@ -197,7 +198,9 @@ def _optimize_acqf_all_features_fixed(
     fixed_features: dict[int, float],
     q: int,
     acq_function: AcquisitionFunction,
-) -> tuple[Tensor, Tensor]:
+    return_best_only: bool = True,
+    return_acq_values: bool = True,
+) -> tuple[Tensor, Tensor | None]:
     """
     Helper function for ``optimize_acqf`` for the trivial case where
     all features are fixed.
@@ -208,8 +211,21 @@ def _optimize_acqf_all_features_fixed(
         dtype=bounds.dtype,
     )
     X = X.expand(q, *X.shape)
+    if not return_best_only:
+        # When return_best_only=False, candidates have shape
+        # `num_restarts x q x d`. With all features fixed there is only one
+        # candidate, so num_restarts=1.
+        X = X.unsqueeze(0)
+    if not return_acq_values:
+        return X, None
     with torch.no_grad():
-        acq_value = acq_function(X)
+        acq_value = acq_function(X if return_best_only else X.squeeze(0))
+    # Ensure acq_value is a scalar (consistent with return_best_only=True)
+    # or 1-d with shape `(1,)` (consistent with return_best_only=False).
+    if return_best_only:
+        acq_value = acq_value.squeeze()
+    else:
+        acq_value = acq_value.view(1)
     return X, acq_value
 
 
@@ -318,6 +334,8 @@ def _optimize_acqf_sequential_q(
     # Re-set X_pendings on the acquisitions to base values
     for acqf, X_pending in zip(acq_function_sequence, base_X_pending):
         acqf.set_X_pending(X_pending)
+    if not opt_inputs.return_acq_values:
+        return candidates, None
     return candidates, torch.stack(acq_value_list)
 
 
@@ -343,7 +361,9 @@ def _combine_initial_conditions(
         )
 
 
-def _optimize_acqf_batch(opt_inputs: OptimizeAcqfInputs) -> tuple[Tensor, Tensor]:
+def _optimize_acqf_batch(
+    opt_inputs: OptimizeAcqfInputs,
+) -> tuple[Tensor, Tensor | None]:
     options = opt_inputs.options or {}
 
     required_num_restarts = opt_inputs.num_restarts
@@ -507,12 +527,14 @@ def _optimize_acqf_batch(opt_inputs: OptimizeAcqfInputs) -> tuple[Tensor, Tensor
 
     if opt_inputs.post_processing_func is not None:
         batch_candidates = opt_inputs.post_processing_func(batch_candidates)
-        with torch.no_grad():
-            acq_values_list = [
-                opt_inputs.acq_function(cand)
-                for cand in batch_candidates.split(batch_limit, dim=0)
-            ]
-            batch_acq_values = torch.cat(acq_values_list, dim=0)
+        # Only recompute acq values if needed for filtering or return
+        if opt_inputs.return_acq_values or opt_inputs.return_best_only:
+            with torch.no_grad():
+                acq_values_list = [
+                    opt_inputs.acq_function(cand)
+                    for cand in batch_candidates.split(batch_limit, dim=0)
+                ]
+                batch_acq_values = torch.cat(acq_values_list, dim=0)
 
     # SLSQP can sometimes fail to produce a feasible candidate. Check for
     # feasibility and error out if necessary.
@@ -530,24 +552,36 @@ def _optimize_acqf_batch(opt_inputs: OptimizeAcqfInputs) -> tuple[Tensor, Tensor
     )
     infeasible = ~is_feasible
     if nonlinear_inequality_constraints is None and infeasible.any():
+        # Filter tensor-valued fixed features to match the infeasible subset.
+        # This is needed because fixed_features may contain per-element tensor
+        # values (e.g., from continuous_step in mixed optimization), and we
+        # must subset them to match batch_candidates[infeasible].
+        fixed_features = opt_inputs.fixed_features
+        if fixed_features is not None:
+            fixed_features = {
+                k: v[infeasible] if torch.is_tensor(v) and v.ndim > 0 else v
+                for k, v in fixed_features.items()
+            }
         projected_candidates = project_to_feasible_space_via_slsqp(
             X=batch_candidates[infeasible],
             bounds=opt_inputs.bounds,
             equality_constraints=equality_constraints,
             inequality_constraints=inequality_constraints,
+            fixed_features=fixed_features,
         )
         if opt_inputs.post_processing_func is not None:
             projected_candidates = opt_inputs.post_processing_func(projected_candidates)
         batch_candidates[infeasible] = projected_candidates
-        # recompute AF values for projected points
-        with torch.no_grad():
-            batch_acq_values[infeasible] = torch.cat(
-                [
-                    opt_inputs.acq_function(cand)
-                    for cand in projected_candidates.split(batch_limit, dim=0)
-                ],
-                dim=0,
-            )
+        # recompute AF values for projected points if needed for filtering or return
+        if opt_inputs.return_acq_values or opt_inputs.return_best_only:
+            with torch.no_grad():
+                batch_acq_values[infeasible] = torch.cat(
+                    [
+                        opt_inputs.acq_function(cand)
+                        for cand in projected_candidates.split(batch_limit, dim=0)
+                    ],
+                    dim=0,
+                )
         # re-evaluate feasibility
         is_feasible = evaluate_feasibility(
             X=batch_candidates,
@@ -576,6 +610,8 @@ def _optimize_acqf_batch(opt_inputs: OptimizeAcqfInputs) -> tuple[Tensor, Tensor
             X_full=batch_candidates
         )
 
+    if not opt_inputs.return_acq_values:
+        return batch_candidates, None
     return batch_candidates, batch_acq_values
 
 
@@ -589,7 +625,7 @@ def optimize_acqf(
     inequality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
     equality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
     nonlinear_inequality_constraints: list[tuple[Callable, bool]] | None = None,
-    fixed_features: dict[int, float] | None = None,
+    fixed_features: Mapping[int, float | Tensor] | None = None,
     post_processing_func: Callable[[Tensor], Tensor] | None = None,
     batch_initial_conditions: Tensor | None = None,
     return_best_only: bool = True,
@@ -599,10 +635,11 @@ def optimize_acqf(
     *,
     ic_generator: TGenInitialConditions | None = None,
     timeout_sec: float | None = None,
+    return_acq_values: bool = True,
     return_full_tree: bool = False,
     retry_on_optimization_warning: bool = True,
     **ic_gen_kwargs: Any,
-) -> tuple[Tensor, Tensor]:
+) -> tuple[Tensor, Tensor | None]:
     r"""Optimize the acquisition function for a single or multiple joint candidates.
 
     A high-level description (missing exceptions for special setups):
@@ -621,7 +658,7 @@ def optimize_acqf(
     with the highest acquisition values in the previous step are then further
     optimized. This is by default done by LBFGS-B optimization, if no constraints are
     present, and SLSQP, if constraints are present (can be changed to
-    other optmizers via ``gen_candidates``).
+    other optimizers via ``gen_candidates``).
 
     While the optimization procedure runs on CPU by default for this function,
     the acq_function can be implemented on GPU and simply move the inputs
@@ -635,7 +672,7 @@ def optimize_acqf(
         q: The number of candidates.
         num_restarts: The number of starting points for multistart acquisition
             function optimization. Even though the name suggests this happens
-            sequentually, it is done in parallel (using batched evaluations)
+            sequentially, it is done in parallel (using batched evaluations)
             for up to ``options.batch_limit`` candidates
             (by default completely parallel).
         raw_samples: The number of samples for initialization. This is required
@@ -677,7 +714,13 @@ def optimize_acqf(
             is set to 1, which will be done automatically if not specified in
             ``options``.
         fixed_features: A map ``{feature_index: value}`` for features that
-            should be fixed to a particular value during generation.
+            should be fixed to a particular value during generation. The value
+            can be a float, in which case the feature is fixed across the
+            entire batch, or a Tensor, in which case the feature can be fixed
+            to different values for each batch element (used for batched
+            optimization with different fixed features per restart). When
+            passing tensors as values, they should have shape ``b`` or
+            ``b x q``.
         post_processing_func: A function that post-processes an optimization
             result appropriately (i.e., according to ``round-trip``
             transformations).
@@ -706,6 +749,7 @@ def optimize_acqf(
             Must be specified
             for nonlinear inequality constraints.
         timeout_sec: Max amount of time optimization can run for.
+        return_acq_values: Return acquisition values.
         return_full_tree: Return the full tree of optimizers of the previous
             iteration.
         retry_on_optimization_warning: Whether to retry candidate generation with a new
@@ -719,8 +763,10 @@ def optimize_acqf(
         - A tensor of generated candidates. The shape is
             -- ``q x d`` if ``return_best_only`` is True (default)
             -- ``num_restarts x q x d`` if ``return_best_only`` is False
-        - a tensor of associated acquisition values. If ``sequential=False``,
-            this is a ``(num_restarts)``-dim tensor of joint acquisition values
+        - a tensor of associated acquisition values
+            if ``return_acq_values=True`` else ``None``.
+            If ``sequential=False``, this is a
+            ``(num_restarts)``-dim tensor of joint acquisition values
             (with explicit restart dimension if ``return_best_only=False``). If
             ``sequential=True``, this is a ``q``-dim tensor of expected acquisition
             values conditional on having observed candidates ``0,1,...,i-1``.
@@ -767,6 +813,7 @@ def optimize_acqf(
         ic_generator=ic_generator,
         timeout_sec=timeout_sec,
         return_full_tree=return_full_tree,
+        return_acq_values=return_acq_values,
         retry_on_optimization_warning=retry_on_optimization_warning,
         ic_gen_kwargs=ic_gen_kwargs,
         acq_function_sequence=acq_function_sequence,
@@ -774,7 +821,7 @@ def optimize_acqf(
     return _optimize_acqf(opt_inputs=opt_acqf_inputs)
 
 
-def _optimize_acqf(opt_inputs: OptimizeAcqfInputs) -> tuple[Tensor, Tensor]:
+def _optimize_acqf(opt_inputs: OptimizeAcqfInputs) -> tuple[Tensor, Tensor | None]:
     # Handle the trivial case when all features are fixed
     if (
         opt_inputs.fixed_features is not None
@@ -785,6 +832,8 @@ def _optimize_acqf(opt_inputs: OptimizeAcqfInputs) -> tuple[Tensor, Tensor]:
             fixed_features=opt_inputs.fixed_features,
             q=opt_inputs.q,
             acq_function=opt_inputs.acq_function,
+            return_best_only=opt_inputs.return_best_only,
+            return_acq_values=opt_inputs.return_acq_values,
         )
 
     # Perform sequential optimization via successive conditioning on pending points
@@ -804,17 +853,18 @@ def optimize_acqf_cyclic(
     options: dict[str, bool | float | int | str] | None = None,
     inequality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
     equality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
-    fixed_features: dict[int, float] | None = None,
+    fixed_features: Mapping[int, float | Tensor] | None = None,
     post_processing_func: Callable[[Tensor], Tensor] | None = None,
     batch_initial_conditions: Tensor | None = None,
     cyclic_options: dict[str, bool | float | int | str] | None = None,
     *,
     ic_generator: TGenInitialConditions | None = None,
     timeout_sec: float | None = None,
+    return_acq_values: bool = True,
     return_full_tree: bool = False,
     retry_on_optimization_warning: bool = True,
     **ic_gen_kwargs: Any,
-) -> tuple[Tensor, Tensor]:
+) -> tuple[Tensor, Tensor | None]:
     r"""Generate a set of ``q`` candidates via cyclic optimization.
 
     Args:
@@ -835,7 +885,10 @@ def optimize_acqf_cyclic(
             with each tuple encoding an inequality constraint of the form
             ``\sum_i (X[indices[i]] * coefficients[i]) = rhs``
         fixed_features: A map ``{feature_index: value}`` for features that
-            should be fixed to a particular value during generation.
+            should be fixed to a particular value during generation. The value
+            can be a float, in which case the feature is fixed across the
+            entire batch, or a Tensor, in which case the feature can be fixed
+            to different values for each batch element.
         post_processing_func: A function that post-processes an optimization
             result appropriately (i.e., according to ``round-trip``
             transformations).
@@ -851,6 +904,7 @@ def optimize_acqf_cyclic(
             Must be specified
             for nonlinear inequality constraints.
         timeout_sec: Max amount of time optimization can run for.
+        return_acq_values: Return acquisition values.
         return_full_tree: Return the full tree of optimizers of the previous
             iteration.
         retry_on_optimization_warning: Whether to retry candidate generation with a new
@@ -865,6 +919,7 @@ def optimize_acqf_cyclic(
         - a ``q``-dim tensor of expected acquisition values, where the value at
             index ``i`` is the acquisition value conditional on having observed
             all candidates except candidate ``i``.
+            Returns ``None`` if ``return_acq_values=False``
 
     Example:
         >>> # generate ``q=3`` candidates cyclically using 15 random restarts
@@ -900,13 +955,19 @@ def optimize_acqf_cyclic(
         sequential=True,
         ic_generator=ic_generator,
         timeout_sec=timeout_sec,
+        return_acq_values=return_acq_values,
         return_full_tree=return_full_tree,
         retry_on_optimization_warning=retry_on_optimization_warning,
         ic_gen_kwargs=ic_gen_kwargs,
     )
 
     # for the first cycle, optimize the q candidates sequentially
-    candidates, acq_vals = _optimize_acqf(opt_inputs)
+    # We need acq values for stopping criterion, so always request them internally
+    # even if return_acq_values=False (we just won't return them)
+    opt_inputs_for_optimization = dataclasses.replace(
+        opt_inputs, return_acq_values=True
+    )
+    candidates, acq_vals = _optimize_acqf(opt_inputs_for_optimization)
     q = opt_inputs.q
     opt_inputs = dataclasses.replace(opt_inputs, q=1)
     acq_function = opt_inputs.acq_function
@@ -930,6 +991,7 @@ def optimize_acqf_cyclic(
                     opt_inputs,
                     batch_initial_conditions=candidates[i].unsqueeze(0),
                     sequential=False,
+                    return_acq_values=True,  # Always need for stopping criterion
                 )
                 candidate_i, acq_val_i = _optimize_acqf(opt_inputs)
                 candidates[i] = candidate_i
@@ -937,6 +999,8 @@ def optimize_acqf_cyclic(
                 idxr[i] = 1
             stop = stopping_criterion(fvals=acq_vals)
         acq_function.set_X_pending(base_X_pending)
+    if not return_acq_values:
+        return candidates, None
     return candidates, acq_vals
 
 
@@ -954,7 +1018,8 @@ def optimize_acqf_list(
     post_processing_func: Callable[[Tensor], Tensor] | None = None,
     ic_generator: TGenInitialConditions | None = None,
     ic_gen_kwargs: dict | None = None,
-) -> tuple[Tensor, Tensor]:
+    return_acq_values: bool = True,
+) -> tuple[Tensor, Tensor | None]:
     r"""Generate a list of candidates from a list of acquisition functions.
 
     The acquisition functions are optimized in sequence, with previous candidates
@@ -1007,6 +1072,7 @@ def optimize_acqf_list(
             Must be specified for nonlinear inequality constraints.
         ic_gen_kwargs: Additional keyword arguments passed to function specified by
             ``ic_generator``
+        return_acq_values: Return acquisition values.
 
     Returns:
         A two-element tuple containing
@@ -1015,6 +1081,7 @@ def optimize_acqf_list(
         - a ``q``-dim tensor of expected acquisition values, where the value at
             index ``i`` is the acquisition value conditional on having observed
             all candidates except candidate ``i``.
+            Returns ``None`` if ``return_acq_values=False``.
     """
     if fixed_features and fixed_features_list:
         raise ValueError(
@@ -1047,6 +1114,7 @@ def optimize_acqf_list(
                 post_processing_func=post_processing_func,
                 ic_generator=ic_generator,
                 ic_gen_kwargs=ic_gen_kwargs,
+                return_acq_values=return_acq_values,
             )
         else:
             ic_gen_kwargs = ic_gen_kwargs or {}
@@ -1063,13 +1131,17 @@ def optimize_acqf_list(
                 fixed_features=fixed_features,
                 post_processing_func=post_processing_func,
                 return_best_only=True,
+                return_acq_values=return_acq_values,
                 sequential=False,
                 ic_generator=ic_generator,
                 **ic_gen_kwargs,
             )
         candidate_list.append(candidate)
-        acq_value_list.append(acq_value)
+        if return_acq_values:
+            acq_value_list.append(acq_value)
         candidates = torch.cat(candidate_list, dim=-2)
+    if not return_acq_values:
+        return candidates, None
     return candidates, torch.stack(acq_value_list)
 
 
@@ -1092,7 +1164,8 @@ def optimize_acqf_mixed(
     timeout_sec: float | None = None,
     retry_on_optimization_warning: bool = True,
     ic_gen_kwargs: dict | None = None,
-) -> tuple[Tensor, Tensor]:
+    return_acq_values: bool = True,
+) -> tuple[Tensor, Tensor | None]:
     r"""Optimize over a list of fixed_features and returns the best solution.
 
     This is useful for optimizing over mixed continuous and discrete domains.
@@ -1155,6 +1228,9 @@ def optimize_acqf_mixed(
             set of initial conditions when it fails with an ``OptimizationWarning``.
         ic_gen_kwargs: Additional keyword arguments passed to function specified by
             ``ic_generator``
+        return_acq_values: Return acquisition values.
+            Can be set to False to avoid memory
+            intensive joint forward evaluation of the acquisition function.
 
     Returns:
         A two-element tuple containing
@@ -1208,6 +1284,8 @@ def optimize_acqf_mixed(
         num_candidate_generation_failures = 0
         for fixed_features in fixed_features_list:
             try:
+                # We need acq values to find the best candidate, so always request them
+                # even if return_acq_values=False (we just won't return them)
                 candidates, acq_values = optimize_acqf(
                     acq_function=acq_function,
                     bounds=bounds,
@@ -1227,6 +1305,7 @@ def optimize_acqf_mixed(
                     gen_candidates=gen_candidates,
                     timeout_sec=timeout_sec,
                     retry_on_optimization_warning=retry_on_optimization_warning,
+                    return_acq_values=True,  # Always need for selection
                     **ic_gen_kwargs,
                 )
             except CandidateGenerationError:
@@ -1256,9 +1335,13 @@ def optimize_acqf_mixed(
         best_batch_candidates = ff_candidate_list[best_batch_idx]
         best_acq_values = ff_acq_value_list[best_batch_idx]
         if not return_best_only:
+            if not return_acq_values:
+                return best_batch_candidates, None
             return best_batch_candidates, best_acq_values
 
         best_idx = max_res.indices[best_batch_idx]
+        if not return_acq_values:
+            return best_batch_candidates[best_idx], None
         return best_batch_candidates[best_idx], best_acq_values[best_idx]
 
     # For batch optimization with q > 1 we do not want to enumerate all n_combos^n
@@ -1288,6 +1371,7 @@ def optimize_acqf_mixed(
             timeout_sec=timeout_sec,
             retry_on_optimization_warning=retry_on_optimization_warning,
             return_best_only=True,
+            return_acq_values=return_acq_values,
         )
         candidates = torch.cat([candidates, candidate], dim=-2)
         acq_function.set_X_pending(
@@ -1298,12 +1382,15 @@ def optimize_acqf_mixed(
 
     acq_function.set_X_pending(base_X_pending)
 
-    # compute joint acquisition value
-    if isinstance(acq_function, OneShotAcquisitionFunction):
-        acq_value = acq_function.evaluate(X=candidates, bounds=bounds)
-    else:
-        acq_value = acq_function(candidates)
-    return candidates, acq_value
+    if return_acq_values:
+        # compute joint acquisition value
+        if isinstance(acq_function, OneShotAcquisitionFunction):
+            acq_value = acq_function.evaluate(X=candidates, bounds=bounds)
+        else:
+            acq_value = acq_function(candidates)
+        return candidates, acq_value
+
+    return candidates, None
 
 
 def optimize_acqf_discrete(
@@ -1312,6 +1399,7 @@ def optimize_acqf_discrete(
     choices: Tensor,
     max_batch_size: int = 2048,
     unique: bool = True,
+    return_acq_values: bool = True,
     X_avoid: Tensor | None = None,
     inequality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
 ) -> tuple[Tensor, Tensor]:
@@ -1337,6 +1425,9 @@ def optimize_acqf_discrete(
             with each tuple encoding an inequality constraint of the form
             ``\sum_i (X[indices[i]] * coefficients[i]) >= rhs``.
             Infeasible points will be removed from the set of choices.
+        return_acq_values: Return acquisition values.
+            Can be set to False to avoid memory
+            intensive joint forward evaluation of the acquisition function.
 
     Returns:
         A two-element tuple containing
@@ -1402,14 +1493,22 @@ def optimize_acqf_discrete(
 
         # Reset acq_func to previous X_pending state
         acq_function.set_X_pending(base_X_pending)
-        return candidates, torch.stack(acq_value_list)
+        best_acq_values = torch.stack(acq_value_list)
 
-    with torch.no_grad():
-        acq_values = _split_batch_eval_acqf(
-            acq_function=acq_function, X=choices_batched, max_batch_size=max_batch_size
-        )
-    best_idx = torch.argmax(acq_values)
-    return choices_batched[best_idx], acq_values[best_idx]
+    else:
+        with torch.no_grad():
+            acq_values = _split_batch_eval_acqf(
+                acq_function=acq_function,
+                X=choices_batched,
+                max_batch_size=max_batch_size,
+            )
+        best_idx = torch.argmax(acq_values)
+        candidates = choices_batched[best_idx]
+        best_acq_values = acq_values[best_idx]
+
+    if not return_acq_values:
+        return candidates, None
+    return candidates, best_acq_values
 
 
 def _split_batch_eval_acqf(
@@ -1543,6 +1642,7 @@ def optimize_acqf_discrete_local_search(
     max_batch_size: int = 2048,
     max_tries: int = 100,
     unique: bool = True,
+    return_acq_values: bool = True,
 ) -> tuple[Tensor, Tensor]:
     r"""Optimize acquisition function over a lattice.
 
@@ -1577,6 +1677,9 @@ def optimize_acqf_discrete_local_search(
             conditions.
         unique: If True return unique choices, o/w choices may be repeated
             (only relevant if ``q > 1``).
+        return_acq_values: Return acquisition values.
+            Can be set to False to avoid memory
+            intensive joint forward evaluation of the acquisition function.
 
     Returns:
         A two-element tuple containing
@@ -1668,10 +1771,11 @@ def optimize_acqf_discrete_local_search(
                     if base_X_avoid is not None
                     else candidates
                 )
-
-    # Reset acq_func to original X_pending state
-    if q > 1:
-        acq_function.set_X_pending(base_X_pending)
-    with torch.no_grad():
-        acq_value = acq_function(candidates)  # compute joint acquisition value
-    return candidates, acq_value
+    if return_acq_values:
+        # Reset acq_func to original X_pending state
+        if q > 1:
+            acq_function.set_X_pending(base_X_pending)
+        with torch.no_grad():
+            acq_value = acq_function(candidates)  # compute joint acquisition value
+        return candidates, acq_value
+    return candidates, None

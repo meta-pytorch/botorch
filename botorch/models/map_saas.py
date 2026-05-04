@@ -3,7 +3,16 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import Any, Mapping
+"""
+References
+
+.. [Daulton2026bonsai]
+    S. Daulton, D. Eriksson, M. Balandat, and E. Bakshy. BONSAI: Bayesian
+    Optimization with Natural Simplicity and Interpretability. ArXiv, 2026.
+"""
+
+from collections.abc import Mapping
+from typing import Any
 
 import torch
 from botorch.acquisition.objective import PosteriorTransform
@@ -118,7 +127,7 @@ class SaasPriorHelper:
 
 def add_saas_prior(
     base_kernel: Kernel,
-    tau: float | None = None,
+    tau: Tensor | float | None = None,
     log_scale: bool = True,
 ) -> Kernel:
     """Add a SAAS prior to a given base_kernel.
@@ -135,7 +144,8 @@ def add_saas_prior(
         base_kernel: Base kernel that has a lengthscale and uses ARD.
             Note that this function modifies the kernel object in place.
         tau: Value of the global shrinkage. If ``None``, infer the global
-            shrinkage parameter.
+            shrinkage parameter. Can be a tensor for batched models (e.g.,
+            ensembles) where each batch has a different sparsity prior.
         log_scale: Set to ``True`` if the lengthscale and tau should be optimized on
             a log-scale without any domain rescaling. That is, we will learn
             ``raw_lengthscale := log(lengthscale)`` and this hyperparameter needs to
@@ -153,6 +163,11 @@ def add_saas_prior(
     tkwargs = {"device": base_kernel.device, "dtype": base_kernel.dtype}
 
     batch_shape = base_kernel.raw_lengthscale.shape[:-2]
+    if isinstance(tau, Tensor) and tau.shape != batch_shape:
+        raise ValueError(
+            f"Expected tau to have shape {batch_shape} matching the batch shape "
+            f"of the base kernel. Got {tau.shape}."
+        )
     IntervalClass = LogTransformedInterval if log_scale else Interval
     base_kernel.register_constraint(
         param_name="raw_lengthscale",
@@ -192,7 +207,7 @@ def get_map_saas_model(
     train_Yvar: Tensor | None = None,
     input_transform: InputTransform | None = None,
     outcome_transform: OutcomeTransform | None = None,
-    tau: float | None = None,
+    tau: Tensor | float | None = None,
 ) -> SingleTaskGP:
     """Helper method for creating an unfitted MAP SAAS model.
 
@@ -202,9 +217,10 @@ def get_map_saas_model(
         train_Yvar: Optional tensor of shape ``n x 1`` with observed noise,
             inferred if None.
         input_transform: An optional input transform.
-        outcome_transform: An optional outcome transforms.
+        outcome_transform: An optional outcome transform.
         tau: Fixed value of the global shrinkage tau. If None, the model
-            places a HC(0.1) prior on tau and infers it.
+            places a HC(0.1) prior on tau and infers it. Can be a tensor
+            for batched models where each batch has a different sparsity prior.
 
     Returns:
         A SingleTaskGP with a Matern kernel and a SAAS prior.
@@ -310,7 +326,7 @@ def get_additive_map_saas_covar_module(
 
     The constructed kernel is an additive kernel with ``num_taus`` terms. Each term is a
     scaled Matern kernel with a SAAS prior and a tau sampled from a HalfCauchy(0, 1)
-    distrbution.
+    distribution.
 
     Args:
         ard_num_dims: The number of inputs dimensions.
@@ -416,8 +432,8 @@ class AdditiveMapSaasSingleTaskGP(SingleTaskGP):
             num_taus=num_taus,
             batch_shape=self._aug_batch_shape,
             # Need to pass dtype and device at initialization of the covar_module
-            # because its priors contain tensors, and prior are currently not moved
-            # to the correct device/dtype when callling ``to`` on the model.
+            # because its priors contain tensors, and priors are currently not moved
+            # to the correct device/dtype when calling ``to`` on the model.
             dtype=train_X.dtype,
             device=train_X.device,
         )
@@ -439,6 +455,7 @@ class AdditiveMapSaasSingleTaskGP(SingleTaskGP):
 
 class EnsembleMapSaasSingleTaskGP(SingleTaskGP):
     _is_ensemble = True
+    _supports_batched_models = False
 
     def __init__(
         self,
@@ -450,12 +467,13 @@ class EnsembleMapSaasSingleTaskGP(SingleTaskGP):
         outcome_transform: OutcomeTransform | _DefaultType | None = DEFAULT,
         input_transform: InputTransform | None = None,
     ) -> None:
-        """Instantiates an ``EnsembleMapSaasSingleTaskGP``, which is a batched
+        """Instantiates an ``EnsembleMapSaasSingleTaskGP`` [Daulton2026bonsai]_,
+        which is a batched
         ensemble of ``SingleTaskGP``s with the Matern-5/2 kernel and a SAAS prior.
         The model is intended to be trained with ``ExactMarginalLogLikelihood`` and
         ``fit_gpytorch_mll``. Under the hood, the model is equivalent to a
         multi-output ``BatchedMultiOutputGPyTorchModel``, but it produces a
-        ``MixtureGaussiaPosterior``, which leads to ensembling of the model outputs.
+        ``GaussianMixturePosterior``, which leads to ensembling of the model outputs.
 
         Args:
             train_X: An ``n x d`` tensor of training features.

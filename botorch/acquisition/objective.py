@@ -64,8 +64,10 @@ class PosteriorTransform(Module, ABC):
         pass  # pragma: no cover
 
 
-# import DeterministicModel after PosteriorTransform to avoid circular import
-from botorch.models.deterministic import DeterministicModel  # noqa
+def _is_deterministic_model(model: Model) -> bool:
+    from botorch.models.deterministic import DeterministicModel
+
+    return isinstance(model, DeterministicModel)
 
 
 class ScalarizedPosteriorTransform(PosteriorTransform):
@@ -219,7 +221,7 @@ class ExpectationPosteriorTransform(PosteriorTransform):
         # ``n_w`` sized diagonal. The ``m`` outcomes are not interleaved.
         for i in range(q * m):
             weights[i, self.n_w * i : self.n_w * (i + 1)] = self.weights[:, i // q]
-        # Trasform the mean.
+        # Transform the mean.
         new_loc = (
             (weights @ org_mvn.loc.unsqueeze(-1))
             .view(*batch_shape, m, q)
@@ -452,7 +454,7 @@ class ConstrainedMCObjective(GenericMCObjective):
         """
         super().__init__(objective=objective)
         self.constraints = constraints
-        if type(eta) is not Tensor:
+        if not isinstance(eta, Tensor):
             eta = torch.full((len(constraints),), eta)
         self.register_buffer("eta", eta)
         self.register_buffer("infeasible_cost", torch.as_tensor(infeasible_cost))
@@ -527,8 +529,9 @@ class LearnedObjective(MCAcquisitionObjective):
         """
         super().__init__()
         self.pref_model = pref_model
-        if isinstance(pref_model, DeterministicModel):
-            assert sample_shape is None
+        if _is_deterministic_model(pref_model):
+            if sample_shape is not None:
+                raise ValueError("sample_shape must be None for DeterministicModel.")
             self.sampler = None
         else:
             if sample_shape is None:
@@ -565,7 +568,7 @@ class LearnedObjective(MCAcquisitionObjective):
             raise ValueError("samples should have at least 3 dimensions.")
 
         posterior = self.pref_model.posterior(samples)
-        if isinstance(self.pref_model, DeterministicModel):
+        if _is_deterministic_model(self.pref_model):
             # return preference posterior mean
             return posterior.mean.squeeze(-1)
         else:

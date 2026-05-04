@@ -23,8 +23,13 @@ from botorch.models.utils.inducing_point_allocators import (
     GreedyVarianceReduction,
 )
 from botorch.posteriors import GPyTorchPosterior, TransformedPosterior
+from botorch.posteriors.torch import TorchPosterior
 from botorch.utils.testing import BotorchTestCase
-from gpytorch.likelihoods import GaussianLikelihood, MultitaskGaussianLikelihood
+from gpytorch.likelihoods import (
+    BetaLikelihood,
+    GaussianLikelihood,
+    MultitaskGaussianLikelihood,
+)
 from gpytorch.mlls import VariationalELBO
 from gpytorch.variational import (
     IndependentMultitaskVariationalStrategy,
@@ -341,6 +346,32 @@ class TestSingleTaskVariationalGP(BotorchTestCase):
         self.assertEqual(model_2_inducing.shape, (5, 1))
         self.assertAllClose(model_1_inducing, model_2_inducing)
         self.assertFalse(model_1_inducing[0, 0] == model_3_inducing[0, 0])
+
+    def test_non_gaussian_likelihood_posterior(self) -> None:
+        """Test that non-Gaussian likelihoods return TorchPosterior."""
+        train_X = torch.rand(10, 1, device=self.device)
+        model = SingleTaskVariationalGP(
+            train_X=train_X,
+            likelihood=BetaLikelihood(),
+        ).to(self.device)
+        test_X = torch.rand(5, 1, device=self.device)
+
+        # Without observation noise, the distribution is MVN (from the GP),
+        # so it should return GPyTorchPosterior.
+        posterior = model.posterior(test_X, observation_noise=False)
+        self.assertIsInstance(posterior, GPyTorchPosterior)
+
+        # With observation noise, the likelihood transforms the MVN into a
+        # Beta distribution, so it should return TorchPosterior.
+        posterior = model.posterior(test_X, observation_noise=True)
+        self.assertIsInstance(posterior, TorchPosterior)
+        self.assertNotIsInstance(posterior, GPyTorchPosterior)
+
+        # Verify that sampling works with the TorchPosterior and that the
+        # shape doesn't have a spurious trailing dim from GPyTorchPosterior.
+        # GPyTorchPosterior.rsample would unsqueeze(-1), adding an extra dim.
+        samples = posterior.rsample(sample_shape=torch.Size([2]))
+        self.assertEqual(samples.shape, torch.Size([2, 10, 5]))
 
     def test_input_transform(self) -> None:
         train_X = torch.linspace(1, 3, 10, dtype=torch.double)[:, None]

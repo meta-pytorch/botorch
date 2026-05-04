@@ -21,7 +21,6 @@ Contributor: andreaponti5
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Optional
 
 import torch
 from botorch import fit_gpytorch_mll
@@ -41,7 +40,7 @@ def get_random_x_for_agp(
     n: int,
     bounds: Tensor,
     q: int,
-    seed: Optional[int] = None,
+    seed: int | None = None,
 ):
     r"""Draw qMC samples from the box defined by bounds.
     The function assures that at least one point belong to
@@ -91,13 +90,13 @@ class SingleTaskAugmentedGP(SingleTaskGP):
         self,
         train_X: Tensor,
         train_Y: Tensor,
-        train_Yvar: Optional[Tensor] = None,
+        train_Yvar: Tensor | None = None,
         m: int = 1,
-        likelihood: Optional[Likelihood] = None,
-        covar_module: Optional[Module] = None,
-        mean_module: Optional[Mean] = None,
-        outcome_transform: Optional[OutcomeTransform] = None,
-        input_transform: Optional[InputTransform] = None,
+        likelihood: Likelihood | None = None,
+        covar_module: Module | None = None,
+        mean_module: Mean | None = None,
+        outcome_transform: OutcomeTransform | None = None,
+        input_transform: InputTransform | None = None,
     ) -> None:
         r"""
         Args:
@@ -198,12 +197,12 @@ class SingleTaskAugmentedGP(SingleTaskGP):
         self,
         train_X: Tensor,
         train_Y: Tensor,
-        train_Yvar: Optional[Tensor] = None,
-        likelihood: Optional[Likelihood] = None,
-        covar_module: Optional[Module] = None,
-        mean_module: Optional[Mean] = None,
-        outcome_transform: Optional[OutcomeTransform] = None,
-        input_transform: Optional[InputTransform] = None,
+        train_Yvar: Tensor | None = None,
+        likelihood: Likelihood | None = None,
+        covar_module: Module | None = None,
+        mean_module: Mean | None = None,
+        outcome_transform: OutcomeTransform | None = None,
+        input_transform: InputTransform | None = None,
     ) -> SingleTaskGP:
         r"""Initialize and fit a Single Task GP model.
 

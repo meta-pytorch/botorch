@@ -331,7 +331,7 @@ def batched_multinomial(
         num_samples: The number of samples to draw for each batch index. Must be smaller
             than ``num_categories`` if ``replacement=False``.
         replacement: If True, samples are drawn with replacement.
-        generator: A a pseudorandom number generator for sampling.
+        generator: A pseudorandom number generator for sampling.
         out: The output tensor (optional). If provided, must be of size
             ``batch_shape x num_samples``.
 
@@ -795,7 +795,9 @@ class DelaunayPolytopeSampler(PolytopeSampler):
             polytopes = torch.from_numpy(
                 np.array([delaunay.points[s] for s in delaunay.simplices]),
             ).to(self.A)
-            volumes = torch.stack([torch.det(p[1:] - p[0]).abs() for p in polytopes])
+            volumes = torch.stack(
+                [torch.linalg.det(p[1:] - p[0]).abs() for p in polytopes]
+            )
             self._polytopes = polytopes
             self._p = volumes / volumes.sum()
 

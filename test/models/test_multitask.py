@@ -22,8 +22,10 @@ from botorch.models.multitask import (
 )
 from botorch.models.transforms.input import InputTransform, Normalize
 from botorch.models.transforms.outcome import OutcomeTransform, Standardize
+from botorch.models.utils.priors import BetaPrior
 from botorch.posteriors import GPyTorchPosterior
 from botorch.posteriors.transformed import TransformedPosterior
+from botorch.utils.datasets import MultiTaskDataset, SupervisedDataset
 from botorch.utils.test_helpers import gen_multi_task_dataset
 from botorch.utils.testing import BotorchTestCase
 from gpytorch.distributions import MultitaskMultivariateNormal, MultivariateNormal
@@ -126,6 +128,61 @@ def _gen_kronecker_model_and_data(model_kwargs=None, batch_shape=None, **tkwargs
 
 
 class TestMultiTaskGP(BotorchTestCase):
+    def test_supports_batched_models(self) -> None:
+        self.assertFalse(MultiTaskGP._supports_batched_models)
+
+    def test_default_task_covar_prior(self) -> None:
+        tkwargs: dict[str, Any] = {"device": self.device, "dtype": torch.double}
+        _, (train_X, train_Y, _) = gen_multi_task_dataset(**tkwargs)
+
+        def _get_task_kernel(model):
+            _, task_covar_module = model.covar_module.kernels
+            return task_covar_module
+
+        # Default: BetaPrior is used
+        model = MultiTaskGP(train_X, train_Y, task_feature=0).to(**tkwargs)
+        task_kernel = _get_task_kernel(model)
+        self.assertTrue(hasattr(task_kernel, "IndexKernelPrior"))
+        self.assertIsInstance(task_kernel.IndexKernelPrior, BetaPrior)
+
+        # Explicit None: no prior
+        model_no_prior = MultiTaskGP(
+            train_X, train_Y, task_feature=0, task_covar_prior=None
+        ).to(**tkwargs)
+        task_kernel_none = _get_task_kernel(model_no_prior)
+        self.assertFalse(hasattr(task_kernel_none, "IndexKernelPrior"))
+
+        # Custom prior: passed through
+        custom_prior = SmoothedBoxPrior(0.0, 1.0)
+        model_custom = MultiTaskGP(
+            train_X, train_Y, task_feature=0, task_covar_prior=custom_prior
+        ).to(**tkwargs)
+        task_kernel_custom = _get_task_kernel(model_custom)
+        self.assertTrue(hasattr(task_kernel_custom, "IndexKernelPrior"))
+        self.assertIsInstance(task_kernel_custom.IndexKernelPrior, SmoothedBoxPrior)
+
+    def test_construct_inputs_task_covar_prior(self) -> None:
+        tkwargs: dict[str, Any] = {"device": self.device, "dtype": torch.double}
+        dataset, _ = gen_multi_task_dataset(**tkwargs)
+
+        # Default: task_covar_prior not in base_inputs (model uses DEFAULT)
+        base_inputs = MultiTaskGP.construct_inputs(dataset, task_feature=0)
+        self.assertNotIn("task_covar_prior", base_inputs)
+
+        # Explicit None: task_covar_prior=None passed through
+        base_inputs_none = MultiTaskGP.construct_inputs(
+            dataset, task_feature=0, task_covar_prior=None
+        )
+        self.assertIn("task_covar_prior", base_inputs_none)
+        self.assertIsNone(base_inputs_none["task_covar_prior"])
+
+        # Custom prior: passed through
+        custom_prior = SmoothedBoxPrior(0.0, 1.0)
+        base_inputs_custom = MultiTaskGP.construct_inputs(
+            dataset, task_feature=0, task_covar_prior=custom_prior
+        )
+        self.assertIs(base_inputs_custom["task_covar_prior"], custom_prior)
+
     def test_MultiTaskGP(self) -> None:
         bounds = torch.tensor([[0.0, 0.0], [1.0, 1.0]])
         for dtype, use_intf, use_octf, task_values, fixed_noise in zip(
@@ -302,26 +359,16 @@ class TestMultiTaskGP(BotorchTestCase):
                 test_x_task = torch.zeros_like(test_x)
                 test_x_task[1, 0] = 2.0
                 test_x = torch.cat([test_x_task, test_x], dim=-1)
+                # With task_values=[0, 2], mapper maps: 0→0, 1→nan, 2→1
                 expected_task_mapper = torch.tensor(
-                    [0.0, 0.0, 1.0], dtype=dtype, device=self.device
+                    [0.0, float("nan"), 1.0], dtype=dtype, device=self.device
                 )
-                self.assertTrue(torch.equal(model._task_mapper, expected_task_mapper))
-                # Test making predictions for task without observations.
-                # These should be equivalent to predictions for the output task.
-                test_X_unobserved = torch.rand(1, 2, **tkwargs)
-                test_X_unobserved[0, 1] = 1.0
-                with torch.no_grad():
-                    posterior_unobserved = model.posterior(X=test_X_unobserved)
-                test_X_observed = torch.rand(1, 2, **tkwargs)
-                test_X_observed[0, 1] = 0.0
-                with torch.no_grad():
-                    posterior_observed = model.posterior(X=test_X_unobserved)
-                self.assertTrue(
-                    torch.allclose(posterior_unobserved.mean, posterior_observed.mean)
-                )
+                # Use allclose with equal_nan=True to handle NaN comparison
                 self.assertTrue(
                     torch.allclose(
-                        posterior_unobserved.variance, posterior_observed.variance
+                        model._task_mapper,
+                        expected_task_mapper,
+                        equal_nan=True,
                     )
                 )
 
@@ -335,6 +382,24 @@ class TestMultiTaskGP(BotorchTestCase):
                 )
             else:
                 self.assertIsNone(model._task_mapper)
+
+        # Test that _compute_multitask_mean handles non-MultitaskMean correctly
+        with self.subTest("non_multitask_mean"):
+            tkwargs: dict[str, Any] = {"device": self.device, "dtype": torch.double}
+            _, (train_X, train_Y, _) = gen_multi_task_dataset(**tkwargs)
+            model = MultiTaskGP(
+                train_X,
+                train_Y,
+                task_feature=0,
+                mean_module=ConstantMean(),
+            ).to(**tkwargs)
+            self.assertIsInstance(model.mean_module, ConstantMean)
+            self.assertNotIsInstance(model.mean_module, MultitaskMean)
+            model.eval()
+            test_x = torch.rand(2, 1, **tkwargs)
+            with torch.no_grad():
+                posterior = model.posterior(test_x)
+            self.assertEqual(posterior.mean.shape, torch.Size([2, 2]))
 
     def test_MultiTaskGP_single_output(self) -> None:
         for dtype in (torch.float, torch.double):
@@ -445,9 +510,12 @@ class TestMultiTaskGP(BotorchTestCase):
         model = MultiTaskGP(
             train_X=train_X, train_Y=train_Y, task_feature=0, all_tasks=[0, 1, 2, 3]
         )
-        self.assertEqual(model.num_tasks, 2)
+        self.assertEqual(model.num_tasks, 4)
         # Check that PositiveIndexKernel knows of all tasks.
-        self.assertEqual(model.covar_module.kernels[1].raw_covar_factor.shape[0], 2)
+        self.assertEqual(model.covar_module.kernels[1].raw_covar_factor.shape[0], 4)
+        # Check that observed and unobserved task indices are computed correctly.
+        self.assertEqual(model._observed_task_indices.tolist(), [0, 1])
+        self.assertEqual(model._unobserved_task_indices.tolist(), [2, 3])
 
     def test_MultiTaskGP_construct_inputs(self) -> None:
         for dtype, fixed_noise, skip_task_features_in_datasets in zip(
@@ -514,6 +582,28 @@ class TestMultiTaskGP(BotorchTestCase):
     def test_validatation_of_task_values(self) -> None:
         tkwargs = {"device": self.device, "dtype": torch.double}
         _, (train_X, train_Y, _) = gen_multi_task_dataset(**tkwargs)
+
+        # Test 1: When all tasks are observed and contiguous from 0,
+        # task_mapper should be None
+        model_contiguous = MultiTaskGP(
+            train_X,
+            train_Y,
+            task_feature=0,
+            output_tasks=[1],
+            all_tasks=[0, 1],
+            validate_task_values=False,
+        )
+        self.assertIsNone(model_contiguous._task_mapper)
+        # _map_tasks should return the input unchanged when task_mapper is None
+        self.assertTrue(
+            torch.equal(
+                torch.tensor([0], **tkwargs),
+                model_contiguous._map_tasks(task_values=torch.tensor([0], **tkwargs)),
+            )
+        )
+
+        # Test 2: When all_tasks includes additional tasks but is still contiguous
+        # from 0, task_mapper should be None
         model = MultiTaskGP(
             train_X,
             train_Y,
@@ -522,16 +612,82 @@ class TestMultiTaskGP(BotorchTestCase):
             all_tasks=[0, 1, 2],
             validate_task_values=False,
         )
+        # all_tasks=[0, 1, 2] is contiguous from 0, so task_mapper is None
+        self.assertIsNone(model._task_mapper)
+
+        # _map_tasks for all tasks in all_tasks should work correctly
         self.assertTrue(
-            torch.equal(model._task_mapper, torch.tensor([0, 1, 1], **tkwargs))
+            torch.equal(
+                torch.tensor([0], **tkwargs),
+                model._map_tasks(task_values=torch.tensor([0], **tkwargs)),
+            )
         )
         self.assertTrue(
             torch.equal(
                 torch.tensor([1], **tkwargs),
+                model._map_tasks(task_values=torch.tensor([1], **tkwargs)),
+            )
+        )
+        self.assertTrue(
+            torch.equal(
+                torch.tensor([2], **tkwargs),
                 model._map_tasks(task_values=torch.tensor([2], **tkwargs)),
             )
         )
-        model = MultiTaskGP(
+
+        # Test 2b: When all_tasks includes non-contiguous tasks, task_mapper
+        # should exist
+        model_non_contiguous = MultiTaskGP(
+            train_X,
+            train_Y,
+            task_feature=0,
+            output_tasks=[1],
+            all_tasks=[0, 1, 3],  # non-contiguous (skips 2)
+            validate_task_values=False,
+        )
+        # all_tasks=[0, 1, 3] is not contiguous, so task_mapper should exist
+        expected_mapper = torch.full((4,), float("nan"), **tkwargs)
+        expected_mapper[0] = 0.0
+        expected_mapper[1] = 1.0
+        expected_mapper[3] = 2.0
+        self.assertTrue(
+            torch.allclose(
+                model_non_contiguous._task_mapper,
+                expected_mapper,
+                equal_nan=True,
+            )
+        )
+
+        # Test 3: With validation enabled and contiguous tasks
+        model_contiguous_validated = MultiTaskGP(
+            train_X,
+            train_Y,
+            task_feature=0,
+            output_tasks=[1],
+            all_tasks=[0, 1],
+            validate_task_values=True,
+        )
+        self.assertIsNone(model_contiguous_validated._task_mapper)
+        # Valid task values should work
+        self.assertTrue(
+            torch.equal(
+                torch.tensor([1], **tkwargs),
+                model_contiguous_validated._map_tasks(
+                    task_values=torch.tensor([1], **tkwargs)
+                ),
+            )
+        )
+        # Invalid task value should raise error
+        with self.assertRaisesRegex(
+            ValueError,
+            "Expected all task features in `X` to be between 0 and",
+        ):
+            model_contiguous_validated._map_tasks(
+                task_values=torch.tensor([3], **tkwargs)
+            )
+
+        # Test 4: With validation enabled and contiguous all_tasks
+        model_validated = MultiTaskGP(
             train_X,
             train_Y,
             task_feature=0,
@@ -539,14 +695,317 @@ class TestMultiTaskGP(BotorchTestCase):
             all_tasks=[0, 1, 2],
             validate_task_values=True,
         )
+        # all_tasks=[0, 1, 2] is contiguous so task_mapper is None
+        self.assertIsNone(model_validated._task_mapper)
 
+        # Task 3 is out of range [0, num_tasks), so it should raise an error
+        with self.assertRaisesRegex(
+            ValueError,
+            "Expected all task features in `X` to be between 0 and",
+        ):
+            model_validated._map_tasks(task_values=torch.tensor([3], **tkwargs))
+
+        # Test 4b: With validation enabled and non-contiguous all_tasks
+        model_validated_noncontig = MultiTaskGP(
+            train_X,
+            train_Y,
+            task_feature=0,
+            output_tasks=[1],
+            all_tasks=[0, 1, 3],  # non-contiguous
+            validate_task_values=True,
+        )
+        # all_tasks=[0, 1, 3] is not contiguous so task_mapper exists
+        self.assertIsNotNone(model_validated_noncontig._task_mapper)
+
+        # Task 4 is NOT in all_tasks, so it should raise an error
         with self.assertRaisesRegex(
             ValueError,
             "Received invalid raw task values. Expected raw value to be in"
-            r" \{0, 1\}, but got unexpected task"
-            r" values: \{2\}.",
+            r" \{0, 1, 3\}, but got unexpected task"
+            r" values: \{4\}.",
         ):
-            model._map_tasks(task_values=torch.tensor([2], **tkwargs))
+            model_validated_noncontig._map_tasks(
+                task_values=torch.tensor([4], **tkwargs)
+            )
+
+    def test_multitask_gp_unobserved_tasks(self) -> None:
+        """Test MultiTaskGP with unobserved tasks.
+
+        This test verifies that:
+        1. Creating a model with all_tasks including unobserved tasks works
+        2. In train mode, unobserved task covar_factor is at random initialization
+        3. In eval mode, unobserved task covar_factor is set to mean of observed
+        4. Predictions work for the unobserved task
+        """
+        tkwargs = {"device": self.device, "dtype": torch.double}
+
+        # Create data for tasks 0 and 2 only (task 1 is unobserved)
+        _, (train_X, train_Y, _) = gen_multi_task_dataset(task_values=[0, 2], **tkwargs)
+
+        # Create model with all_tasks=[0, 1, 2] including unobserved task 1
+        model = MultiTaskGP(
+            train_X=train_X,
+            train_Y=train_Y,
+            task_feature=0,
+            all_tasks=[0, 1, 2],
+        )
+        model.to(**tkwargs)
+
+        # Verify model.num_tasks == 3
+        self.assertEqual(model.num_tasks, 3)
+
+        # Verify observed and unobserved task indices are correctly set
+        self.assertEqual(model._observed_task_indices.tolist(), [0, 2])
+        self.assertEqual(model._unobserved_task_indices.tolist(), [1])
+
+        # Get the task covariance module
+        task_covar_module = model.covar_module.kernels[1]
+
+        # In train mode, get the covar_factor for unobserved task (index 1)
+        model.train()
+        train_covar_factor = task_covar_module.covar_factor.clone()
+        unobserved_train_covar = train_covar_factor[1]
+        observed_train_covar = train_covar_factor[[0, 2]]
+        mean_observed_train = observed_train_covar.mean(dim=0)
+
+        # Unobserved task covar_factor should be at random init in train mode
+        # (very unlikely to be exactly equal to mean of observed)
+        self.assertFalse(
+            torch.allclose(unobserved_train_covar, mean_observed_train, atol=1e-6)
+        )
+
+        # Switch to eval mode
+        model.eval()
+
+        # In eval mode, get the covar_factor for unobserved task
+        eval_covar_factor = task_covar_module.covar_factor.clone()
+        unobserved_eval_covar = eval_covar_factor[1]
+        observed_eval_covar = eval_covar_factor[[0, 2]]
+        mean_observed_eval = observed_eval_covar.mean(dim=0)
+
+        # Unobserved task covar_factor should equal mean of observed in eval mode
+        self.assertTrue(
+            torch.allclose(unobserved_eval_covar, mean_observed_eval, atol=1e-6)
+        )
+
+        # Verify predictions work for the unobserved task
+        # Create test input for unobserved task (task 1)
+        test_X = torch.rand(3, 2, **tkwargs)
+        test_X[:, 0] = 1.0  # Set task feature to 1 (unobserved task)
+
+        with torch.no_grad():
+            posterior = model.posterior(X=test_X)
+
+        # Verify posterior has expected shape
+        self.assertEqual(posterior.mean.shape, torch.Size([3, 1]))
+        self.assertEqual(posterior.variance.shape, torch.Size([3, 1]))
+
+        # Verify we can sample from the posterior
+        samples = posterior.rsample(sample_shape=torch.Size([2]))
+        self.assertEqual(samples.shape, torch.Size([2, 3, 1]))
+
+    def test_construct_inputs_heterogeneous(self) -> None:
+        tkwargs: dict[str, Any] = {"device": self.device, "dtype": torch.double}
+
+        # Build a heterogeneous MultiTaskDataset: target has features [a, b],
+        # source has features [a, c].
+        n_target, n_source = 10, 8
+        X_target = torch.rand(n_target, 2, **tkwargs)
+        X_source = torch.rand(n_source, 2, **tkwargs)
+        Y_target = torch.rand(n_target, 1, **tkwargs)
+        Y_source = torch.rand(n_source, 1, **tkwargs)
+
+        ds_target = SupervisedDataset(
+            X=torch.cat([X_target, torch.zeros(n_target, 1, **tkwargs)], dim=-1),
+            Y=Y_target,
+            feature_names=["a", "b", "task"],
+            outcome_names=["target"],
+        )
+        ds_source = SupervisedDataset(
+            X=torch.cat([X_source, torch.ones(n_source, 1, **tkwargs)], dim=-1),
+            Y=Y_source,
+            feature_names=["a", "c", "task"],
+            outcome_names=["source"],
+        )
+        mt_dataset = MultiTaskDataset(
+            datasets=[ds_target, ds_source],
+            target_outcome_name="target",
+            task_feature_index=-1,
+        )
+        self.assertTrue(mt_dataset.has_heterogeneous_features)
+
+        # map_heterogeneous_to_full=False (default) → raises UnsupportedError
+        with self.assertRaises(UnsupportedError):
+            MultiTaskGP.construct_inputs(mt_dataset, task_feature=-1)
+
+        # map_heterogeneous_to_full=True → zero-padded train_X
+        data_dict = MultiTaskGP.construct_inputs(
+            mt_dataset, task_feature=-1, map_heterogeneous_to_full=True
+        )
+        train_X = data_dict["train_X"]
+        # Full features: [a, b, c] + task → 4 columns
+        self.assertEqual(train_X.shape, (n_target + n_source, 4))
+        # Task column is last
+        self.assertTrue((train_X[:n_target, -1] == 0).all())
+        self.assertTrue((train_X[n_target:, -1] == 1).all())
+        # Target rows: a, b filled; c (index 2) is zero
+        self.assertAllClose(train_X[:n_target, 0], X_target[:, 0])
+        self.assertAllClose(train_X[:n_target, 1], X_target[:, 1])
+        self.assertTrue((train_X[:n_target, 2] == 0).all())
+        # Source rows: a filled at index 0; b (index 1) is zero; c at index 2
+        self.assertAllClose(train_X[n_target:, 0], X_source[:, 0])
+        self.assertTrue((train_X[n_target:, 1] == 0).all())
+        self.assertAllClose(train_X[n_target:, 2], X_source[:, 1])
+
+        self.assertEqual(data_dict["task_feature"], -1)
+        self.assertEqual(data_dict["all_tasks"], [0, 1])
+        self.assertTrue(
+            torch.equal(data_dict["train_Y"], torch.cat([Y_target, Y_source]))
+        )
+
+        # Cover rank and task_covar_prior conditional branches.
+        data_dict = MultiTaskGP.construct_inputs(
+            mt_dataset, task_feature=-1, map_heterogeneous_to_full=True, rank=2
+        )
+        self.assertEqual(data_dict["rank"], 2)
+        prior = LKJCovariancePrior(2, 1.0, SmoothedBoxPrior(0.1, 2.0))
+        data_dict = MultiTaskGP.construct_inputs(
+            mt_dataset,
+            task_feature=-1,
+            map_heterogeneous_to_full=True,
+            task_covar_prior=prior,
+        )
+        self.assertIs(data_dict["task_covar_prior"], prior)
+
+        # task_feature_index != -1 → NotImplementedError
+        mt_bad = MultiTaskDataset(
+            datasets=[ds_target, ds_source],
+            target_outcome_name="target",
+            task_feature_index=0,
+        )
+        mt_bad.has_heterogeneous_features = True
+        with self.assertRaises(NotImplementedError):
+            MultiTaskGP.construct_inputs(
+                mt_bad, task_feature=-1, map_heterogeneous_to_full=True
+            )
+
+    def test_construct_inputs_heterogeneous_with_yvar(self) -> None:
+        tkwargs: dict[str, Any] = {"device": self.device, "dtype": torch.double}
+
+        n_target, n_source = 6, 4
+        ds_target = SupervisedDataset(
+            X=torch.cat(
+                [
+                    torch.rand(n_target, 2, **tkwargs),
+                    torch.zeros(n_target, 1, **tkwargs),
+                ],
+                dim=-1,
+            ),
+            Y=torch.rand(n_target, 1, **tkwargs),
+            Yvar=torch.full((n_target, 1), 0.1, **tkwargs),
+            feature_names=["a", "b", "task"],
+            outcome_names=["target"],
+        )
+        ds_source = SupervisedDataset(
+            X=torch.cat(
+                [
+                    torch.rand(n_source, 1, **tkwargs),
+                    torch.ones(n_source, 1, **tkwargs),
+                ],
+                dim=-1,
+            ),
+            Y=torch.rand(n_source, 1, **tkwargs),
+            Yvar=torch.full((n_source, 1), 0.2, **tkwargs),
+            feature_names=["a", "task"],
+            outcome_names=["source"],
+        )
+        mt_dataset = MultiTaskDataset(
+            datasets=[ds_target, ds_source],
+            target_outcome_name="target",
+            task_feature_index=-1,
+        )
+        data_dict = MultiTaskGP.construct_inputs(
+            mt_dataset, task_feature=-1, map_heterogeneous_to_full=True
+        )
+        # Full features: [a, b] + task → 3 columns
+        self.assertEqual(data_dict["train_X"].shape, (n_target + n_source, 3))
+        self.assertIn("train_Yvar", data_dict)
+        self.assertEqual(data_dict["train_Yvar"].shape, (n_target + n_source, 1))
+
+    def test_e2e_multitask_gp_with_learned_feature_imputation(self) -> None:
+        from botorch.models.transforms.input import (
+            ChainedInputTransform,
+            LearnedFeatureImputation,
+        )
+
+        tkwargs: dict[str, Any] = {"device": self.device, "dtype": torch.double}
+
+        # Heterogeneous dataset: target has [a, b], source has [a, c].
+        n_target, n_source = 15, 10
+        X_target = torch.rand(n_target, 2, **tkwargs)
+        X_source = torch.rand(n_source, 2, **tkwargs)
+        Y_target = torch.sin(X_target.sum(dim=-1, keepdim=True))
+        Y_source = torch.cos(X_source.sum(dim=-1, keepdim=True))
+
+        ds_target = SupervisedDataset(
+            X=torch.cat([X_target, torch.zeros(n_target, 1, **tkwargs)], dim=-1),
+            Y=Y_target,
+            feature_names=["a", "b", "task"],
+            outcome_names=["target"],
+        )
+        ds_source = SupervisedDataset(
+            X=torch.cat([X_source, torch.ones(n_source, 1, **tkwargs)], dim=-1),
+            Y=Y_source,
+            feature_names=["a", "c", "task"],
+            outcome_names=["source"],
+        )
+        mt_dataset = MultiTaskDataset(
+            datasets=[ds_target, ds_source],
+            target_outcome_name="target",
+            task_feature_index=-1,
+        )
+
+        model_inputs = MultiTaskGP.construct_inputs(
+            mt_dataset, task_feature=-1, map_heterogeneous_to_full=True
+        )
+
+        # Full features = [a, b, c], d=3, task at -1.
+        d = 3
+        feature_indices = {0: [0, 1], 1: [0, 2]}
+        input_transform = ChainedInputTransform(
+            normalize=Normalize(d=d + 1, indices=list(range(d))),
+            impute=LearnedFeatureImputation(
+                feature_indices=feature_indices,
+                d=d,
+                task_feature_index=-1,
+                **tkwargs,
+            ),
+        )
+        model = MultiTaskGP(**model_inputs, input_transform=input_transform)
+
+        # Verify the model can produce posteriors.
+        test_X = torch.cat(
+            [torch.rand(5, 2, **tkwargs), torch.zeros(5, 1, **tkwargs)], dim=-1
+        )
+        # Posterior call on target-task-dimensioned input won't work directly
+        # because MultiTaskGP expects full-dimensional input; test with full X.
+        test_X_full = torch.zeros(5, d + 1, **tkwargs)
+        test_X_full[:, :2] = test_X[:, :2]
+        test_X_full[:, -1] = 0
+        posterior = model.posterior(test_X_full)
+        self.assertEqual(posterior.mean.shape, torch.Size([5, 1]))
+        self.assertFalse(torch.isnan(posterior.mean).any())
+
+        # Fit the model briefly and verify imputation values change.
+        mll = ExactMarginalLogLikelihood(model.likelihood, model)
+        initial_imp = model.input_transform.impute.imputation_values.clone().detach()
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=OptimizationWarning)
+            fit_gpytorch_mll(
+                mll, optimizer_kwargs={"options": {"maxiter": 5}}, max_attempts=1
+            )
+        final_imp = model.input_transform.impute.imputation_values.detach()
+        self.assertFalse(torch.allclose(initial_imp, final_imp, atol=1e-6))
 
 
 class TestKroneckerMultiTaskGP(BotorchTestCase):
@@ -759,43 +1218,40 @@ class TestKroneckerMultiTaskGP(BotorchTestCase):
 class TestMultiTaskUtils(BotorchTestCase):
     def test_get_task_value_remapping(self) -> None:
         for dtype in (torch.float, torch.double):
-            observed_task_values = torch.tensor(
-                [1, 3], dtype=torch.long, device=self.device
+            # Test with non-contiguous task values
+            all_task_values = torch.tensor(
+                [1, 3, 5], dtype=torch.long, device=self.device
             )
-            expected_mapping = torch.tensor(
-                [0.0, 0.0, 0.0, 1.0, 0.0], dtype=dtype, device=self.device
-            )
-            all_task_values = torch.arange(5, dtype=torch.long, device=self.device)
             mapping = get_task_value_remapping(
-                observed_task_values=observed_task_values,
                 all_task_values=all_task_values,
                 dtype=dtype,
-                default_task_value=1.0,
             )
-            self.assertTrue(torch.equal(mapping, expected_mapping))
-            # test default_task_value that has not been observed
-            # and default_task_value=None
-            for default_task_value in (0.0, None):
-                mapping = get_task_value_remapping(
-                    observed_task_values=observed_task_values,
-                    all_task_values=all_task_values,
-                    dtype=dtype,
-                    default_task_value=default_task_value,
-                )
-                self.assertTrue(torch.equal(mapping[[1, 3]], expected_mapping[[1, 3]]))
-                self.assertTrue(torch.isnan(mapping[[0, 2, 4]]).all())
+            # All tasks in all_task_values map to contiguous indices (0, 1, 2)
+            expected_mapping = torch.tensor(
+                [0.0, 1.0, 2.0], dtype=dtype, device=self.device
+            )
+            self.assertTrue(torch.equal(mapping[[1, 3, 5]], expected_mapping))
+            # Task values not in all_task_values (0, 2, 4) map to NaN
+            self.assertTrue(torch.isnan(mapping[[0, 2, 4]]).all())
+
+    def test_get_task_value_remapping_contiguous(self) -> None:
+        # When task values are contiguous from 0, returns None
+        for dtype in (torch.float, torch.double):
+            all_task_values = torch.arange(3, dtype=torch.long, device=self.device)
+            mapping = get_task_value_remapping(
+                all_task_values=all_task_values,
+                dtype=dtype,
+            )
+            self.assertIsNone(mapping)
 
     def test_get_task_value_remapping_invalid_dtype(self) -> None:
-        observed_task_values = torch.tensor([1, 3])
-        all_task_values = observed_task_values
+        all_task_values = torch.tensor([1, 3])
         for dtype in (torch.int32, torch.long, torch.bool):
             with self.assertRaisesRegex(
                 ValueError,
                 f"dtype must be torch.float or torch.double, but got {dtype}.",
             ):
                 get_task_value_remapping(
-                    observed_task_values=observed_task_values,
                     all_task_values=all_task_values,
                     dtype=dtype,
-                    default_task_value=None,
                 )

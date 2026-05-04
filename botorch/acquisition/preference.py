@@ -93,8 +93,7 @@ class AnalyticExpectedUtilityOfBestOption(AnalyticAcquisitionFunction):
 
         Args:
             X: A ``batch_shape x q x d``-dim Tensor, where ``q = 2`` if
-                ``previous_winner`` is not ``None``, and ``q = 1``
-                otherwise.
+                ``previous_winner`` is ``None``, and ``q = 1`` otherwise.
 
         Returns:
             The acquisition value for each batch as a tensor of shape ``batch_shape``.
@@ -104,8 +103,8 @@ class AnalyticExpectedUtilityOfBestOption(AnalyticAcquisitionFunction):
             or ((X.shape[-2] == 1) and (self.previous_winner is not None))
         ):
             raise UnsupportedError(
-                f"{self.__class__.__name__} only support q=2 or q=1"
-                "with a previous winner specified"
+                f"{self.__class__.__name__} only supports q=2 (no previous "
+                "winner specified) or q=1 (previous winner specified)."
             )
 
         Y = X if self.outcome_model is None else self.outcome_model(X)

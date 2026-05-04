@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable
-from typing import Any, overload, Union
+from typing import Any, overload
 
 import torch
 from botorch.models.approximate_gp import SingleTaskVariationalGP
@@ -22,8 +22,8 @@ from gpytorch.kernels.kernel import Kernel
 from torch import LongTensor, Tensor
 from torch.nn import Module, ModuleList
 
-TInputTransform = Union[InputTransform, Callable[[Tensor], Tensor]]
-TOutputTransform = Union[OutcomeTransform, Callable[[Tensor], Tensor]]
+TInputTransform = InputTransform | Callable[[Tensor], Tensor]
+TOutputTransform = OutcomeTransform | Callable[[Tensor], Tensor]
 GetTrainInputs = Dispatcher("get_train_inputs")
 GetTrainTargets = Dispatcher("get_train_targets")
 

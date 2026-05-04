@@ -56,13 +56,13 @@ class MultiOutputAcquisitionFunction(AcquisitionFunction, ABC):
 
 class MultiOutputPosteriorMean(MultiOutputAcquisitionFunction):
     def __init__(self, model: Model, weights: Tensor | None = None) -> None:
-        r"""Constructor for the MultiPosteriorMean.
+        r"""Constructor for the MultiOutputPosteriorMean.
 
         Maximization of all outputs is assumed by default. Minimizing outputs can
         be achieved by setting the corresponding weights to negative.
 
         Args:
-            acqfs: A list of ``m`` acquisition functions.
+            model: A fitted model.
             weights: A one-dimensional tensor with ``m`` elements representing the
                 weights on the outputs.
         """
@@ -102,7 +102,7 @@ class MultiOutputAcquisitionFunctionWrapper(MultiOutputAcquisitionFunction):
     r"""Multi-output wrapper around single-output acquisition functions."""
 
     def __init__(self, acqfs: list[AcquisitionFunction]) -> None:
-        r"""Constructor for the AcquisitionFunction base class.
+        r"""Constructor for the MultiOutputAcquisitionFunctionWrapper.
 
         Args:
             acqfs: A list of ``m`` acquisition functions.

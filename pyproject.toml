@@ -23,13 +23,16 @@ dynamic = ["version"]
 dependencies = [
     "typing_extensions",
     "pyre_extensions",
-    "gpytorch>=1.14.2",
-    "linear_operator>=0.6",
+    "gpytorch>=1.15.2",
+    "linear_operator>=0.6.1",
     "torch>=2.2",
-    "pyro-ppl>=1.8.4",
+    "jax>=0.4.35,<0.10",
+    "jaxlib>=0.4.35,<0.10",
+    "numpyro>=0.18.0",
     "scipy",
     "multipledispatch",
     "threadpoolctl",
+    "ninja",
 ]
 
 [project.optional-dependencies]
@@ -76,6 +79,7 @@ Repository = "https://github.com/meta-pytorch/botorch"
 
 [tool.setuptools]
 packages.find.exclude = ["test", "test.*", "test_community.*"]
+package-data.botorch = ["csrc/*.cpp"]
 
 [tool.setuptools_scm]
 local_scheme = "node-and-date"

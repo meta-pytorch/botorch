@@ -87,7 +87,7 @@ class LCEAKernel(Kernel):
     r"""The Latent Context Embedding Additive (LCE-A) Kernel.
 
     This kernel is similar to the SACKernel, and is used when context breakdowns are
-    unbserverable. It assumes the same additive structure and a spatial kernel shared
+    unobservable. It assumes the same additive structure and a spatial kernel shared
     across contexts. Rather than assuming independence, LCEAKernel models the
     correlation in the latent functions for each context through learning context
     embeddings.
@@ -111,7 +111,7 @@ class LCEAKernel(Kernel):
             batch_shape: Batch shape as usual for gpytorch kernels. Model does not
                 support batch training. When batch_shape is non-empty, it is used for
                 loading hyper-parameter values generated from MCMC sampling.
-            train_embedding: A boolean indictor of whether to learn context embeddings.
+            train_embedding: A boolean indicator of whether to learn context embeddings.
             cat_feature_dict: Keys are context names and values are list of categorical
                 features i.e. {"context_name" : [cat_0, ..., cat_k]}. k equals the
                 number of categorical variables. If None, uses context names in the
@@ -154,7 +154,7 @@ class LCEAKernel(Kernel):
             embs_feature_dict=embs_feature_dict,
             embs_dim_list=embs_dim_list,
         )
-        # contruct embedding layer
+        # construct embedding layer
         if train_embedding:
             self._set_emb_layers()
         # task covariance matrix

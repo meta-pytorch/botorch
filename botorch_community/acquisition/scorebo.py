@@ -21,7 +21,6 @@ Contributor: hvarfner
 from __future__ import annotations
 
 import warnings
-from typing import Optional
 
 import torch
 from botorch import settings
@@ -52,10 +51,10 @@ class qSelfCorrectingBayesianOptimization(
         self,
         model: SaasFullyBayesianSingleTaskGP,
         optimal_outputs: Tensor,
-        optimal_inputs: Optional[Tensor] = None,
-        X_pending: Optional[Tensor] = None,
-        distance_metric: Optional[str] = "hellinger",
-        posterior_transform: Optional[ScalarizedPosteriorTransform] = None,
+        optimal_inputs: Tensor | None = None,
+        X_pending: Tensor | None = None,
+        distance_metric: str | None = "hellinger",
+        posterior_transform: ScalarizedPosteriorTransform | None = None,
     ) -> None:
         r"""Self-correcting Bayesian optimization [hvarfner2023scorebo]_ acquisition
         function. SCoreBO seeks to find accurate hyperparameters during the course

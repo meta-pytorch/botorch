@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import copy
 import warnings
+from typing import Self
 
 import torch
 from botorch.acquisition.objective import PosteriorTransform
@@ -48,6 +49,7 @@ from botorch.models.utils.inducing_point_allocators import (
     InducingPointAllocator,
 )
 from botorch.posteriors.gpytorch import GPyTorchPosterior
+from botorch.posteriors.torch import TorchPosterior
 from gpytorch.distributions import MultivariateNormal
 from gpytorch.kernels import Kernel
 from gpytorch.likelihoods import (
@@ -67,7 +69,6 @@ from gpytorch.variational import (
 )
 from torch import Tensor
 from torch.nn import Module
-from typing_extensions import Self
 
 
 TRANSFORM_WARNING = (
@@ -113,7 +114,7 @@ class ApproximateGPyTorchModel(GPyTorchModel):
         super().__init__()
 
         self.model = (
-            _SingleTaskVariationalGP(num_outputs=num_outputs, *args, **kwargs)
+            _SingleTaskVariationalGP(*args, num_outputs=num_outputs, **kwargs)
             if model is None
             else model
         )
@@ -150,7 +151,7 @@ class ApproximateGPyTorchModel(GPyTorchModel):
         output_indices: list[int] | None = None,
         observation_noise: bool = False,
         posterior_transform: PosteriorTransform | None = None,
-    ) -> GPyTorchPosterior:
+    ) -> TorchPosterior:
         if output_indices is not None:
             raise NotImplementedError(  # pragma: no cover
                 f"{self.__class__.__name__}.posterior does not support output indices."
@@ -170,7 +171,10 @@ class ApproximateGPyTorchModel(GPyTorchModel):
         if observation_noise:
             dist = self.likelihood(dist)
 
-        posterior = GPyTorchPosterior(distribution=dist)
+        if isinstance(dist, MultivariateNormal):
+            posterior = GPyTorchPosterior(distribution=dist)
+        else:
+            posterior = TorchPosterior(distribution=dist)
         if hasattr(self, "outcome_transform"):
             posterior = self.outcome_transform.untransform_posterior(posterior, X=X)
         if posterior_transform is not None:

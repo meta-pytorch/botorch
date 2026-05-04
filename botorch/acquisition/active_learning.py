@@ -8,16 +8,20 @@ r"""
 Active learning acquisition functions.
 
 .. [Seo2014activedata]
-    S. Seo, M. Wallat, T. Graepel, and K. Obermayer. Gaussian process regression:
-    Active data selection and test point rejection. IJCNN 2000.
+    S. Seo, M. Wallat, T. Graepel, and K. Obermayer. `Gaussian process regression:
+    Active data selection and test point rejection.
+    <https://ieeexplore.ieee.org/document/861310>`_
+    IJCNN 2000.
 
 .. [Chen2014seqexpdesign]
-    X. Chen and Q. Zhou. Sequential experimental designs for stochastic kriging.
+    X. Chen and Q. Zhou. `Sequential experimental designs for stochastic kriging.
+    <https://ieeexplore.ieee.org/document/7020209>`_
     Winter Simulation Conference 2014.
 
 .. [Binois2017repexp]
-    M. Binois, J. Huang, R. B. Gramacy, and M. Ludkovski. Replication or
+    M. Binois, J. Huang, R. B. Gramacy, and M. Ludkovski. `Replication or
     exploration? Sequential design for stochastic simulation experiments.
+    <https://arxiv.org/abs/1710.03206>`_
     ArXiv 2017.
 """
 
@@ -74,7 +78,7 @@ class qNegIntegratedPosteriorVariance(AcquisitionFunction):
                 a PosteriorTransform that transforms the multi-output posterior into a
                 single-output posterior is required.
             X_pending: A ``n' x d``-dim Tensor of ``n'`` design points that have
-                points that have been submitted for function evaluation but
+                been submitted for function evaluation but
                 have not yet been evaluated.
         """
         super().__init__(model=model)
@@ -166,7 +170,7 @@ class PairwiseMCPosteriorVariance(MCAcquisitionFunction):
             X: A ``batch_size x q x d``-dim Tensor. q should be a multiple of 2.
 
         Returns:
-            Tensor of shape ``batch_size x q`` representing the posterior variance
+            Tensor of shape ``batch_size`` representing the posterior variance
             of link function at X that active learning hopes to maximize
         """
         if X.shape[-2] == 0 or X.shape[-2] % 2 != 0:

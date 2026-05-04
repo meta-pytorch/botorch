@@ -20,8 +20,6 @@ Contributor: andreaponti5
 
 from __future__ import annotations
 
-from typing import Dict, Optional, Tuple, Union
-
 import torch
 from botorch.acquisition import UpperConfidenceBound
 from botorch.acquisition.objective import PosteriorTransform
@@ -40,7 +38,7 @@ class AugmentedUpperConfidenceBound(UpperConfidenceBound):
 
     A modified version of the UCB for Multi Information Source, that consider
     the most optimistic improvement with respect to the best value observed so far.
-    The improvement is then penalized depending on source’s cost, and
+    The improvement is then penalized depending on source's cost, and
     the discrepancy between the GP associated to the source and the AGP.
 
     `AUCB(x, s, y^+) = ((mu(x) + sqrt(beta) * sigma(x)) - y^+)
@@ -53,10 +51,10 @@ class AugmentedUpperConfidenceBound(UpperConfidenceBound):
     def __init__(
         self,
         model: Model,
-        cost: Dict,
-        best_f: Union[float, Tensor],
-        beta: Union[float, Tensor],
-        posterior_transform: Optional[PosteriorTransform] = None,
+        cost: dict,
+        best_f: float | Tensor,
+        beta: float | Tensor,
+        posterior_transform: PosteriorTransform | None = None,
         maximize: bool = True,
     ) -> None:
         r"""Single-outcome Augmented Upper Confidence Bound.
@@ -123,7 +121,7 @@ class AugmentedUpperConfidenceBound(UpperConfidenceBound):
         model: ExactGP = None,
         compute_sigma: bool = True,
         min_var: float = 1e-12,
-    ) -> Tuple[Tensor, Optional[Tensor]]:
+    ) -> tuple[Tensor, Tensor | None]:
         r"""Computes the first and second moments of the model posterior.
 
         Args:

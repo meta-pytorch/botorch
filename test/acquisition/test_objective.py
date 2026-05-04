@@ -570,7 +570,7 @@ class TestLearnedObjective(BotorchTestCase):
             self.assertAllClose(avg_obj_val, flipped_avg_obj_val)
 
         # cannot use a deterministic model together with a sampler
-        with self.subTest("deterministic model"), self.assertRaises(AssertionError):
+        with self.subTest("deterministic model"), self.assertRaises(ValueError):
             LearnedObjective(
                 pref_model=mean_pref_model,
                 sample_shape=torch.Size([num_samples]),

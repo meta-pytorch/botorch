@@ -12,8 +12,8 @@ Paper: "Variational Bayesian Last Layers" by Harrison et al., ICLR 2024
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 import numpy as np
 import torch
@@ -295,9 +295,14 @@ class DenseNormalPrec(torch.distributions.MultivariateNormal):
 
     @property
     def trace_covariance(self):
-        return (
-            (torch.inverse(self.tril) ** 2).sum(-1).sum(-1)
-        )  # compute as frob norm squared
+        # Compute ||L^{-1}||_F^2 via triangular solve instead of full inverse.
+        Eye = torch.eye(
+            self.tril.shape[-1],
+            device=self.tril.device,
+            dtype=self.tril.dtype,
+        )
+        L_inv = torch.linalg.solve_triangular(self.tril, Eye, upper=False)
+        return (L_inv**2).sum(-1).sum(-1)
 
     def covariance_weighted_inner_prod(self, b, reduce_dim=True):
         assert b.shape[-1] == 1

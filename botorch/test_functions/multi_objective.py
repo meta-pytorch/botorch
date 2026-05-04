@@ -147,7 +147,7 @@ class BraninCurrin(MultiObjectiveTestProblem):
         return factor1 * numer / denom
 
     def _evaluate_true(self, X: Tensor) -> Tensor:
-        # branin rescaled with inputsto [0,1]^2
+        # branin rescaled with inputs to [0,1]^2
         branin = self._rescaled_branin(X=X)
         currin = self._currin(X=X)
         return torch.stack([branin, currin], dim=-1)

@@ -122,8 +122,8 @@ class TestDatasets(BotorchTestCase):
         self.assertTrue(torch.equal(dataset.group_indices, group_indices))
 
         dataset2 = SupervisedDataset(
-            X=DenseContainer(X, X.shape[-1:]),
-            Y=DenseContainer(Y, Y.shape[-1:]),
+            X=DenseContainer(values=X, event_shape=X.shape[-1:]),
+            Y=DenseContainer(values=Y, event_shape=Y.shape[-1:]),
             feature_names=feature_names,
             outcome_names=outcome_names,
             group_indices=group_indices,
@@ -177,7 +177,7 @@ class TestDatasets(BotorchTestCase):
         dataset = SupervisedDataset(
             X=X,
             Y=Y,
-            Yvar=DenseContainer(Y, Y.shape[-1:]),
+            Yvar=DenseContainer(values=Y, event_shape=Y.shape[-1:]),
             feature_names=feature_names,
             outcome_names=outcome_names,
         )
@@ -204,7 +204,7 @@ class TestDatasets(BotorchTestCase):
                 X_val = rand(16, 2)
                 X_idx = stack([randperm(len(X_val))[:3] for _ in range(1)])
                 X = SliceContainer(
-                    X_val, X_idx, event_shape=Size([3 * X_val.shape[-1]])
+                    values=X_val, indices=X_idx, event_shape=Size([3 * X_val.shape[-1]])
                 )
                 dataset = RankingDataset(
                     X=X,
@@ -281,7 +281,9 @@ class TestDatasets(BotorchTestCase):
         # Test ``_validate``
         X_val = rand(16, 2)
         X_idx = stack([randperm(len(X_val))[:3] for _ in range(1)])
-        X = SliceContainer(X_val, X_idx, event_shape=Size([3 * X_val.shape[-1]]))
+        X = SliceContainer(
+            values=X_val, indices=X_idx, event_shape=Size([3 * X_val.shape[-1]])
+        )
         feature_names = ["x1", "x2"]
         outcome_names = ["ranking indices"]
 
@@ -488,6 +490,31 @@ class TestDatasets(BotorchTestCase):
             mt_dataset,
             MultiTaskDataset(datasets=[dataset_1, dataset_5], target_outcome_name="z"),
         )
+
+    def test_get_heterogeneous_feature_mapping(self):
+        ds_target = make_dataset(
+            d=3, feature_names=["a", "b", "task"], outcome_names=["y"]
+        )
+        ds_source = make_dataset(
+            d=3, feature_names=["a", "c", "task"], outcome_names=["z"]
+        )
+        mt_err = MultiTaskDataset(
+            datasets=[ds_target, ds_source],
+            target_outcome_name="y",
+            task_feature_index=0,
+        )
+        with self.assertRaises(NotImplementedError):
+            mt_err.get_heterogeneous_feature_mapping()
+
+        mt = MultiTaskDataset(
+            datasets=[ds_target, ds_source],
+            target_outcome_name="y",
+            task_feature_index=-1,
+        )
+        all_datasets, feature_indices, full_dim = mt.get_heterogeneous_feature_mapping()
+        self.assertEqual(len(all_datasets), 2)
+        self.assertEqual(full_dim, 3)
+        self.assertEqual(feature_indices, [[0, 1], [0, 2]])
 
     def test_clone_multitask(self) -> None:
         for has_yvar in [False, True]:

@@ -37,6 +37,32 @@ class TestNeuralProcessModel(unittest.TestCase):
             self.n_context,
         )
 
+    def test_default_hidden_dims(self):
+        """Test that default hidden dimensions are used when not provided."""
+        x_dim = 2
+        y_dim = 1
+        r_dim = 8
+        z_dim = 8
+        n_context = 20
+
+        # Create model without specifying hidden dimensions (use defaults)
+        model = NeuralProcessModel(
+            train_X=torch.rand(100, x_dim),
+            train_Y=torch.rand(100, y_dim),
+            r_hidden_dims=None,
+            z_hidden_dims=None,
+            decoder_hidden_dims=None,
+            x_dim=x_dim,
+            y_dim=y_dim,
+            r_dim=r_dim,
+            z_dim=z_dim,
+            n_context=n_context,
+        )
+
+        # Test that the model works with default dimensions
+        output = model(model.train_X, model.train_Y)
+        self.assertEqual(output.loc.shape, (80, y_dim))
+
     def test_r_encoder(self):
         self.initialize()
         input = torch.rand(100, self.x_dim + self.y_dim)

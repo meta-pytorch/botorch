@@ -72,7 +72,6 @@ def legacy_ei_numerics_warning(legacy_name: str) -> None:
 
     Args:
         legacy_name: The name of the legacy EI acquisition function.
-        logei_name: The name of the associated LogEI acquisition function.
     """
     legacy_to_logei = {
         "ExpectedImprovement": "LogExpectedImprovement",

@@ -80,7 +80,9 @@ class TestPairwiseGP(BotorchTestCase):
         datapoints = torch.rand(3, 2)
         indices = torch.tensor([[0, 1], [1, 2]], dtype=torch.long)
         event_shape = torch.Size([2 * datapoints.shape[-1]])
-        dataset_X = SliceContainer(datapoints, indices, event_shape=event_shape)
+        dataset_X = SliceContainer(
+            values=datapoints, indices=indices, event_shape=event_shape
+        )
         dataset_Y = torch.tensor([[0, 1], [1, 0]]).expand(indices.shape)
         dataset = RankingDataset(
             X=dataset_X, Y=dataset_Y, feature_names=["a", "b"], outcome_names=["y"]
@@ -279,13 +281,14 @@ class TestPairwiseGP(BotorchTestCase):
             self.assertTrue(model.training)
             pred = model(dup_X)
             # posterior shape in training should match the consolidated utility
-            self.assertEqual(pred.shape(), model.utility.shape)
+            pred_shape = pred.batch_shape + pred.event_shape
+            self.assertEqual(pred_shape, model.utility.shape)
             if batch_shape:
                 # do not perform consolidation in batch mode
                 # because the block structure cannot be guaranteed
-                self.assertEqual(pred.shape(), dup_X.shape[:-1])
+                self.assertEqual(pred_shape, dup_X.shape[:-1])
             else:
-                self.assertEqual(pred.shape(), train_X.shape[:-1])
+                self.assertEqual(pred_shape, train_X.shape[:-1])
             # Pass the original comparisons through mll should work
             mll(pred, dup_comp)
 
@@ -421,10 +424,55 @@ class TestPairwiseGP(BotorchTestCase):
         for buffer_name in model._buffer_names:
             model.register_buffer(buffer_name, None)
 
-        # Check that instance buffers were not restored
+        # Check that instance buffers were not restored when data is None
+        # (the guard `if self.datapoints is not None` prevents _update)
         _ = model.load_state_dict(sd)
         for buffer_name in model._buffer_names:
             self.assertIsNone(model.get_buffer(buffer_name))
+
+    def test_load_state_dict_recomputes_laplace(self) -> None:
+        """Loading state_dict into a model with different training data
+        should recompute the Laplace approximation so the posterior is
+        consistent. This is the scenario during cross-validation: a new
+        model is constructed on fold data and loaded with hyperparameters
+        from the full model."""
+        tkwargs = {"device": self.device, "dtype": self.dtype}
+        # Full model: 5 datapoints, 4 comparisons
+        full_X = torch.rand(5, 2, **tkwargs)
+        full_comp = torch.tensor([[0, 1], [1, 2], [2, 3], [3, 4]])
+        full_model = PairwiseGP(datapoints=full_X, comparisons=full_comp)
+        fit_gpytorch_mll(
+            PairwiseLaplaceMarginalLogLikelihood(full_model.likelihood, full_model)
+        )
+        full_sd = full_model.state_dict()
+        full_utility = full_model.utility.clone()
+
+        # CV fold model: same datapoints, fewer comparisons
+        fold_comp = torch.tensor([[0, 1], [2, 3]])
+        fold_model = PairwiseGP(datapoints=full_X.clone(), comparisons=fold_comp)
+
+        # Before load_state_dict: utility was computed with default hyperparams
+        utility_before = fold_model.utility.clone()
+
+        # Load full model's hyperparameters — should recompute Laplace
+        fold_model.load_state_dict(full_sd)
+
+        # Utility should have been recomputed (different from both the
+        # full model's utility and the pre-load default-hyperparam utility)
+        utility_after = fold_model.utility
+        assert utility_after is not None
+        # Recomputed utility should differ from the pre-load utility
+        # (because kernel hyperparameters changed)
+        self.assertFalse(torch.allclose(utility_before, utility_after))
+        # Recomputed utility should also differ from the full model's
+        # (because comparisons differ)
+        self.assertFalse(torch.allclose(full_utility, utility_after))
+
+        # The posterior should be valid (no NotPSDError)
+        fold_model.eval()
+        X_test = torch.rand(3, 2, **tkwargs)
+        posterior = fold_model.posterior(X_test)
+        self.assertEqual(posterior.mean.shape, torch.Size([3, 1]))
 
     def test_helper_functions(self) -> None:
         for batch_shape in (torch.Size(), torch.Size([2])):

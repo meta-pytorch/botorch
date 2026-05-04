@@ -87,6 +87,11 @@ Feasible Volume
 .. automodule:: botorch.utils.feasible_volume
 		:members:
 
+JAX Utilities
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.. automodule:: botorch.utils.jax_utils
+		:members:
+
 Types and Type Hints
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 .. automodule:: botorch.utils.types

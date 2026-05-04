@@ -546,10 +546,10 @@ class NoisyExpectedHypervolumeMixin(CachedCholeskyMCSamplerMixin):
             constraints: A list of callables, each mapping a Tensor of dimension
                 ``sample_shape x batch-shape x q x m`` to a Tensor of dimension
                 ``sample_shape x batch-shape x q``, where negative values imply
-                feasibility. The acqusition function will compute expected feasible
+                feasibility. The acquisition function will compute expected feasible
                 hypervolume.
-            X_pending: A ``batch_shape x m x d``-dim Tensor of ``m`` design points that
-                have points that have been submitted for function evaluation, but
+            X_pending: A ``batch_shape x m x d``-dim Tensor of ``m`` design points
+                that have been submitted for function evaluation, but
                 have not yet been evaluated.
             prune_baseline: If True, remove points in ``X_baseline`` that are
                 highly unlikely to be the pareto optimal and better than the

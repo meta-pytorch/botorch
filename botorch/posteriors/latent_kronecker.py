@@ -9,7 +9,6 @@ import torch
 from botorch.models.gpytorch import GPyTorchModel
 from botorch.posteriors.gpytorch import GPyTorchPosterior
 from gpytorch.distributions import MultivariateNormal
-from linear_operator.operators import IdentityLinearOperator, ZeroLinearOperator
 from torch import Tensor
 
 
@@ -29,52 +28,42 @@ References
 
 class LatentKroneckerGPPosterior(GPyTorchPosterior):
     r"""
-    Dummy posterior class for a LatentKroneckerGP model.
-    Internally calls model._rsample_from_base_samples to draw posterior samples via
-    pathwise conditioning aka Matheron's rule [wilson2020sampling, wilson2021pathwise].
+    Posterior class for a LatentKroneckerGP model.
 
-    This is necessary because BoTorch instantiates the posterior object before creating
-    base samples, whereas pathwise conditioning requires the base samples first to
-    calculate the posterior samples. To cache expensive computations, which only have
-    to be performed once for the same base samples, the results are stored in the model
-    instead of the posterior object, because a new posterior object is created in each
-    acquisition function call.
+    Uses a real MultivariateNormal distribution for `.mean` and `.variance`,
+    while internally using pathwise conditioning (Matheron's rule) for efficient
+    sampling via `rsample` [wilson2020sampling, wilson2021pathwise].
+
+    This enables accessing `posterior.mean` and `posterior.variance` while
+    maintaining efficient sampling through `model._rsample_from_base_samples()`.
     """
 
     def __init__(
         self,
         model: GPyTorchModel,
+        distribution: MultivariateNormal,
         X: Tensor,
         T: Tensor,
     ) -> None:
-        r"""A dummy posterior for LatentKroneckerGP models.
+        r"""Initialize LatentKroneckerGPPosterior.
 
         Args:
             model: The LatentKroneckerGP model to which this posterior belongs to.
+            distribution: The posterior MultivariateNormal distribution computed
+                via the GPyTorch prediction stack.
             X: A ``(batch_shape) x q x d``-dim Tensor, where ``d`` is the dimension
                 of the feature space and ``q`` is the number of points considered
                 jointly, on which the posterior shall be evaluated.
             T: A ``(batch_shape) x t x 1``-dim Tensor of ``T``-locations at which to
-                evaluate the posterior. If None, defaults to using ``self.train_T``.
+                evaluate the posterior.
         """
+        super().__init__(distribution=distribution)
         self._dtype = X.dtype
         self._device = X.device
         self.batch_shape = model.batch_shape
         self.output_batch_shape = torch.broadcast_shapes(
             model.batch_shape, X.shape[:-2]
         )
-        output_dim = X.shape[-2] * T.shape[-2]
-        mean = ZeroLinearOperator(
-            *self.output_batch_shape, output_dim, dtype=X.dtype, device=X.device
-        )
-        covar = IdentityLinearOperator(
-            output_dim,
-            batch_shape=self.output_batch_shape,
-            dtype=X.dtype,
-            device=X.device,
-        )
-        dummy_mvn = MultivariateNormal(mean=mean, covariance_matrix=covar)
-        super().__init__(distribution=dummy_mvn)
         self.model = model
         self.X = X
         self.T = T
@@ -126,7 +115,7 @@ class LatentKroneckerGPPosterior(GPyTorchPosterior):
         This is intended to be used with a sampler that produces the corresponding base
         samples, and enables acquisition optimization via Sample Average Approximation.
 
-        Since this posterior is a dummy object, call the model to perform sampling.
+        Delegates to the model's pathwise conditioning implementation.
 
         Args:
             sample_shape: A ``torch.Size`` object specifying the sample shape. To

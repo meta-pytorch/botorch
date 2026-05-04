@@ -71,7 +71,7 @@ class FlattenedStandardize(Standardize):
         Args:
             output_shape: A ``n x output_shape``-dim tensor of training targets.
             batch_shape: The batch_shape of the training targets.
-            min_stddv: The minimum standard deviation for which to perform
+            min_stdv: The minimum standard deviation for which to perform
                 standardization (if lower, only de-mean the data).
         """
         if batch_shape is None:
@@ -144,14 +144,14 @@ class HigherOrderGP(BatchedMultiOutputGPyTorchModel, ExactGP, FantasizeMixin):
     r"""
     A model for high-dimensional output regression.
 
-    As described in [Zhe2019hogp]_. “Higher-order” means that the predictions
+    As described in [Zhe2019hogp]_. "Higher-order" means that the predictions
     are matrices (tensors) with at least two dimensions, such as images or
     grids of images, or measurements taken from a region of at least two
     dimensions.
     The posterior uses Matheron's rule [Doucet2010sampl]_
     as described in [Maddox2021bohdo]_.
 
-    ``HigherOrderGP`` differs from a "vector” multi-output model in that it uses
+    ``HigherOrderGP`` differs from a "vector" multi-output model in that it uses
     Kronecker algebra to obtain parsimonious covariance matrices for these
     outputs (see ``KroneckerMultiTaskGP`` for more information). For example,
     imagine a 10 x 20 x 30 grid of images. If we were to vectorize the
@@ -176,6 +176,8 @@ class HigherOrderGP(BatchedMultiOutputGPyTorchModel, ExactGP, FantasizeMixin):
         >>>     fit_gpytorch_mll_torch(mll)
         >>> samples = model.posterior(test_X).rsample()
     """
+
+    _supports_cache_root = False
 
     def __init__(
         self,
@@ -417,7 +419,7 @@ class HigherOrderGP(BatchedMultiOutputGPyTorchModel, ExactGP, FantasizeMixin):
                 ``batch_shape'`` is the batch shape of the observations.
                 ``batch_shape'`` must be broadcastable to ``batch_shape`` using
                 standard broadcasting semantics. If ``Y`` has fewer batch dimensions
-                than ``X``, its is assumed that the missing batch dimensions are
+                than ``X``, it is assumed that the missing batch dimensions are
                 the same for all ``Y``.
             noise: If not None, a tensor of the same shape as ``Y`` representing
                 the noise variance associated with each observation.

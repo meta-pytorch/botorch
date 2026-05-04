@@ -39,7 +39,7 @@ from botorch.posteriors.gpytorch import GPyTorchPosterior
 from botorch.posteriors.latent_kronecker import LatentKroneckerGPPosterior
 from botorch.utils.datasets import SupervisedDataset
 from botorch.utils.types import _DefaultType, DEFAULT
-from gpytorch.distributions import MultivariateNormal
+from gpytorch.distributions import Distribution, MultivariateNormal
 from gpytorch.kernels import MaternKernel, ScaleKernel
 from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.likelihoods.likelihood import Likelihood
@@ -50,6 +50,7 @@ from linear_operator import settings
 from linear_operator.operators import (
     ConstantDiagLinearOperator,
     KroneckerProductLinearOperator,
+    LinearOperator,
     MaskedLinearOperator,
 )
 from torch import Tensor
@@ -109,12 +110,11 @@ class LatentKroneckerGP(GPyTorchModel, ExactGP, FantasizeMixin):
             covar_module_T: The module computing the covariance matrix of T.
                 If omitted, a ``MaternKernel`` wrapped in a ``ScaleKernel``
                 will be used.
-            input_transform: An input transform that is applied to X.
+            input_transform: An input transform that is applied to X in the
+                model's forward pass.
             outcome_transform: An outcome transform that is applied to Y.
                 Note that ``.train()`` will be called on the outcome transform during
                 instantiation of the model.
-            input_transform: An input transform that is applied in the model's
-                forward pass.
         """
         with torch.no_grad():
             # transform inputs here to check resulting shapes
@@ -133,8 +133,6 @@ class LatentKroneckerGP(GPyTorchModel, ExactGP, FantasizeMixin):
             raise BotorchTensorDimensionError(
                 f"Expected train_T with shape {expected_shape} but got {train_T.shape}."
             )
-        self.train_T = train_T
-
         mask_valid_batch = train_Y.isfinite()
         # flatten over batch_shape
         mask_valid_flat = mask_valid_batch.reshape(-1, *mask_valid_batch.shape[-2:])
@@ -160,7 +158,7 @@ class LatentKroneckerGP(GPyTorchModel, ExactGP, FantasizeMixin):
 
         ExactGP.__init__(
             self,
-            train_inputs=train_X,
+            train_inputs=[train_X, train_T],
             train_targets=train_Y,
             likelihood=likelihood,
         )
@@ -193,6 +191,76 @@ class LatentKroneckerGP(GPyTorchModel, ExactGP, FantasizeMixin):
 
         self.to(train_X)
 
+    @property
+    def train_T(self) -> Tensor:
+        """The training T values (second element of train_inputs).
+
+        T is stored in train_inputs (alongside X) to enable GPyTorch's
+        multi-input prediction strategy via ``_get_test_prior_mean_and_covariances``.
+        This also allows using different T values at test time, e.g., evaluating
+        the posterior at a subset of task indices.
+
+        The helper methods below (``transform_inputs``, ``_set_transformed_inputs``,
+        ``_revert_to_original_inputs``) ensure T is preserved through BoTorch's
+        input transform machinery, which expects single-input models.
+        """
+        return self.train_inputs[1]
+
+    def transform_inputs(
+        self,
+        X: Tensor,
+        input_transform: Module | None = None,
+    ) -> Tensor:
+        r"""Transform inputs.
+
+        Only transforms X, leaving T unchanged. The ``_is_T_input`` check is
+        needed because MLL closures call ``transform_inputs`` on each element
+        of ``train_inputs`` individually, including T.
+
+        Args:
+            X: A tensor of inputs. May be X or T from train_inputs.
+            input_transform: A Module that performs the input transformation.
+
+        Returns:
+            Transformed X, or T unchanged.
+        """
+        # Skip transform for T (identified by identity with train_T)
+        if self._is_T_input(X):
+            return X
+        return super().transform_inputs(X=X, input_transform=input_transform)
+
+    def _is_T_input(self, X: Tensor) -> bool:
+        """Check if X is the T input by identity comparison."""
+        return (
+            hasattr(self, "train_inputs")
+            and self.train_inputs is not None
+            and len(self.train_inputs) > 1
+            and X is self.train_inputs[1]
+        )
+
+    def _set_transformed_inputs(self) -> None:
+        r"""Transform X while preserving T in train_inputs."""
+        if not (hasattr(self, "train_inputs") and len(self.train_inputs) > 1):
+            return super()._set_transformed_inputs()
+
+        T = self.train_inputs[1]
+        super()._set_transformed_inputs()
+        # super() calls set_train_data which sets train_inputs = (X_tf,), losing T
+        if hasattr(self, "train_inputs"):
+            self.train_inputs = (self.train_inputs[0], T)
+
+    def _revert_to_original_inputs(self) -> None:
+        r"""Revert X while preserving T in train_inputs."""
+        T = (
+            self.train_inputs[1]
+            if (hasattr(self, "train_inputs") and len(self.train_inputs) > 1)
+            else None
+        )
+        super()._revert_to_original_inputs()
+        # super() calls set_train_data which sets train_inputs = (X,), losing T
+        if T is not None and hasattr(self, "train_inputs"):
+            self.train_inputs = (self.train_inputs[0], T)
+
     def use_iterative_methods(
         self,
         tol: float = 0.01,
@@ -219,20 +287,111 @@ class LatentKroneckerGP(GPyTorchModel, ExactGP, FantasizeMixin):
         mean = KroneckerProductLinearOperator(mean_X, mean_T).squeeze(-1)
         return mean[..., mask] if mask is not None else mean
 
-    def forward(self, X: Tensor, T: Tensor | None = None) -> MultivariateNormal:
+    def _get_test_prior_mean_and_covariances(
+        self,
+        train_inputs: list[Tensor],
+        test_inputs: list[Tensor],
+        **kwargs,
+    ) -> tuple[
+        Tensor,
+        LinearOperator,
+        LinearOperator,
+        torch.Size,
+        torch.Size,
+        type[Distribution],
+    ]:
+        """Computes Kronecker-structured covariances with masking for posterior.
+
+        This enables proper posterior mean and variance computation while maintaining
+        the Kronecker structure for efficiency. The test_train_covar is masked on the
+        train dimension to handle missing observations.
+
+        Args:
+            train_inputs: List containing [X_train, T_train].
+            test_inputs: List containing [X_test, T_test].
+            **kwargs: Additional arguments (unused, kept for compatibility).
+
+        Returns:
+            A tuple containing:
+            - test_mean: The prior mean evaluated on the test set
+            - test_test_covar: Covariance between test points (Kronecker structure)
+            - test_train_covar: Covariance between test and train points (masked)
+            - batch_shape: The batch shape of the model
+            - test_shape: Shape of the test output
+            - posterior_class: MultivariateNormal
+        """
+        X_train, T_train = train_inputs[0], train_inputs[1]
+        X_test, T_test = test_inputs[0], test_inputs[1]
+
+        # Compute Kronecker-structured covariances
+        K_X_test_test = self.covar_module_X(X_test)
+        K_T_test_test = self.covar_module_T(T_test)
+        K_X_test_train = self.covar_module_X(X_test, X_train)
+        K_T_test_train = self.covar_module_T(T_test, T_train)
+
+        test_test_covar = KroneckerProductLinearOperator(K_X_test_test, K_T_test_test)
+        test_train_covar_full = KroneckerProductLinearOperator(
+            K_X_test_train, K_T_test_train
+        )
+
+        # Apply masking for missing observations
+        # The train dimension needs masking, test dimension is full
+        n_test = X_test.shape[-2] * T_test.shape[-2]
+
+        # Create full test mask (all valid)
+        test_mask = torch.ones(n_test, dtype=torch.bool, device=X_test.device)
+
+        # Apply mask to test_train_covar (only train dimension masked)
+        test_train_covar = MaskedLinearOperator(
+            test_train_covar_full, row_mask=test_mask, col_mask=self.mask_valid
+        )
+
+        # Compute prior mean on test set
+        test_mean = self._get_mean(X_test, T_test)
+
+        batch_shape = torch.broadcast_shapes(X_train.shape[:-2], X_test.shape[:-2])
+        test_shape = torch.Size([n_test])
+
+        return (
+            test_mean,
+            test_test_covar,
+            test_train_covar,
+            batch_shape,
+            test_shape,
+            MultivariateNormal,
+        )
+
+    def __call__(self, *args, **kwargs):
+        """Forward pass that handles optional T parameter.
+
+        Appends ``self.train_T`` when only X is provided. This is necessary
+        because ``fit_gpytorch_mll`` and the MLL training pipeline call
+        ``model(train_X)`` with only the X input.
+
+        Args:
+            *args: Either (X,) or (X, T). If only X is provided, uses self.train_T.
+        """
+        if len(args) == 1:
+            args = (args[0], self.train_T)
+
+        return ExactGP.__call__(self, *args, **kwargs)
+
+    def forward(self, *args, **kwargs) -> MultivariateNormal:
         r"""
         Computes the joint distribution at the given input locations.
 
         Args:
-            X: A tensor of ``X``-locations at which to compute the joint distribution.
-            T: A tensor of ``T``-locations at which to compute the joint distribution.
-                If None, defaults to using ``self.train_T``.
+            *args: Either (X,) for backward compatibility, or (X, T).
+                If only X is provided, uses self.train_T for T.
 
         Returns:
             MultivariateNormal: The joint distribution at the specified input locations.
         """
-        if T is None:
+        if len(args) == 1:
+            X = args[0]
             T = self.train_T
+        else:
+            X, T = args[0], args[1]
 
         if self.training:
             X = self.transform_inputs(X)
@@ -261,23 +420,28 @@ class LatentKroneckerGP(GPyTorchModel, ExactGP, FantasizeMixin):
     ) -> GPyTorchPosterior:
         r"""Computes the posterior over model outputs at the provided points.
 
+        Leverages GPyTorch's inference stack with our custom Kronecker-structured
+        covariances (via the overridden ``_get_test_prior_mean_and_covariances``).
+        Sampling uses pathwise conditioning for efficiency.
+
+        NOTE: For efficient inference with large datasets, wrap the call in the
+        ``model.use_iterative_methods()`` context manager, e.g.:
+
+            >>> with model.use_iterative_methods():
+            ...     posterior = model.posterior(X, T)
+
         Args:
-            X: A ``(batch_shape) x q x d``-dim Tensor, where ``d`` is the dimension
-                of the feature space and ``q`` is the number of points considered
-                jointly.
-            T: A ``(batch_shape) x t x 1``-dim Tensor of ``T``-locations at which to
-                compute the posterior. If None, defaults to using ``self.train_T``.
-            observation_noise: If True, add the observation noise from the
-                likelihood to the posterior. If a Tensor, use it directly as the
-                observation noise (must be of shape ``(batch_shape) x q``). It is
-                assumed to be in the outcome-transformed space if an outcome
-                transform is used.
-            posterior_transform: An optional PosteriorTransform.
+            X: A ``(batch_shape) x q x d``-dim Tensor of test features.
+            T: A ``(batch_shape) x t x 1``-dim Tensor of test T values.
+                If None, defaults to using ``self.train_T``.
+            observation_noise: If True, add observation noise. Currently not
+                supported.
+            posterior_transform: An optional PosteriorTransform. Currently not
+                supported.
 
         Returns:
-            A ``GPyTorchPosterior`` object, representing a batch of ``b`` joint
-            distributions over ``q`` points. Includes observation noise if
-            specified.
+            A ``LatentKroneckerGPPosterior`` with proper mean/variance and efficient
+            pathwise sampling.
         """
         if posterior_transform is not None:
             raise NotImplementedError(
@@ -297,7 +461,24 @@ class LatentKroneckerGP(GPyTorchModel, ExactGP, FantasizeMixin):
 
         if T is None:
             T = self.train_T
-        return LatentKroneckerGPPosterior(self, X, T)
+
+        X_test = self.transform_inputs(X)
+
+        # Compute the real posterior distribution via GPyTorch's inference stack,
+        # which uses our overridden _get_test_prior_mean_and_covariances for
+        # Kronecker structure. This gives exact posterior mean and variance.
+        #
+        # NOTE: This eagerly computes the train-train solve (via GPyTorch's
+        # cached mean_cache), using either direct Cholesky or CG depending on
+        # whether use_iterative_methods() is active. This is the same system
+        # that pathwise sampling solves. The posterior covariance remains lazy
+        # (no Cholesky until .covariance_matrix is accessed; .variance only
+        # needs the diagonal). Sampling (rsample) still uses pathwise
+        # conditioning for efficiency, see
+        # LatentKroneckerGPPosterior.rsample_from_base_samples.
+        distribution = self(X_test, T)
+
+        return LatentKroneckerGPPosterior(self, distribution, X, T)
 
     def _rsample_from_base_samples(
         self,

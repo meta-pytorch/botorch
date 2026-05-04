@@ -8,8 +8,8 @@ import dataclasses
 import itertools
 import random
 import warnings
-from collections.abc import Mapping, Sequence
-from typing import Any, Callable
+from collections.abc import Callable, Mapping, Sequence
+from typing import Any
 
 import torch
 from botorch.acquisition import AcquisitionFunction
@@ -58,6 +58,14 @@ STOP_AFTER_SHARE_CONVERGED = 1.0  # We optimize multiple configurations at once
 # Convergence is defined as the improvements of one discrete, followed by a scalar
 # optimization yield less than ``CONVERGENCE_TOL`` improvements.
 
+# Threshold for choosing between optimize_acqf_mixed and
+# optimize_acqf_mixed_alternating in mixed (not fully discrete) search spaces.
+ALTERNATING_OPTIMIZER_THRESHOLD = 10
+
+# For fully discrete search spaces.
+MAX_CHOICES_ENUMERATE = 10_000
+MAX_CARDINALITY_FOR_LOCAL_SEARCH = 100
+
 SUPPORTED_OPTIONS = {
     "initialization_strategy",
     "tol",
@@ -74,21 +82,71 @@ SUPPORTED_OPTIONS = {
 SUPPORTED_INITIALIZATION = {"continuous_relaxation", "equally_spaced", "random"}
 
 
+def should_use_mixed_alternating_optimizer(
+    discrete_dims: Mapping[int, Sequence[float]] | None = None,
+    cat_dims: Mapping[int, Sequence[float]] | None = None,
+) -> bool:
+    r"""Determine whether to use ``optimize_acqf_mixed_alternating`` for a mixed
+    (not fully discrete) search space based on the number of discrete combinations.
+
+    For mixed search spaces, if there are more than ``ALTERNATING_OPTIMIZER_THRESHOLD``
+    combinations of discrete choices, we use ``optimize_acqf_mixed_alternating``,
+    which alternates between continuous and discrete optimization steps. Otherwise,
+    we use ``optimize_acqf_mixed``, which enumerates all discrete combinations and
+    optimizes the continuous features with discrete features being fixed.
+
+    Args:
+        discrete_dims: A dictionary mapping indices of discrete (ordinal)
+            dimensions to their respective sets of values provided as a sequence.
+        cat_dims: A dictionary mapping indices of categorical dimensions
+            to their respective sets of values provided as a sequence.
+
+    Returns:
+        ``True`` if ``optimize_acqf_mixed_alternating`` should be used, ``False``
+        if ``optimize_acqf_mixed`` should be used instead.
+    """
+    if discrete_dims is None and cat_dims is None:
+        return False
+
+    n_combos = 1
+    for values in (discrete_dims or {}).values():
+        n_combos *= len(values)
+    for values in (cat_dims or {}).values():
+        n_combos *= len(values)
+
+    return n_combos > ALTERNATING_OPTIMIZER_THRESHOLD
+
+
 def _setup_continuous_relaxation(
     discrete_dims: dict[int, list[float]],
     max_discrete_values: int,
     post_processing_func: Callable[[Tensor], Tensor] | None,
+    inequality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
+    equality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
 ) -> tuple[list[int], Callable[[Tensor], Tensor] | None]:
     r"""Update ``discrete_dims`` and ``post_processing_func`` to use
     continuous relaxation for discrete dimensions that have more than
     ``max_discrete_values`` values. These dimensions are removed from
     ``discrete_dims`` and ``post_processing_func`` is updated to round
     them to the nearest integer.
+
+    Dimensions that participate in constraints are NOT relaxed, as rounding
+    after projection could violate those constraints.
     """
+
+    # Identify dimensions involved in constraints
+    constrained_dims: set[int] = set()
+    for constraints in [inequality_constraints, equality_constraints]:
+        if constraints is not None:
+            for indices, _, _ in constraints:
+                constrained_dims.update(indices.tolist())
 
     dims_to_relax, dims_to_keep = {}, {}
     for index, values in discrete_dims.items():
-        if len(values) > max_discrete_values:
+        # Don't relax dimensions that participate in constraints
+        if index in constrained_dims:
+            dims_to_keep[index] = values
+        elif len(values) > max_discrete_values:
             dims_to_relax[index] = values
         else:
             dims_to_keep[index] = values
@@ -796,8 +854,7 @@ def continuous_step(
             This function utilizes ``acq_function``, ``bounds``, ``options``,
             ``fixed_features`` and constraints from ``opt_inputs``.
             ``opt_inputs.return_best_only`` should be ``False``.
-        discrete_dims: A dictionary mapping indices of discrete dimensions
-            to a list of allowed values for that dimension.
+        discrete_dims: A tensor of indices corresponding to discrete dimensions.
         cat_dims: A tensor of indices corresponding to categorical parameters.
         current_x: Starting point. A tensor of shape ``b x d``.
 
@@ -815,7 +872,15 @@ def continuous_step(
     options = opt_inputs.options or {}
     non_cont_dims = torch.cat((discrete_dims, cat_dims), dim=0)
 
-    if len(non_cont_dims) == d:  # nothing continuous to optimize
+    # Check if all features are fixed (discrete/cat dims + user fixed features).
+    # The user's fixed_features may cover additional continuous dims, so we need
+    # to account for both. Note: user fixed features on discrete/cat dims are
+    # already filtered out in optimize_acqf_mixed_alternating, so there's no
+    # double-counting.
+    n_fixed = len(non_cont_dims)
+    if opt_inputs.fixed_features is not None:
+        n_fixed += len(opt_inputs.fixed_features)
+    if n_fixed >= d:  # nothing continuous to optimize
         with torch.no_grad():
             return current_x, opt_inputs.acq_function(current_x.unsqueeze(1))
 
@@ -854,7 +919,8 @@ def optimize_acqf_mixed_alternating(
     fixed_features: dict[int, float] | None = None,
     inequality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
     equality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
-) -> tuple[Tensor, Tensor]:
+    return_acq_values: bool = True,
+) -> tuple[Tensor, Tensor | None]:
     r"""
     Optimizes acquisition function over mixed integer, categorical, and continuous
     input spaces. Multiple random restarting starting points are picked by evaluating
@@ -922,10 +988,12 @@ def optimize_acqf_mixed_alternating(
             ``coefficients`` should be torch tensors. Example:
             ``[(torch.tensor([1, 3]), torch.tensor([1.0, 0.5]), -0.1)]`` Equality
             constraints can only be used with continuous degrees of freedom.
+        return_acq_values: Return acquisition values.
 
     Returns:
         A tuple of two tensors: a (q x d)-dim tensor of optimized points
             and a (q)-dim tensor of their respective acquisition values.
+            Returns ``None`` for acquisition values if ``return_acq_values=False``.
     """
 
     if sequential is False:  # pragma: no cover
@@ -989,6 +1057,8 @@ def optimize_acqf_mixed_alternating(
             options.get("max_discrete_values", MAX_DISCRETE_VALUES), int
         ),
         post_processing_func=post_processing_func,
+        inequality_constraints=inequality_constraints,
+        equality_constraints=equality_constraints,
     )
 
     opt_inputs = OptimizeAcqfInputs(
@@ -1008,6 +1078,7 @@ def optimize_acqf_mixed_alternating(
         # step and only return best, but this function itself only returns best
         gen_candidates=gen_candidates_scipy,
         sequential=sequential,  # only relevant if all dims are cont.
+        return_acq_values=True,  # Internal functions need acq values for logic
     )
     if sequential:
         # Sequential optimization requires return_best_only to be True
@@ -1036,6 +1107,7 @@ def optimize_acqf_mixed_alternating(
             opt_inputs=dataclasses.replace(
                 opt_inputs,
                 return_best_only=True,
+                return_acq_values=return_acq_values,
             )
         )
     if not (
@@ -1110,6 +1182,9 @@ def optimize_acqf_mixed_alternating(
 
     if post_processing_func is not None:
         candidates = post_processing_func(candidates)
+
+    if not return_acq_values:
+        return candidates, None
 
     with torch.no_grad():
         acq_value = acq_function(candidates)  # compute joint acquisition value

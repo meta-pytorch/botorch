@@ -13,7 +13,7 @@ see [Genz2016numerical]_ and [Trinh2015bivariate]_.
     multivariate normal probabilities. Statistics and Computing, 2015.
 
 .. [Genz2016numerical]
-    A. Genz and G. Tring. Numerical Computation of Multivariate Normal Probabilities
+    A. Genz and G. Trinh. Numerical Computation of Multivariate Normal Probabilities
     using Bivariate Conditioning. Monte Carlo and Quasi-Monte Carlo Methods, 2016.
 
 .. [Gibson1994monte]

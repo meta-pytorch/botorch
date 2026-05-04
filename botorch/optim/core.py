@@ -47,7 +47,7 @@ class OptimizationStatus(int, Enum):
     STOPPED = auto()  # stopped due to user provided criterion
 
 
-@dataclass
+@dataclass(slots=True)
 class OptimizationResult:
     step: int
     fval: float | int

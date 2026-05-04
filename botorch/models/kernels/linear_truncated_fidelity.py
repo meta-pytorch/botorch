@@ -22,7 +22,7 @@ class LinearTruncatedFidelityKernel(Kernel):
     r"""GPyTorch Linear Truncated Fidelity Kernel.
 
     Computes a covariance matrix based on the Linear truncated kernel between
-    inputs ``x_1`` and ``x_2`` for up to two fidelity parmeters:
+    inputs ``x_1`` and ``x_2`` for up to two fidelity parameters:
 
         K(x_1, x_2) = k_0 + c_1(x_1, x_2)k_1 + c_2(x_1,x_2)k_2 + c_3(x_1,x_2)k_3
 
@@ -31,7 +31,7 @@ class LinearTruncatedFidelityKernel(Kernel):
     - ``k_i(i=0,1,2,3)`` are Matern kernels calculated between non-fidelity
         parameters of ``x_1`` and ``x_2`` with different priors.
     - ``c_1=(1 - x_1[f_1])(1 - x_2[f_1]))(1 + x_1[f_1] x_2[f_1])^p`` is the kernel
-        of the the bias term, which can be decomposed into a determistic part
+        of the bias term, which can be decomposed into a deterministic part
         and a polynomial kernel. Here ``f_1`` is the first fidelity dimension and
         ``p`` is the order of the polynomial kernel.
     - ``c_3`` is the same as ``c_1`` but is calculated for the second fidelity

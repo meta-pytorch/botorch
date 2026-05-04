@@ -321,13 +321,17 @@ class qConditionalHyperparameterInformationGain(
         )
         samples = self.get_posterior_samples(conditional_posterior)
         prev_samples = samples.unsqueeze(0).transpose(0, MCMC_DIM).squeeze(-1)
-        component_sample_probs = conditional_posterior.mvn.log_prob(prev_samples).exp()
+        component_sample_log_probs = conditional_posterior.mvn.log_prob(prev_samples)
 
-        # average over mixture components
-        mixture_sample_probs = component_sample_probs.mean(dim=-1, keepdim=True)
+        # average over mixture components in log-space for numerical stability:
+        # log(mean(exp(x))) = logsumexp(x, dim) - log(N)
+        n_components = component_sample_log_probs.shape[-1]
+        mixture_sample_log_probs = torch.logsumexp(
+            component_sample_log_probs, dim=-1, keepdim=True
+        ) - math.log(n_components)
 
         # this is the average over the model and sample dim
-        prev_entropy = -mixture_sample_probs.log().mean(dim=[0, 1])
+        prev_entropy = -mixture_sample_log_probs.mean(dim=[0, 1])
 
         # the posterior entropy is an average entropy over gaussians, so no mixture
         post_entropy = -conditional_posterior.mvn.log_prob(samples.squeeze(-1)).mean(0)

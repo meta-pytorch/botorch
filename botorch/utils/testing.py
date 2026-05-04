@@ -10,9 +10,9 @@ import math
 import warnings
 from abc import abstractmethod
 from collections import OrderedDict
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from itertools import product
-from typing import Any, Callable
+from typing import Any
 from unittest import mock, TestCase
 from warnings import warn
 

@@ -16,7 +16,7 @@ import warnings
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from collections.abc import Callable, Mapping
-from typing import Any, TYPE_CHECKING
+from typing import Any, Self, TYPE_CHECKING
 
 import numpy as np
 import torch
@@ -36,7 +36,6 @@ from botorch.utils.datasets import SupervisedDataset
 from gpytorch.likelihoods.gaussian_likelihood import FixedNoiseGaussianLikelihood
 from torch import Tensor
 from torch.nn import Module, ModuleDict, ModuleList
-from typing_extensions import Self
 
 if TYPE_CHECKING:
     from botorch.acquisition.objective import PosteriorTransform  # pragma: no cover
@@ -244,12 +243,12 @@ class Model(Module, ABC):
             self.set_train_data(self._original_train_inputs, strict=False)
             self._has_transformed_inputs = False
 
-    def eval(self) -> Model:
+    def eval(self) -> Self:
         r"""Puts the model in ``eval`` mode and sets the transformed inputs."""
         self._set_transformed_inputs()
         return super().eval()
 
-    def train(self, mode: bool = True) -> Model:
+    def train(self, mode: bool = True) -> Self:
         r"""Put the model in ``train`` mode. Reverts to the original inputs if
         in ``train`` mode (``mode=True``) or sets transformed inputs if in
         ``eval`` mode (``mode=False``).
@@ -542,9 +541,9 @@ class ModelList(Model):
             the outputs subset to the indices in ``idcs``.
 
         Internally, this drops (if single-output) or subsets (if multi-output)
-        the constitutent models and returns them as a ``ModelList``. If the
+        the constituent models and returns them as a ``ModelList``. If the
         result is a single (possibly subset) model from the list, returns this
-        model (instead of forming a degenerate singe-model ``ModelList``).
+        model (instead of forming a degenerate single-model ``ModelList``).
         For instance, if ``m = ModelList(m1, m2)`` with ``m1`` a two-output model
         and ``m2`` a single-output model, then ``m.subset_output([1]) `` will return
         the model ``m1`` subset to its second output.
@@ -582,6 +581,7 @@ class ModelList(Model):
         state_dict: Mapping[str, Any],
         strict: bool = True,
         keep_transforms: bool = True,
+        assign: bool = False,
     ) -> None:
         """Initialize the fully Bayesian models before loading the state dict."""
         for i, m in enumerate(self.models):
@@ -590,7 +590,7 @@ class ModelList(Model):
                 for k, v in state_dict.items()
                 if k.startswith(f"models.{i}.")
             }
-            m.load_state_dict(filtered_dict, strict=strict)
+            m.load_state_dict(filtered_dict, strict=strict, assign=assign)
 
     def fantasize(
         self,

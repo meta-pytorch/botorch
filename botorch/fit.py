@@ -12,16 +12,17 @@ from collections.abc import Callable, Sequence
 from copy import deepcopy
 from functools import partial
 from itertools import filterfalse
-from typing import Any
+from typing import Any, TYPE_CHECKING
 from warnings import catch_warnings, simplefilter, warn_explicit, WarningMessage
+
+if TYPE_CHECKING:
+    from botorch.models.fully_bayesian import AbstractFullyBayesianSingleTaskGP
+    from botorch.models.fully_bayesian_multitask import SaasFullyBayesianMultiTaskGP
 
 from botorch.exceptions.errors import ModelFittingError, UnsupportedError
 from botorch.exceptions.warnings import OptimizationWarning
 from botorch.logging import logger
 from botorch.models import SingleTaskGP
-from botorch.models.approximate_gp import ApproximateGPyTorchModel
-from botorch.models.fully_bayesian import AbstractFullyBayesianSingleTaskGP
-from botorch.models.fully_bayesian_multitask import SaasFullyBayesianMultiTaskGP
 from botorch.models.map_saas import get_map_saas_model
 from botorch.models.model_list_gp_regression import ModelListGP
 from botorch.models.transforms.input import InputTransform
@@ -39,14 +40,11 @@ from botorch.utils.context_managers import (
     parameter_rollback_ctx,
     TensorCheckpoint,
 )
-from botorch.utils.dispatcher import Dispatcher, type_bypassing_encoder
-from gpytorch.likelihoods import Likelihood
 from gpytorch.mlls._approximate_mll import _ApproximateMarginalLogLikelihood
 from gpytorch.mlls.exact_marginal_log_likelihood import ExactMarginalLogLikelihood
 from gpytorch.mlls.marginal_log_likelihood import MarginalLogLikelihood
 from gpytorch.mlls.sum_marginal_log_likelihood import SumMarginalLogLikelihood
 from linear_operator.utils.errors import NotPSDError
-from pyro.infer.mcmc import MCMC, NUTS
 from torch import device, Tensor
 from torch.nn import Parameter
 from torch.utils.data import DataLoader
@@ -73,7 +71,6 @@ DEFAULT_WARNING_HANDLER = partial(
     debug=_debug_warn,
     rethrow=_rethrow_warn,
 )
-FitGPyTorchMLL = Dispatcher("fit_gpytorch_mll", encoder=type_bypassing_encoder)
 
 
 def fit_gpytorch_mll(
@@ -86,18 +83,22 @@ def fit_gpytorch_mll(
 ) -> MarginalLogLikelihood:
     r"""Clearing house for fitting models passed as GPyTorch MarginalLogLikelihoods.
 
+    If a model defines a ``custom_fit`` method, it will be called directly.
+    Otherwise, a fit method is determined based on the types of the model and
+    MLL.
+
     Args:
         mll: A GPyTorch MarginalLogLikelihood instance.
         closure: Forward-backward closure for obtaining objective values and gradients.
             Responsible for setting parameters' ``grad`` attributes. If no closure is
             provided, one will be obtained by calling ``get_loss_closure_with_grads``.
         optimizer: User specified optimization algorithm. When ``optimizer is None``,
-            this keyword argument is omitted when calling the dispatcher.
+            this keyword argument is omitted when calling the underlying fit routine.
         closure_kwargs: Keyword arguments passed when calling ``closure``.
         optimizer_kwargs: A dictionary of keyword arguments passed when
             calling ``optimizer``.
-        **kwargs: Keyword arguments passed down through the dispatcher to
-            fit subroutines. Unexpected keywords are ignored.
+        **kwargs: Keyword arguments passed to the underlying fit routine.
+            Unexpected keywords are ignored.
 
     Returns:
         The ``mll`` instance. If fitting succeeded, then ``mll`` will be in
@@ -107,10 +108,38 @@ def fit_gpytorch_mll(
     if optimizer is not None:  # defer to per-method defaults
         kwargs["optimizer"] = optimizer
 
-    return FitGPyTorchMLL(
-        mll,
-        type(mll.likelihood),
-        type(mll.model),
+    if hasattr(mll.model, "custom_fit"):
+        return mll.model.custom_fit(
+            mll=mll,
+            closure=closure,
+            closure_kwargs=closure_kwargs,
+            optimizer_kwargs=optimizer_kwargs,
+            **kwargs,
+        )
+
+    if isinstance(mll, SumMarginalLogLikelihood) and isinstance(mll.model, ModelListGP):
+        mll.train()
+        for sub_mll in mll.mlls:
+            fit_gpytorch_mll(
+                mll=sub_mll,
+                closure=closure,
+                closure_kwargs=closure_kwargs,
+                optimizer_kwargs=optimizer_kwargs,
+                **kwargs,
+            )
+        return mll.eval() if not any(sub_mll.training for sub_mll in mll.mlls) else mll
+
+    if isinstance(mll, _ApproximateMarginalLogLikelihood):
+        return _fit_fallback_approximate(
+            mll=mll,
+            closure=closure,
+            closure_kwargs=closure_kwargs,
+            optimizer_kwargs=optimizer_kwargs,
+            **kwargs,
+        )
+
+    return _fit_fallback(
+        mll=mll,
         closure=closure,
         closure_kwargs=closure_kwargs,
         optimizer_kwargs=optimizer_kwargs,
@@ -118,11 +147,8 @@ def fit_gpytorch_mll(
     )
 
 
-@FitGPyTorchMLL.register(MarginalLogLikelihood, object, object)
 def _fit_fallback(
     mll: MarginalLogLikelihood,
-    _: type[object],
-    __: type[object],
     *,
     closure: Callable[[], tuple[Tensor, Sequence[Tensor | None]]] | None = None,
     optimizer: Callable = fit_gpytorch_mll_scipy,
@@ -178,9 +204,12 @@ def _fit_fallback(
     ckpt_nograd: dict[str, TensorCheckpoint] = None  # pyre-ignore [9]
     ckpt: dict[str, TensorCheckpoint] = None  # pyre-ignore [9]
 
-    # Build closure
+    # Build closure. When no closure is provided and no closure_kwargs are
+    # needed, pass closure=None through to the optimizer so that it can use
+    # its own internal dispatch (e.g. batched independent fitting in
+    # fit_gpytorch_mll_scipy).
     mll.train()
-    if closure is None:
+    if closure is None and closure_kwargs is not None:
         closure = get_loss_closure_with_grads(
             mll, parameters=get_parameters(mll, requires_grad=True)
         )
@@ -260,35 +289,8 @@ def _fit_fallback(
     raise ModelFittingError("All attempts to fit the model have failed.")
 
 
-@FitGPyTorchMLL.register(SumMarginalLogLikelihood, object, ModelListGP)
-def _fit_list(
-    mll: SumMarginalLogLikelihood,
-    _: type[Likelihood],
-    __: type[ModelListGP],
-    **kwargs: Any,
-) -> SumMarginalLogLikelihood:
-    r"""Fitting routine for lists of independent Gaussian processes.
-
-    Args:
-        **kwargs: Passed to each of ``mll.mlls``.
-
-    Returns:
-        The ``mll`` instance. If fitting succeeded for all of ``mll.mlls``,
-        then ``mll`` will be in evaluation mode, i.e. ``mll.training == False``.
-        Otherwise, ``mll`` will be in training mode.
-    """
-    mll.train()
-    for sub_mll in mll.mlls:
-        fit_gpytorch_mll(sub_mll, **kwargs)
-
-    return mll.eval() if not any(sub_mll.training for sub_mll in mll.mlls) else mll
-
-
-@FitGPyTorchMLL.register(_ApproximateMarginalLogLikelihood, object, object)
 def _fit_fallback_approximate(
     mll: _ApproximateMarginalLogLikelihood,
-    _: type[Likelihood],
-    __: type[ApproximateGPyTorchModel],
     *,
     closure: Callable[[], tuple[Tensor, Sequence[Tensor | None]]] | None = None,
     data_loader: DataLoader | None = None,
@@ -330,7 +332,7 @@ def _fit_fallback_approximate(
             else fit_gpytorch_mll_torch
         )
 
-    return _fit_fallback(mll, _, __, closure=closure, optimizer=optimizer, **kwargs)
+    return _fit_fallback(mll=mll, closure=closure, optimizer=optimizer, **kwargs)
 
 
 def fit_fully_bayesian_model_nuts(
@@ -341,9 +343,11 @@ def fit_fully_bayesian_model_nuts(
     thinning: int = 16,
     disable_progbar: bool = False,
     jit_compile: bool = False,
+    seed: int = 0,
 ) -> None:
     r"""Fit a fully Bayesian model using the No-U-Turn-Sampler (NUTS)
 
+    Uses NumPyro's NUTS implementation (backed by JAX) for MCMC inference.
 
     Args:
         model: Fully Bayesian GP to be fitted.
@@ -356,31 +360,35 @@ def fit_fully_bayesian_model_nuts(
             bar and diagnostics during MCMC.
         jit_compile: Whether to use jit. Using jit may be ~2X faster (rough estimate),
             but it will also increase the memory usage and sometimes result in runtime
-            errors, e.g., https://github.com/pyro-ppl/pyro/issues/3136.
+            errors.
+        seed: Random seed for JAX PRNG.
 
     Example:
         >>> gp = SaasFullyBayesianSingleTaskGP(train_X, train_Y)
         >>> fit_fully_bayesian_model_nuts(gp)
     """
+    # Local import to avoid pulling in JAX/numpyro at module level,
+    # which would break environments without NumPy >= 2.0.
+    import jax
+    from numpyro.infer import MCMC, NUTS
+
     model.train()
 
     # Do inference with NUTS
     nuts = NUTS(
         model.pyro_model.sample,
-        jit_compile=jit_compile,
-        full_mass=True,
-        ignore_jit_warnings=True,
+        dense_mass=True,
         max_tree_depth=max_tree_depth,
     )
     mcmc = MCMC(
         nuts,
-        warmup_steps=warmup_steps,
+        num_warmup=warmup_steps,
         num_samples=num_samples,
-        disable_progbar=disable_progbar,
+        progress_bar=not disable_progbar,
     )
-    mcmc.run()
+    mcmc.run(jax.random.PRNGKey(seed))
 
-    # Get final MCMC samples from the Pyro model
+    # Get final MCMC samples from the NumPyro model
     mcmc_samples = model.pyro_model.postprocess_mcmc_samples(
         mcmc_samples=mcmc.get_samples()
     )
@@ -398,7 +406,7 @@ def get_fitted_map_saas_model(
     train_Yvar: Tensor | None = None,
     input_transform: InputTransform | None = None,
     outcome_transform: OutcomeTransform | None = None,
-    tau: float | None = None,
+    tau: Tensor | float | None = None,
     optimizer_kwargs: dict[str, Any] | None = None,
 ) -> SingleTaskGP:
     """Get a fitted MAP SAAS model with a Matern kernel.
@@ -411,7 +419,8 @@ def get_fitted_map_saas_model(
         input_transform: An optional input transform.
         outcome_transform: An optional outcome transform.
         tau: Fixed value of the global shrinkage tau. If None, the model
-            places a HC(0.1) prior on tau.
+            places a HC(0.1) prior on tau. Can be a tensor for batched models
+            where each batch has a different sparsity prior.
         optimizer_kwargs: A dict of options for the optimizer passed
             to fit_gpytorch_mll.
 

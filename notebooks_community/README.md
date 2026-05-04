@@ -9,4 +9,8 @@ of BoTorch that was used during execution. Each notebook should also list the
 GitHub handle of its contributors, who may be asked for help in maintaining &
 updating the notebook against future versions for BoTorch and dependencies.
 
-The notebooks are parsed and included in the BoTorch website.
+The notebooks are parsed and included in the BoTorch website. New community
+notebooks must also be registered in
+[`website/notebooks_community.json`](../website/notebooks_community.json); see
+[CONTRIBUTING.md](../CONTRIBUTING.md#adding-a-new-tutorial-or-community-notebook)
+for conventions.
