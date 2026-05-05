@@ -13,6 +13,7 @@ from torch.optim import Optimizer
 
 class NoOpOptimizer(Optimizer):
     def __init__(self, params, lr: float = 1.0) -> None:
+        """Initialize the no-op optimizer."""
         super().__init__(params, {"lr": lr})
 
     def step(self, closure=None):
