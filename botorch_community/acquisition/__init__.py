@@ -16,6 +16,9 @@ from botorch_community.acquisition.input_constructors import (  # noqa F401
     acqf_input_constructor,
 )
 from botorch_community.acquisition.local_entropy_search import LocalEntropySearch
+from botorch_community.acquisition.log_expected_improvement_per_cost import (
+    LogExpectedImprovementPerCost,
+)
 from botorch_community.acquisition.rei import (
     LogRegionalExpectedImprovement,
     qLogRegionalExpectedImprovement,
@@ -24,6 +27,7 @@ from botorch_community.acquisition.scorebo import qSelfCorrectingBayesianOptimiz
 
 __all__ = [
     "LocalEntropySearch",
+    "LogExpectedImprovementPerCost",
     "LogRegionalExpectedImprovement",
     "qBayesianQueryByComittee",
     "qBayesianVarianceReduction",
