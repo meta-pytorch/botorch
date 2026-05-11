@@ -33,17 +33,14 @@ class TestLogExpectedImprovementPerCost(BotorchTestCase):
         leic = LogExpectedImprovementPerCost(
             model=mm, best_f=0.0, cost_callable=cost_fn
         )
-        # t_batch_mode_transform adds a batch dim (1,1)->(1,1,1), so the cost
-        # callable sees (1,d) and returns (1,), while the mock gives log_ei
-        # shape () — squeeze to compare scalar values.
-        self.assertAllClose(leic(X).squeeze(), lei(X) - math.log(2.0), atol=1e-5)
+        self.assertAllClose(leic(X).squeeze(), (lei(X) - math.log(2.0)).squeeze(), atol=1e-5)
 
         # alpha=2: LogEIC = LogEI - 2*log(c)
         leic_alpha2 = LogExpectedImprovementPerCost(
             model=mm, best_f=0.0, cost_callable=cost_fn, alpha=2.0
         )
         self.assertAllClose(
-            leic_alpha2(X).squeeze(), lei(X) - 2.0 * math.log(2.0), atol=1e-5
+            leic_alpha2(X).squeeze(), (lei(X) - 2.0 * math.log(2.0)).squeeze(), atol=1e-5
         )
 
         # maximize=True (explicit)
@@ -52,7 +49,7 @@ class TestLogExpectedImprovementPerCost(BotorchTestCase):
             model=mm, best_f=0.0, cost_callable=cost_fn, maximize=True
         )
         self.assertAllClose(
-            leic_max(X).squeeze(), lei_max(X) - math.log(2.0), atol=1e-5
+            leic_max(X).squeeze(), (lei_max(X) - math.log(2.0)).squeeze(), atol=1e-5
         )
 
         # maximize=False
@@ -61,7 +58,7 @@ class TestLogExpectedImprovementPerCost(BotorchTestCase):
             model=mm, best_f=0.0, cost_callable=cost_fn, maximize=False
         )
         self.assertAllClose(
-            leic_min(X).squeeze(), lei_min(X) - math.log(2.0), atol=1e-5
+            leic_min(X).squeeze(), (lei_min(X) - math.log(2.0)).squeeze(), atol=1e-5
         )
 
         # Input-dependent cost: at x=0, c(x)=1.0, so LogEIC = LogEI
@@ -72,7 +69,7 @@ class TestLogExpectedImprovementPerCost(BotorchTestCase):
             model=mm, best_f=0.0, cost_callable=cost_fn2
         )
         X_zero = torch.zeros(1, 1, dtype=dtype)
-        self.assertAllClose(leic_xdep(X_zero).squeeze(), lei(X_zero), atol=1e-5)
+        self.assertAllClose(leic_xdep(X_zero).squeeze(), lei(X_zero).squeeze(), atol=1e-5)
 
         # Batch mode: X = (b, 1, d)
         X_batch = torch.empty(3, 1, 1, dtype=dtype)

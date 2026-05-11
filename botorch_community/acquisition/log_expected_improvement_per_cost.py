@@ -124,5 +124,10 @@ class LogExpectedImprovementPerCost(AnalyticAcquisitionFunction):
 
         # X has shape (..., 1, d); squeeze the q-dim before passing to cost_callable.
         costs = self.cost_callable(X.squeeze(-2))
+        if not (costs > 0).all():
+            raise ValueError(
+                "cost_callable must return strictly positive values; "
+                "got non-positive cost(s)."
+            )
         log_cost = costs.clamp(min=1e-12).log()
         return log_ei - self.alpha * log_cost
