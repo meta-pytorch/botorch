@@ -327,6 +327,7 @@ class HeterogeneousMTGP(MultiTaskGP):
         rank: int | None = None,
         use_saas_prior: bool = True,
         use_combinatorial_kernel: bool = True,
+        map_heterogeneous_to_full: bool = False,
     ) -> dict[str, Any]:
         r"""Construct ``Model`` keyword arguments from a given ``MultiTaskDataset``.
 
@@ -341,6 +342,10 @@ class HeterogeneousMTGP(MultiTaskGP):
                 ``MultiTaskConditionalKernel``.
             use_combinatorial_kernel: Whether to use a combinatorial kernel over the
                 binary embedding of task features in ``MultiTaskConditionalKernel``.
+            map_heterogeneous_to_full: Accepted for compatibility with
+                ``MultiTaskGP.construct_inputs`` but unused.
+                ``HeterogeneousMTGP`` handles heterogeneous features via
+                ``MultiTaskConditionalKernel``.
         """
         if training_data.task_feature_index != -1:
             raise NotImplementedError(
