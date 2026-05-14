@@ -97,6 +97,12 @@ class TestHeterogeneousMTGP(BotorchTestCase):
         self.assertEqual(model_inputs["full_feature_dim"], 5)
         self.assertIsNone(model_inputs["rank"])
 
+        with self.subTest("map_heterogeneous_to_full accepted and ignored"):
+            model_inputs = HeterogeneousMTGP.construct_inputs(
+                training_data=self.mtds, map_heterogeneous_to_full=True
+            )
+            self.assertNotIn("map_heterogeneous_to_full", model_inputs)
+
     def test_standard_heterogeneous_mtgp(self) -> None:
         # Construct the model (inferred noise: train_Yvars is None).
         model_inputs = HeterogeneousMTGP.construct_inputs(training_data=self.mtds)
