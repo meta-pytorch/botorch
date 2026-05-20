@@ -646,7 +646,7 @@ class KroneckerMultiTaskGP(ExactGP, GPyTorchModel, FantasizeMixin):
             train_X: A ``batch_shape x n x d`` tensor of training features.
             train_Y: A ``batch_shape x n x m`` tensor of training observations.
             likelihood: A ``MultitaskGaussianLikelihood``. If omitted, uses a
-                ``MultitaskGaussianLikelihood`` with a ``GammaPrior(1.1, 0.05)``
+                ``MultitaskGaussianLikelihood`` with a ``LogNormalPrior(-4, 1)``
                 noise prior.
             data_covar_module: The module computing the covariance (Kernel) matrix
                 in data space. If omitted, uses an ``RBFKernel``.
