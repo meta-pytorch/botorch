@@ -130,11 +130,14 @@ def _setup_continuous_relaxation(
     ``discrete_dims`` and ``post_processing_func`` is updated to round
     them to the nearest integer.
 
-    Dimensions that participate in constraints are NOT relaxed, as rounding
-    after projection could violate those constraints.
+    Dimensions that participate in the specified constraints are NOT
+    relaxed, as rounding after continuous optimization could violate
+    those constraints. The caller controls which constraints are relevant
+    by passing or omitting ``inequality_constraints`` and
+    ``equality_constraints``.
     """
 
-    # Identify dimensions involved in constraints
+    # Identify dimensions involved in the specified constraints.
     constrained_dims: set[int] = set()
     for constraints in [inequality_constraints, equality_constraints]:
         if constraints is not None:
@@ -905,6 +908,140 @@ def continuous_step(
     return best_X.view_as(current_x), best_acq_values
 
 
+def _run_alternating_optimization(
+    opt_inputs: OptimizeAcqfInputs,
+    discrete_dims: dict[int, list[float]],
+    cat_dims: dict[int, list[float]],
+    return_acq_values: bool,
+) -> tuple[Tensor, Tensor | None]:
+    r"""Run the alternating discrete/continuous optimization loop.
+
+    This is the core optimization routine used by
+    ``optimize_acqf_mixed_alternating``. It handles fixed feature filtering,
+    starting point generation, the alternating optimization loop, and
+    post-processing.
+
+    Args:
+        opt_inputs: Common set of arguments for acquisition optimization.
+        discrete_dims: A dictionary mapping indices of discrete dimensions
+            to a list of allowed values, after continuous relaxation.
+        cat_dims: A dictionary mapping indices of categorical dimensions
+            to a list of allowed values.
+        return_acq_values: Whether to return acquisition values.
+
+    Returns:
+        A tuple of (candidates, acq_values_or_none).
+    """
+    acq_function = opt_inputs.acq_function
+    bounds = opt_inputs.bounds
+    q = opt_inputs.q
+    options = opt_inputs.options or {}
+    fixed_features = opt_inputs.fixed_features or {}
+    post_processing_func = opt_inputs.post_processing_func
+
+    base_X_pending = acq_function.X_pending if q > 1 else None
+    dim = bounds.shape[-1]
+    tkwargs: dict[str, Any] = {"device": bounds.device, "dtype": bounds.dtype}
+    # Remove fixed features from dims, so they don't get optimized.
+    discrete_dims = {
+        dim: values
+        for dim, values in discrete_dims.items()
+        if dim not in fixed_features
+    }
+    cat_dims = {
+        dim: values for dim, values in cat_dims.items() if dim not in fixed_features
+    }
+    non_cont_dims = [*discrete_dims.keys(), *cat_dims.keys()]
+    if len(non_cont_dims) == 0:
+        # If the problem is fully continuous, fall back to standard optimization.
+        return _optimize_acqf(
+            opt_inputs=dataclasses.replace(
+                opt_inputs,
+                return_best_only=True,
+                return_acq_values=return_acq_values,
+            )
+        )
+    if not (
+        isinstance(non_cont_dims, list)
+        and len(set(non_cont_dims)) == len(non_cont_dims)
+        and min(non_cont_dims) >= 0
+        and max(non_cont_dims) <= dim - 1
+    ):
+        raise ValueError(
+            "`discrete_dims` and `cat_dims` must be dictionaries with unique, disjoint "
+            "integers as keys between 0 and num_dims - 1."
+        )
+    discrete_dims_t = torch.tensor(
+        list(discrete_dims.keys()), dtype=torch.long, device=tkwargs["device"]
+    )
+    cat_dims_t = torch.tensor(
+        list(cat_dims.keys()), dtype=torch.long, device=tkwargs["device"]
+    )
+    non_cont_dims = torch.tensor(
+        non_cont_dims, dtype=torch.long, device=tkwargs["device"]
+    )
+    cont_dims = complement_indices_like(indices=non_cont_dims, d=dim)
+    # Fixed features are all in cont_dims. Remove them, so they don't get optimized.
+    ff_idcs = torch.tensor(
+        list(fixed_features.keys()), dtype=torch.long, device=tkwargs["device"]
+    )
+    cont_dims = cont_dims[(cont_dims.unsqueeze(-1) != ff_idcs).all(dim=-1)]
+    candidates = torch.empty(0, dim, **tkwargs)
+    for _q in range(q):
+        # Generate starting points.
+        best_X, best_acq_val = generate_starting_points(
+            opt_inputs=opt_inputs,
+            discrete_dims=discrete_dims,
+            cat_dims=cat_dims,
+            cont_dims=cont_dims,
+        )
+
+        done = torch.zeros(len(best_X), dtype=torch.bool, device=tkwargs["device"])
+        for _step in range(options.get("maxiter_alternating", MAX_ITER_ALTER)):
+            starting_acq_val = best_acq_val.clone()
+            best_X[~done], best_acq_val[~done] = discrete_step(
+                opt_inputs=opt_inputs,
+                discrete_dims=discrete_dims,
+                cat_dims=cat_dims,
+                current_x=best_X[~done],
+            )
+
+            best_X[~done], best_acq_val[~done] = continuous_step(
+                opt_inputs=opt_inputs,
+                discrete_dims=discrete_dims_t,
+                cat_dims=cat_dims_t,
+                current_x=best_X[~done],
+            )
+
+            improvement = best_acq_val - starting_acq_val
+            done_now = improvement < options.get("tol", CONVERGENCE_TOL)
+            done = done | done_now
+            if done.float().mean() >= STOP_AFTER_SHARE_CONVERGED:
+                break
+
+        new_candidate = best_X[torch.argmax(best_acq_val)].unsqueeze(0)
+        candidates = torch.cat([candidates, new_candidate], dim=-2)
+        # Update pending points to include the new candidate.
+        if q > 1:
+            acq_function.set_X_pending(
+                torch.cat([base_X_pending, candidates], dim=-2)
+                if base_X_pending is not None
+                else candidates
+            )
+    if q > 1:
+        acq_function.set_X_pending(base_X_pending)
+
+    if post_processing_func is not None:
+        candidates = post_processing_func(candidates)
+
+    if not return_acq_values:
+        return candidates, None
+
+    with torch.no_grad():
+        acq_value = acq_function(candidates)  # compute joint acquisition value
+    return candidates, acq_value
+
+
 def optimize_acqf_mixed_alternating(
     acq_function: AcquisitionFunction,
     bounds: Tensor,
@@ -1049,17 +1186,37 @@ def optimize_acqf_mixed_alternating(
                     "of freedom."
                 )
 
-    # Update discrete dims and post processing functions to account for any
-    # dimensions that should be using continuous relaxation.
+    # Save pre-relaxation state for potential fallback.
+    _pre_relaxation_discrete_dims = discrete_dims
+    _original_ppf = post_processing_func
+
+    # Identify inequality-constrained discrete dims.
+    _ineq_dim_indices: set[int] = set()
+    if inequality_constraints is not None:
+        for indices, _, _ in inequality_constraints:
+            _ineq_dim_indices.update(indices.tolist())
+
+    max_discrete_values = assert_is_instance(
+        options.get("max_discrete_values", MAX_DISCRETE_VALUES), int
+    )
+
+    # First attempt: relax inequality-constrained dims for performance.
+    # By passing inequality_constraints=None, these dims are not excluded
+    # from continuous relaxation, allowing them to be optimized continuously.
+    # If this produces infeasible candidates (e.g., due to rounding violations
+    # with non-contiguous choices), we fall back to keeping them discrete.
     discrete_dims, post_processing_func = _setup_continuous_relaxation(
         discrete_dims=discrete_dims,
-        max_discrete_values=assert_is_instance(
-            options.get("max_discrete_values", MAX_DISCRETE_VALUES), int
-        ),
+        max_discrete_values=max_discrete_values,
         post_processing_func=post_processing_func,
-        inequality_constraints=inequality_constraints,
+        inequality_constraints=None,
         equality_constraints=equality_constraints,
     )
+
+    # Track whether any inequality-constrained dims were actually relaxed.
+    _ineq_dims_relaxed = (
+        _ineq_dim_indices & set(_pre_relaxation_discrete_dims.keys())
+    ) - set(discrete_dims.keys())
 
     opt_inputs = OptimizeAcqfInputs(
         acq_function=acq_function,
@@ -1088,106 +1245,49 @@ def optimize_acqf_mixed_alternating(
             opt_inputs=dataclasses.replace(opt_inputs, return_best_only=True)
         )
 
-    base_X_pending = acq_function.X_pending if q > 1 else None
-    dim = bounds.shape[-1]
-    tkwargs: dict[str, Any] = {"device": bounds.device, "dtype": bounds.dtype}
-    # Remove fixed features from dims, so they don't get optimized.
-    discrete_dims = {
-        dim: values
-        for dim, values in discrete_dims.items()
-        if dim not in fixed_features
-    }
-    cat_dims = {
-        dim: values for dim, values in cat_dims.items() if dim not in fixed_features
-    }
-    non_cont_dims = [*discrete_dims.keys(), *cat_dims.keys()]
-    if len(non_cont_dims) == 0:
-        # If the problem is fully continuous, fall back to standard optimization.
-        return _optimize_acqf(
-            opt_inputs=dataclasses.replace(
-                opt_inputs,
-                return_best_only=True,
-                return_acq_values=return_acq_values,
-            )
-        )
-    if not (
-        isinstance(non_cont_dims, list)
-        and len(set(non_cont_dims)) == len(non_cont_dims)
-        and min(non_cont_dims) >= 0
-        and max(non_cont_dims) <= dim - 1
-    ):
-        raise ValueError(
-            "`discrete_dims` and `cat_dims` must be dictionaries with unique, disjoint "
-            "integers as keys between 0 and num_dims - 1."
-        )
-    discrete_dims_t = torch.tensor(
-        list(discrete_dims.keys()), dtype=torch.long, device=tkwargs["device"]
+    candidates, acq_value = _run_alternating_optimization(
+        opt_inputs=opt_inputs,
+        discrete_dims=discrete_dims,
+        cat_dims=cat_dims,
+        return_acq_values=return_acq_values,
     )
-    cat_dims_t = torch.tensor(
-        list(cat_dims.keys()), dtype=torch.long, device=tkwargs["device"]
-    )
-    non_cont_dims = torch.tensor(
-        non_cont_dims, dtype=torch.long, device=tkwargs["device"]
-    )
-    cont_dims = complement_indices_like(indices=non_cont_dims, d=dim)
-    # Fixed features are all in cont_dims. Remove them, so they don't get optimized.
-    ff_idcs = torch.tensor(
-        list(fixed_features.keys()), dtype=torch.long, device=tkwargs["device"]
-    )
-    cont_dims = cont_dims[(cont_dims.unsqueeze(-1) != ff_idcs).all(dim=-1)]
-    candidates = torch.empty(0, dim, **tkwargs)
-    for _q in range(q):
-        # Generate starting points.
-        best_X, best_acq_val = generate_starting_points(
-            opt_inputs=opt_inputs,
-            discrete_dims=discrete_dims,
-            cat_dims=cat_dims,
-            cont_dims=cont_dims,
-        )
 
-        done = torch.zeros(len(best_X), dtype=torch.bool, device=tkwargs["device"])
-        for _step in range(options.get("maxiter_alternating", MAX_ITER_ALTER)):
-            starting_acq_val = best_acq_val.clone()
-            best_X[~done], best_acq_val[~done] = discrete_step(
+    # Fallback: if continuous relaxation of inequality-constrained dims
+    # produced infeasible candidates (e.g., due to rounding violations with
+    # non-contiguous discrete choices or tight constraints), re-run with
+    # those dims kept discrete.
+    if _ineq_dims_relaxed:
+        is_feasible = evaluate_feasibility(
+            X=candidates.unsqueeze(-2),
+            inequality_constraints=inequality_constraints,
+            equality_constraints=equality_constraints,
+            nonlinear_inequality_constraints=None,
+        )
+        if not is_feasible.all():
+            warnings.warn(
+                "Continuous relaxation of inequality-constrained discrete "
+                "dims produced infeasible candidates. Retrying without "
+                "relaxation for constrained dims.",
+                OptimizationWarning,
+                stacklevel=2,
+            )
+            discrete_dims, post_processing_func = _setup_continuous_relaxation(
+                discrete_dims=_pre_relaxation_discrete_dims,
+                max_discrete_values=max_discrete_values,
+                post_processing_func=_original_ppf,
+                inequality_constraints=inequality_constraints,
+                equality_constraints=equality_constraints,
+            )
+            opt_inputs = dataclasses.replace(
+                opt_inputs, post_processing_func=post_processing_func
+            )
+            candidates, acq_value = _run_alternating_optimization(
                 opt_inputs=opt_inputs,
                 discrete_dims=discrete_dims,
                 cat_dims=cat_dims,
-                current_x=best_X[~done],
+                return_acq_values=return_acq_values,
             )
 
-            best_X[~done], best_acq_val[~done] = continuous_step(
-                opt_inputs=opt_inputs,
-                discrete_dims=discrete_dims_t,
-                cat_dims=cat_dims_t,
-                current_x=best_X[~done],
-            )
-
-            improvement = best_acq_val - starting_acq_val
-            done_now = improvement < options.get("tol", CONVERGENCE_TOL)
-            done = done | done_now
-            if done.float().mean() >= STOP_AFTER_SHARE_CONVERGED:
-                break
-
-        new_candidate = best_X[torch.argmax(best_acq_val)].unsqueeze(0)
-        candidates = torch.cat([candidates, new_candidate], dim=-2)
-        # Update pending points to include the new candidate.
-        if q > 1:
-            acq_function.set_X_pending(
-                torch.cat([base_X_pending, candidates], dim=-2)
-                if base_X_pending is not None
-                else candidates
-            )
-    if q > 1:
-        acq_function.set_X_pending(base_X_pending)
-
-    if post_processing_func is not None:
-        candidates = post_processing_func(candidates)
-
-    if not return_acq_values:
-        return candidates, None
-
-    with torch.no_grad():
-        acq_value = acq_function(candidates)  # compute joint acquisition value
     return candidates, acq_value
 
 
