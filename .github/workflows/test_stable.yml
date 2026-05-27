@@ -43,7 +43,7 @@ jobs:
         min_gpytorch_version=$(grep '"gpytorch>=' pyproject.toml | sed 's/.*"gpytorch>=\([^"]*\)".*/\1/')
         min_linear_operator_version=$(grep '"linear_operator>=' pyproject.toml | sed 's/.*"linear_operator>=\([^"]*\)".*/\1/')
         uv pip install "torch==${min_torch_version}" "gpytorch==${min_gpytorch_version}" "linear_operator==${min_linear_operator_version}" ${numpy_constraint}
-        uv pip install .[test]
+        uv pip install .[test] ${numpy_constraint}
     - name: Unit tests and coverage -- BoTorch
       run: |
         pytest -ra test/ --cov botorch/ --cov-report term-missing --cov-report xml:botorch_cov.xml
