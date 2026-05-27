@@ -38,9 +38,11 @@ jobs:
         min_torch_version=$(grep '"torch>=' pyproject.toml | sed 's/.*"torch>=\([^"]*\)".*/\1/')
         # The earliest PyTorch version on Python 3.14 available for all OS is 2.9.0.
         min_torch_version="$(if ${{ matrix.python-version == '3.14' }}; then echo "2.9.0"; else echo "${min_torch_version}"; fi)"
+        # Torch <2.4 was built against numpy 1.x and is ABI-incompatible with numpy 2.x.
+        numpy_constraint="$(if ${{ matrix.python-version == '3.14' }}; then echo ""; else echo "numpy<2"; fi)"
         min_gpytorch_version=$(grep '"gpytorch>=' pyproject.toml | sed 's/.*"gpytorch>=\([^"]*\)".*/\1/')
         min_linear_operator_version=$(grep '"linear_operator>=' pyproject.toml | sed 's/.*"linear_operator>=\([^"]*\)".*/\1/')
-        uv pip install "torch==${min_torch_version}" "gpytorch==${min_gpytorch_version}" "linear_operator==${min_linear_operator_version}"
+        uv pip install "torch==${min_torch_version}" "gpytorch==${min_gpytorch_version}" "linear_operator==${min_linear_operator_version}" ${numpy_constraint}
         uv pip install .[test]
     - name: Unit tests and coverage -- BoTorch
       run: |
