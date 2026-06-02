@@ -2,6 +2,70 @@
 
 The release log for BoTorch.
 
+## [0.18.0] -- Jun 3, 2026
+
+#### Compatibility
+* Replace Pyro with NumPyro for fully Bayesian NUTS inference, yielding a large
+  reduction in fit time (#3247).
+* Require PyTorch>=2.4 (#3311).
+
+#### New Features
+* `OrthogonalAdditiveGP` with component-wise inference (#3187).
+* Add `custom_fit` and `compute_loss` protocols for fitting extensibility (#3232).
+* `LatentKroneckerGP` with customized GPyTorch inference (#3234).
+* Conditional kernel GP for hierarchical search spaces (#3284).
+* Add `LearnedFeatureImputation` input transform and wire transfer-learning
+  support for `MultiTaskGP` (#3281, #3285, #3286, #3296, #3299).
+
+
+#### Bug Fixes
+* Fix inconsistent output shapes when all features are fixed in `optimize_acqf` (#3241).
+* Return `TorchPosterior` for non-MVN distributions in `ApproximateGPyTorchModel` (#3242).
+* Fix `continuous_step` crash when `fixed_features` cover all dims (#3249).
+* Fix silent feature misalignment in `HeterogeneousMTGP.posterior()` (#3254).
+* Fix tensor-valued `fixed_features` shape mismatch in infeasible projection (#3259).
+* Fix `PairwiseGP` stored-state management for eval and CV (#3272).
+* Impute per-dim empirical mean for missing features in `HeterogeneousMTGP` (#3294).
+* Fix numerical precision in `MultivariateNormalQMCEngine` eigendecomposition on
+  CUDA (#3224).
+
+#### Other Changes
+* Use parallel L-BFGS for fitting batched multi-output models (#3207).
+* Optionally return acquisition values from candidate generation (#3209).
+* Clean up nits across the acquisition module (#3210).
+* Replace deprecated `torch.inverse`/`torch.det` with `torch.linalg`
+  equivalents (#3213).
+* Use `logsumexp` for numerically stable mixture entropy in BALD (#3222).
+* Support `cache_root` for low-rank kernels (#3223).
+* Support a tensor of `taus` in MAP SAAS (#3225).
+* Support discrete parameters, inequality constraints, and `ref_point` in
+  `optimize_with_nsgaii` / MOO input constructors (#3219, #3220, #3229).
+* Replace the `FitGPyTorchMLL` and `GetLossClosure` dispatchers with `isinstance`
+  checks (#3233, #3235).
+* Support pathwise Thompson sampling as an option in the acquisition function
+  factory (#3237).
+* Add `_supports_batched_models` attribute to models that don't support
+  batching (#3239).
+* Update `fixed_features` type hints and docstrings in `OptimizeAcqfInputs` (#3240).
+* Use slice-based indexing in `separate_mtmvn` for the non-interleaved case (#3246).
+* Support observation noise in the `Log` outcome transform (#3245).
+* Add `BetaPrior` support for correlation parameters and a default
+  `BetaPrior(2.5, 1.5)` for `MultiTaskGP` task covariance, with `setting_closure`
+  on `PositiveIndexKernel` for prior support (#3266, #3267, #3271).
+* Speed up `qLogEHVI` using a fused kernel (#3275).
+* Project initial conditions onto the equality constraint manifold (#3278).
+* Fix `DeprecationWarning` in `Standardize.untransform_posterior` (#3279).
+* Add untransform support to efficient LOO cross-validation (#3288).
+* Add lean BoTorch targets and make JAX/numpyro imports lazy to avoid the
+  JAX/numpyro dependency (#3277, #3291, #3292, #3293).
+* Update `MultiTaskGP` docstring (#3307).
+
+#### Changes to botorch_community & community notebooks
+* FuRBO tutorial (#3290).
+* Add Local Entropy Search (LES) acquisition function and a community notebook
+  demonstrating it on Branin (#3302).
+
+
 ## [0.17.2] -- Mar 4, 2026
 
 #### Compatibility
