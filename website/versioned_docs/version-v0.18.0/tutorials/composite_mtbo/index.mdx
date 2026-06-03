@@ -1,0 +1,311 @@
+---
+title: Composite Bayesian Optimization with Multi-Task Gaussian Processes
+sidebar_label: Composite Bayesian Optimization with Multi-Task Gaussian Processes
+---
+
+import LinkButtons from "@site/src/components/LinkButtons.jsx";
+import CellOutput from "@site/src/components/CellOutput.jsx";
+import {PlotlyFigure} from "@site/src/components/Plotting.jsx";
+
+<LinkButtons
+  githubUrl="https://github.com/pytorch/botorch/blob/main/tutorials/composite_mtbo/composite_mtbo.ipynb"
+  colabUrl="https://colab.research.google.com/github/pytorch/botorch/blob/main/tutorials/composite_mtbo/composite_mtbo.ipynb"
+/>
+
+## Composite Bayesian Optimization with Multi-Task Gaussian Processes
+
+In this tutorial, we'll be describing how to perform multi-task Bayesian optimization
+over composite functions. In these types of problems, there are several related outputs,
+and an overall easy to evaluate objective function that we wish to maximize.
+
+**Multi-task Bayesian Optimization** was first proposed by
+[Swersky et al, NeurIPS, '13](https://papers.neurips.cc/paper/2013/hash/f33ba15effa5c10e873bf3842afb46a6-Abstract.html)
+in the context of fast hyper-parameter tuning for neural network models; however, we
+demonstrate a more advanced use-case of
+**[composite Bayesian optimization](https://proceedings.mlr.press/v97/astudillo19a.html)**
+where the overall function that we wish to optimize is a cheap-to-evaluate (and known)
+function of the outputs. In general, we expect that using more information about the
+function should yield improved performance when attempting to optimize it, particularly
+if the metric function itself is quickly varying.
+
+See
+[the composite BO tutorial w/ HOGP](https://github.com/meta-pytorch/botorch/blob/main/tutorials/composite_bo_with_hogp/composite_bo_with_hogp.ipynb)
+for a more technical introduction. In general, we suggest using MTGPs for unstructured
+task outputs and the HOGP for matrix / tensor structured outputs.
+
+We will use a Multi-Task Gaussian process
+([MTGP](https://papers.nips.cc/paper/2007/hash/66368270ffd51418ec58bd793f2d9b1b-Abstract.html))
+with an ICM kernel to model all of the outputs in this problem. MTGPs can be easily
+accessed in Botorch via the `botorch.models.KroneckerMultiTaskGP` model class (for the
+"block design" case of fully observed outputs at all inputs). Given $T$ tasks (outputs)
+and $n$ data points, they assume that the responses, $Y \sim \mathbb{R}^{n \times T},$
+are distributed as $\text{vec}(Y) \sim \mathcal{N}(f, D)$ and
+$f \sim \mathcal{GP}(\mu_{\theta}, K_{XX} \otimes K_{T}),$ where $D$ is a (diagonal)
+noise term.
+
+```python
+# Install dependencies if we are running in colab
+import sys
+if 'google.colab' in sys.modules:
+    %pip install botorch
+```
+
+```python
+import os
+import time
+
+import torch
+from botorch.acquisition.logei import qLogExpectedImprovement
+from botorch.acquisition.objective import GenericMCObjective
+from botorch.models import KroneckerMultiTaskGP
+from botorch.optim import optimize_acqf
+from botorch.sampling.normal import IIDNormalSampler
+
+from botorch.test_functions import Hartmann
+from gpytorch.mlls import ExactMarginalLogLikelihood
+
+import warnings
+warnings.filterwarnings("ignore")
+
+SMOKE_TEST = os.environ.get("SMOKE_TEST")
+```
+
+<CellOutput>
+{
+`[KeOps] Warning : There were warnings or errors :
+/bin/sh: brew: command not found
+[KeOps] Warning : CUDA libraries not found or could not be loaded; Switching to CPU only.
+[KeOps] Warning : There were warnings or errors :
+/bin/sh: brew: command not found
+[KeOps] Warning : OpenMP library not found, it must be downloaded through Homebrew for apple Silicon chips
+[KeOps] Warning : OpenMP support is not available. Disabling OpenMP.`
+}
+</CellOutput>
+
+### Set device, dtype and random seed
+
+```python
+torch.random.manual_seed(10)
+
+tkwargs = {
+    "dtype": torch.double,
+    "device": torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+}
+```
+
+### Problem Definition
+
+The function that we wish to optimize is based off of a contextual version of the
+Hartmann-6 test function, where following
+[Feng et al, NeurIPS, '20](https://proceedings.neurips.cc/paper/2020/hash/faff959d885ec0ecf70741a846c34d1d-Abstract.html)
+we convert the sixth task dimension into a task indicator. Here we assume that we
+evaluate all contexts at once.
+
+```python
+from torch import Tensor
+
+
+class ContextualHartmann6(Hartmann):
+    def __init__(self, num_tasks: int = 20, noise_std=None, negate=False):
+        super().__init__(dim=6, noise_std=noise_std, negate=negate)
+        self.task_range = torch.linspace(0, 1, num_tasks).unsqueeze(-1)
+        self.dim = 5
+        self._bounds = [(0.0, 1.0) for _ in range(self.dim)]
+        self.bounds = torch.tensor(self._bounds).t()
+
+    def _evaluate_true(self, X: Tensor) -> Tensor:
+        batch_X = X.unsqueeze(-2)
+        batch_dims = X.ndim - 1
+
+        expanded_task_range = self.task_range
+        for _ in range(batch_dims):
+            expanded_task_range = expanded_task_range.unsqueeze(0)
+        task_range = expanded_task_range.repeat(*X.shape[:-1], 1, 1).to(X)
+        concatenated_X = torch.cat(
+            (
+                batch_X.repeat(*[1] * batch_dims, self.task_range.shape[0], 1),
+                task_range,
+            ),
+            dim=-1,
+        )
+        return super()._evaluate_true(concatenated_X)
+```
+
+We use `GenericMCObjective` to define the differentiable function that we are
+optimizing. Here, it is defined as
+
+$$
+g(f) = \sum_{i=1}^T \cos(f_i^2 + f_i w_i)
+$$
+
+where $w$ is a weight vector (drawn randomly once at the start of the optimization). As
+this function is a non-linear function of the outputs $f,$ we cannot compute acquisition
+functions via computation of the posterior mean and variance, but rather have to compute
+posterior samples and evaluate acquisitions with Monte Carlo sampling.
+
+For greater than $10$ or so tasks, it is computationally challenging to sample the
+posterior over all tasks jointly using conventional approaches, except that
+[Maddox et al, '21](https://arxiv.org/abs/2106.12997) have devised an efficient method
+for exploiting the structure in the posterior distribution of the MTGP, enabling
+efficient MC based optimization of objectives using MTGPs. In this tutorial, we choose 6
+contexts/tasks for demonstration.
+
+```python
+num_tasks = 6
+problem = ContextualHartmann6(num_tasks=num_tasks, noise_std=0.001, negate=True).to(**tkwargs)
+
+# we choose num_tasks random weights
+weights = torch.randn(num_tasks, **tkwargs)
+
+
+def callable_func(samples, X=None):
+    res = -torch.cos((samples**2) + samples * weights)
+    return res.sum(dim=-1)
+
+
+objective = GenericMCObjective(callable_func)
+```
+
+```python
+bounds = problem.bounds
+```
+
+## BO Loop
+
+Set environmental parameters, we use 20 initial data points and optimize for 20 steps
+with a batch size of 3 candidate points at each evaluation.
+
+```python
+if SMOKE_TEST:
+    n_init = 5
+    n_steps = 1
+    batch_size = 2
+    num_samples = 4
+    # For L-BFGS inner optimization loop
+    MAXITER = 10
+else:
+    n_init = 10
+    n_steps = 10
+    batch_size = 3
+    num_samples = 64
+    MAXITER = 200
+```
+
+```python
+from botorch.fit import fit_gpytorch_mll
+```
+
+Finally, run the optimization loop.
+
+Warning... this optimization loop can take a while, especially on the CPU. We compare to
+random sampling.
+
+```python
+# New version
+torch.manual_seed(0)
+
+init_x = (bounds[1] - bounds[0]) * torch.rand(
+    n_init, bounds.shape[1], **tkwargs
+) + bounds[0]
+
+init_y = problem(init_x)
+
+mtgp_train_x, mtgp_train_y = init_x, init_y
+rand_x, rand_y = init_x, init_y
+
+best_value_mtgp = objective(init_y).max()
+best_random = best_value_mtgp
+
+for iteration in range(n_steps):
+    # we empty the cache to clear memory out
+    torch.cuda.empty_cache()
+
+    # MTGP
+    mtgp_t0 = time.monotonic()
+    mtgp = KroneckerMultiTaskGP(mtgp_train_x, mtgp_train_y)
+    mtgp_mll = ExactMarginalLogLikelihood(mtgp.likelihood, mtgp)
+    fit_gpytorch_mll(mll=mtgp_mll, optimizer_kwargs={"options": {"maxiter": 50}})
+
+    sampler = IIDNormalSampler(sample_shape=torch.Size([num_samples]))
+    mtgp_acqf = qLogExpectedImprovement(
+        model=mtgp,
+        best_f=best_value_mtgp,
+        sampler=sampler,
+        objective=objective,
+    )
+    new_mtgp_x, _ = optimize_acqf(
+        acq_function=mtgp_acqf,
+        bounds=bounds,
+        q=batch_size,
+        num_restarts=10,
+        raw_samples=512,  # used for initialization heuristic
+        options={"batch_limit": 5, "maxiter": MAXITER, "init_batch_limit": 5},
+    )
+    mtgp_train_x = torch.cat((mtgp_train_x, new_mtgp_x), dim=0)
+    mtgp_train_y = torch.cat((mtgp_train_y, problem(new_mtgp_x)), dim=0)
+    best_value_mtgp = objective(mtgp_train_y).max()
+    mtgp_t1 = time.monotonic()
+
+    # rand
+    new_rand_x = (bounds[1] - bounds[0]) * torch.rand(
+        batch_size, bounds.shape[1], **tkwargs
+    ) + bounds[0]
+    rand_x = torch.cat((rand_x, new_rand_x))
+    rand_y = torch.cat((rand_y, problem(new_rand_x)))
+    best_random = objective(rand_y).max()
+
+    print(
+        f"\nBatch {iteration:>2}: best_value (random, mtgp) = "
+        f"({best_random:>4.2f}, {best_value_mtgp:>4.2f}, "
+        f"mtgp time = {mtgp_t1-mtgp_t0:>4.2f}",
+        end="",
+    )
+
+objectives = {
+    "MGTP": objective(mtgp_train_y).detach().cpu(),
+    "Random": objective(rand_y).detach().cpu(),
+}
+```
+
+<CellOutput>
+{
+`Batch  0: best_value (random, mtgp) = (-3.91, -4.76, mtgp time = 5.89
+Batch  1: best_value (random, mtgp) = (-3.91, -4.76, mtgp time = 1.65
+Batch  2: best_value (random, mtgp) = (-3.91, -4.76, mtgp time = 3.66
+Batch  3: best_value (random, mtgp) = (-3.91, -3.16, mtgp time = 1.60
+Batch  4: best_value (random, mtgp) = (-3.91, -3.16, mtgp time = 1.40
+Batch  5: best_value (random, mtgp) = (-3.91, -3.15, mtgp time = 10.46
+Batch  6: best_value (random, mtgp) = (-3.91, -2.53, mtgp time = 1.55
+Batch  7: best_value (random, mtgp) = (-3.91, -2.53, mtgp time = 3.06
+Batch  8: best_value (random, mtgp) = (-3.91, -2.53, mtgp time = 2.06
+Batch  9: best_value (random, mtgp) = (-3.91, -2.53, mtgp time = 2.38`
+}
+</CellOutput>
+
+### Plot Results
+
+```python
+import matplotlib.pyplot as plt
+```
+
+Finally, we plot the results. MTGP will outperform the random baseline.
+
+```python
+results = {
+    k: t[n_init:].cummax(0).values for k, t in objectives.items()
+}
+```
+
+```python
+for name, vals in results.items():
+    plt.plot(vals, label=name)
+plt.legend()
+plt.show()
+```
+
+![](data:image/png;base64,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FVdcIWvWrNHnqp4ZNatIreHT1G0AhJ8dB78SNatazRRJT2aTVDhPeI2jwC8pKemcX1Pr6Xz00Ud6hpIqAv7888/1NPSLL75Y7rvvPj0FG0D4ox4GTufyNqysjQBqQTa1cq+aQfPNN3pVmHrw4EG9popaxRb2xs8LaN71T7wr+46XytLxg+V7g5peSwuIhPfvc2E4CQDC0JdlVTrAKFdmtryxLhCJCDEAEIa2nxlK6p/eQVISW79qORDOCDEAEMZTq6/qw6wkOBchBgDCEOvDAIQYAAg7x4pPy6dflkuUS2Rob+ph4FyEGAAI016YgecnS3K7WKubA1iGEAMAYTuURD0MnI0QAwBhRC3ttY16GEAjxKBFar+kV155xepmABCRIydPS9Gp0xIT5ZJv9epkdXMASxFiwoTaRVqFCXXExsbqVWzvv/9+vaotAOfYduBL/fHyHh0lwc3OMXA2fgPCbPfqZcuW6d2rd+7cKbfffrsONY8++qjVTQMQ4v2SqIcB6IkJK2oTx/T0dOnevbuMHTtWxowZI2+99Zb+2ldffSU//vGP5fzzz5eEhAQZOHCgvPjii41uP3LkSLnnnnt0D07nzp3195o/f36jc/71r3/JiBEj9F5FasNI3/dv6OOPP5bRo0dLu3btJCUlRaZOnSplZWWNeo1U+9QGlGlpadKxY0dZsGCB3ll71qxZ+r67deumAxmAVtbDZFIPA9ATo/a/rKmw5r5jE1TBSatuumfPHtm2bZv07NlTf66GlYYMGSKzZ8/WG2f95S9/kVtvvVXvaD106FD/7Z5//nmZOXOm7NixQwoKCnTguPrqq+U73/mOeDweGTdunA4e6utqE65777230f2Wl5dLdna2DB8+XD744AP54osv5Gc/+5ncddddsnz5cv95W7Zs0UHl3Xfflffee08mT56s26sCkvrea9askTvuuEPfrzoPQMsO/LtM/l1aJXExUXo4CXA6QowKML/uas19//KoiLt9wKe//vrrkpiYqHs0qqqqJCoqSp566in9NdUDc9999/nPvfvuu+XNN9+Ul156qVGIGTRokMybN09f7tu3r7795s2bdZjYtGmT7Nu3T9+ua9f6x0T1pnz3u9/1337VqlU6MK1YsULat69vu/oe3//+9/WwlgpAiuptWbJkiW5jv3795LHHHpOKigr55S9/qb+el5cnCxcu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bq73nXfe8R48eND73nvveceMGePt0qWLruzHf5SWlno/+ugjfahfx8cff1xf/uyzz/TXFy5cqJ9rr776qnf37t16xk3v3r29p0+f9jpZc4+b+tp9992nZzmo59+mTZu8gwcP9vbt29dbWVnpdao777zTm5ycrH8vjx075j8qKir850ybNs3bo0cP75YtW7wffvihd/jw4fpwspYet/3793sXLFigHy/1fFO/q5mZmd4RI0Z4nWzOnDl6Bpd6TNRrl/rc5XJ5N27caOhzjRAToCeffFI/4G63W0+53r59u9VNsrUf/ehH3oyMDP14nX/++fpz9cuOxt5++239JvzNQ00R9k2zfvDBB71paWk6SGdlZXkLCwu9Ttfc46beXK677jpvamqqnsbZs2dP75QpUxz/R0dTj5c6li1b5j9HheOf//zneipsQkKC94c//KF+w3aylh63w4cP68DSuXNn/Tt6wQUXeGfNmuUtLi72OtlPf/pT/bun3gPU76J67fIFGCOfay71T3B9NwAAANajJgYAAIQlQgwAAAhLhBgAABCWCDEAACAsEWIAAEBYIsQAAICwRIgBAABhiRADAADCEiEGAACEJUIMAAAIS4QYAAAQlggxAABAwtH/A4YEHXBMpvfmAAAAAElFTkSuQmCC)
+
+```python
+
+```
+
