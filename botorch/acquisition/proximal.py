@@ -34,7 +34,7 @@ class ProximalAcquisitionFunction(AcquisitionFunction):
     proximal weighting.
 
     Small values of ``proximal_weights`` corresponds to strong biasing towards recently
-    observed points, which smoothes optimization with a small potential decrese in
+    observed points, which smoothes optimization with a small potential decrease in
     convergence rate.
 
 
@@ -156,7 +156,7 @@ class ProximalAcquisitionFunction(AcquisitionFunction):
 def _validate_model(model: Model, proximal_weights: Tensor) -> None:
     r"""Validate model
 
-    Perform vaidation checks on model used in base acquisition function to make sure
+    Perform validation checks on model used in base acquisition function to make sure
     it is compatible with proximal weighting.
 
     Args:

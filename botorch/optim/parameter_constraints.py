@@ -527,6 +527,71 @@ def _make_f_and_grad_nonlinear_inequality_constraints(
     return f_obj, f_grad
 
 
+def project_to_equality_constraints(
+    X: Tensor,
+    equality_constraints: list[tuple[Tensor, Tensor, float]],
+) -> Tensor:
+    r"""Project X onto the equality constraint manifold via least-squares.
+
+    For linear equality constraints of the form ``Ax = b``, this finds the
+    closest point to X (in L2 sense) that satisfies all constraints, using
+    the closed-form least-squares projection:
+    ``X_proj = X + A^T (A A^T)^{-1} (b - A X)``.
+
+    This operates on each point in the q-batch independently (intra-point
+    constraints only).
+
+    Args:
+        X: A ``... x q x d``-dim tensor of inputs.
+        equality_constraints: A list of tuples (indices, coefficients, rhs),
+            with each tuple encoding an equality constraint of the form
+            ``sum_i (X[indices[i]] * coefficients[i]) = rhs``. Only supports
+            1-d indices (intra-point constraints).
+
+    Returns:
+        A tensor of the same shape as X, projected onto the constraint manifold.
+    """
+    if not equality_constraints:
+        return X
+
+    # Filter to intra-point constraints only (1-d indices).
+    intra_constraints = [
+        (indices, coefficients, rhs)
+        for indices, coefficients, rhs in equality_constraints
+        if indices.ndim <= 1
+    ]
+    if not intra_constraints:
+        return X
+
+    d = X.shape[-1]
+    n_constraints = len(intra_constraints)
+
+    # Build constraint matrix A and rhs vector b
+    A = torch.zeros(n_constraints, d, dtype=X.dtype, device=X.device)
+    b = torch.zeros(n_constraints, dtype=X.dtype, device=X.device)
+
+    for i, (indices, coefficients, rhs) in enumerate(intra_constraints):
+        A[i, indices.long()] = coefficients.to(dtype=X.dtype, device=X.device)
+        b[i] = rhs
+
+    # Compute residual = b - A @ x for each point.
+    # A: (n_constraints, d), X: (... x q x d)
+    # residual: (... x q x n_constraints)
+    residual = b - torch.einsum("cd,...qd->...qc", A, X)
+
+    # Compute correction = A^T @ (A A^T)^{-1} @ residual
+    AAT = A @ A.T  # (n_constraints, n_constraints)
+    # Solve AAT @ lam = residual^T for lam
+    # lam: (... x q x n_constraints)
+    lam = torch.linalg.solve(AAT, residual.unsqueeze(-1)).squeeze(-1)
+
+    # correction = A^T @ lam, i.e., sum over constraints
+    # A.T: (d, n_constraints), lam: (... x q x n_constraints)
+    correction = torch.einsum("dc,...qc->...qd", A.T, lam)
+
+    return X + correction
+
+
 def nonlinear_constraint_is_feasible(
     nonlinear_inequality_constraint: Callable,
     is_intrapoint: bool,

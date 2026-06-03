@@ -19,17 +19,32 @@ import warnings
 from collections.abc import Callable
 
 import torch
-from botorch.acquisition import analytic, monte_carlo, multi_objective
 from botorch.acquisition.acquisition import AcquisitionFunction
+from botorch.acquisition.analytic import (
+    ConstrainedExpectedImprovement,
+    ExpectedImprovement,
+    NoisyExpectedImprovement,
+    ProbabilityOfImprovement,
+)
 from botorch.acquisition.fixed_feature import FixedFeatureAcquisitionFunction
 from botorch.acquisition.knowledge_gradient import (
     _get_value_function,
     qKnowledgeGradient,
 )
+from botorch.acquisition.monte_carlo import (
+    qExpectedImprovement,
+    qNoisyExpectedImprovement,
+    qProbabilityOfImprovement,
+)
+from botorch.acquisition.multi_objective.analytic import ExpectedHypervolumeImprovement
 from botorch.acquisition.multi_objective.hypervolume_knowledge_gradient import (
     _get_hv_value_function,
     qHypervolumeKnowledgeGradient,
     qMultiFidelityHypervolumeKnowledgeGradient,
+)
+from botorch.acquisition.multi_objective.monte_carlo import (
+    qExpectedHypervolumeImprovement,
+    qNoisyExpectedHypervolumeImprovement,
 )
 from botorch.exceptions.errors import BotorchTensorDimensionError, UnsupportedError
 from botorch.exceptions.warnings import (
@@ -1277,15 +1292,15 @@ def is_nonnegative(acq_function: AcquisitionFunction) -> bool:
     return isinstance(
         acq_function,
         (
-            analytic.ExpectedImprovement,
-            analytic.ConstrainedExpectedImprovement,
-            analytic.ProbabilityOfImprovement,
-            analytic.NoisyExpectedImprovement,
-            monte_carlo.qExpectedImprovement,
-            monte_carlo.qNoisyExpectedImprovement,
-            monte_carlo.qProbabilityOfImprovement,
-            multi_objective.analytic.ExpectedHypervolumeImprovement,
-            multi_objective.monte_carlo.qExpectedHypervolumeImprovement,
-            multi_objective.monte_carlo.qNoisyExpectedHypervolumeImprovement,
+            ExpectedImprovement,
+            ConstrainedExpectedImprovement,
+            ProbabilityOfImprovement,
+            NoisyExpectedImprovement,
+            qExpectedImprovement,
+            qNoisyExpectedImprovement,
+            qProbabilityOfImprovement,
+            ExpectedHypervolumeImprovement,
+            qExpectedHypervolumeImprovement,
+            qNoisyExpectedHypervolumeImprovement,
         ),
     )

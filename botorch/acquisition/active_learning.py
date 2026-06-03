@@ -78,7 +78,7 @@ class qNegIntegratedPosteriorVariance(AcquisitionFunction):
                 a PosteriorTransform that transforms the multi-output posterior into a
                 single-output posterior is required.
             X_pending: A ``n' x d``-dim Tensor of ``n'`` design points that have
-                points that have been submitted for function evaluation but
+                been submitted for function evaluation but
                 have not yet been evaluated.
         """
         super().__init__(model=model)
@@ -170,7 +170,7 @@ class PairwiseMCPosteriorVariance(MCAcquisitionFunction):
             X: A ``batch_size x q x d``-dim Tensor. q should be a multiple of 2.
 
         Returns:
-            Tensor of shape ``batch_size x q`` representing the posterior variance
+            Tensor of shape ``batch_size`` representing the posterior variance
             of link function at X that active learning hopes to maximize
         """
         if X.shape[-2] == 0 or X.shape[-2] % 2 != 0:

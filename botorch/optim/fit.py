@@ -56,6 +56,14 @@ def fit_gpytorch_mll_scipy(
 ) -> OptimizationResult:
     r"""Generic scipy.optimize-based fitting routine for GPyTorch MLLs.
 
+    For ``BatchedMultiOutputGPyTorchModel`` instances with a non-trivial
+    ``_aug_batch_shape`` (e.g., multi-output ``SingleTaskGP`` or
+    ``EnsembleMapSaasSingleTaskGP``), this automatically runs
+    ``fmin_l_bfgs_b_batched`` to optimize each batch element's
+    hyperparameters independently. This converts the single
+    high-dimensional optimization problem into multiple lower-dimensional
+    problems that are easier to solve.
+
     The model and likelihood in mll must already be in train mode.
 
     Args:
@@ -67,18 +75,40 @@ def fit_gpytorch_mll_scipy(
         closure: Callable that returns a tensor and an iterable of gradient
             tensors. Responsible for setting the ``grad`` attributes of
             ``parameters``. If no closure is provided, one will be obtained
-            by calling ``get_loss_closure_with_grads``.
+            by calling ``get_loss_closure_with_grads``. When no closure is
+            provided and the model is a batched multi-output model, batched
+            independent fitting is used automatically.
         closure_kwargs: Keyword arguments passed to ``closure``.
         method: Solver type, passed along to scipy.optimize.minimize.
-        options: Dictionary of solver options, passed along to scipy.optimize.minimize.
+        options: Dictionary of solver options, passed along to
+            scipy.optimize.minimize or ``fmin_l_bfgs_b_batched``.
         callback: Optional callback taking ``parameters`` and an
             ``OptimizationResult`` as its sole arguments.
         timeout_sec: Timeout in seconds after which to terminate the fitting loop
-            (note that timing out can result in bad fits!).
+            (note that timing out can result in bad fits!). Not currently
+            supported for batched independent fitting.
 
     Returns:
         The final OptimizationResult.
     """
+    # Avoid circular import: models.gpytorch imports from optim.
+    from botorch.models.gpytorch import BatchedMultiOutputGPyTorchModel
+
+    model = mll.model
+    if (
+        closure is None
+        and isinstance(model, BatchedMultiOutputGPyTorchModel)
+        and model._aug_batch_shape.numel() > 1
+    ):
+        return _fit_gpytorch_mll_scipy_independent(
+            mll=mll,
+            parameters=parameters,
+            bounds=bounds,
+            options=options,
+            callback=callback,
+            timeout_sec=timeout_sec,
+        )
+
     # Resolve ``parameters`` and update default bounds
     _parameters, _bounds = get_parameters_and_bounds(mll)
     bounds = _bounds if bounds is None else {**_bounds, **bounds}
@@ -175,4 +205,137 @@ def fit_gpytorch_mll_torch(
         stopping_criterion=stopping_criterion,
         callback=callback,
         timeout_sec=timeout_sec,
+    )
+
+
+def _fit_gpytorch_mll_scipy_independent(
+    mll: MarginalLogLikelihood,
+    parameters: dict[str, Tensor] | None = None,
+    bounds: dict[str, tuple[float | None, float | None]] | None = None,
+    options: dict[str, Any] | None = None,
+    callback: Callable[[dict[str, Tensor], OptimizationResult], None] | None = None,
+    timeout_sec: float | None = None,
+) -> OptimizationResult:
+    r"""Fit a batched model by independently optimizing each batch element's
+    hyperparameters using parallel L-BFGS-B.
+
+    This is an internal helper called by ``fit_gpytorch_mll_scipy`` when the
+    model is a ``BatchedMultiOutputGPyTorchModel`` with a non-trivial
+    ``_aug_batch_shape``.
+
+    Args:
+        mll: MarginalLogLikelihood to be maximized.
+        parameters: Optional dictionary of parameters to be optimized.
+        bounds: A dictionary of user-specified bounds for ``parameters``.
+        options: Dictionary of solver options passed to
+            ``fmin_l_bfgs_b_batched`` (e.g., ``maxiter``, ``pgtol``).
+        callback: Optional callback passed to ``fmin_l_bfgs_b_batched``.
+        timeout_sec: Timeout in seconds. Not currently supported for batched
+            fitting; a warning is issued if provided.
+
+    Returns:
+        The final OptimizationResult. The ``fval`` field contains the sum of
+        per-batch-element negative MLL values.
+    """
+    if timeout_sec is not None:
+        warn(
+            "timeout_sec is not supported for batched independent fitting "
+            "and will be ignored.",
+            OptimizationWarning,
+            stacklevel=2,
+        )
+
+    # Avoid circular imports: closures and batched_lbfgs_b import from optim.
+    from botorch.optim.batched_lbfgs_b import fmin_l_bfgs_b_batched
+    from botorch.optim.closures import (
+        BatchedNDarrayOptimizationClosure,
+        get_loss_closure,
+    )
+    from botorch.optim.utils.numpy_utils import get_per_element_bounds
+
+    # Resolve parameters and bounds
+    _parameters, _bounds = get_parameters_and_bounds(mll)
+    bounds = _bounds if bounds is None else {**_bounds, **bounds}
+    if parameters is None:
+        parameters = {n: p for n, p in _parameters.items() if p.requires_grad}
+
+    batch_shape = mll.model._aug_batch_shape
+
+    # Build forward closure (returns per-batch neg MLL, NOT summed)
+    forward = get_loss_closure(mll)
+
+    # Build batched closure
+    batched_closure = BatchedNDarrayOptimizationClosure(
+        forward=forward,
+        parameters=parameters,
+        batch_shape=batch_shape,
+    )
+
+    # Extract per-element bounds
+    bounds_np = get_per_element_bounds(parameters, bounds, batch_shape)
+
+    # Get initial state
+    x0 = batched_closure.state  # (batch_size, per_element_size)
+
+    # Resolve options for fmin_l_bfgs_b_batched
+    _recognized_options = {
+        "gtol",
+        "maxiter",
+        "maxcor",
+        "ftol",
+        "pgtol",
+        "maxls",
+        "factr",
+    }
+    lbfgsb_options: dict[str, Any] = {}
+    if options is not None:
+        # Map scipy-style option names to fmin_l_bfgs_b_batched kwargs
+        for key, value in options.items():
+            if key == "gtol":
+                lbfgsb_options["pgtol"] = value
+            elif key in ("maxiter", "maxcor", "ftol", "pgtol", "maxls", "factr"):
+                lbfgsb_options[key] = value
+        unrecognized = set(options.keys()) - _recognized_options
+        if unrecognized:
+            warn(
+                f"Unrecognized options for batched independent fitting "
+                f"will be ignored: {sorted(unrecognized)}.",
+                OptimizationWarning,
+                stacklevel=2,
+            )
+
+    # Run batched L-BFGS-B
+    xs, fs, results = fmin_l_bfgs_b_batched(
+        func=batched_closure,
+        x0=x0,
+        bounds=bounds_np,
+        pass_batch_indices=True,
+        callback=callback,
+        **lbfgsb_options,
+    )
+
+    # Write optimal state back to model parameters
+    batched_closure.state = xs
+
+    # Determine overall status from individual results
+    all_success = all(r.get("success", False) for r in results)
+    max_nit = max(r.get("nit", 0) for r in results)
+
+    if all_success:
+        status = OptimizationStatus.SUCCESS
+    else:
+        # Check if any hit maxiter
+        any_maxiter = any(r.get("warnflag", 0) == 1 for r in results)
+        status = (
+            OptimizationStatus.STOPPED if any_maxiter else OptimizationStatus.FAILURE
+        )
+
+    return OptimizationResult(
+        fval=float(fs.sum()),
+        step=max_nit,
+        status=status,
+        message=(
+            f"Batched L-BFGS-B: {sum(r.get('success', False) for r in results)}"
+            f"/{len(results)} outputs converged."
+        ),
     )

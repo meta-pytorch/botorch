@@ -795,7 +795,9 @@ class DelaunayPolytopeSampler(PolytopeSampler):
             polytopes = torch.from_numpy(
                 np.array([delaunay.points[s] for s in delaunay.simplices]),
             ).to(self.A)
-            volumes = torch.stack([torch.det(p[1:] - p[0]).abs() for p in polytopes])
+            volumes = torch.stack(
+                [torch.linalg.det(p[1:] - p[0]).abs() for p in polytopes]
+            )
             self._polytopes = polytopes
             self._p = volumes / volumes.sum()
 

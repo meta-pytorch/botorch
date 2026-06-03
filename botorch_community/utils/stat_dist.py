@@ -21,19 +21,19 @@ def mvn_kl_divergence(
     Args:
         p_mean: A ``batch_shape x dist_shape x 1``-dim Tensor of means of
             the first distribution.
-        q_mean: A ``batch_shape x dist_shape x dist_shape``-dim Tensor of
-            covariances of the first distribution,  where the covariances
+        p_covar: A ``batch_shape x dist_shape x dist_shape``-dim Tensor of
+            covariances of the first distribution, where the covariances
             are (optionally) in the q-batch dim.
-        p_mean: A ``batch_shape x dist_shape x 1``-dim Tensor of means of
+        q_mean: A ``batch_shape x dist_shape x 1``-dim Tensor of means of
             the second distribution.
-        q_mean: A ``batch_shape x dist_shape x dist_shape``-dim Tensor of
+        q_covar: A ``batch_shape x dist_shape x dist_shape``-dim Tensor of
             covariances of the second distribution where the covariances
             are (optionally) in the q-batch dim.
     Returns:
         A tensor of shape ``batch_shape x dist_shape`` denoting the KL-divergence
         between the multivariate Gaussian distributions p and q.
     """
-    p_inv_covar = torch.inverse(p_covar)
+    p_inv_covar = torch.linalg.inv(p_covar)
     mean_diff = p_mean - q_mean
     kl_first_term = torch.diagonal(
         torch.matmul(p_inv_covar, q_covar), dim1=-2, dim2=-1
@@ -53,17 +53,17 @@ def mvn_hellinger_distance(
     Args:
         p_mean: A ``batch_shape x dist_shape x 1``-dim Tensor of means of
             the first distribution.
-        q_mean: A ``batch_shape x dist_shape x dist_shape``-dim Tensor of
-            covariances of the first distribution,  where the covariances
+        p_covar: A ``batch_shape x dist_shape x dist_shape``-dim Tensor of
+            covariances of the first distribution, where the covariances
             are (optionally) in the q-batch dim.
-        p_mean: A ``batch_shape x dist_shape x 1``-dim Tensor of means of
+        q_mean: A ``batch_shape x dist_shape x 1``-dim Tensor of means of
             the second distribution.
-        q_mean: A ``batch_shape x dist_shape x dist_shape``-dim Tensor of
+        q_covar: A ``batch_shape x dist_shape x dist_shape``-dim Tensor of
             covariances of the second distribution where the covariances
             are (optionally) in the q-batch dim.
     Returns:
-        A tensor of shape ``batch_shape x dist_shape`` denoting the KL-divergence
-        between the multivariate Gaussian distributions p and q.
+        A tensor of shape ``batch_shape x dist_shape`` denoting the Hellinger
+        distance between the multivariate Gaussian distributions p and q.
     """
     p_logdet = torch.logdet(p_covar).unsqueeze(-1)
     q_logdet = torch.logdet(q_covar).unsqueeze(-1)
@@ -71,7 +71,6 @@ def mvn_hellinger_distance(
 
     # we need to re-use the cholesky decomp, so we compute it once here
     L_avg = torch.linalg.cholesky(avg_covar)
-    L_inv = torch.inverse(L_avg)
 
     # removes one dimension, which needs to be recouped
     pq_logdet = (
@@ -82,7 +81,9 @@ def mvn_hellinger_distance(
     base_logterm = 0.25 * (p_logdet + q_logdet) - 0.5 * pq_logdet
 
     mean_diff = p_mean - q_mean
-    L_mean_diff = torch.matmul(L_inv, mean_diff)
+    # Use solve_triangular instead of computing the full inverse of L_avg,
+    # since we only need L_avg^{-1} @ mean_diff. This is O(n^2) vs O(n^3).
+    L_mean_diff = torch.linalg.solve_triangular(L_avg, mean_diff, upper=False)
     exp_logterm = -0.125 * torch.matmul(L_mean_diff.transpose(-2, -1), L_mean_diff)
     sq_hdist = 1 - (base_logterm + exp_logterm.squeeze(-1)).exp()
     return sq_hdist.clamp_min(0.0).sqrt()

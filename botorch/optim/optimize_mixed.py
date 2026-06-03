@@ -872,7 +872,15 @@ def continuous_step(
     options = opt_inputs.options or {}
     non_cont_dims = torch.cat((discrete_dims, cat_dims), dim=0)
 
-    if len(non_cont_dims) == d:  # nothing continuous to optimize
+    # Check if all features are fixed (discrete/cat dims + user fixed features).
+    # The user's fixed_features may cover additional continuous dims, so we need
+    # to account for both. Note: user fixed features on discrete/cat dims are
+    # already filtered out in optimize_acqf_mixed_alternating, so there's no
+    # double-counting.
+    n_fixed = len(non_cont_dims)
+    if opt_inputs.fixed_features is not None:
+        n_fixed += len(opt_inputs.fixed_features)
+    if n_fixed >= d:  # nothing continuous to optimize
         with torch.no_grad():
             return current_x, opt_inputs.acq_function(current_x.unsqueeze(1))
 
@@ -911,7 +919,8 @@ def optimize_acqf_mixed_alternating(
     fixed_features: dict[int, float] | None = None,
     inequality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
     equality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
-) -> tuple[Tensor, Tensor]:
+    return_acq_values: bool = True,
+) -> tuple[Tensor, Tensor | None]:
     r"""
     Optimizes acquisition function over mixed integer, categorical, and continuous
     input spaces. Multiple random restarting starting points are picked by evaluating
@@ -979,10 +988,12 @@ def optimize_acqf_mixed_alternating(
             ``coefficients`` should be torch tensors. Example:
             ``[(torch.tensor([1, 3]), torch.tensor([1.0, 0.5]), -0.1)]`` Equality
             constraints can only be used with continuous degrees of freedom.
+        return_acq_values: Return acquisition values.
 
     Returns:
         A tuple of two tensors: a (q x d)-dim tensor of optimized points
             and a (q)-dim tensor of their respective acquisition values.
+            Returns ``None`` for acquisition values if ``return_acq_values=False``.
     """
 
     if sequential is False:  # pragma: no cover
@@ -1067,6 +1078,7 @@ def optimize_acqf_mixed_alternating(
         # step and only return best, but this function itself only returns best
         gen_candidates=gen_candidates_scipy,
         sequential=sequential,  # only relevant if all dims are cont.
+        return_acq_values=True,  # Internal functions need acq values for logic
     )
     if sequential:
         # Sequential optimization requires return_best_only to be True
@@ -1095,6 +1107,7 @@ def optimize_acqf_mixed_alternating(
             opt_inputs=dataclasses.replace(
                 opt_inputs,
                 return_best_only=True,
+                return_acq_values=return_acq_values,
             )
         )
     if not (
@@ -1169,6 +1182,9 @@ def optimize_acqf_mixed_alternating(
 
     if post_processing_func is not None:
         candidates = post_processing_func(candidates)
+
+    if not return_acq_values:
+        return candidates, None
 
     with torch.no_grad():
         acq_value = acq_function(candidates)  # compute joint acquisition value

@@ -45,6 +45,7 @@ from botorch.models.utils.gpytorch_modules import (
     get_covar_module_with_dim_scaled_prior,
     MIN_INFERRED_NOISE_LEVEL,
 )
+from botorch.models.utils.priors import BetaPrior
 from botorch.posteriors.multitask import MultitaskGPPosterior
 from botorch.utils.datasets import MultiTaskDataset, SupervisedDataset
 from botorch.utils.types import _DefaultType, DEFAULT
@@ -146,6 +147,9 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
     different noise levels for the different tasks.
     """
 
+    _supports_batched_models = False
+    _supports_cache_root = False
+
     def __init__(
         self,
         train_X: Tensor,
@@ -155,7 +159,7 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
         mean_module: Module | None = None,
         covar_module: Module | None = None,
         likelihood: Likelihood | None = None,
-        task_covar_prior: Prior | None = None,
+        task_covar_prior: Prior | _DefaultType | None = DEFAULT,
         output_tasks: list[int] | None = None,
         rank: int | None = None,
         all_tasks: list[int] | None = None,
@@ -186,8 +190,9 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
                 outputs for. If omitted, return outputs for all task indices.
             rank: The rank to be used for the index kernel. If omitted, use a
                 full rank (i.e. number of tasks) kernel.
-            task_covar_prior : A Prior on the task covariance matrix. Must operate
-                on p.s.d. matrices. A common prior for this is the ``LKJ`` prior.
+            task_covar_prior : A Prior on the task covariance matrix. Defaults to
+                ``BetaPrior(2.5, 1.5)`` which biases task correlations toward
+                positive values. Pass ``None`` to use no prior.
             all_tasks: By default, multi-task GPs infer the list of all tasks from
                 the task features in ``train_X``. This is an experimental feature that
                 enables creation of multi-task GPs with tasks that don't appear in the
@@ -327,6 +332,8 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
                 data_covar_module.active_dims = self._base_idxr
 
         self._rank = rank if rank is not None else self.num_tasks
+        if task_covar_prior is DEFAULT:
+            task_covar_prior = BetaPrior(concentration1=2.5, concentration0=1.5)
         task_covar_module = PositiveIndexKernel(
             num_tasks=self.num_tasks,
             rank=self._rank,
@@ -476,9 +483,10 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
         training_data: SupervisedDataset | MultiTaskDataset,
         task_feature: int,
         output_tasks: list[int] | None = None,
-        task_covar_prior: Prior | None = None,
+        task_covar_prior: Prior | _DefaultType | None = DEFAULT,
         prior_config: dict | None = None,
         rank: int | None = None,
+        map_heterogeneous_to_full: bool = False,
     ) -> dict[str, Any]:
         r"""Construct ``Model`` keyword arguments from a dataset and other args.
 
@@ -488,14 +496,27 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
             output_tasks: A list of task indices for which to compute model
                 outputs for. If omitted, return outputs for all task indices.
             task_covar_prior: A GPyTorch ``Prior`` object to use as prior on
-                the cross-task covariance matrix,
+                the cross-task covariance matrix. Defaults to ``DEFAULT``
+                which uses ``BetaPrior(2.5, 1.5)`` in the model. Pass
+                ``None`` to use no prior.
             prior_config: Configuration for inter-task covariance prior.
                 Should only be used if ``task_covar_prior`` is not passed directly.
                 Must contain ``use_LKJ_prior`` indicator and should contain float
                 value ``eta``.
             rank: The rank of the cross-task covariance matrix.
+            map_heterogeneous_to_full: If True and ``training_data`` is a
+                ``MultiTaskDataset`` with heterogeneous features, zero-pad each
+                task's features into the union feature space and concatenate into
+                a single ``train_X`` tensor. The zero-padded entries are intended
+                to be overwritten by a ``LearnedFeatureImputation`` input
+                transform. If False (default), heterogeneous features will raise
+                ``UnsupportedError`` via ``training_data.X``.
         """
-        if task_covar_prior is not None and prior_config is not None:
+        if (
+            task_covar_prior is not DEFAULT
+            and task_covar_prior is not None
+            and prior_config is not None
+        ):
             raise ValueError(
                 "Only one of `task_covar_prior` and `prior_config` arguments expected."
             )
@@ -512,6 +533,50 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
                 raise ValueError(f"eta must be a real number, your eta was {eta}.")
             task_covar_prior = LKJCovariancePrior(num_tasks, eta, sd_prior)
 
+        # Handle heterogeneous MultiTaskDataset by zero-padding into the union
+        # feature space. This branch bypasses super().construct_inputs() since
+        # training_data.X would raise UnsupportedError.
+        if (
+            map_heterogeneous_to_full
+            and isinstance(training_data, MultiTaskDataset)
+            and training_data.has_heterogeneous_features
+        ):
+            all_datasets, feature_indices, full_feature_dim = (
+                training_data.get_heterogeneous_feature_mapping()
+            )
+
+            # Zero-pad each task's X into the full feature space + task column.
+            all_Xs = []
+            for task_idx, (ds, fi) in enumerate(
+                zip(all_datasets, feature_indices, strict=True)
+            ):
+                X_task = ds.X[..., :-1]  # strip task feature column
+                X_full = torch.zeros(
+                    *X_task.shape[:-1],
+                    full_feature_dim + 1,
+                    dtype=X_task.dtype,
+                    device=X_task.device,
+                )
+                X_full[..., fi] = X_task
+                X_full[..., -1] = task_idx
+                all_Xs.append(X_full)
+
+            all_Yvars = [ds.Yvar for ds in all_datasets]
+            base_inputs: dict[str, Any] = {
+                "train_X": torch.cat(all_Xs, dim=0),
+                "train_Y": torch.cat([ds.Y for ds in all_datasets], dim=0),
+            }
+            if all_Yvars[0] is not None:
+                base_inputs["train_Yvar"] = torch.cat(all_Yvars, dim=0)
+            base_inputs["task_feature"] = -1
+            base_inputs["all_tasks"] = list(range(len(all_datasets)))
+            base_inputs["output_tasks"] = output_tasks
+            if task_covar_prior is not DEFAULT:
+                base_inputs["task_covar_prior"] = task_covar_prior
+            if rank is not None:
+                base_inputs["rank"] = rank
+            return base_inputs
+
         # Call Model.construct_inputs to parse training data
         base_inputs = super().construct_inputs(training_data=training_data)
         if (
@@ -522,7 +587,7 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
         ):
             all_tasks = list(range(len(training_data.datasets)))
             base_inputs["all_tasks"] = all_tasks
-        if task_covar_prior is not None:
+        if task_covar_prior is not DEFAULT:
             base_inputs["task_covar_prior"] = task_covar_prior
         if rank is not None:
             base_inputs["rank"] = rank
@@ -562,6 +627,8 @@ class KroneckerMultiTaskGP(ExactGP, GPyTorchModel, FantasizeMixin):
         >>> model = KroneckerMultiTaskGP(train_X, train_Y)
     """
 
+    _supports_cache_root = False
+
     def __init__(
         self,
         train_X: Tensor,
@@ -579,7 +646,7 @@ class KroneckerMultiTaskGP(ExactGP, GPyTorchModel, FantasizeMixin):
             train_X: A ``batch_shape x n x d`` tensor of training features.
             train_Y: A ``batch_shape x n x m`` tensor of training observations.
             likelihood: A ``MultitaskGaussianLikelihood``. If omitted, uses a
-                ``MultitaskGaussianLikelihood`` with a ``GammaPrior(1.1, 0.05)``
+                ``MultitaskGaussianLikelihood`` with a ``LogNormalPrior(-4, 1)``
                 noise prior.
             data_covar_module: The module computing the covariance (Kernel) matrix
                 in data space. If omitted, uses an ``RBFKernel``.

@@ -24,6 +24,7 @@ from botorch.models.transforms.utils import (
     norm_to_lognorm_variance,
 )
 from botorch.posteriors import GPyTorchPosterior, TransformedPosterior
+from botorch.posteriors.fully_bayesian import GaussianMixturePosterior
 from botorch.utils.testing import BotorchTestCase
 from gpytorch.distributions import MultitaskMultivariateNormal, MultivariateNormal
 from gpytorch.settings import min_variance
@@ -355,6 +356,55 @@ class TestOutcomeTransforms(BotorchTestCase):
             with self.assertRaises(NotImplementedError):
                 tf.untransform_posterior(None)
 
+    def test_standardize_untransform_gaussian_mixture_posterior(self) -> None:
+        """Test Standardize.untransform_posterior with GaussianMixturePosterior.
+
+        Verifies that when a GaussianMixturePosterior (from ensemble/fully Bayesian
+        models) is passed to Standardize.untransform_posterior, the return type is
+        GaussianMixturePosterior (not TransformedPosterior), and mixture_mean/
+        mixture_variance are accessible and correctly rescaled.
+        """
+
+        # Create a batched MVN simulating MCMC samples: num_mcmc x n x 1
+        num_mcmc, n = 5, 10
+        mean = torch.randn(num_mcmc, n, 1)
+        var = torch.rand(num_mcmc, n, 1).clamp(min=0.01)
+        mvn = MultivariateNormal(
+            mean=mean.squeeze(-1),
+            covariance_matrix=DiagLinearOperator(var.squeeze(-1)),
+        )
+        gmp = GaussianMixturePosterior(distribution=mvn)
+
+        # Verify mixture stats are available before untransform
+        self.assertEqual(gmp.mixture_mean.shape, torch.Size([n, 1]))
+
+        # Fit a Standardize transform
+        Y = torch.randn(n, 1)
+        tf = Standardize(m=1)
+        tf.train()
+        tf(Y)
+        tf.eval()
+
+        # Untransform should preserve the GaussianMixturePosterior type
+        result = tf.untransform_posterior(gmp)
+        self.assertIsInstance(result, GaussianMixturePosterior)
+        self.assertNotIsInstance(result, TransformedPosterior)
+
+        # Per-member statistics should be accessible
+        self.assertEqual(result.mean.shape, torch.Size([num_mcmc, n, 1]))
+        self.assertEqual(result.variance.shape, torch.Size([num_mcmc, n, 1]))
+
+        # Mixture statistics should be accessible
+        self.assertEqual(result.mixture_mean.shape, torch.Size([n, 1]))
+        self.assertEqual(result.mixture_variance.shape, torch.Size([n, 1]))
+        self.assertTrue((result.mixture_variance > 0).all())
+
+        # Verify mean is correctly rescaled: result.mean ≈ stdvs * input.mean + means
+        expected_mean = tf.means.squeeze(-1) + tf.stdvs.squeeze(-1) * mean.squeeze(-1)
+        self.assertAllClose(
+            result.mean.squeeze(-1), expected_mean, rtol=1e-5, atol=1e-5
+        )
+
     def test_standardize_state_dict(self):
         for m in (1, 2):
             with self.subTest(m=2):
@@ -597,17 +647,23 @@ class TestOutcomeTransforms(BotorchTestCase):
             self.assertTrue(torch.equal(Y_tf[..., [0]], Y_tf_subset))
             self.assertIsNone(Yvar_tf_subset)
 
-            # test error if observation noise present
+            # test with observation noise (delta method)
             tf = Log()
-            Y = torch.rand(*batch_shape, 3, m, device=self.device, dtype=dtype)
+            Y = 1e-2 + torch.rand(*batch_shape, 3, m, device=self.device, dtype=dtype)
             Yvar = 1e-8 + torch.rand(
                 *batch_shape, 3, m, device=self.device, dtype=dtype
             )
-            with self.assertRaises(NotImplementedError):
-                tf(Y, Yvar)
+            Y_tf, Yvar_tf = tf(Y, Yvar)
+            self.assertTrue(tf.training)
+            self.assertAllClose(Y_tf, torch.log(Y))
+            # Delta method: Var[log(Y)] ≈ Var[Y] / Y^2
+            self.assertAllClose(Yvar_tf, Yvar / Y.pow(2))
             tf.eval()
-            with self.assertRaises(NotImplementedError):
-                tf.untransform(Y, Yvar)
+            self.assertFalse(tf.training)
+            Y_utf, Yvar_utf = tf.untransform(Y_tf, Yvar_tf)
+            self.assertAllClose(Y_utf, Y)
+            # Reverse: Var[Y] = Var[log(Y)] * exp(2 * log(Y)) = Var[log(Y)] * Y^2
+            self.assertAllClose(Yvar_utf, Yvar)
 
             # untransform_posterior
             tf = Log()
@@ -661,14 +717,22 @@ class TestOutcomeTransforms(BotorchTestCase):
             with self.assertRaises(NotImplementedError):
                 tf_subset = tf.subset_output(idcs=[0])
 
-            # with observation noise
+            # with observation noise (subset of outputs)
             tf = Log(outputs=outputs)
-            Y = torch.rand(*batch_shape, 3, m, device=self.device, dtype=dtype)
+            Y = 1e-2 + torch.rand(*batch_shape, 3, m, device=self.device, dtype=dtype)
             Yvar = 1e-8 + torch.rand(
                 *batch_shape, 3, m, device=self.device, dtype=dtype
             )
-            with self.assertRaises(NotImplementedError):
-                tf(Y, Yvar)
+            Y_tf, Yvar_tf = tf(Y, Yvar)
+            # output 0 should be untransformed, output 1 should be transformed
+            self.assertAllClose(Y_tf[..., 0], Y[..., 0])
+            self.assertAllClose(Y_tf[..., 1], torch.log(Y[..., 1]))
+            self.assertAllClose(Yvar_tf[..., 0], Yvar[..., 0])
+            self.assertAllClose(Yvar_tf[..., 1], Yvar[..., 1] / Y[..., 1].pow(2))
+            tf.eval()
+            Y_utf, Yvar_utf = tf.untransform(Y_tf, Yvar_tf)
+            self.assertAllClose(Y_utf, Y)
+            self.assertAllClose(Yvar_utf, Yvar)
 
             # error on untransform_posterior
             with self.assertRaises(NotImplementedError):
@@ -722,13 +786,17 @@ class TestOutcomeTransforms(BotorchTestCase):
             with self.assertRaises(RuntimeError):
                 tf.subset_output(idcs=[0, 1, 2])
 
-            # test error if observation noise present
-            Y = torch.rand(*batch_shape, 3, m, device=self.device, dtype=dtype)
+            # test observation noise is propagated through chained transform
+            Y = 1e-2 + torch.rand(*batch_shape, 3, m, device=self.device, dtype=dtype)
             Yvar = 1e-8 + torch.rand(
                 *batch_shape, 3, m, device=self.device, dtype=dtype
             )
-            with self.assertRaises(NotImplementedError):
-                tf(Y, Yvar)
+            tf1 = Log()
+            tf2 = Standardize(m=m, batch_shape=batch_shape)
+            tf = ChainedOutcomeTransform(log=tf1, standardize=tf2)
+            Y_tf, Yvar_tf = tf(Y, Yvar)
+            self.assertEqual(Y_tf.shape, Y.shape)
+            self.assertEqual(Yvar_tf.shape, Yvar.shape)
 
             # untransform_posterior
             tf1 = Log()
@@ -781,15 +849,19 @@ class TestOutcomeTransforms(BotorchTestCase):
             torch.allclose(Y_utf, Y)
             self.assertIsNone(Yvar_utf)
 
-            # with observation noise
-            Y = torch.rand(*batch_shape, 3, m, device=self.device, dtype=dtype)
+            # with observation noise (subset outputs)
+            Y = 1e-2 + torch.rand(*batch_shape, 3, m, device=self.device, dtype=dtype)
             Yvar = 1e-8 + torch.rand(
                 *batch_shape, 3, m, device=self.device, dtype=dtype
             )
-            with self.assertRaises(NotImplementedError):
-                tf(Y, Yvar)
+            tf1 = Log(outputs=outputs)
+            tf2 = Standardize(m=m, outputs=outputs, batch_shape=batch_shape)
+            tf = ChainedOutcomeTransform(log=tf1, standardize=tf2)
+            Y_tf, Yvar_tf = tf(Y, Yvar)
+            self.assertEqual(Y_tf.shape, Y.shape)
+            self.assertEqual(Yvar_tf.shape, Yvar.shape)
 
-            # error on untransform_posterior
+            # error on untransform_posterior (subset outputs not supported)
             with self.assertRaises(NotImplementedError):
                 tf.untransform_posterior(None)
 

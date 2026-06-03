@@ -491,6 +491,31 @@ class TestDatasets(BotorchTestCase):
             MultiTaskDataset(datasets=[dataset_1, dataset_5], target_outcome_name="z"),
         )
 
+    def test_get_heterogeneous_feature_mapping(self):
+        ds_target = make_dataset(
+            d=3, feature_names=["a", "b", "task"], outcome_names=["y"]
+        )
+        ds_source = make_dataset(
+            d=3, feature_names=["a", "c", "task"], outcome_names=["z"]
+        )
+        mt_err = MultiTaskDataset(
+            datasets=[ds_target, ds_source],
+            target_outcome_name="y",
+            task_feature_index=0,
+        )
+        with self.assertRaises(NotImplementedError):
+            mt_err.get_heterogeneous_feature_mapping()
+
+        mt = MultiTaskDataset(
+            datasets=[ds_target, ds_source],
+            target_outcome_name="y",
+            task_feature_index=-1,
+        )
+        all_datasets, feature_indices, full_dim = mt.get_heterogeneous_feature_mapping()
+        self.assertEqual(len(all_datasets), 2)
+        self.assertEqual(full_dim, 3)
+        self.assertEqual(feature_indices, [[0, 1], [0, 2]])
+
     def test_clone_multitask(self) -> None:
         for has_yvar in [False, True]:
             dataset_1 = make_dataset(outcome_names=["y"], has_yvar=has_yvar)

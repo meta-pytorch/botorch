@@ -38,7 +38,6 @@ from typing import Any, Self
 
 import torch
 from botorch.exceptions.errors import UnsupportedError
-from botorch.fit import FitGPyTorchMLL
 from botorch.models import SingleTaskGP
 from botorch.models.likelihoods.sparse_outlier_noise import (
     SparseOutlierGaussianLikelihood,
@@ -157,6 +156,103 @@ class RobustRelevancePursuitMixin(ABC):
         self.load_state_dict(standard_model.state_dict())
         return self
 
+    def custom_fit(
+        self,
+        mll: MarginalLogLikelihood,
+        *,
+        numbers_of_outliers: list[int] | None = None,
+        fractions_of_outliers: list[float] | None = None,
+        timeout_sec: float | None = None,
+        relevance_pursuit_optimizer: Callable = backward_relevance_pursuit,
+        reset_parameters: bool = True,
+        reset_dense_parameters: bool = False,
+        closure: Callable[[], tuple[Tensor, Sequence[Tensor | None]]] | None = None,
+        optimizer: Callable | None = None,
+        closure_kwargs: dict[str, Any] | None = None,
+        optimizer_kwargs: Mapping[str, Any] | None = None,
+    ) -> MarginalLogLikelihood:
+        """Fits a RobustRelevancePursuitGP model using the given marginal likelihood.
+
+        For details, see [Ament2024pursuit]_ or https://arxiv.org/abs/2410.24222.
+
+        Args:
+            mll: The marginal likelihood to fit.
+            numbers_of_outliers: An optional list of numbers of outliers to consider
+                during relevance pursuit. By default, the algorithm falls back to a
+                default list of fractions of outliers, see below.
+            fractions_of_outliers: An optional list of fractions of outliers to
+                consider if numbers_of_outliers is None. By default, the algorithm
+                uses ``[0, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0]``.
+            relevance_pursuit_optimizer: The relevance pursuit optimizer to use.
+            reset_parameters: If True, reset sparse parameters after each iteration.
+            reset_dense_parameters: If True, reset dense parameters after each
+                iteration.
+            closure: A closure to compute loss and gradients.
+            optimizer: The numerical optimizer.
+            closure_kwargs: Additional arguments to pass to the closure.
+            optimizer_kwargs: Additional arguments to pass to fit_gpytorch_mll.
+
+        Returns:
+            The fitted marginal likelihood.
+        """
+        if isinstance(mll, _ApproximateMarginalLogLikelihood):
+            raise UnsupportedError(
+                "Relevance Pursuit does not yet support approximate inference. "
+            )
+
+        sparse_module = SparseOutlierNoise._from_model(mll.model)
+        n = sparse_module.dim  # equal to the number of training data points
+
+        if numbers_of_outliers is None:
+            if fractions_of_outliers is None:
+                fractions_of_outliers = FRACTIONS_OF_OUTLIERS
+
+            # list from which BMC chooses
+            numbers_of_outliers = [int(p * n) for p in fractions_of_outliers]
+
+        optimizer_kwargs_: dict[str, Any] = (
+            {} if optimizer_kwargs is None else dict(optimizer_kwargs)
+        )
+        if timeout_sec is not None:
+            optimizer_kwargs_["timeout_sec"] = timeout_sec / len(numbers_of_outliers)
+
+        # Need to convert model to avoid recursion through fit_gpytorch_mll,
+        # since relevance pursuit expects to call the base fit_gpytorch_mll.
+        original_model = mll.model  # Robust Relevance Pursuit Model
+        mll.model = original_model.to_standard_model()
+        sparse_module = SparseOutlierNoise._from_model(mll.model)
+        sparse_module, model_trace = relevance_pursuit_optimizer(
+            sparse_module=sparse_module,
+            mll=mll,
+            sparsity_levels=numbers_of_outliers,
+            reset_parameters=reset_parameters,
+            reset_dense_parameters=reset_dense_parameters,
+            record_model_trace=True,
+            # These are the args of the canonical mll fit routine
+            closure=closure,
+            optimizer=optimizer,
+            closure_kwargs=closure_kwargs,
+            optimizer_kwargs=optimizer_kwargs_,
+        )
+
+        # Bayesian model comparison
+        bmc_support_sizes, bmc_probabilities = get_posterior_over_support(
+            SparseOutlierNoise,
+            model_trace,
+            prior_mean_of_support=original_model.prior_mean_of_support,
+        )
+        map_index = torch.argmax(bmc_probabilities)
+        map_model = model_trace[map_index]  # choosing model with highest BMC score
+        # overwrite mll.model with chosen model
+        mll.model = original_model  # first restore original model pointer
+        mll.model.load_standard_model(map_model)
+        # Store the bmc results
+        mll.model.bmc_support_sizes = bmc_support_sizes
+        mll.model.bmc_probabilities = bmc_probabilities
+        if mll.model.cache_model_trace:
+            mll.model.model_trace = model_trace
+        return mll
+
 
 class RobustRelevancePursuitSingleTaskGP(SingleTaskGP, RobustRelevancePursuitMixin):
     def __init__(
@@ -252,127 +348,3 @@ class RobustRelevancePursuitSingleTaskGP(SingleTaskGP, RobustRelevancePursuitMix
         if not is_training:
             model.eval()
         return model
-
-
-@FitGPyTorchMLL.register(
-    MarginalLogLikelihood,
-    SparseOutlierGaussianLikelihood,
-    RobustRelevancePursuitMixin,
-)
-def _fit_rrp(
-    mll: MarginalLogLikelihood,
-    _: type[SparseOutlierGaussianLikelihood],
-    __: type[RobustRelevancePursuitMixin],
-    *,
-    numbers_of_outliers: list[int] | None = None,
-    fractions_of_outliers: list[float] | None = None,
-    timeout_sec: float | None = None,
-    relevance_pursuit_optimizer: Callable = backward_relevance_pursuit,
-    reset_parameters: bool = True,
-    reset_dense_parameters: bool = False,
-    # fit_gpytorch_mll kwargs
-    closure: Callable[[], tuple[Tensor, Sequence[Tensor | None]]] | None = None,
-    optimizer: Callable | None = None,
-    closure_kwargs: dict[str, Any] | None = None,
-    optimizer_kwargs: Mapping[str, Any] | None = None,
-) -> MarginalLogLikelihood:
-    """Fits a RobustRelevancePursuitGP model using the given marginal likelihood.
-
-    For details, see [Ament2024pursuit]_ or https://arxiv.org/abs/2410.24222.
-
-    Args:
-        mll: The marginal likelihood to fit.
-        _: A likelihood, only directly used for dispatching.
-        _: A model, only directly used for dispatching.
-        numbers_of_outliers: An optional list of numbers of outliers to consider during
-            relevance pursuit. By default, the algorithm falls back to a default list
-            of fractions of outliers, see below.
-        fractions_of_outliers: An optional list of fractions of outliers to consider if
-            numbers_of_outliers is None. By default, the algorithm uses
-            ``[0, 0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0]``.
-        relevance_pursuit_optimizer: The relevance pursuit optimizer to use. By default,
-            uses ``backward_relevance_pursuit``, which is generally the most powerful
-            algorithm for challenging problems with a wide range of outliers. The
-            ``forward_relevance_pursuit`` algorithm can be efficient when the number of
-            outliers is relatively small.
-        reset_parameters: If True, we will reset the sparse parameters of the model
-            after each iteration of the relevance pursuit algorithm.
-        reset_dense_parameters: If True, we will reset the dense parameters of the model
-            after each iteration of the relevance pursuit algorithm.
-        closure: A closure to use to compute the loss and the gradients, see docstring
-            of ``fit_gpytorch_mll`` for details.
-        optimizer: The numerical optimizer, see docstring of ``fit_gpytorch_mll``.
-        closure_kwargs: Additional arguments to pass to the ``closure`` function.
-        optimizer_kwargs: Additional arguments to pass to ``fit_gpytorch_mll``.
-
-    Returns:
-        The fitted marginal likelihood.
-    """
-    sparse_module = SparseOutlierNoise._from_model(mll.model)
-    n = sparse_module.dim  # equal to the number of training data points
-
-    if numbers_of_outliers is None:
-        if fractions_of_outliers is None:
-            fractions_of_outliers = FRACTIONS_OF_OUTLIERS
-
-        # list from which BMC chooses
-        numbers_of_outliers = [int(p * n) for p in fractions_of_outliers]
-
-    optimizer_kwargs_: dict[str, Any] = (
-        {} if optimizer_kwargs is None else dict(optimizer_kwargs)
-    )
-    if timeout_sec is not None:
-        optimizer_kwargs_["timeout_sec"] = timeout_sec / len(numbers_of_outliers)
-
-    # Need to convert model to avoid recursion through fit_gpytorch_mll dispatch, since
-    # relevance pursuit expects to call the base fit_gpytorch_mll.
-    original_model = mll.model  # Robust Relevance Pursuit Model
-    mll.model = original_model.to_standard_model()
-    sparse_module = SparseOutlierNoise._from_model(mll.model)
-    sparse_module, model_trace = relevance_pursuit_optimizer(
-        sparse_module=sparse_module,
-        mll=mll,
-        sparsity_levels=numbers_of_outliers,
-        reset_parameters=reset_parameters,
-        reset_dense_parameters=reset_dense_parameters,
-        record_model_trace=True,
-        # These are the args of the canonical mll fit routine
-        closure=closure,
-        optimizer=optimizer,
-        closure_kwargs=closure_kwargs,
-        optimizer_kwargs=optimizer_kwargs_,
-    )
-
-    # Bayesian model comparison
-    bmc_support_sizes, bmc_probabilities = get_posterior_over_support(
-        SparseOutlierNoise,
-        model_trace,
-        prior_mean_of_support=original_model.prior_mean_of_support,
-    )
-    map_index = torch.argmax(bmc_probabilities)
-    map_model = model_trace[map_index]  # choosing model with highest BMC score
-    # overwrite mll.model with chosen model
-    mll.model = original_model  # first restore original model pointer
-    mll.model.load_standard_model(map_model)
-    # Store the bmc results
-    mll.model.bmc_support_sizes = bmc_support_sizes
-    mll.model.bmc_probabilities = bmc_probabilities
-    if mll.model.cache_model_trace:
-        mll.model.model_trace = model_trace
-    return mll
-
-
-@FitGPyTorchMLL.register(
-    _ApproximateMarginalLogLikelihood,
-    SparseOutlierGaussianLikelihood,
-    RobustRelevancePursuitMixin,
-)
-def _fit_rrp_approximate_mll(
-    mll: _ApproximateMarginalLogLikelihood,
-    _: type[SparseOutlierGaussianLikelihood],
-    __: type[RobustRelevancePursuitMixin],
-    **kwargs: Any,
-) -> None:
-    raise UnsupportedError(
-        "Relevance Pursuit does not yet support approximate inference. "
-    )

@@ -49,6 +49,7 @@ from botorch.models.utils.inducing_point_allocators import (
     InducingPointAllocator,
 )
 from botorch.posteriors.gpytorch import GPyTorchPosterior
+from botorch.posteriors.torch import TorchPosterior
 from gpytorch.distributions import MultivariateNormal
 from gpytorch.kernels import Kernel
 from gpytorch.likelihoods import (
@@ -150,7 +151,7 @@ class ApproximateGPyTorchModel(GPyTorchModel):
         output_indices: list[int] | None = None,
         observation_noise: bool = False,
         posterior_transform: PosteriorTransform | None = None,
-    ) -> GPyTorchPosterior:
+    ) -> TorchPosterior:
         if output_indices is not None:
             raise NotImplementedError(  # pragma: no cover
                 f"{self.__class__.__name__}.posterior does not support output indices."
@@ -170,7 +171,10 @@ class ApproximateGPyTorchModel(GPyTorchModel):
         if observation_noise:
             dist = self.likelihood(dist)
 
-        posterior = GPyTorchPosterior(distribution=dist)
+        if isinstance(dist, MultivariateNormal):
+            posterior = GPyTorchPosterior(distribution=dist)
+        else:
+            posterior = TorchPosterior(distribution=dist)
         if hasattr(self, "outcome_transform"):
             posterior = self.outcome_transform.untransform_posterior(posterior, X=X)
         if posterior_transform is not None:

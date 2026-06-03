@@ -4,8 +4,16 @@
     "title": "BO with Binary Black-box Constraint"
   },
   {
+    "id": "furbo",
+    "title": "Feasibility-driven Trust Region Bayesian Optimization (FuRBO)"
+  },
+  {
     "id": "hentropy_search",
     "title": "H-Entropy Search"
+  },
+  {
+    "id": "local_entropy_search",
+    "title": "Local Entropy Search"
   },
   {
     "id": "multi_source_bo",

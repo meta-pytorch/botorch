@@ -22,6 +22,7 @@ References
 
 from __future__ import annotations
 
+import logging
 import warnings
 from abc import ABC, abstractmethod
 from collections import OrderedDict
@@ -34,10 +35,17 @@ from botorch.models.transforms.utils import (
 )
 from botorch.models.utils.assorted import get_task_value_remapping
 from botorch.posteriors import GPyTorchPosterior, Posterior, TransformedPosterior
+from botorch.posteriors.fully_bayesian import GaussianMixturePosterior
 from botorch.utils.transforms import normalize_indices
-from linear_operator.operators import CholLinearOperator, DiagLinearOperator
+from linear_operator.operators import (
+    CholLinearOperator,
+    DiagLinearOperator,
+    TriangularLinearOperator,
+)
 from torch import Tensor
 from torch.nn import Module, ModuleDict
+
+logger: logging.Logger = logging.getLogger(__name__)
 
 
 class OutcomeTransform(Module, ABC):
@@ -433,8 +441,9 @@ class Standardize(OutcomeTransform):
 
         Returns:
             The un-standardized posterior. If the input posterior is a
-            ``GPyTorchPosterior``, return a ``GPyTorchPosterior``. Otherwise, return a
-            ``TransformedPosterior``.
+            ``GPyTorchPosterior`` or ``GaussianMixturePosterior``, return
+            the same type with analytically rescaled distribution. Otherwise,
+            return a ``TransformedPosterior``.
         """
         if self._outputs is not None:
             raise NotImplementedError(
@@ -448,7 +457,7 @@ class Standardize(OutcomeTransform):
                 "means and standard deviations need to be computed."
             )
         is_mtgp_posterior = False
-        if type(posterior) is GPyTorchPosterior:
+        if type(posterior) in (GPyTorchPosterior, GaussianMixturePosterior):
             is_mtgp_posterior = posterior._is_mt
         if not self._m == posterior._extended_shape()[-1] and not is_mtgp_posterior:
             raise RuntimeError(
@@ -457,7 +466,7 @@ class Standardize(OutcomeTransform):
                 f"{posterior._extended_shape()[-1]}."
             )
 
-        if type(posterior) is not GPyTorchPosterior:
+        if type(posterior) not in (GPyTorchPosterior, GaussianMixturePosterior):
             # fall back to TransformedPosterior
             # this applies to subclasses of GPyTorchPosterior like MultitaskGPPosterior
             return TransformedPosterior(
@@ -488,7 +497,9 @@ class Standardize(OutcomeTransform):
             or mvn._MultivariateNormal__unbroadcasted_scale_tril is not None
         ):
             # if already computed, we can save a lot of time using scale_tril
-            covar_tf = CholLinearOperator(mvn.scale_tril * scale_fac.unsqueeze(-1))
+            covar_tf = CholLinearOperator(
+                TriangularLinearOperator(mvn.scale_tril * scale_fac.unsqueeze(-1))
+            )
         else:
             lcv = mvn.lazy_covariance_matrix
             scale_fac = scale_fac.expand(lcv.shape[:-1])
@@ -497,7 +508,7 @@ class Standardize(OutcomeTransform):
 
         kwargs = {"interleaved": mvn._interleaved} if posterior._is_mt else {}
         mvn_tf = mvn.__class__(mean=mean_tf, covariance_matrix=covar_tf, **kwargs)
-        return GPyTorchPosterior(mvn_tf)
+        return type(posterior)(mvn_tf)
 
 
 class StratifiedStandardize(Standardize):
@@ -712,8 +723,9 @@ class StratifiedStandardize(Standardize):
 
         Returns:
             The un-standardized posterior. If the input posterior is a
-            ``GPyTorchPosterior``, return a ``GPyTorchPosterior``. Otherwise, return a
-            ``TransformedPosterior``.
+            ``GPyTorchPosterior`` or ``GaussianMixturePosterior``, return
+            the same type with analytically rescaled distribution. Otherwise,
+            return a ``TransformedPosterior``.
         """
         if X is None:
             raise ValueError("X is required for StratifiedStandardize.")
@@ -726,6 +738,11 @@ class Log(OutcomeTransform):
     Useful if the targets are modeled using a (multivariate) log-Normal
     distribution. This means that we can use a standard GP model on the
     log-transformed outcomes and un-transform the model posterior of that GP.
+
+    When observation noise is provided, the variance is transformed using the
+    delta method approximation: Var[log(Y)] ≈ Var[Y] / Y^2. This assumes that
+    the observation noise is Gaussian in the log-transformed space, which
+    corresponds to log-normal observation noise in the original space.
     """
 
     def __init__(self, outputs: list[int] | None = None) -> None:
@@ -789,10 +806,18 @@ class Log(OutcomeTransform):
                 dim=-1,
             )
         if Yvar is not None:
-            # TODO: Delta method, possibly issue warning
-            raise NotImplementedError(
-                "Log does not yet support transforming observation noise"
-            )
+            # Delta method: Var[log(Y)] ≈ Var[Y] / Y^2
+            Yvar_tf = Yvar / Y.clamp(min=1e-8).pow(2)
+            if outputs is not None:
+                Yvar = torch.stack(
+                    [
+                        Yvar_tf[..., i] if i in outputs else Yvar[..., i]
+                        for i in range(Y.size(-1))
+                    ],
+                    dim=-1,
+                )
+            else:
+                Yvar = Yvar_tf
         return Y_tf, Yvar
 
     def untransform(
@@ -825,10 +850,24 @@ class Log(OutcomeTransform):
                 dim=-1,
             )
         if Yvar is not None:
-            # TODO: Delta method, possibly issue warning
-            raise NotImplementedError(
-                "Log does not yet support transforming observation noise"
+            # Reverse of delta method: Var[Y] = Var[log(Y)] * Y^2
+            # Since Y = exp(Y_log), this is Var[log(Y)] * exp(2 * Y_log)
+            logger.debug(
+                "Log.untransform: Reverse delta method for observation noise "
+                "is a lossy operation. The untransformed variance is an "
+                "approximation that may not exactly match the original variance."
             )
+            Yvar_utf = Yvar * torch.exp(2.0 * Y)
+            if outputs is not None:
+                Yvar = torch.stack(
+                    [
+                        Yvar_utf[..., i] if i in outputs else Yvar[..., i]
+                        for i in range(Y.size(-1))
+                    ],
+                    dim=-1,
+                )
+            else:
+                Yvar = Yvar_utf
         return Y_utf, Yvar
 
     def untransform_posterior(

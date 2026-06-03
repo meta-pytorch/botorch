@@ -26,6 +26,7 @@ from botorch.optim.parameter_constraints import (
     make_scipy_linear_constraints,
     make_scipy_nonlinear_inequality_constraints,
     nonlinear_constraint_is_feasible,
+    project_to_equality_constraints,
     project_to_feasible_space_via_slsqp,
 )
 from botorch.utils.testing import BotorchTestCase
@@ -711,6 +712,100 @@ class TestMakeScipyBounds(BotorchTestCase):
         self.assertIsInstance(bounds, Bounds)
         self.assertTrue(np.all(np.equal(bounds.lb, np.zeros((3, 1, 2)).flatten())))
         self.assertTrue(np.all(np.equal(bounds.ub, np.ones((3, 1, 2)).flatten())))
+
+
+class TestProjectToEqualityConstraints(BotorchTestCase):
+    def test_project_to_equality_constraints(self):
+        for dtype in (torch.float, torch.double):
+            # Test 1: Single equality constraint x[0] + x[1] = 1.0
+            X = torch.tensor(
+                [[[0.6, 0.6]]], dtype=dtype, device=self.device
+            )  # violates: sum = 1.2
+            eq_constraints = [
+                (
+                    torch.tensor([0, 1], device=self.device),
+                    torch.tensor([1.0, 1.0], dtype=dtype, device=self.device),
+                    1.0,
+                )
+            ]
+            projected = project_to_equality_constraints(X, eq_constraints)
+            # Check constraint is satisfied
+            self.assertAlmostEqual(
+                projected[..., 0].item() + projected[..., 1].item(), 1.0, places=6
+            )
+            # Check it's the closest point (equal correction to both dims)
+            self.assertAlmostEqual(projected[0, 0, 0].item(), 0.5, places=6)
+            self.assertAlmostEqual(projected[0, 0, 1].item(), 0.5, places=6)
+
+            # Test 2: Already feasible point
+            X_feasible = torch.tensor([[[0.3, 0.7]]], dtype=dtype, device=self.device)
+            projected = project_to_equality_constraints(X_feasible, eq_constraints)
+            self.assertAllClose(projected, X_feasible, atol=1e-6)
+
+            # Test 3: Multiple constraints
+            # x[0] + x[1] + x[2] = 1.0 and x[0] - x[1] = 0.0
+            X3 = torch.tensor([[[0.5, 0.3, 0.4]]], dtype=dtype, device=self.device)
+            eq_constraints_multi = [
+                (
+                    torch.tensor([0, 1, 2], device=self.device),
+                    torch.tensor([1.0, 1.0, 1.0], dtype=dtype, device=self.device),
+                    1.0,
+                ),
+                (
+                    torch.tensor([0, 1], device=self.device),
+                    torch.tensor([1.0, -1.0], dtype=dtype, device=self.device),
+                    0.0,
+                ),
+            ]
+            projected = project_to_equality_constraints(X3, eq_constraints_multi)
+            # Check both constraints
+            p = projected[0, 0]
+            self.assertAlmostEqual((p[0] + p[1] + p[2]).item(), 1.0, places=5)
+            self.assertAlmostEqual((p[0] - p[1]).item(), 0.0, places=5)
+
+            # Test 4: Batch of q-points
+            X_batch = torch.tensor(
+                [[[0.6, 0.6], [0.8, 0.8]]], dtype=dtype, device=self.device
+            )
+            projected = project_to_equality_constraints(X_batch, eq_constraints)
+            for j in range(2):
+                self.assertAlmostEqual(
+                    (projected[0, j, 0] + projected[0, j, 1]).item(),
+                    1.0,
+                    places=6,
+                )
+
+    def test_project_to_equality_constraints_skips_inter_point(self):
+        for dtype in (torch.float, torch.double):
+            inter_constraint = (
+                torch.tensor([[0, 0], [1, 1]], device=self.device),
+                torch.tensor([1.0, -1.0], dtype=dtype, device=self.device),
+                0.0,
+            )
+            intra_constraint = (
+                torch.tensor([0, 1], device=self.device),
+                torch.tensor([1.0, 1.0], dtype=dtype, device=self.device),
+                1.0,
+            )
+
+            # Only inter-point constraints: X should be returned unchanged.
+            X = torch.tensor([[[0.6, 0.6]]], dtype=dtype, device=self.device)
+            result = project_to_equality_constraints(X, [inter_constraint])
+            self.assertAllClose(result, X)
+
+            # Mixed: inter-point constraint should be skipped, intra applied.
+            projected = project_to_equality_constraints(
+                X, [intra_constraint, inter_constraint]
+            )
+            self.assertAlmostEqual(
+                (projected[0, 0, 0] + projected[0, 0, 1]).item(), 1.0, places=5
+            )
+
+    def test_project_to_equality_constraints_empty(self):
+        X = torch.tensor([[[0.5, 0.5]]], device=self.device)
+        # Empty list should return X unchanged
+        result = project_to_equality_constraints(X, [])
+        self.assertAllClose(result, X)
 
 
 class TestProjectToFeasibleSpace(BotorchTestCase):

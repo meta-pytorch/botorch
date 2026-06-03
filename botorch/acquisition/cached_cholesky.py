@@ -20,7 +20,6 @@ from botorch.models.gpytorch import GPyTorchModel
 from botorch.models.higher_order_gp import HigherOrderGP
 from botorch.models.model import Model
 from botorch.models.model_list_gp_regression import ModelListGP
-from botorch.models.multitask import KroneckerMultiTaskGP, MultiTaskGP
 from botorch.posteriors.gpytorch import GPyTorchPosterior
 from botorch.posteriors.posterior import Posterior
 from botorch.sampling.base import MCSampler
@@ -39,10 +38,11 @@ def supports_cache_root(model: Model) -> bool:
     """
     if isinstance(model, ModelListGP):
         return all(supports_cache_root(m) for m in model.models)
+    # Allow models to explicitly opt out of cache_root support.
+    if getattr(model, "_supports_cache_root", True) is False:
+        return False
     # Multi task models and non-GPyTorch models are not supported.
-    if isinstance(
-        model, (MultiTaskGP, KroneckerMultiTaskGP, HigherOrderGP)
-    ) or not isinstance(model, GPyTorchModel):
+    if not isinstance(model, GPyTorchModel):
         return False
     # Models that return a TransformedPosterior are not supported.
     if hasattr(model, "outcome_transform") and (not model.outcome_transform._is_linear):

@@ -4,7 +4,6 @@
 
 <hr/>
 
-[![Support Ukraine](https://img.shields.io/badge/Support-Ukraine-FFD500?style=flat&labelColor=005BBB)](https://opensource.fb.com/support-ukraine)
 [![Lint](https://github.com/meta-pytorch/botorch/workflows/Lint/badge.svg)](https://github.com/meta-pytorch/botorch/actions?query=workflow%3ALint)
 [![Test](https://github.com/meta-pytorch/botorch/workflows/Test/badge.svg)](https://github.com/meta-pytorch/botorch/actions?query=workflow%3ATest)
 [![Docs](https://github.com/meta-pytorch/botorch/workflows/Docs/badge.svg)](https://github.com/meta-pytorch/botorch/actions?query=workflow%3ADocs)

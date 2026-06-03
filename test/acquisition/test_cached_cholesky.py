@@ -8,7 +8,10 @@ import warnings
 from unittest import mock
 
 import torch
-from botorch.acquisition.cached_cholesky import CachedCholeskyMCSamplerMixin
+from botorch.acquisition.cached_cholesky import (
+    CachedCholeskyMCSamplerMixin,
+    supports_cache_root,
+)
 from botorch.acquisition.monte_carlo import MCAcquisitionFunction
 from botorch.acquisition.objective import GenericMCObjective, MCAcquisitionObjective
 from botorch.exceptions.warnings import BotorchWarning
@@ -16,6 +19,8 @@ from botorch.models import SingleTaskGP
 from botorch.models.deterministic import GenericDeterministicModel
 from botorch.models.higher_order_gp import HigherOrderGP
 from botorch.models.model import Model, ModelList
+from botorch.models.model_list_gp_regression import ModelListGP
+from botorch.models.multitask import KroneckerMultiTaskGP, MultiTaskGP
 from botorch.models.transforms.outcome import Log
 from botorch.sampling.normal import IIDNormalSampler, MCSampler
 from botorch.utils.low_rank import extract_batch_covar
@@ -145,6 +150,89 @@ class TestCachedCholeskyMCSamplerMixin(BotorchTestCase):
                         mock_extract_batch_covar.assert_not_called()
                         mock_cholesky.assert_called_once()
                 self.assertTrue(torch.equal(baseline_L_acqf, baseline_L))
+
+    def test_supports_cache_root_opt_out(self):
+        """Test that models can opt out of cache_root via _supports_cache_root.
+
+        Models with low-rank kernels (e.g., SphericalLinearSingleTaskGP using
+        LinearPredictionStrategy) are incompatible with cache_root because
+        base_samples are generated for rank r < n. These models set
+        _supports_cache_root = False so that cache_root is automatically
+        disabled.
+        """
+        tkwargs = {"device": self.device}
+        for dtype in (torch.float, torch.double):
+            with self.subTest(dtype=dtype):
+                tkwargs["dtype"] = dtype
+
+                # Standard models support cache_root by default
+                stgp = SingleTaskGP(
+                    torch.zeros(2, 1, **tkwargs), torch.zeros(2, 1, **tkwargs)
+                )
+                self.assertTrue(supports_cache_root(stgp))
+
+                # Models with _supports_cache_root = False do not
+                stgp._supports_cache_root = False
+                self.assertFalse(supports_cache_root(stgp))
+
+                # This propagates through ModelListGP
+                stgp2 = SingleTaskGP(
+                    torch.zeros(2, 1, **tkwargs), torch.zeros(2, 1, **tkwargs)
+                )
+                stgp2._supports_cache_root = False
+                model_list = ModelListGP(stgp2)
+                self.assertFalse(supports_cache_root(model_list))
+
+                # CachedCholeskyMCSamplerMixin respects the opt-out
+                sampler = IIDNormalSampler(sample_shape=torch.Size([2]))
+                acqf = DummyCachedCholeskyAcqf(
+                    model=stgp,
+                    sampler=sampler,
+                )
+                self.assertFalse(acqf._cache_root)
+
+                # Explicitly passing cache_root=True warns and gets disabled
+                with self.assertWarnsRegex(RuntimeWarning, "cache_root"):
+                    acqf = DummyCachedCholeskyAcqf(
+                        model=stgp,
+                        sampler=sampler,
+                        cache_root=True,
+                    )
+                self.assertFalse(acqf._cache_root)
+
+    def test_unsupported_models_have_supports_cache_root_false(self):
+        """Test that MultiTaskGP, KroneckerMultiTaskGP, and HigherOrderGP
+        set _supports_cache_root = False as a class attribute."""
+        # Check the class attribute directly
+        self.assertFalse(MultiTaskGP._supports_cache_root)
+        self.assertFalse(KroneckerMultiTaskGP._supports_cache_root)
+        self.assertFalse(HigherOrderGP._supports_cache_root)
+
+        # Check that instances also have the attribute set to False
+        tkwargs = {"device": self.device, "dtype": torch.double}
+
+        # MultiTaskGP
+        train_X = torch.cat(
+            [torch.rand(5, 1, **tkwargs), torch.zeros(5, 1, **tkwargs)], dim=-1
+        )
+        train_Y = torch.rand(5, 1, **tkwargs)
+        mtgp = MultiTaskGP(train_X, train_Y, task_feature=-1)
+        self.assertFalse(mtgp._supports_cache_root)
+        self.assertFalse(supports_cache_root(mtgp))
+
+        # KroneckerMultiTaskGP
+        train_X = torch.rand(5, 2, **tkwargs)
+        train_Y = torch.rand(5, 2, **tkwargs)
+        kmtgp = KroneckerMultiTaskGP(train_X, train_Y)
+        self.assertFalse(kmtgp._supports_cache_root)
+        self.assertFalse(supports_cache_root(kmtgp))
+
+        # HigherOrderGP
+        train_X = torch.rand(5, 2, **tkwargs)
+        train_Y = torch.rand(5, 1, 1, **tkwargs)
+        hogp = HigherOrderGP(train_X, train_Y)
+        self.assertFalse(hogp._supports_cache_root)
+        self.assertFalse(supports_cache_root(hogp))
 
     def test_get_f_X_samples(self):
         sample_cached_cholesky_path = (

@@ -16,9 +16,13 @@ import torch
 from botorch.exceptions.errors import UnsupportedError
 from botorch.fit import fit_gpytorch_mll
 from botorch.models.gpytorch import GPyTorchModel
+from botorch.models.likelihoods.sparse_outlier_noise import (
+    SparseOutlierGaussianLikelihood,
+)
 from botorch.models.multitask import MultiTaskGP
 from botorch.posteriors.fully_bayesian import GaussianMixturePosterior
 from botorch.posteriors.gpytorch import GPyTorchPosterior
+from botorch.posteriors.posterior import Posterior
 from gpytorch.distributions import MultitaskMultivariateNormal, MultivariateNormal
 from gpytorch.likelihoods import FixedNoiseGaussianLikelihood
 from gpytorch.mlls.marginal_log_likelihood import MarginalLogLikelihood
@@ -51,10 +55,15 @@ class CVResults(NamedTuple):
     For ``efficient_loo_cv``, the posterior has the same shape structure to maintain
     consistency, though the underlying distribution is constructed from the
     efficient LOO formulas rather than from separate model fits.
+
+    NOTE: When ``untransform=True`` is used with a nonlinear outcome transform
+    (e.g., ``Log``), the posterior will be a ``TransformedPosterior`` rather than
+    a ``GPyTorchPosterior``. For ensemble models, it will be a
+    ``GaussianMixturePosterior``.
     """
 
     model: GPyTorchModel
-    posterior: GPyTorchPosterior
+    posterior: Posterior
     observed_Y: Tensor
     observed_Yvar: Tensor | None = None
 
@@ -95,8 +104,7 @@ def gen_loo_cv_folds(
         >>> cv_folds.train_X.shape
         torch.Size([10, 9, 1])
     """
-    masks = torch.eye(train_X.shape[-2], dtype=torch.uint8, device=train_X.device)
-    masks = masks.to(dtype=torch.bool)
+    masks = torch.eye(train_X.shape[-2], dtype=torch.bool, device=train_X.device)
     if train_Y.dim() < train_X.dim():
         # add output dimension
         train_Y = train_Y.unsqueeze(-1)
@@ -223,7 +231,11 @@ def batch_cross_validation(
     )
 
 
-def loo_cv(model: GPyTorchModel, observation_noise: bool = True) -> CVResults:
+def loo_cv(
+    model: GPyTorchModel,
+    observation_noise: bool = True,
+    untransform: bool = True,
+) -> CVResults:
     r"""Compute efficient Leave-One-Out cross-validation for a GP model.
 
     This is a high-level convenience function that automatically dispatches to
@@ -243,6 +255,11 @@ def loo_cv(model: GPyTorchModel, observation_noise: bool = True) -> CVResults:
     LOO CV. For models where hyperparameter changes are significant, consider
     using ``batch_cross_validation`` instead.
 
+    NOTE: The ``untransform`` parameter defaults to True, which means results
+    are returned in the original outcome space. Callers that previously relied
+    on results in the model's internal (transformed) space should pass
+    ``untransform=False`` explicitly.
+
     Args:
         model: A fitted GPyTorchModel. The model type determines which LOO CV
             implementation is used.
@@ -252,6 +269,12 @@ def loo_cv(model: GPyTorchModel, observation_noise: bool = True) -> CVResults:
             observation noise). The posterior variance is computed by
             subtracting the observation noise from the posterior predictive
             variance.
+        untransform: If True (default), untransform the LOO predictions and
+            observed values back to the original outcome space when the model
+            has an outcome transform (e.g., ``Standardize``). This makes the
+            results consistent with ``model.posterior()`` and
+            ``batch_cross_validation``. If False, return results in the
+            model's internal (transformed) space.
 
     Returns:
         CVResults: A named tuple containing:
@@ -283,15 +306,16 @@ def loo_cv(model: GPyTorchModel, observation_noise: bool = True) -> CVResults:
         - ``ensemble_loo_cv``: Direct access to the ensemble model implementation.
         - ``batch_cross_validation``: Full LOO CV with model refitting.
     """
-    if getattr(model, "_is_ensemble", False):
-        return ensemble_loo_cv(model, observation_noise=observation_noise)
-    else:
-        return efficient_loo_cv(model, observation_noise=observation_noise)
+    loo_fun = (
+        ensemble_loo_cv if getattr(model, "_is_ensemble", False) else efficient_loo_cv
+    )
+    return loo_fun(model, observation_noise=observation_noise, untransform=untransform)
 
 
 def efficient_loo_cv(
     model: GPyTorchModel,
     observation_noise: bool = True,
+    untransform: bool = True,
 ) -> CVResults:
     r"""Compute efficient Leave-One-Out cross-validation for a GP model.
 
@@ -332,12 +356,20 @@ def efficient_loo_cv(
             predictive variance (including observation noise). If False,
             return the posterior variance of the latent function (excluding
             observation noise).
+        untransform: If True (default), untransform the LOO predictions and
+            observed values back to the original outcome space when the model
+            has an outcome transform (e.g., ``Standardize``). This makes the
+            results consistent with ``model.posterior()`` and
+            ``batch_cross_validation``. If False, return results in the
+            model's internal (transformed) space.
 
     Returns:
         CVResults: A named tuple containing:
             - model: The fitted GP model.
-            - posterior: A GPyTorchPosterior with the LOO predictive distributions.
-              The posterior mean and variance have shape ``n x 1 x m`` or
+            - posterior: The LOO predictive distributions (typically a
+              ``GPyTorchPosterior``; with nonlinear outcome transforms like
+              ``Log``, a ``TransformedPosterior``). The posterior mean and
+              variance have shape ``n x 1 x m`` or
               ``batch_shape x n x 1 x m``, matching the structure of
               ``batch_cross_validation`` (n folds, 1 held-out point per fold,
               m outputs). The underlying distribution has diagonal covariance
@@ -385,12 +417,93 @@ def efficient_loo_cv(
     if isinstance(model.likelihood, FixedNoiseGaussianLikelihood):
         observed_Yvar = _reshape_to_loo_cv_format(model.likelihood.noise, num_outputs)
 
+    # Untransform predictions and observed values back to original space
+    if untransform and hasattr(model, "outcome_transform"):
+        posterior, observed_Y, observed_Yvar = _untransform_loo_results(
+            model=model,
+            posterior=posterior,
+            observed_Y=observed_Y,
+            observed_Yvar=observed_Yvar,
+        )
+
     return CVResults(
         model=model,
         posterior=posterior,
         observed_Y=observed_Y,
         observed_Yvar=observed_Yvar,
     )
+
+
+def _untransform_loo_results(
+    model: GPyTorchModel,
+    posterior: Posterior,
+    observed_Y: Tensor,
+    observed_Yvar: Tensor | None,
+) -> tuple[Posterior, Tensor, Tensor | None]:
+    r"""Untransform LOO CV results from model-internal space to original space.
+
+    Applies the model's outcome transform to map the LOO posterior and observed
+    values back to the original (untransformed) outcome space. This uses
+    ``outcome_transform.untransform_posterior`` for the posterior and
+    ``outcome_transform.untransform`` for the observed values.
+
+    For linear transforms like ``Standardize``, the posterior is analytically
+    rescaled and remains a ``GPyTorchPosterior``. For nonlinear transforms like
+    ``Log``, the posterior is wrapped in a ``TransformedPosterior``.
+
+    Args:
+        model: The GP model with an ``outcome_transform`` attribute.
+        posterior: The LOO posterior in the model's internal (transformed) space.
+            Shape: ``n x 1 x m`` or ``batch_shape x n x 1 x m``.
+        observed_Y: The observed Y values in transformed space with shape
+            ``n x 1 x m`` or ``batch_shape x n x 1 x m``.
+        observed_Yvar: The observed noise variances in transformed space (if
+            applicable) with shape ``n x 1 x m`` or ``batch_shape x n x 1 x m``.
+
+    Returns:
+        A tuple of (posterior, observed_Y, observed_Yvar) in the original
+        (untransformed) outcome space. Note: if the outcome transform has a
+        ``batch_shape`` (e.g., ``Standardize(batch_shape=[num_models])``),
+        broadcasting during untransform may add leading dimensions to
+        ``observed_Y`` that the caller must align with the posterior layout.
+    """
+    outcome_transform = model.outcome_transform
+
+    # Validate observed_Y shape before any transforms.
+    if observed_Y.shape[-2] != 1:
+        raise ValueError(
+            "Expected observed_Y to have size 1 at dim -2 (q dimension), "
+            f"got shape {observed_Y.shape}."
+        )
+
+    posterior = outcome_transform.untransform_posterior(posterior)
+
+    # Untransform observed_Y (and observed_Yvar if present).
+    # observed_Y has shape n x 1 x m; Standardize.untransform expects
+    # batch_shape x n x m. We squeeze the q=1 dim, untransform, and restore it.
+    observed_Y_squeezed = observed_Y.squeeze(-2)
+    observed_Yvar_squeezed = (
+        observed_Yvar.squeeze(-2) if observed_Yvar is not None else None
+    )
+    observed_Y_utf, observed_Yvar_utf = outcome_transform.untransform(
+        observed_Y_squeezed, observed_Yvar_squeezed
+    )
+    observed_Y = observed_Y_utf.unsqueeze(-2)
+    observed_Yvar = (
+        observed_Yvar_utf.unsqueeze(-2) if observed_Yvar_utf is not None else None
+    )
+
+    return posterior, observed_Y, observed_Yvar
+
+
+def _likelihood_requires_X(likelihood: object) -> bool:
+    r"""Check if a likelihood requires training inputs for noise computation.
+
+    Returns True for likelihoods like SparseOutlierGaussianLikelihood that
+    need training inputs to determine per-point noise (e.g., outlier variances).
+    Standard GaussianLikelihood does not need training inputs.
+    """
+    return isinstance(likelihood, SparseOutlierGaussianLikelihood)
 
 
 def _subtract_observation_noise(model: GPyTorchModel, loo_variance: Tensor) -> Tensor:
@@ -426,16 +539,18 @@ def _subtract_observation_noise(model: GPyTorchModel, loo_variance: Tensor) -> T
         noise_shape, dtype=loo_variance.dtype, device=loo_variance.device
     )
 
-    # Some likelihoods (e.g., SparseOutlierGaussianLikelihood) require training
-    # inputs to be passed to correctly compute the noise. We pass the model's
-    # train_inputs if available.
-    train_inputs = getattr(model, "train_inputs", None)
-
-    # Call forward to get the observation noise distribution.
-    # We pass train_inputs as a positional argument so it flows through *params
-    # to the noise model, which is compatible with both standard Noise classes
-    # (that use *params) and SparseOutlierNoise (that uses X as the first arg).
-    noise_dist = likelihood.forward(zeros, train_inputs)
+    # Only pass training inputs when the likelihood needs them (e.g.,
+    # SparseOutlierGaussianLikelihood for per-point outlier noise).
+    # Standard GaussianLikelihood doesn't need inputs, and passing
+    # pre-transform inputs can cause shape mismatches with models that
+    # use dimension-changing input transforms (e.g., AppendFeatures).
+    if _likelihood_requires_X(likelihood):
+        train_inputs = getattr(model, "train_inputs", None)
+        noise_dist = likelihood.forward(
+            zeros, train_inputs[0] if train_inputs else None
+        )
+    else:
+        noise_dist = likelihood.forward(zeros)
 
     # Extract noise variance and reshape to match loo_variance
     noise = noise_dist.variance.unsqueeze(-1)  # ... x n x 1
@@ -522,12 +637,15 @@ def _compute_loo_predictions(
 
     # Add observation noise to the diagonal via the likelihood
     # The likelihood adds noise: K_noisy = K + sigma^2 * I
-    # Some likelihoods (e.g., SparseOutlierGaussianLikelihood) require training
-    # inputs to be passed to correctly apply the noise model. We pass them as
-    # a positional argument for compatibility with both standard likelihoods
-    # and SparseOutlierGaussianLikelihood.
-    train_inputs = model.train_inputs
-    noisy_mvn = model.likelihood(prior_dist, train_inputs)
+    # Only pass training inputs when the likelihood needs them (e.g.,
+    # SparseOutlierGaussianLikelihood for per-point outlier noise).
+    # Standard GaussianLikelihood doesn't need inputs, and passing
+    # pre-transform inputs can cause shape mismatches with models that
+    # use dimension-changing input transforms (e.g., AppendFeatures).
+    if _likelihood_requires_X(model.likelihood):
+        noisy_mvn = model.likelihood(prior_dist, model.train_inputs[0])
+    else:
+        noisy_mvn = model.likelihood(prior_dist)
 
     # Get the covariance matrix - use lazy representation for potential caching
     K_noisy = noisy_mvn.lazy_covariance_matrix.to_dense()
@@ -554,7 +672,7 @@ def _compute_loo_predictions(
     # K_inv_diag has shape ... x n, so after unsqueeze(-1) we get ... x n x 1
     # (the last dim is 1 because each GP is single-output).
     loo_variance = (1.0 / K_inv_diag).unsqueeze(-1)  # ... x n x 1
-    loo_mean = train_Y.unsqueeze(-1) - K_inv_residuals * loo_variance  # ... x n x 1
+    loo_mean = train_Y.unsqueeze(-1) - K_inv_residuals * loo_variance
 
     # If we want the posterior (noiseless) variance, subtract the noise
     if not observation_noise:
@@ -636,6 +754,7 @@ def _reshape_to_loo_cv_format(tensor: Tensor, num_outputs: int) -> Tensor:
 def ensemble_loo_cv(
     model: GPyTorchModel,
     observation_noise: bool = True,
+    untransform: bool = True,
 ) -> CVResults:
     r"""Compute efficient LOO cross-validation for ensemble models.
 
@@ -673,17 +792,27 @@ def ensemble_loo_cv(
             predictive variance (including observation noise). If False,
             return the posterior variance of the latent function (excluding
             observation noise).
+        untransform: If True (default), untransform the LOO predictions and
+            observed values back to the original outcome space when the model
+            has an outcome transform (e.g., ``Standardize``). This makes the
+            results consistent with ``model.posterior()`` and
+            ``batch_cross_validation``. If False, return results in the
+            model's internal (transformed) space.
 
     Returns:
         CVResults: A named tuple containing:
             - model: The fitted ensemble GP model.
             - posterior: A ``GaussianMixturePosterior`` with per-member shape
-              ``n x num_models x 1 x 1``. Access per-member statistics via
+              ``n x num_models x 1 x m``. Access per-member statistics via
               ``posterior.mean`` and ``posterior.variance``, and mixture
               statistics via ``posterior.mixture_mean`` and
               ``posterior.mixture_variance``.
-            - observed_Y: The observed Y values with shape ``n x 1 x 1``.
-            - observed_Yvar: The observed noise variances (if provided).
+            - observed_Y: The observed Y values with shape
+              ``n x num_models x 1 x m``, matching the posterior layout so
+              that element-wise operations (e.g., ``posterior.mean -
+              observed_Y``) work correctly.
+            - observed_Yvar: The observed noise variances (if provided) with
+              the same shape as ``observed_Y``.
 
     Example:
         >>> import torch
@@ -723,7 +852,7 @@ def ensemble_loo_cv(
         )
 
     # Get the number of outputs
-    num_outputs = getattr(model, "_num_outputs", 1)
+    num_outputs = model.num_outputs
 
     # Build the GaussianMixturePosterior
     posterior = _build_ensemble_loo_posterior(
@@ -734,6 +863,44 @@ def ensemble_loo_cv(
     observed_Y, observed_Yvar = _get_ensemble_observed_data(
         model=model, train_Y=train_Y, num_outputs=num_outputs
     )
+
+    # Untransform predictions and observed values back to original space
+    if untransform and hasattr(model, "outcome_transform"):
+        observed_Y_ndim = observed_Y.dim()
+        posterior, observed_Y, observed_Yvar = _untransform_loo_results(
+            model=model,
+            posterior=posterior,
+            observed_Y=observed_Y,
+            observed_Yvar=observed_Yvar,
+        )
+        # After untransform with a batch-shaped outcome transform (e.g.,
+        # Standardize(batch_shape=[num_models])), observed_Y gains leading
+        # batch dimensions from the transform. For example, with
+        # batch_shape=[num_models], observed_Y goes from [n, 1, m] to
+        # [num_models, n, 1, m]. The posterior has num_models at MCMC_DIM=-3,
+        # giving shape [n, num_models, 1, m]. Align observed_Y by moving all
+        # added leading dims to just before the q=1 dim (MCMC_DIM position).
+        n_added = observed_Y.dim() - observed_Y_ndim
+        if n_added > 1:
+            raise UnsupportedError(
+                "ensemble_loo_cv does not support outcome transforms that add "
+                f"more than 1 batch dimension. Got {n_added} added dimensions "
+                f"(shape went from {observed_Y_ndim}D to {observed_Y.dim()}D)."
+            )
+        if n_added == 1:
+            observed_Y = observed_Y.movedim(0, -3)
+            if observed_Yvar is not None:
+                observed_Yvar = observed_Yvar.movedim(0, -3)
+
+    # Ensure observed_Y has the num_models dimension at MCMC_DIM=-3 to match
+    # the posterior shape [n, num_models, 1, m]. Without this, element-wise
+    # operations like `posterior.mean - observed_Y` would fail due to
+    # incompatible broadcasting (3D [n, 1, m] vs 4D [n, num_models, 1, m]).
+    posterior_mean = posterior.mean
+    if observed_Y.dim() < posterior_mean.dim():
+        observed_Y = observed_Y.unsqueeze(-3).expand_as(posterior_mean)
+        if observed_Yvar is not None:
+            observed_Yvar = observed_Yvar.unsqueeze(-3).expand_as(posterior_mean)
 
     return CVResults(
         model=model,
@@ -867,7 +1034,7 @@ def _verify_ensemble_data_consistency(
     first_member = tensor.select(num_models_dim, 0)
     first_expanded = first_member.unsqueeze(num_models_dim).expand_as(tensor)
 
-    if not torch.allclose(tensor, first_expanded):
+    if not torch.equal(tensor, first_expanded):
         raise UnsupportedError(
             f"Ensemble members have different {tensor_name}. "
             "ensemble_loo_cv only supports ensembles where all members share the "

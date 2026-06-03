@@ -34,6 +34,11 @@ Ensemble Model API
 Models
 -------------------------------------------
 
+Additive GP Models
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.. automodule:: botorch.models.additive_gp
+    :members:
+
 Cost Models (for cost-aware optimization)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 .. automodule:: botorch.models.cost
@@ -92,6 +97,14 @@ Multitask GP Models
 Heterogeneous Search Space Multitask GP Models
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 .. automodule:: botorch.models.heterogeneous_mtgp
+    :members:
+
+Hierarchical Search Space GP Models
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.. automodule:: botorch.models.hierarchical.conditional_kernel_gp
+    :members:
+
+.. automodule:: botorch.models.hierarchical.utils
     :members:
 
 Multi-Fidelity GP Regression Models
@@ -203,6 +216,11 @@ Inducing Point Allocators
 .. automodule:: botorch.models.utils.inducing_point_allocators
     :members:
     :private-members: _pivoted_cholesky_init
+
+Priors
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.. automodule:: botorch.models.utils.priors
+    :members:
 
 Other Utilties
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -110,6 +110,17 @@ The following command will both build the docs and serve the site locally:
 
 See the [website/README.md](website/README.md) for more details.
 
+##### Adding a new tutorial or community notebook
+
+The website only renders notebooks registered in a JSON manifest. Place the
+notebook at `tutorials/<id>/<id>.ipynb` (core) or
+`notebooks_community/<id>/<id>.ipynb` (community), using a lowercase
+snake_case `<id>` that matches the directory and filename. Then register it in
+[`website/tutorials.json`](website/tutorials.json) or
+[`website/notebooks_community.json`](website/notebooks_community.json) with
+`{"id": "<id>", "title": "..."}`; without this entry the notebook is silently
+omitted from the built site. Verify with `./scripts/build_docs.sh`.
+
 ## Pull Requests
 
 We actively welcome your pull requests.

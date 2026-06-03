@@ -79,8 +79,9 @@ def optimize_acqf_homotopy(
     ic_generator: TGenInitialConditions | None = None,
     timeout_sec: float | None = None,
     retry_on_optimization_warning: bool = True,
+    return_acq_values: bool = True,
     **ic_gen_kwargs: Any,
-) -> tuple[Tensor, Tensor]:
+) -> tuple[Tensor, Tensor | None]:
     r"""Generate a set of candidates via multi-start optimization.
 
     Args:
@@ -164,6 +165,7 @@ def optimize_acqf_homotopy(
         timeout_sec: Max amount of time optimization can run for.
         retry_on_optimization_warning: Whether to retry candidate generation with a new
             set of initial conditions when it fails with an ``OptimizationWarning``.
+        return_acq_values: Return acquisition values.
         ic_gen_kwargs: Additional keyword arguments passed to function specified by
             ``ic_generator``
     """
@@ -318,11 +320,13 @@ def optimize_acqf_homotopy(
             acq_values = acq_function(candidates)
 
         best = torch.argmax(acq_values.view(-1), dim=0)
-        candidate, acq_value = candidates[best], acq_values[best]
+        candidate = candidates[best]
+        acq_value = acq_values[best] if return_acq_values else None
 
         # Keep the new candidate and update the pending points
         candidate_list.append(candidate)
-        acq_value_list.append(acq_value)
+        if return_acq_values:
+            acq_value_list.append(acq_value)
         selected_candidates = torch.cat(candidate_list, dim=-2)
 
         if q > 1:
@@ -337,4 +341,6 @@ def optimize_acqf_homotopy(
 
     homotopy.reset()  # Reset the homotopy parameters
 
+    if not return_acq_values:
+        return selected_candidates, None
     return selected_candidates, torch.stack(acq_value_list)
