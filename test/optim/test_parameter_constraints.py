@@ -1090,6 +1090,63 @@ class TestProjectToFeasibleSpace(BotorchTestCase):
                 self.assertTrue(torch.all(projected[i] >= bounds[0]))
                 self.assertTrue(torch.all(projected[i] <= bounds[1]))
 
+    def test_project_to_feasible_space_via_slsqp_nonlinear(self) -> None:
+        """Project slightly infeasible points onto nonlinear inequality constraints."""
+        for dtype in (torch.float, torch.double):
+            tol = get_constraint_tolerance(dtype=dtype)
+            bounds = torch.tensor(
+                [[0.0, 0.0], [1.0, 1.0]], dtype=dtype, device=self.device
+            )
+
+            def disk(x):
+                return 1 - x.pow(2).sum(dim=-1)
+
+            def half_plane(x):
+                return x[..., 0] + x[..., 1] - 0.5
+
+            nonlinear_inequality_constraints = [(disk, True), (half_plane, True)]
+
+            # Outside the unit disk but within box bounds.
+            X = torch.tensor([[0.85, 0.85]], dtype=dtype, device=self.device)
+            projected = project_to_feasible_space_via_slsqp(
+                X=X,
+                bounds=bounds,
+                nonlinear_inequality_constraints=nonlinear_inequality_constraints,
+            )
+            for nlc, is_intrapoint in nonlinear_inequality_constraints:
+                self.assertTrue(
+                    nonlinear_constraint_is_feasible(
+                        nlc,
+                        is_intrapoint=is_intrapoint,
+                        x=projected.unsqueeze(0),
+                        tolerance=tol,
+                    ).all()
+                )
+            self.assertTrue(torch.all(projected >= bounds[0] - tol))
+            self.assertTrue(torch.all(projected <= bounds[1] + tol))
+
+            # Nonlinear constraints together with linear inequalities.
+            inequality_constraints = [
+                (
+                    torch.tensor([0], dtype=torch.long, device=self.device),
+                    torch.tensor([1.0], dtype=dtype, device=self.device),
+                    0.2,
+                )
+            ]
+            X = torch.tensor([[0.85, 0.85]], dtype=dtype, device=self.device)
+            projected = project_to_feasible_space_via_slsqp(
+                X=X,
+                bounds=bounds,
+                inequality_constraints=inequality_constraints,
+                nonlinear_inequality_constraints=[(disk, True)],
+            )
+            self.assertGreaterEqual(projected[0, 0].item(), 0.2 - tol)
+            self.assertTrue(
+                nonlinear_constraint_is_feasible(
+                    disk, is_intrapoint=True, x=projected.unsqueeze(0), tolerance=tol
+                ).all()
+            )
+
     @mock.patch(
         "botorch.optim.parameter_constraints.minimize",
         return_value=mock.Mock(success=False, message="failed reason"),
