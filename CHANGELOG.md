@@ -2,6 +2,12 @@
 
 The release log for BoTorch.
 
+## [0.18.1] -- Jun 8, 2026
+
+* Make JAX/jaxlib/NumPyro optional dependencies, only required for fitting
+  fully Bayesian models via the `botorch[fully_bayesian]` extra (#3319).
+
+
 ## [0.18.0] -- Jun 3, 2026
 
 #### Compatibility
