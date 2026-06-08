@@ -107,13 +107,19 @@ def make_scipy_linear_constraints(
     shapeX: torch.Size,
     inequality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
     equality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
-) -> LinearConstraint | None:
-    r"""Generate a scipy ``LinearConstraint`` from torch constraint tuples.
+) -> list[LinearConstraint]:
+    r"""Generate scipy ``LinearConstraint`` objects from torch constraint tuples.
 
-    Stacks every inequality and equality constraint into a single sparse
-    constraint matrix ``A`` of shape ``(m_total, b*q*d)`` together with bound
-    vectors ``lb`` / ``ub``: equality rows have ``lb == ub == rhs``; inequality
-    rows have ``lb == rhs, ub == +inf`` (BoTorch's convention is ``A @ x >= rhs``).
+    Returns up to two ``LinearConstraint``s — one for all inequality rows and
+    one for all equality rows — each carrying a single sparse ``A`` of shape
+    ``(m_block, b*q*d)`` plus the corresponding ``lb`` / ``ub`` vectors.
+    Equality rows have ``lb == ub == rhs``; inequality rows have
+    ``lb == rhs, ub == +inf`` (BoTorch's convention is ``A @ x >= rhs``).
+
+    Splitting eq vs ineq into separate objects (rather than packing both into
+    one ``LinearConstraint``) silences scipy's ``OptimizeWarning`` from
+    ``new_constraint_to_old`` when SLSQP / COBYLA round-trip the constraint
+    via ``standardize_constraints``.
 
     Args:
         shapeX: The shape of the torch.Tensor to optimize over (i.e. ``(b) x q x d``)
@@ -130,12 +136,14 @@ def make_scipy_linear_constraints(
             and ``coefficients`` of the same form as in ``inequality_constraints``).
 
     Returns:
-        A :class:`scipy.optimize.LinearConstraint` whose ``A`` is a
-        :class:`scipy.sparse.coo_array`, or ``None`` if no constraints were
-        supplied. Solvers that don't consume ``LinearConstraint`` natively
-        (SLSQP, COBYLA, …) round-trip it to per-row dicts via scipy's
-        ``standardize_constraints``; solvers that do (trust-constr, custom
-        callable methods such as pounce) read the sparse pattern directly.
+        A list of :class:`scipy.optimize.LinearConstraint` objects whose ``A``
+        is a :class:`scipy.sparse.coo_array`. The list contains 0, 1, or 2
+        entries: at most one inequality block (first, when present) and at
+        most one equality block (second). Solvers that don't consume
+        ``LinearConstraint`` natively (SLSQP, COBYLA, …) round-trip them to
+        per-row dicts via scipy's ``standardize_constraints``; solvers that do
+        (trust-constr, custom callable methods such as pounce) read the
+        sparse pattern directly.
 
     This function assumes that constraints are the same for each input batch,
     and broadcasts the constraints accordingly to the input batch shape. It
@@ -146,7 +154,7 @@ def make_scipy_linear_constraints(
         The following enforces ``x[1] + 0.5 x[3] >= -0.1`` for each ``x``
         in both elements of the q-batch, and each of the 3 t-batches:
 
-        >>> lc = make_scipy_linear_constraints(
+        >>> lcs = make_scipy_linear_constraints(
         >>>     torch.Size([3, 2, 4]),
         >>>     [(torch.tensor([1, 3]), torch.tensor([1.0, 0.5]), -0.1)],
         >>> )
@@ -155,15 +163,16 @@ def make_scipy_linear_constraints(
         x[0, :] is the first element of the q-batch and x[1, :] is the second
         element of the q-batch, for each of the 3 t-batches:
 
-        >>> lc = make_scipy_linear_constraints(
+        >>> lcs = make_scipy_linear_constraints(
         >>>     torch.Size([3, 2, 4]),
         >>>     [(torch.tensor([[0, 1], [1, 3]]), torch.tensor([1.0, 0.5]), -0.1)],
         >>> )
     """
-    blocks: list[_LinearConstraintBlock] = []
+    ineq_blocks: list[_LinearConstraintBlock] = []
+    eq_blocks: list[_LinearConstraintBlock] = []
     if inequality_constraints is not None:
         for indcs, coeffs, rhs in inequality_constraints:
-            blocks.append(
+            ineq_blocks.append(
                 _make_linear_constraints(
                     indices=indcs,
                     coefficients=coeffs,
@@ -174,7 +183,7 @@ def make_scipy_linear_constraints(
             )
     if equality_constraints is not None:
         for indcs, coeffs, rhs in equality_constraints:
-            blocks.append(
+            eq_blocks.append(
                 _make_linear_constraints(
                     indices=indcs,
                     coefficients=coeffs,
@@ -184,30 +193,42 @@ def make_scipy_linear_constraints(
                 )
             )
 
-    if not blocks:
-        return None
-
-    # Stack blocks with a running row offset; columns/values/bounds concat directly.
-    row_offset = 0
-    row_parts, col_parts, val_parts, lb_parts, ub_parts = [], [], [], [], []
-    for blk in blocks:
-        row_parts.append(blk.rows + row_offset)
-        col_parts.append(blk.cols)
-        val_parts.append(blk.vals)
-        lb_parts.append(blk.lb)
-        ub_parts.append(blk.ub)
-        row_offset += blk.n_rows
-
-    rows = np.concatenate(row_parts)
-    cols = np.concatenate(col_parts)
-    vals = np.concatenate(val_parts)
-    lb = np.concatenate(lb_parts)
-    ub = np.concatenate(ub_parts)
-
     # n = total flat variable count = b*q*d after shape validation.
     n_total = int(_validate_linear_constraints_shape_input(shapeX).numel())
-    A = sparse.coo_array((vals, (rows, cols)), shape=(row_offset, n_total))
-    return LinearConstraint(A, lb=lb, ub=ub)
+
+    def _stack(blocks: list[_LinearConstraintBlock]) -> LinearConstraint | None:
+        if not blocks:
+            return None
+        row_offset = 0
+        row_parts, col_parts, val_parts, lb_parts, ub_parts = [], [], [], [], []
+        for blk in blocks:
+            row_parts.append(blk.rows + row_offset)
+            col_parts.append(blk.cols)
+            val_parts.append(blk.vals)
+            lb_parts.append(blk.lb)
+            ub_parts.append(blk.ub)
+            row_offset += blk.n_rows
+        A = sparse.coo_array(
+            (
+                np.concatenate(val_parts),
+                (np.concatenate(row_parts), np.concatenate(col_parts)),
+            ),
+            shape=(row_offset, n_total),
+        )
+        return LinearConstraint(
+            A,
+            lb=np.concatenate(lb_parts),
+            ub=np.concatenate(ub_parts),
+        )
+
+    result: list[LinearConstraint] = []
+    ineq_lc = _stack(ineq_blocks)
+    if ineq_lc is not None:
+        result.append(ineq_lc)
+    eq_lc = _stack(eq_blocks)
+    if eq_lc is not None:
+        result.append(eq_lc)
+    return result
 
 
 def eval_lin_constraint(
@@ -883,12 +904,13 @@ def project_to_feasible_space_via_slsqp(
                 ub[flat_idx] = X_fixed_flat[flat_idx]
 
     bounds_scipy = Bounds(lb=lb, ub=ub, keep_feasible=True)
-    linear_lc = make_scipy_linear_constraints(
-        shapeX=X.shape,
-        inequality_constraints=inequality_constraints,
-        equality_constraints=equality_constraints,
+    constraints = list(
+        make_scipy_linear_constraints(
+            shapeX=X.shape,
+            inequality_constraints=inequality_constraints,
+            equality_constraints=equality_constraints,
+        )
     )
-    constraints = [linear_lc] if linear_lc is not None else []
     # Define squared distance objective
     X_np = X.flatten().detach().cpu().numpy()
 
