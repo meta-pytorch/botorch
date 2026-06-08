@@ -6,6 +6,9 @@
 
 
 import itertools
+import subprocess
+import sys
+import textwrap
 from unittest import mock
 from unittest.mock import patch
 
@@ -1297,3 +1300,87 @@ class TestNumpyVersionCheck(BotorchTestCase):
                     train_X=torch.rand(10, 2),
                     train_Y=torch.rand(10, 1),
                 )
+
+    def test_core_workflow_without_jax(self) -> None:
+        """Core BoTorch works when JAX/jaxlib/NumPyro are not installed.
+
+        JAX, jaxlib, and NumPyro are optional dependencies that are only needed
+        to fit fully Bayesian models. We run this in a subprocess that blocks
+        those imports (the parent process has them installed and has already
+        imported the gated modules with ``_HAS_JAX=True``), and assert that the
+        standard fit + acquisition-optimization loop works end to end while
+        constructing a fully Bayesian model raises a clear ``ImportError``.
+        """
+        script = textwrap.dedent(
+            """
+            import sys
+
+            # ``python -c`` puts the current working directory on ``sys.path``;
+            # drop it so the subprocess only sees installed packages, matching a
+            # real install rather than whatever happens to live next to the cwd.
+            sys.path = [p for p in sys.path if p not in ("", ".")]
+
+            import builtins
+
+            _real_import = builtins.__import__
+
+            def _blocked_import(name, *args, **kwargs):
+                if name.split(".")[0] in {"jax", "jaxlib", "numpyro"}:
+                    raise ImportError(f"blocked {name}")
+                return _real_import(name, *args, **kwargs)
+
+            builtins.__import__ = _blocked_import
+
+            import torch
+            import botorch  # noqa: F401
+            import botorch.fit  # noqa: F401
+            import botorch.models.fully_bayesian_multitask  # noqa: F401
+            from botorch.acquisition.analytic import LogExpectedImprovement
+            from botorch.fit import fit_gpytorch_mll
+            from botorch.models import SingleTaskGP
+            from botorch.models.fully_bayesian import (
+                _HAS_JAX,
+                SaasFullyBayesianSingleTaskGP,
+            )
+            from botorch.optim import optimize_acqf
+            from botorch.test_utils.mock import mock_optimize_context_manager
+            from gpytorch.mlls import ExactMarginalLogLikelihood
+
+            assert _HAS_JAX is False, "_HAS_JAX should be False with JAX blocked"
+
+            # Standard (non-fully-Bayesian) BO loop must work without JAX.
+            train_X = torch.rand(8, 2, dtype=torch.double)
+            train_Y = train_X.sum(dim=-1, keepdim=True)
+            model = SingleTaskGP(train_X=train_X, train_Y=train_Y)
+            mll = ExactMarginalLogLikelihood(model.likelihood, model)
+            with mock_optimize_context_manager():
+                fit_gpytorch_mll(mll)
+                acqf = LogExpectedImprovement(model=model, best_f=train_Y.max())
+                candidate, _ = optimize_acqf(
+                    acq_function=acqf,
+                    bounds=torch.tensor(
+                        [[0.0, 0.0], [1.0, 1.0]], dtype=torch.double
+                    ),
+                    q=1,
+                    num_restarts=2,
+                    raw_samples=4,
+                )
+            assert candidate.shape == (1, 2), candidate.shape
+
+            # Fully Bayesian models still require JAX -> clear ImportError.
+            try:
+                SaasFullyBayesianSingleTaskGP(train_X=train_X, train_Y=train_Y)
+            except ImportError:
+                pass
+            else:
+                raise AssertionError(
+                    "expected ImportError when constructing SAAS without JAX"
+                )
+            """
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(result.returncode, 0, msg=result.stderr)

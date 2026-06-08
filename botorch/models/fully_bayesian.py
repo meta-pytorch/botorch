@@ -90,10 +90,9 @@ _sqrt5 = math.sqrt(5)
 def _check_jax_available() -> None:
     if not _HAS_JAX:
         raise ImportError(
-            "BoTorch's fully Bayesian models require JAX, numpyro, and "
-            "NumPy >= 2.0 (python-scientific-stack version 3). "
-            "Please update your PACKAGE file to set "
-            '"python-scientific-stack": "3".'
+            "BoTorch's fully Bayesian models require JAX, jaxlib, and NumPyro, "
+            "which are optional dependencies. Please install them with "
+            '`pip install "botorch[fully_bayesian]"`.'
         )
 
 
