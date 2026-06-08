@@ -51,7 +51,7 @@ jobs:
         pytest -ra test_community/ --cov botorch_community/ --cov-report term-missing --cov-report xml:botorch_community_cov.xml
     - name: Upload coverage
       if: ${{ inputs.upload_coverage && runner.os == 'Linux' && matrix.python-version == 3.11 }}
-      uses: codecov/codecov-action@v4
+      uses: codecov/codecov-action@v5
       with:
         fail_ci_if_error: true
         token: ${{ secrets.CODECOV_TOKEN }}

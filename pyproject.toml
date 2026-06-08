@@ -26,9 +26,6 @@ dependencies = [
     "gpytorch>=1.15.2",
     "linear_operator>=0.6.1",
     "torch>=2.4",
-    "jax>=0.4.35,<0.10",
-    "jaxlib>=0.4.35,<0.10",
-    "numpyro>=0.18.0",
     "scipy",
     "multipledispatch",
     "threadpoolctl",
@@ -40,7 +37,16 @@ pymoo = [
     "pymoo",
 ]
 
+# JAX/NumPyro are only needed to fit fully Bayesian models (e.g.
+# ``SaasFullyBayesianSingleTaskGP``), which run NUTS via NumPyro.
+fully_bayesian = [
+    "jax>=0.4.35,<0.10",
+    "jaxlib>=0.4.35,<0.10",
+    "numpyro>=0.18.0",
+]
+
 test = [
+    "botorch[fully_bayesian]",
     "pytest",
     "pytest-cov",
     "requests",
@@ -58,6 +64,7 @@ dev = [
 ]
 
 tutorials = [
+    "botorch[fully_bayesian]",
     "cma",
     "jupyter",
     "matplotlib",
