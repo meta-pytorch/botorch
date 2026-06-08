@@ -11,20 +11,39 @@ Utility functions for constrained optimization.
 from __future__ import annotations
 
 from collections.abc import Callable
-from functools import partial
+from dataclasses import dataclass
 
 import numpy as np
 import numpy.typing as npt
 import torch
 from botorch.exceptions.errors import CandidateGenerationError, UnsupportedError
 from botorch.optim.utils import columnwise_clamp, fix_features as apply_fix_features
-from scipy.optimize import Bounds, minimize
+from scipy import sparse
+from scipy.optimize import Bounds, LinearConstraint, minimize
 from torch import Tensor
 
 
 ScipyConstraintDict = dict[
     str, str | Callable[[np.ndarray], float] | Callable[[np.ndarray], np.ndarray]
 ]
+
+
+@dataclass
+class _LinearConstraintBlock:
+    """COO-style block of linear constraints produced by ``_make_linear_constraints``.
+
+    ``rows`` are 0-indexed within the block; the caller offsets them when stacking
+    multiple blocks into a single ``A`` matrix. ``cols`` are absolute column
+    indices into the flat ``(b*q*d,)`` decision vector. The semantics are
+    ``lb[i] <= sum_j A[i, j] * x[j] <= ub[i]`` per row.
+    """
+
+    rows: np.ndarray  # int64, length nnz
+    cols: np.ndarray  # int64, length nnz
+    vals: np.ndarray  # float64, length nnz
+    lb: np.ndarray  # length n_rows
+    ub: np.ndarray  # length n_rows
+    n_rows: int
 
 
 def get_constraint_tolerance(dtype: torch.dtype) -> float:
@@ -88,63 +107,107 @@ def make_scipy_linear_constraints(
     shapeX: torch.Size,
     inequality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
     equality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
-) -> list[ScipyConstraintDict]:
-    r"""Generate scipy constraints from torch representation.
+) -> LinearConstraint | None:
+    r"""Generate a scipy ``LinearConstraint`` from torch constraint tuples.
+
+    Stacks every inequality and equality constraint into a single sparse
+    constraint matrix ``A`` of shape ``(m_total, b*q*d)`` together with bound
+    vectors ``lb`` / ``ub``: equality rows have ``lb == ub == rhs``; inequality
+    rows have ``lb == rhs, ub == +inf`` (BoTorch's convention is ``A @ x >= rhs``).
 
     Args:
         shapeX: The shape of the torch.Tensor to optimize over (i.e. ``(b) x q x d``)
-        inequality constraints: A list of tuples (indices, coefficients, rhs),
+        inequality_constraints: A list of tuples (indices, coefficients, rhs),
             with each tuple encoding an inequality constraint of the form
             ``\sum_i (X[indices[i]] * coefficients[i]) >= rhs``, where
             ``indices`` is a single-dimensional index tensor (long dtype) containing
             indices into the last dimension of ``X``, ``coefficients`` is a
             single-dimensional tensor of coefficients of the same length, and
             rhs is a scalar.
-        equality constraints: A list of tuples (indices, coefficients, rhs),
-            with each tuple encoding an inequality constraint of the form
+        equality_constraints: A list of tuples (indices, coefficients, rhs),
+            with each tuple encoding an equality constraint of the form
             ``\sum_i (X[indices[i]] * coefficients[i]) == rhs`` (with ``indices``
             and ``coefficients`` of the same form as in ``inequality_constraints``).
 
     Returns:
-        A list of dictionaries containing callables for constraint function
-        values and Jacobians and a string indicating the associated constraint
-        type ("eq", "ineq"), as expected by ``scipy.optimize.minimize``.
+        A :class:`scipy.optimize.LinearConstraint` whose ``A`` is a
+        :class:`scipy.sparse.coo_array`, or ``None`` if no constraints were
+        supplied. Solvers that don't consume ``LinearConstraint`` natively
+        (SLSQP, COBYLA, …) round-trip it to per-row dicts via scipy's
+        ``standardize_constraints``; solvers that do (trust-constr, custom
+        callable methods such as pounce) read the sparse pattern directly.
 
     This function assumes that constraints are the same for each input batch,
-    and broadcasts the constraints accordingly to the input batch shape. This
-    function does support constraints across elements of a q-batch if the
-    indices are a 2-d Tensor.
+    and broadcasts the constraints accordingly to the input batch shape. It
+    does support constraints across elements of a q-batch if the indices
+    are a 2-d Tensor.
 
     Example:
-        The following will enforce that ``x[1] + 0.5 x[3] >= -0.1`` for each ``x``
+        The following enforces ``x[1] + 0.5 x[3] >= -0.1`` for each ``x``
         in both elements of the q-batch, and each of the 3 t-batches:
 
-        >>> constraints = make_scipy_linear_constraints(
+        >>> lc = make_scipy_linear_constraints(
         >>>     torch.Size([3, 2, 4]),
         >>>     [(torch.tensor([1, 3]), torch.tensor([1.0, 0.5]), -0.1)],
         >>> )
 
-        The following will enforce that ``x[0, 1] + 0.5 x[1, 3] >= -0.1`` where
+        The following enforces ``x[0, 1] + 0.5 x[1, 3] >= -0.1`` where
         x[0, :] is the first element of the q-batch and x[1, :] is the second
         element of the q-batch, for each of the 3 t-batches:
 
-        >>> constraints = make_scipy_linear_constraints(
-        >>>     torch.size([3, 2, 4])
-        >>>     [(torch.tensor([[0, 1], [1, 3]), torch.tensor([1.0, 0.5]), -0.1)],
+        >>> lc = make_scipy_linear_constraints(
+        >>>     torch.Size([3, 2, 4]),
+        >>>     [(torch.tensor([[0, 1], [1, 3]]), torch.tensor([1.0, 0.5]), -0.1)],
         >>> )
     """
-    constraints = []
+    blocks: list[_LinearConstraintBlock] = []
     if inequality_constraints is not None:
         for indcs, coeffs, rhs in inequality_constraints:
-            constraints += _make_linear_constraints(
-                indices=indcs, coefficients=coeffs, rhs=rhs, shapeX=shapeX, eq=False
+            blocks.append(
+                _make_linear_constraints(
+                    indices=indcs,
+                    coefficients=coeffs,
+                    rhs=rhs,
+                    shapeX=shapeX,
+                    eq=False,
+                )
             )
     if equality_constraints is not None:
         for indcs, coeffs, rhs in equality_constraints:
-            constraints += _make_linear_constraints(
-                indices=indcs, coefficients=coeffs, rhs=rhs, shapeX=shapeX, eq=True
+            blocks.append(
+                _make_linear_constraints(
+                    indices=indcs,
+                    coefficients=coeffs,
+                    rhs=rhs,
+                    shapeX=shapeX,
+                    eq=True,
+                )
             )
-    return constraints
+
+    if not blocks:
+        return None
+
+    # Stack blocks with a running row offset; columns/values/bounds concat directly.
+    row_offset = 0
+    row_parts, col_parts, val_parts, lb_parts, ub_parts = [], [], [], [], []
+    for blk in blocks:
+        row_parts.append(blk.rows + row_offset)
+        col_parts.append(blk.cols)
+        val_parts.append(blk.vals)
+        lb_parts.append(blk.lb)
+        ub_parts.append(blk.ub)
+        row_offset += blk.n_rows
+
+    rows = np.concatenate(row_parts)
+    cols = np.concatenate(col_parts)
+    vals = np.concatenate(val_parts)
+    lb = np.concatenate(lb_parts)
+    ub = np.concatenate(ub_parts)
+
+    # n = total flat variable count = b*q*d after shape validation.
+    n_total = int(_validate_linear_constraints_shape_input(shapeX).numel())
+    A = sparse.coo_array((vals, (rows, cols)), shape=(row_offset, n_total))
+    return LinearConstraint(A, lb=lb, ub=ub)
 
 
 def eval_lin_constraint(
@@ -238,97 +301,76 @@ def _make_linear_constraints(
     rhs: float,
     shapeX: torch.Size,
     eq: bool = False,
-) -> list[ScipyConstraintDict]:
-    r"""Create linear constraints to be used by ``scipy.optimize.minimize``.
+) -> _LinearConstraintBlock:
+    r"""Build a COO block for a linear constraint over a flattened ``(b)xqxd`` X.
 
     Encodes constraints of the form
     ``\sum_i (coefficients[i] * X[..., indices[i]]) ? rhs``
-    where ``?`` can be designated either as ``>=`` by setting ``eq=False``, or as
-    ``=`` by setting ``eq=True``.
+    where ``?`` is ``=`` when ``eq=True`` and ``>=`` otherwise.
 
-    If indices is one-dimensional, the constraints are broadcasted across
-    all elements of the q-batch. If indices is two-dimensional, then
-    constraints are applied across elements of a q-batch. In either case,
-    constraints are created for all t-batches.
+    If ``indices`` is one-dimensional, the constraint is broadcast over each
+    ``(t-batch, q-batch)`` pair (intra-point). If two-dimensional, it is applied
+    once per t-batch across elements of the q-batch (inter-point).
 
     Args:
-        indices: A tensor of shape ``c`` or ``c x 2``, where c is the number of terms
-            in the constraint. If single-dimensional, contains the indices of
-            the dimensions of the feature space that occur in the linear
-            constraint. If two-dimensional, contains pairs of indices of the
-            q-batch (0) and the feature space (1) that occur in the linear
-            constraint.
-        coefficients: A single-dimensional tensor of coefficients with the same
-            number of elements as ``indices``.
-        rhs: The right hand side of the constraint.
-        shapeX: The shape of the torch tensor to construct the constraints for
-            (i.e. ``(b) x q x d``). Must have two or three dimensions.
-        eq: If True, return an equality constraint, o/w return an inequality
-            constraint (indicated by "eq" / "ineq" value of the ``type`` key).
+        indices: ``c`` or ``c x 2`` long tensor. 1D → intra-point feature indices.
+            2D → ``(q-row, feature)`` pairs for inter-point constraints.
+        coefficients: 1D tensor of constraint coefficients, length ``c``.
+        rhs: Right-hand side of the constraint.
+        shapeX: Shape of the torch tensor (``(b) x q x d``). 2 or 3 dimensions.
+        eq: If True, equality (``lb = ub = rhs``); otherwise inequality
+            (``lb = rhs, ub = +inf``).
 
     Returns:
-        A list of constraint dictionaries with the following keys
-
-        - "type": Indicates the type of the constraint ("eq" if ``eq=True``, "ineq" o/w)
-        - "fun": A callable evaluating the constraint value on ``x``, a flattened
-            version of the input tensor ``X``, returning a scalar.
-        - "jac": A callable evaluating the constraint's Jacobian on ``x``, a flattened
-            version of the input tensor ``X``, returning a numpy array.
-
-    >>> shapeX = torch.Size([3, 5, 4])
-    >>> constraints = _make_linear_constraints(
-    ...     indices=torch.tensor([1., 2.]),
-    ...     coefficients=torch.tensor([-0.5, 1.3]),
-    ...     rhs=0.49,
-    ...     shapeX=shapeX,
-    ...     eq=True
-    ... )
-    >>> len(constraints)
-    15
-    >>> constraints[0].keys()
-    dict_keys(['type', 'fun', 'jac'])
-    >>> x = np.arange(60).reshape(shapeX)
-    >>> constraints[0]["fun"](x)
-    1.61  # 1 * -0.5 + 2 * 1.3 - 0.49
-    >>> constraints[0]["jac"](x)
-    [0., -0.5, 1.3, 0., 0., ...]
-    >>> constraints[1]["fun"](x)  #
-    4.81
+        A :class:`_LinearConstraintBlock` containing the sparse triplet for this
+        block of rows together with the ``lb`` / ``ub`` vectors. Equality rows
+        have ``lb[i] == ub[i] == rhs``; inequality rows have ``lb[i] == rhs``
+        and ``ub[i] == +inf`` (BoTorch's convention is ``A @ x >= rhs``).
     """
-
     shapeX = _validate_linear_constraints_shape_input(shapeX)
-
     b, q, d = shapeX
     _validate_linear_constraints_indices_input(indices, q, d)
-    n = shapeX.numel()
-    constraints: list[ScipyConstraintDict] = []
-    coeffs = _arrayify(coefficients)
-    ctype = "eq" if eq else "ineq"
 
+    coeffs = _arrayify(coefficients)
+    n_coeffs = int(coefficients.numel())
     offsets = [q * d, d]
+
     if indices.dim() == 2:
-        # indices has two dimensions (potential constraints across q-batch elements)
-        # rule is [i, j, k] is at
-        # i * offsets[0] + j * offsets[1] + k
+        # Inter-point: one row per t-batch element, touches len(indices) columns.
+        n_rows = int(b)
+        rows = np.repeat(np.arange(n_rows, dtype=np.int64), n_coeffs)
+        cols = np.empty(n_rows * n_coeffs, dtype=np.int64)
         for i in range(b):
-            list_ind = (idx.tolist() for idx in indices)
+            list_ind = [idx.tolist() for idx in indices]
             idxr = [i * offsets[0] + idx[0] * offsets[1] + idx[1] for idx in list_ind]
-            fun = partial(
-                eval_lin_constraint, flat_idxr=idxr, coeffs=coeffs, rhs=float(rhs)
-            )
-            jac = partial(lin_constraint_jac, flat_idxr=idxr, coeffs=coeffs, n=n)
-            constraints.append({"type": ctype, "fun": fun, "jac": jac})
-    elif indices.dim() == 1:
-        # indices is one-dim - broadcast constraints across q-batches and t-batches
+            cols[i * n_coeffs : (i + 1) * n_coeffs] = idxr
+        vals = np.tile(coeffs, n_rows)
+    else:  # indices.dim() == 1 — validator already rejected dim==0 / dim>2
+        # Intra-point: one row per (t-batch, q-batch) pair.
+        n_rows = int(b * q)
+        rows = np.repeat(np.arange(n_rows, dtype=np.int64), n_coeffs)
+        cols = np.empty(n_rows * n_coeffs, dtype=np.int64)
+        idx_np = _arrayify(indices).astype(np.int64)
+        r = 0
         for i in range(b):
             for j in range(q):
-                idxr = (i * offsets[0] + j * offsets[1] + indices).tolist()
-                fun = partial(
-                    eval_lin_constraint, flat_idxr=idxr, coeffs=coeffs, rhs=float(rhs)
+                cols[r * n_coeffs : (r + 1) * n_coeffs] = (
+                    i * offsets[0] + j * offsets[1] + idx_np
                 )
-                jac = partial(lin_constraint_jac, flat_idxr=idxr, coeffs=coeffs, n=n)
-                constraints.append({"type": ctype, "fun": fun, "jac": jac})
-    return constraints
+                r += 1
+        vals = np.tile(coeffs, n_rows)
+
+    rhs_f = float(rhs)
+    if eq:
+        lb = np.full(n_rows, rhs_f, dtype=np.float64)
+        ub = np.full(n_rows, rhs_f, dtype=np.float64)
+    else:
+        lb = np.full(n_rows, rhs_f, dtype=np.float64)
+        ub = np.full(n_rows, np.inf, dtype=np.float64)
+
+    return _LinearConstraintBlock(
+        rows=rows, cols=cols, vals=vals, lb=lb, ub=ub, n_rows=n_rows
+    )
 
 
 def _make_nonlinear_constraints(
@@ -841,11 +883,12 @@ def project_to_feasible_space_via_slsqp(
                 ub[flat_idx] = X_fixed_flat[flat_idx]
 
     bounds_scipy = Bounds(lb=lb, ub=ub, keep_feasible=True)
-    constraints = make_scipy_linear_constraints(
+    linear_lc = make_scipy_linear_constraints(
         shapeX=X.shape,
         inequality_constraints=inequality_constraints,
         equality_constraints=equality_constraints,
     )
+    constraints = [linear_lc] if linear_lc is not None else []
     # Define squared distance objective
     X_np = X.flatten().detach().cpu().numpy()
 
