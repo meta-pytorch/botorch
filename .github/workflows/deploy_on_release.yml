@@ -13,6 +13,7 @@ jobs:
     uses: ./.github/workflows/reusable_test.yml
     with:
       use_latest_pytorch_gpytorch: false
+      upload_coverage: false
     secrets: inherit
 
   package-deploy-pypi:
