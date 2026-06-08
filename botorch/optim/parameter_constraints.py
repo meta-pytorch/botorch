@@ -193,6 +193,9 @@ def make_scipy_linear_constraints(
                 )
             )
 
+    if not ineq_blocks and not eq_blocks:
+        return []
+
     # n = total flat variable count = b*q*d after shape validation.
     n_total = int(_validate_linear_constraints_shape_input(shapeX).numel())
 
