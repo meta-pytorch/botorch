@@ -551,7 +551,7 @@ def _optimize_acqf_batch(
         nonlinear_inequality_constraints=nonlinear_inequality_constraints,
     )
     infeasible = ~is_feasible
-    if nonlinear_inequality_constraints is None and infeasible.any():
+    if infeasible.any():
         # Filter tensor-valued fixed features to match the infeasible subset.
         # This is needed because fixed_features may contain per-element tensor
         # values (e.g., from continuous_step in mixed optimization), and we
@@ -567,6 +567,7 @@ def _optimize_acqf_batch(
             bounds=opt_inputs.bounds,
             equality_constraints=equality_constraints,
             inequality_constraints=inequality_constraints,
+            nonlinear_inequality_constraints=nonlinear_inequality_constraints,
             fixed_features=fixed_features,
         )
         if opt_inputs.post_processing_func is not None:
