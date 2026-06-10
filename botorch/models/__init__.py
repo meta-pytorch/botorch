@@ -27,6 +27,9 @@ if TYPE_CHECKING:
         GenericDeterministicModel,
         PosteriorMeanModel,
     )
+    from botorch.models.empirical_gps.empirical_1d_gp import (  # noqa: F401
+        EmpiricalOneDimensionalGP,
+    )
     from botorch.models.gp_regression import SingleTaskGP as SingleTaskGP  # noqa: F401
     from botorch.models.gp_regression_fidelity import (  # noqa: F401
         SingleTaskMultiFidelityGP,
@@ -53,6 +56,10 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "AffineDeterministicModel": (".deterministic", "AffineDeterministicModel"),
     "GenericDeterministicModel": (".deterministic", "GenericDeterministicModel"),
     "PosteriorMeanModel": (".deterministic", "PosteriorMeanModel"),
+    "EmpiricalOneDimensionalGP": (
+        ".empirical_gps.empirical_1d_gp",
+        "EmpiricalOneDimensionalGP",
+    ),
     "SingleTaskGP": (".gp_regression", "SingleTaskGP"),
     "SingleTaskMultiFidelityGP": (
         ".gp_regression_fidelity",
