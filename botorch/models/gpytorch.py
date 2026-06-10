@@ -304,15 +304,12 @@ class GPyTorchModel(Model, ABC):
             Y, Yvar = extract_targets_and_noise_single_output(self)
         return Y, Yvar
 
-    def _restore_targets_and_noise(
-        self, Y: Tensor, Yvar: Tensor | None, strict: bool
-    ) -> None:
+    def _restore_targets_and_noise(self, Y: Tensor, Yvar: Tensor | None) -> None:
         r"""Restore targets and noise variance to the model.
 
         Args:
             Y: Targets tensor in shape ``batch_shape x n x m``.
             Yvar: Optional noise variance tensor in shape ``batch_shape x n x m``.
-            strict: Whether to strictly enforce shape constraints.
         """
         if self.num_outputs > 1:
             Y = Y.transpose(-1, -2)
@@ -321,9 +318,63 @@ class GPyTorchModel(Model, ABC):
             ):
                 Yvar = Yvar.transpose(-1, -2)
                 self.likelihood.noise_covar.noise = Yvar
-            self.set_train_data(targets=Y, strict=strict)
+            self.set_train_data(targets=Y, strict=False)
         else:
-            restore_targets_and_noise_single_output(self, Y, Yvar, strict)
+            restore_targets_and_noise_single_output(
+                model=self, Y=Y, Yvar=Yvar, strict=False
+            )
+
+    def _untransform_targets(
+        self,
+    ) -> tuple[Tensor, Tensor | None, Tensor] | None:
+        r"""Extract training targets, undo the outcome transform, and return them.
+
+        Used by ``load_state_dict`` to save the untransformed targets before
+        loading new parameters, so that the outcome transform can be re-applied
+        afterward with the new transform state.
+
+        Subclasses that store training data somewhere other than ``self`` (e.g.
+        ``ApproximateGPyTorchModel`` stores it on ``self.model``) should
+        override this method.
+
+        Returns:
+            A tuple ``(Y, Yvar, X)`` of untransformed targets, noise variance,
+            and training inputs — or ``None`` if the model has no outcome
+            transform.
+        """
+        if getattr(self, "outcome_transform", None) is None:
+            return None
+
+        Y, Yvar = self._extract_targets_and_noise()
+        X = self.train_inputs[0]
+        Y, Yvar = self.outcome_transform.untransform(Y=Y, Yvar=Yvar, X=X)
+        return Y, Yvar, X
+
+    def _retransform_and_set_targets(
+        self,
+        Y: Tensor,
+        Yvar: Tensor | None,
+        X: Tensor,
+    ) -> None:
+        r"""Re-apply the outcome transform to targets and store them.
+
+        Called by ``load_state_dict`` after new parameters have been loaded,
+        to re-transform the training targets under the updated outcome
+        transform.
+
+        Subclasses that store training data somewhere other than ``self``
+        should override this method.
+
+        Args:
+            Y: Untransformed targets, shape ``batch_shape x n x m``.
+            Yvar: Untransformed noise variance, or ``None``.
+            X: Training inputs, shape ``batch_shape x n x d``.
+        """
+        self.outcome_transform.eval()
+        retransformed_Y, retransformed_Yvar = self.outcome_transform(
+            Y=Y, Yvar=Yvar, X=X
+        )
+        self._restore_targets_and_noise(Y=retransformed_Y, Yvar=retransformed_Yvar)
 
     def load_state_dict(
         self,
@@ -353,48 +404,34 @@ class GPyTorchModel(Model, ABC):
             super().load_state_dict(state_dict=state_dict, strict=strict, assign=assign)
             return
 
-        should_outcome_transform = (
-            hasattr(self, "train_targets")
-            and getattr(self, "outcome_transform", None) is not None
-        )
-
+        # Before loading new parameters, untransform the current training
+        # targets so they can be re-transformed under the new outcome
+        # transform state. Returns None if no outcome transform or no
+        # training data.
         with torch.no_grad():
-            untransformed_Y, untransformed_Yvar = self._extract_targets_and_noise()
-            X = self.train_inputs[0]
-
-            if should_outcome_transform:
-                try:
-                    untransformed_Y, untransformed_Yvar = (
-                        self.outcome_transform.untransform(
-                            Y=untransformed_Y,
-                            Yvar=untransformed_Yvar,
-                            X=X,
-                        )
-                    )
-                except NotImplementedError:
-                    warnings.warn(
-                        "Outcome transform does not support untransforming."
-                        "Cannot load the state dict with transforms preserved."
-                        "Setting keep_transforms=False.",
-                        BotorchWarning,
-                        stacklevel=3,
-                    )
-                    super().load_state_dict(
-                        state_dict=state_dict, strict=strict, assign=assign
-                    )
-                    return
+            try:
+                untransformed = self._untransform_targets()
+            except NotImplementedError:
+                warnings.warn(
+                    "Outcome transform does not support untransforming. "
+                    "Cannot load the state dict with transforms preserved. "
+                    "Setting keep_transforms=False.",
+                    BotorchWarning,
+                    stacklevel=3,
+                )
+                super().load_state_dict(
+                    state_dict=state_dict, strict=strict, assign=assign
+                )
+                return
 
         super().load_state_dict(state_dict=state_dict, strict=strict, assign=assign)
 
         if getattr(self, "input_transform", None) is not None:
             self.input_transform.eval()
 
-        if should_outcome_transform:
-            self.outcome_transform.eval()
-            retransformed_Y, retransformed_Yvar = self.outcome_transform(
-                Y=untransformed_Y, Yvar=untransformed_Yvar, X=X
-            )
-            self._restore_targets_and_noise(retransformed_Y, retransformed_Yvar, strict)
+        if untransformed is not None:
+            Y, Yvar, X = untransformed
+            self._retransform_and_set_targets(Y=Y, Yvar=Yvar, X=X)
 
 
 # pyre-fixme[13]: uninitialized attributes _num_outputs, _input_batch_shape,
@@ -935,17 +972,16 @@ class MultiTaskGPyTorchModel(GPyTorchModel, ABC):
         """
         return extract_targets_and_noise_single_output(self)
 
-    def _restore_targets_and_noise(
-        self, Y: Tensor, Yvar: Tensor | None, strict: bool
-    ) -> None:
+    def _restore_targets_and_noise(self, Y: Tensor, Yvar: Tensor | None) -> None:
         r"""Restore targets and noise variance for multi-task models.
 
         Args:
             Y: Targets tensor in shape ``batch_shape x n x m``.
             Yvar: Optional noise variance tensor in shape ``batch_shape x n x m``.
-            strict: Whether to strictly enforce shape constraints.
         """
-        restore_targets_and_noise_single_output(self, Y, Yvar, strict)
+        restore_targets_and_noise_single_output(
+            model=self, Y=Y, Yvar=Yvar, strict=False
+        )
 
     def _apply_noise(
         self,
