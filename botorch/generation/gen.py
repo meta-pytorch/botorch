@@ -342,10 +342,12 @@ def gen_candidates_scipy(
 
             x0 = candidates_.flatten()
 
-            constraints = make_scipy_linear_constraints(
-                shapeX=candidates_.shape,
-                inequality_constraints=_no_fixed_features.inequality_constraints,
-                equality_constraints=_no_fixed_features.equality_constraints,
+            constraints = list(
+                make_scipy_linear_constraints(
+                    shapeX=candidates_.shape,
+                    inequality_constraints=_no_fixed_features.inequality_constraints,
+                    equality_constraints=_no_fixed_features.equality_constraints,
+                )
             )
             if _no_fixed_features.nonlinear_inequality_constraints:
                 # Make sure ``batch_limit`` is 1 for now.

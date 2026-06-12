@@ -4,6 +4,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+import warnings
 from collections.abc import Callable
 from itertools import product
 from unittest import mock
@@ -30,7 +31,9 @@ from botorch.optim.parameter_constraints import (
     project_to_feasible_space_via_slsqp,
 )
 from botorch.utils.testing import BotorchTestCase
-from scipy.optimize import Bounds
+from scipy import sparse
+from scipy.optimize import Bounds, LinearConstraint, OptimizeWarning
+from scipy.optimize._minimize import standardize_constraints
 
 
 class TestParameterConstraints(BotorchTestCase):
@@ -177,87 +180,90 @@ class TestParameterConstraints(BotorchTestCase):
         self.assertEqual(len(res), b * q + b)
 
     def test_make_linear_constraints(self):
-        # equality constraints, 1d indices
+        # equality constraints, 1d indices (intra-point) -> one row per (b, q) pair
         indices = torch.tensor([1, 2], dtype=torch.long, device=self.device)
         for dtype, shapeX in product(
             (torch.float, torch.double), (torch.Size([3, 2, 4]), torch.Size([2, 4]))
         ):
+            b = shapeX[0] if len(shapeX) == 3 else 1
+            q, d = shapeX[-2:]
+            n = shapeX.numel()
             coefficients = torch.tensor([1.0, 2.0], dtype=dtype, device=self.device)
-            constraints = _make_linear_constraints(
+            block = _make_linear_constraints(
                 indices=indices,
                 coefficients=coefficients,
                 rhs=1.0,
                 shapeX=shapeX,
                 eq=True,
             )
-            self.assertTrue(
-                all(set(c.keys()) == {"fun", "jac", "type"} for c in constraints)
-            )
-            self.assertTrue(all(c["type"] == "eq" for c in constraints))
-            self.assertEqual(len(constraints), shapeX[:-1].numel())
-            x = np.random.rand(shapeX.numel())
-            self.assertEqual(constraints[0]["fun"](x), x[1] + 2 * x[2] - 1.0)
-            jac_exp = np.zeros(shapeX.numel())
-            jac_exp[[1, 2]] = [1, 2]
-            self.assertTrue(np.allclose(constraints[0]["jac"](x), jac_exp))
-            self.assertEqual(constraints[-1]["fun"](x), x[-3] + 2 * x[-2] - 1.0)
-            jac_exp = np.zeros(shapeX.numel())
-            jac_exp[[-3, -2]] = [1, 2]
-            self.assertTrue(np.allclose(constraints[-1]["jac"](x), jac_exp))
+            # eq → lb == ub == rhs; row count = b * q
+            self.assertEqual(block.n_rows, b * q)
+            self.assertTrue(np.allclose(block.lb, 1.0))
+            self.assertTrue(np.allclose(block.ub, 1.0))
+            # Materialize and verify per-row semantics against legacy formula.
+            A = sparse.coo_array(
+                (block.vals, (block.rows, block.cols)),
+                shape=(block.n_rows, n),
+            ).toarray()
+            x = np.random.rand(n)
+            # First row is (i=0, j=0) → columns shifted by indices only.
+            self.assertAlmostEqual(float(A[0] @ x), x[1] + 2 * x[2])
+            # Last row is (i=b-1, j=q-1).
+            offset = (b - 1) * q * d + (q - 1) * d
+            self.assertAlmostEqual(float(A[-1] @ x), x[offset + 1] + 2 * x[offset + 2])
 
-        # inequality constraints, 1d indices
+        # inequality constraints, 1d indices → lb=rhs, ub=+inf
         for shapeX in [torch.Size([1, 1, 2]), torch.Size([1, 2])]:
-            lcs = _make_linear_constraints(
+            block = _make_linear_constraints(
                 indices=torch.tensor([1]),
                 coefficients=torch.tensor([1.0]),
                 rhs=1.0,
                 shapeX=shapeX,
                 eq=False,
             )
-            self.assertEqual(len(lcs), 1)
-            self.assertEqual(lcs[0]["type"], "ineq")
+            self.assertEqual(block.n_rows, 1)
+            self.assertTrue(np.allclose(block.lb, 1.0))
+            self.assertTrue(np.all(np.isinf(block.ub)))
 
-        # constraint across q-batch (2d indics), equality constraint
+        # inter-point: 2d indices → one row per t-batch element
         indices = torch.tensor([[0, 3], [1, 2]], dtype=torch.long, device=self.device)
-
         for dtype, shapeX in product(
             (torch.float, torch.double), (torch.Size([3, 2, 4]), torch.Size([2, 4]))
         ):
+            b = shapeX[0] if len(shapeX) == 3 else 1
             q, d = shapeX[-2:]
-            b = 1 if len(shapeX) == 2 else shapeX[0]
+            n = shapeX.numel()
             coefficients = torch.tensor([1.0, 2.0], dtype=dtype, device=self.device)
-            constraints = _make_linear_constraints(
+            block = _make_linear_constraints(
                 indices=indices,
                 coefficients=coefficients,
                 rhs=1.0,
                 shapeX=shapeX,
                 eq=True,
             )
-            self.assertTrue(
-                all(set(c.keys()) == {"fun", "jac", "type"} for c in constraints)
-            )
-            self.assertTrue(all(c["type"] == "eq" for c in constraints))
-            self.assertEqual(len(constraints), b)
-            x = np.random.rand(shapeX.numel())
-            offsets = [q * d, d]
-            # rule is [i, j, k] is i * offset[0] + j * offset[1] + k
+            self.assertEqual(block.n_rows, b)
+            self.assertTrue(np.allclose(block.lb, 1.0))
+            self.assertTrue(np.allclose(block.ub, 1.0))
+            A = sparse.coo_array(
+                (block.vals, (block.rows, block.cols)),
+                shape=(block.n_rows, n),
+            ).toarray()
+            x = np.random.rand(n)
             for i in range(b):
-                pos1 = i * offsets[0] + 3
-                pos2 = i * offsets[0] + 1 * offsets[1] + 2
-                self.assertEqual(constraints[i]["fun"](x), x[pos1] + 2 * x[pos2] - 1.0)
-                jac_exp = np.zeros(shapeX.numel())
-                jac_exp[[pos1, pos2]] = [1, 2]
-                self.assertTrue(np.allclose(constraints[i]["jac"](x), jac_exp))
-        # make sure error is raised for scalar tensors
+                pos1 = i * (q * d) + 0 * d + 3  # q-row=0, feature=3
+                pos2 = i * (q * d) + 1 * d + 2  # q-row=1, feature=2
+                self.assertAlmostEqual(float(A[i] @ x), x[pos1] + 2 * x[pos2])
+
+        # scalar tensor → ValueError
         with self.assertRaises(ValueError):
-            constraints = _make_linear_constraints(
+            _make_linear_constraints(
                 indices=torch.tensor(0),
                 coefficients=torch.tensor([1.0]),
                 rhs=1.0,
                 shapeX=torch.Size([1, 1, 2]),
                 eq=False,
             )
-        # test that len(shapeX) < 2 raises an error
+        # shapeX dim < 2 → UnsupportedError
         with self.assertRaises(UnsupportedError):
             _make_linear_constraints(
                 shapeX=torch.Size([2]),
@@ -269,42 +275,186 @@ class TestParameterConstraints(BotorchTestCase):
     def test_make_scipy_linear_constraints(self):
         for shapeX in [torch.Size([2, 1, 4]), torch.Size([1, 4])]:
             b = shapeX[0] if len(shapeX) == 3 else 1
+            n = shapeX.numel()
+            # Empty list when no constraints.
             res = make_scipy_linear_constraints(
                 shapeX=shapeX, inequality_constraints=None, equality_constraints=None
             )
             self.assertEqual(res, [])
+
             indices = torch.tensor([0, 1], dtype=torch.long, device=self.device)
             coefficients = torch.tensor([1.5, -1.0], device=self.device)
-            # both inequality and equality constraints
-            cs = make_scipy_linear_constraints(
+
+            # Both inequality and equality constraints → two separate
+            # LinearConstraints (ineq first, eq second). Splitting is what
+            # silences scipy's OptimizeWarning on SLSQP conversion.
+            lcs = make_scipy_linear_constraints(
                 shapeX=shapeX,
                 inequality_constraints=[(indices, coefficients, 1.0)],
                 equality_constraints=[(indices, coefficients, 1.0)],
             )
-            self.assertEqual(len(cs), 2 * b)
-            self.assertTrue({c["type"] for c in cs} == {"ineq", "eq"})
-            # inequality only
-            cs = make_scipy_linear_constraints(
+            self.assertEqual(len(lcs), 2)
+            for lc in lcs:
+                self.assertIsInstance(lc, LinearConstraint)
+                self.assertTrue(sparse.issparse(lc.A))
+                self.assertEqual(lc.A.shape, (b, n))
+            ineq_lc, eq_lc = lcs
+            # Inequality: lb=rhs, ub=+inf. Equality: lb=ub=rhs.
+            self.assertTrue(np.allclose(ineq_lc.lb, 1.0))
+            self.assertTrue(np.all(np.isinf(ineq_lc.ub)))
+            self.assertTrue(np.allclose(eq_lc.lb, 1.0))
+            self.assertTrue(np.allclose(eq_lc.ub, 1.0))
+
+            # Round-trip via scipy's standardize_constraints → dicts. With
+            # eq and ineq in separate LCs, scipy emits one dict per LC
+            # (vectorized fun returning a length-b vector; vectorized jac
+            # returning the dense A) and the OptimizeWarning we used to get
+            # for "eq and ineq in the same constraint" no longer fires.
+            x = np.random.rand(n)
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", OptimizeWarning)
+                old = standardize_constraints(lcs, x0=np.zeros(n), meth="slsqp")
+            self.assertEqual({c["type"] for c in old}, {"ineq", "eq"})
+            ineq_A = ineq_lc.A.toarray()
+            eq_A = eq_lc.A.toarray()
+            ineq_expected = ineq_A @ x - ineq_lc.lb
+            eq_expected = eq_A @ x - eq_lc.lb
+            for c in old:
+                val = np.atleast_1d(np.asarray(c["fun"](x), dtype=float))
+                jac = np.atleast_2d(np.asarray(c["jac"](x), dtype=float))
+                if c["type"] == "ineq":
+                    np.testing.assert_allclose(val, ineq_expected, atol=1e-10)
+                    np.testing.assert_allclose(jac, ineq_A, atol=1e-10)
+                else:
+                    np.testing.assert_allclose(val, eq_expected, atol=1e-10)
+                    np.testing.assert_allclose(jac, eq_A, atol=1e-10)
+
+            # Inequality only → single LC, length-1 list.
+            lcs = make_scipy_linear_constraints(
                 shapeX=shapeX, inequality_constraints=[(indices, coefficients, 1.0)]
             )
-            self.assertEqual(len(cs), b)
-            self.assertTrue(all(c["type"] == "ineq" for c in cs))
-            # equality only
-            cs = make_scipy_linear_constraints(
+            self.assertEqual(len(lcs), 1)
+            self.assertEqual(lcs[0].A.shape, (b, n))
+            self.assertTrue(np.all(np.isinf(lcs[0].ub)))
+            # Equality only → single LC, length-1 list.
+            lcs = make_scipy_linear_constraints(
                 shapeX=shapeX, equality_constraints=[(indices, coefficients, 1.0)]
             )
-            self.assertEqual(len(cs), b)
-            self.assertTrue(all(c["type"] == "eq" for c in cs))
+            self.assertEqual(len(lcs), 1)
+            self.assertEqual(lcs[0].A.shape, (b, n))
+            self.assertTrue(np.allclose(lcs[0].lb, lcs[0].ub))
 
-            # test that 2-dim indices work properly
-            indices = indices.unsqueeze(0)
-            cs = make_scipy_linear_constraints(
+            # 2-dim (inter-point) indices: same two-LC split, b rows each.
+            indices2 = indices.unsqueeze(0)
+            lcs = make_scipy_linear_constraints(
                 shapeX=shapeX,
-                inequality_constraints=[(indices, coefficients, 1.0)],
-                equality_constraints=[(indices, coefficients, 1.0)],
+                inequality_constraints=[(indices2, coefficients, 1.0)],
+                equality_constraints=[(indices2, coefficients, 1.0)],
             )
-            self.assertEqual(len(cs), 2 * b)
-            self.assertTrue({c["type"] for c in cs} == {"ineq", "eq"})
+            self.assertEqual(len(lcs), 2)
+            for lc in lcs:
+                self.assertEqual(lc.A.shape, (b, n))
+
+    def test_make_scipy_linear_constraints_sparsity_intra_point(self):
+        """Intra-point mixture: per-row column sets are pairwise disjoint
+        (block-diagonal pattern) and nnz == b * q * len(indices)."""
+        b, q, d = 4, 3, 5
+        shapeX = torch.Size([b, q, d])
+        indices = torch.tensor([0, 1, 2], dtype=torch.long, device=self.device)
+        coefficients = torch.tensor([1.0, 1.0, 1.0], device=self.device)
+        (lc,) = make_scipy_linear_constraints(
+            shapeX=shapeX,
+            equality_constraints=[(indices, coefficients, 1.0)],
+        )
+        self.assertEqual(lc.A.shape, (b * q, b * q * d))
+        self.assertEqual(lc.A.nnz, b * q * len(indices))
+        dense = lc.A.toarray()
+        col_sets = [set(np.flatnonzero(dense[row])) for row in range(b * q)]
+        for r1 in range(b * q):
+            self.assertEqual(len(col_sets[r1]), len(indices))
+            for r2 in range(r1 + 1, b * q):
+                self.assertTrue(col_sets[r1].isdisjoint(col_sets[r2]))
+
+    def test_make_scipy_linear_constraints_inter_point_pattern(self):
+        """Inter-point: scattered strided non-zeros, e.g. cols [0, d, 2d]."""
+        b, q, d = 1, 3, 5
+        shapeX = torch.Size([b, q, d])
+        # one constraint touching feature 0 of each q-row
+        indices = torch.tensor(
+            [[0, 0], [1, 0], [2, 0]], dtype=torch.long, device=self.device
+        )
+        coefficients = torch.tensor([1.0, 1.0, 1.0], device=self.device)
+        (lc,) = make_scipy_linear_constraints(
+            shapeX=shapeX,
+            inequality_constraints=[(indices, coefficients, 0.0)],
+        )
+        self.assertEqual(lc.A.shape, (b, b * q * d))
+        nz_cols = sorted(np.flatnonzero(lc.A.toarray()[0]).tolist())
+        self.assertEqual(nz_cols, [0, d, 2 * d])
+
+    def test_make_scipy_linear_constraints_mixed_intra_inter(self):
+        """Stack an intra-point and an inter-point constraint into one
+        LinearConstraint, verifying the COO row-offset arithmetic across
+        blocks with mismatched n_rows (intra contributes b*q rows; inter
+        contributes b)."""
+        b, q, d = 3, 2, 4
+        shapeX = torch.Size([b, q, d])
+        n = shapeX.numel()
+        intra_indices = torch.tensor([0, 1], dtype=torch.long, device=self.device)
+        inter_indices = torch.tensor(
+            [[0, 2], [1, 3]], dtype=torch.long, device=self.device
+        )
+        coeffs = torch.tensor([1.0, -1.0], device=self.device)
+        (lc,) = make_scipy_linear_constraints(
+            shapeX=shapeX,
+            equality_constraints=[
+                (intra_indices, coeffs, 0.5),  # broadcast → b*q = 6 rows
+                (inter_indices, coeffs, 0.7),  # broadcast → b   = 3 rows
+            ],
+        )
+        # 6 intra rows then 3 inter rows over n = b*q*d = 24 columns.
+        self.assertEqual(lc.A.shape, (b * q + b, n))
+        self.assertTrue(np.allclose(lc.lb[: b * q], 0.5))
+        self.assertTrue(np.allclose(lc.ub[: b * q], 0.5))
+        self.assertTrue(np.allclose(lc.lb[b * q :], 0.7))
+        self.assertTrue(np.allclose(lc.ub[b * q :], 0.7))
+
+        x = np.random.rand(n)
+        A = lc.A.toarray()
+        # Intra row 0 → (i=0, j=0); cols [0, 1].
+        self.assertAlmostEqual(float(A[0] @ x), x[0] - x[1])
+        # Intra row 1 → (i=0, j=1); cols offset by d = 4.
+        self.assertAlmostEqual(float(A[1] @ x), x[4] - x[5])
+        # Intra last row → (i=b-1, j=q-1); cols (b-1)*q*d + (q-1)*d + [0, 1].
+        intra_last_off = (b - 1) * q * d + (q - 1) * d
+        self.assertAlmostEqual(
+            float(A[b * q - 1] @ x), x[intra_last_off] - x[intra_last_off + 1]
+        )
+        # Inter row 0 (== global row b*q) → i=0; cols [0*d+2, 1*d+3] = [2, 7].
+        self.assertAlmostEqual(float(A[b * q] @ x), x[2] - x[7])
+        # Inter last row → i=b-1; cols (b-1)*q*d + [0*d+2, 1*d+3] = [18, 23].
+        inter_last_off = (b - 1) * q * d
+        self.assertAlmostEqual(
+            float(A[-1] @ x),
+            x[inter_last_off + 2] - x[inter_last_off + d + 3],
+        )
+
+        # Round-trip via scipy's standardizer: one ineq dict would be absent
+        # (we passed only equalities), so we expect one eq dict whose
+        # vectorized fun(x) equals A @ x - lb element-wise.
+        old = standardize_constraints([lc], x0=np.zeros(n), meth="slsqp")
+        self.assertEqual({c["type"] for c in old}, {"eq"})
+        eq_dict = next(c for c in old if c["type"] == "eq")
+        np.testing.assert_allclose(
+            np.atleast_1d(np.asarray(eq_dict["fun"](x), dtype=float)),
+            A @ x - lc.lb,
+            atol=1e-10,
+        )
+        np.testing.assert_allclose(
+            np.atleast_2d(np.asarray(eq_dict["jac"](x), dtype=float)),
+            A,
+            atol=1e-10,
+        )
 
     def test_make_scipy_linear_constraints_unsupported(self):
         shapeX = torch.Size([2, 1, 4])

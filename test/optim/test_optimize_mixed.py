@@ -1032,6 +1032,44 @@ class TestOptimizeAcqfMixed(BotorchTestCase):
             call_kwargs = mock_opt.call_args.kwargs
             self.assertFalse(call_kwargs["opt_inputs"].return_acq_values)
 
+    def test_optimize_acqf_mixed_alternating_forwards_retry_flag(self) -> None:
+        """The retry-on-optimization-warning flag must reach the continuous
+        sub-step via the constructed OptimizeAcqfInputs (default True)."""
+        train_X, train_Y, binary_dims, cont_dims = self._get_data()
+        dim = len(binary_dims) + len(cont_dims)
+        bounds = self.single_bound.repeat(1, dim).to(**self.tkwargs)
+        torch.manual_seed(0)
+        model = SingleTaskGP(train_X=train_X, train_Y=train_Y)
+        acqf = LogExpectedImprovement(model=model, best_f=torch.max(train_Y))
+        options = {
+            "initialization_strategy": "random",
+            "maxiter_alternating": 1,
+            "maxiter_discrete": 4,
+            "maxiter_continuous": 8,
+            "num_spray_points": 0,
+        }
+        for retry in (True, False):
+            with mock.patch(
+                f"{OPT_MODULE}._optimize_acqf", wraps=_optimize_acqf
+            ) as mock_opt:
+                optimize_acqf_mixed_alternating(
+                    acq_function=acqf,
+                    bounds=bounds,
+                    discrete_dims=binary_dims,
+                    options=options,
+                    q=1,
+                    raw_samples=8,
+                    num_restarts=2,
+                    retry_on_optimization_warning=retry,
+                )
+                # every continuous sub-step inherits the flag from opt_inputs
+                self.assertTrue(mock_opt.call_count >= 1)
+                for call in mock_opt.call_args_list:
+                    self.assertEqual(
+                        call.kwargs["opt_inputs"].retry_on_optimization_warning,
+                        retry,
+                    )
+
     def test_optimize_acqf_mixed_integer(self) -> None:
         # Testing with integer variables.
         train_X, train_Y, binary_dims, cont_dims = self._get_data()
