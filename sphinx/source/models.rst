@@ -54,6 +54,11 @@ Contextual GP Models with Context Rewards
 .. automodule:: botorch.models.contextual_multioutput
     :members:
 
+Empirical GP Models
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.. automodule:: botorch.models.empirical_gps.empirical_1d_gp
+    :members:
+
 Fully Bayesian GP Models
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 .. automodule:: botorch.models.fully_bayesian
@@ -225,4 +230,9 @@ Priors
 Other Utilties
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 .. automodule:: botorch.models.utils.assorted
+    :members:
+
+Empirical GP Utilities
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.. automodule:: botorch.models.empirical_gps.utils
     :members:
