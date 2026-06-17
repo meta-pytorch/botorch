@@ -26,7 +26,7 @@ without having to do too many expensive high-fidelity evaluations.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, cast
 
 import torch
 from botorch.exceptions.errors import UnsupportedError
@@ -44,6 +44,7 @@ from botorch.utils.types import _DefaultType, DEFAULT
 from gpytorch.kernels.kernel import ProductKernel
 from gpytorch.kernels.scale_kernel import ScaleKernel
 from gpytorch.likelihoods.likelihood import Likelihood
+from gpytorch.means.mean import Mean
 from gpytorch.module import Module
 from gpytorch.priors.torch_priors import GammaPrior
 from torch import Tensor
@@ -77,6 +78,7 @@ class SingleTaskMultiFidelityGP(SingleTaskGP):
         likelihood: Likelihood | None = None,
         outcome_transform: OutcomeTransform | _DefaultType | None = DEFAULT,
         input_transform: InputTransform | None = None,
+        mean_module: Mean | None = None,
     ) -> None:
         r"""
         Args:
@@ -107,6 +109,8 @@ class SingleTaskMultiFidelityGP(SingleTaskGP):
                 Pass down ``None`` to use no outcome transform.
             input_transform: An input transform that is applied in the model's
                     forward pass.
+            mean_module: The mean function to be used. If omitted, use a
+                ``ConstantMean``.
         """
         self._init_args = {
             "iteration_fidelity": iteration_fidelity,
@@ -114,6 +118,7 @@ class SingleTaskMultiFidelityGP(SingleTaskGP):
             "linear_truncated": linear_truncated,
             "nu": nu,
             "outcome_transform": outcome_transform,
+            "mean_module": mean_module,
         }
         if iteration_fidelity is None and (
             data_fidelities is None or len(data_fidelities) == 0
@@ -142,14 +147,22 @@ class SingleTaskMultiFidelityGP(SingleTaskGP):
             train_Yvar=train_Yvar,
             likelihood=likelihood,
             covar_module=covar_module,
+            mean_module=mean_module,
             outcome_transform=outcome_transform,
             input_transform=input_transform,
         )
         # Used for subsetting along the output dimension. See Model.subset_output.
         self._subset_batch_dict = {
-            "mean_module.raw_constant": -1,
             **subset_batch_dict,
         }
+        raw_mean_constant = dict(self.mean_module.named_parameters()).get(
+            "raw_constant"
+        )
+        if (
+            raw_mean_constant is not None
+            and raw_mean_constant.shape == self._aug_batch_shape
+        ):
+            self._subset_batch_dict["mean_module.raw_constant"] = -1
         if linear_truncated:
             self._subset_batch_dict["covar_module.raw_outputscale"] = -1
         if train_Yvar is None:
@@ -171,6 +184,21 @@ class SingleTaskMultiFidelityGP(SingleTaskGP):
         inputs = super().construct_inputs(training_data=training_data)
         inputs["data_fidelities"] = fidelity_features
         return inputs
+
+    def subset_output(self, idcs: list[int]) -> SingleTaskMultiFidelityGP:
+        if self.num_outputs != len(idcs) or idcs != list(range(self.num_outputs)):
+            for name, parameter in self.mean_module.named_parameters():
+                if f"mean_module.{name}" in self._subset_batch_dict:
+                    continue
+                if (
+                    parameter.shape[: len(self._aug_batch_shape)]
+                    == self._aug_batch_shape
+                ):
+                    raise UnsupportedError(
+                        "`subset_output` is not supported for custom mean modules "
+                        "with output-batched parameters."
+                    )
+        return cast(SingleTaskMultiFidelityGP, super().subset_output(idcs=idcs))
 
 
 def _setup_multifidelity_covar_module(
