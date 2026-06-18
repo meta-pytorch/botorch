@@ -8,6 +8,7 @@ r"""Utility functions for empirical one-dimensional Gaussian Processes."""
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Callable
 
 import torch
@@ -383,3 +384,137 @@ def _interp1d_raise_out_of_bounds_error(
             f"A value ({x_new_max}) in x_new is above the interpolation "
             f"range's maximum value ({x.max()})."
         )
+
+
+# =============================================================================
+# Data Structures
+# =============================================================================
+
+
+@dataclass
+class ExperimentDataset:
+    """A single experiment dataset.
+
+    Args:
+        X: (n, d) Tensor of input locations.
+        Y: (n, m) Tensor of target values.
+        Yvar: Optional (n, m) Tensor of observation noise variances.
+    """
+
+    X: Tensor
+    Y: Tensor
+    Yvar: Tensor | None = None
+
+
+@dataclass
+class UniqueInputs:
+    """Tracks unique input locations and per-experiment index mappings.
+
+    Args:
+        X_all: (N_unique, d) Tensor of unique input locations.
+        experiment_indices: List of K tensors, where experiment_indices[i]
+            is a (n_i,) tensor of indices into X_all for experiment i's inputs.
+        forward_indices: (n_forward,) tensor of indices into X_all for
+            the forward input locations. "Forward" refers to the input locations
+            `X` passed to the `forward` method of empirical GP models, as opposed to
+            the historical inputs contained in `datasets`.
+    """
+
+    X_all: Tensor
+    experiment_indices: list[Tensor]
+    forward_indices: Tensor
+
+
+def build_unique_inputs(
+    datasets: list[ExperimentDataset],
+    X_forward: Tensor | None,
+) -> UniqueInputs:
+    """Build unique input locations with index mappings.
+
+    Combines all experiment inputs and forward inputs, deduplicates them,
+    and tracks which indices in X_all correspond to each experiment.
+
+    **Important**: This uses `torch.unique` which performs EXACT equality matching.
+    Near-duplicate points (differing by floating-point epsilon) will NOT be merged.
+
+    Args:
+        datasets: List of experiment datasets.
+        X_forward: Forward input locations, or None if only computing on datasets.
+            "Forward" refers to the input locations `X` passed to the `forward`
+            method of general empirical GP models, as opposed to the historical inputs
+            contained in `datasets`.
+
+    Returns:
+        UniqueInputs with X_all and index mappings.
+
+    Raises:
+        ValueError: If both datasets is empty and X_forward is None.
+    """
+    # Stack all inputs
+    all_X_list = [d.X for d in datasets]
+    if X_forward is not None:
+        all_X_list.append(X_forward)
+
+    if len(all_X_list) == 0:
+        raise ValueError(
+            "Cannot build unique inputs: datasets is empty and X_forward is None. "
+            "At least one dataset or X_forward must be provided."
+        )
+
+    all_X = torch.cat(all_X_list, dim=0)  # (sum of n_i + n_forward, d)
+
+    # Find unique rows using EXACT equality
+    X_all, inverse_indices = torch.unique(all_X, dim=0, return_inverse=True)
+
+    # Build index maps for each experiment
+    offset = 0
+    experiment_indices = []
+    for d in datasets:
+        n_i = d.X.shape[0]
+        exp_indices = inverse_indices[offset : offset + n_i]
+        experiment_indices.append(exp_indices)
+        offset += n_i
+
+    # Get indices for forward input (empty tensor if X_forward is None)
+    if X_forward is not None:
+        forward_indices = inverse_indices[offset:]
+    else:
+        forward_indices = torch.tensor([], dtype=torch.long, device=X_all.device)
+
+    return UniqueInputs(
+        X_all=X_all,
+        experiment_indices=experiment_indices,
+        forward_indices=forward_indices,
+    )
+
+
+# =============================================================================
+# Matrix Utilities
+# =============================================================================
+
+
+def project_psd(A: Tensor, min_eigval: float = 0.0) -> Tensor:
+    """Project a symmetric matrix to be positive semi-definite.
+
+    Computes the eigendecomposition and clamps negative eigenvalues to min_eigval.
+    This is the minimum-Frobenius-norm projection onto the PSD cone.
+
+    Args:
+        A: (N, N) symmetric matrix.
+        min_eigval: Minimum eigenvalue to allow (default: 0).
+
+    Returns:
+        A_psd: (N, N) symmetric PSD matrix closest to A in Frobenius norm.
+    """
+    # Eigendecomposition (A should be symmetric, eigh is appropriate)
+    eigvals, eigvecs = torch.linalg.eigh(A)
+
+    # Clamp negative eigenvalues
+    eigvals_clamped = torch.clamp(eigvals, min=min_eigval)
+
+    # Reconstruct: A_psd = V @ diag(max(λ, 0)) @ V.T
+    # Use scaled eigenvectors for efficient computation: (V * λ) @ V.T
+    A_psd = (eigvecs * eigvals_clamped) @ eigvecs.T
+
+    # Explicitly symmetrize to counteract numerical asymmetry from matmul
+    return 0.5 * (A_psd + A_psd.T)

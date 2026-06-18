@@ -27,6 +27,11 @@ if TYPE_CHECKING:
         GenericDeterministicModel,
         PosteriorMeanModel,
     )
+    from botorch.models.empirical_gps.em_empirical_gp import (  # noqa: F401
+        EMEmpiricalGaussianProcess,
+        EMPriorContainer,
+        pretrain_em_prior,
+    )
     from botorch.models.empirical_gps.empirical_1d_gp import (  # noqa: F401
         EmpiricalOneDimensionalGP,
     )
@@ -56,6 +61,12 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "AffineDeterministicModel": (".deterministic", "AffineDeterministicModel"),
     "GenericDeterministicModel": (".deterministic", "GenericDeterministicModel"),
     "PosteriorMeanModel": (".deterministic", "PosteriorMeanModel"),
+    "EMEmpiricalGaussianProcess": (
+        ".empirical_gps.em_empirical_gp",
+        "EMEmpiricalGaussianProcess",
+    ),
+    "EMPriorContainer": (".empirical_gps.em_empirical_gp", "EMPriorContainer"),
+    "pretrain_em_prior": (".empirical_gps.em_empirical_gp", "pretrain_em_prior"),
     "EmpiricalOneDimensionalGP": (
         ".empirical_gps.empirical_1d_gp",
         "EmpiricalOneDimensionalGP",
