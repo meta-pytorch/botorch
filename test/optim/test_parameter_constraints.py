@@ -19,10 +19,8 @@ from botorch.optim.parameter_constraints import (
     _generate_unfixed_nonlin_constraints,
     _make_linear_constraints,
     _make_nonlinear_constraints,
-    eval_lin_constraint,
     evaluate_feasibility,
     get_constraint_tolerance,
-    lin_constraint_jac,
     make_scipy_bounds,
     make_scipy_linear_constraints,
     make_scipy_nonlinear_inequality_constraints,
@@ -43,22 +41,6 @@ class TestParameterConstraints(BotorchTestCase):
             t_np = _arrayify(t)
             self.assertIsInstance(t_np, np.ndarray)
             self.assertTrue(t_np.dtype == np.float64)
-
-    def test_eval_lin_constraint(self):
-        res = eval_lin_constraint(
-            flat_idxr=[0, 2],
-            coeffs=np.array([1.0, -2.0]),
-            rhs=0.5,
-            x=np.array([1.0, 2.0, 3.0]),
-        )
-        self.assertEqual(res, -5.5)
-
-    def test_lin_constraint_jac(self):
-        dummy_array = np.array([1.0])
-        res = lin_constraint_jac(
-            dummy_array, flat_idxr=[0, 2], coeffs=np.array([1.0, -2.0]), n=3
-        )
-        self.assertTrue(all(np.equal(res, np.array([1.0, 0.0, -2.0]))))
 
     def test_make_nonlinear_constraints(self):
         def nlc(x):
