@@ -234,43 +234,6 @@ def make_scipy_linear_constraints(
     return result
 
 
-def eval_lin_constraint(
-    x: npt.NDArray, flat_idxr: list[int], coeffs: npt.NDArray, rhs: float
-) -> np.float64:
-    r"""Evaluate a single linear constraint.
-
-    Args:
-        x: The input array.
-        flat_idxr: The indices in ``x`` to consider.
-        coeffs: The coefficients corresponding to the indices.
-        rhs: The right-hand-side of the constraint.
-
-    Returns:
-        The evaluted constraint: ``\sum_i (coeffs[i] * x[i]) - rhs``
-    """
-    return np.sum(x[flat_idxr] * coeffs, -1) - rhs
-
-
-def lin_constraint_jac(
-    x: npt.NDArray, flat_idxr: list[int], coeffs: npt.NDArray, n: int
-) -> npt.NDArray:
-    r"""Return the Jacobian associated with a linear constraint.
-
-    Args:
-        x: The input array.
-        flat_idxr: The indices for the elements of x that appear in the constraint.
-        coeffs: The coefficients corresponding to the indices.
-        n: number of elements
-
-    Returns:
-        The Jacobian.
-    """
-    # TODO: Use sparse representation (not sure if scipy optim supports that)
-    jac = np.zeros(n)
-    jac[flat_idxr] = coeffs
-    return jac
-
-
 def _arrayify(X: Tensor) -> npt.NDArray:
     r"""Convert a torch.Tensor (any dtype or device) to a numpy (double) array.
 
