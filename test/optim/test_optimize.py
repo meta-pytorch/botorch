@@ -1659,7 +1659,7 @@ class TestOptimizeAcqf(BotorchTestCase):
     def test_optimize_acqf_projection_applied_with_nonlinear_constraints(
         self, mock_minimize: mock.Mock, mock_project_slsqp: mock.Mock
     ) -> None:
-        """Test that projection repairs infeasible candidates with nonlinear constraints."""
+        """Test projection repairs infeasible candidates with nonlinear constraints."""
         for dtype in (torch.float, torch.double):
             mock_project_slsqp.reset_mock()
             infeasible_candidates = torch.tensor(

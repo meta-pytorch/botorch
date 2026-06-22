@@ -706,9 +706,12 @@ def make_scipy_nonlinear_inequality_constraints(
                 f"got length {len(constraint)}."
             )
         nlc, is_intrapoint = constraint
-        if validate_feasibility and not nonlinear_constraint_is_feasible(
-            nlc, is_intrapoint=is_intrapoint, x=x0.reshape(shapeX)
-        ).all():
+        if (
+            validate_feasibility
+            and not nonlinear_constraint_is_feasible(
+                nlc, is_intrapoint=is_intrapoint, x=x0.reshape(shapeX)
+            ).all()
+        ):
             raise ValueError(
                 "`batch_initial_conditions` must satisfy the non-linear inequality "
                 "constraints."
