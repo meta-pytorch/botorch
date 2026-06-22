@@ -9,7 +9,7 @@ This yields optimization speedups for acquisition function optimization,
 where multiple independent problems with the same structure are optimized in parallel.
 
 This file is written such that it explicitly supports all scipy versions
-from 1.13 to 1.15 (likely 1.16, too, based on its pre-release version).
+from 1.13 to 1.18.
 This file might break for higher versions, as it uses internal APIs.
 There is a major revision of the core optimization code in 1.15, as it is
 ported from FORTRAN to C, we handle the API changes, though, and are
