@@ -44,7 +44,7 @@ from torch import Tensor
 from torch.optim import Optimizer
 
 SCIPY_MIN_VERSION: int = 13
-SCIPY_UNTESTED_VERSION: int = 18
+SCIPY_UNTESTED_VERSION: int = 19
 
 if check_scipy_version_at_least(
     minor=SCIPY_MIN_VERSION
