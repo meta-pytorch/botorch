@@ -59,6 +59,7 @@ from torch import Tensor
 
 _C = None  # Fused C++ kernel module, loaded lazily by _try_load_fused_kernel().
 _load_attempted = False  # Sentinel to avoid retrying after a failed load.
+_FUSED_MAX_I = 32  # Must match MAX_I in logei_fused.cpp.
 
 
 def _try_load_fused_kernel() -> None:
@@ -316,7 +317,12 @@ class qLogExpectedHypervolumeImprovement(
         # When obj has extra t-batch dims that broadcast against the cell
         # bounds, we expand cell bounds to match before flattening.
         cell_batch_ndim = self.cell_lower_bounds.ndim - 2
-        use_fused = _C is not None and self.fat and obj.device.type == "cpu"
+        use_fused = (
+            _C is not None
+            and self.fat
+            and obj.device.type == "cpu"
+            and q <= _FUSED_MAX_I
+        )
 
         if use_fused and cell_batch_ndim > 0:
             # Expand cell bounds to match obj batch shape for 1:1 mapping.

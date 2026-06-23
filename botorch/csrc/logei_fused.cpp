@@ -28,9 +28,9 @@ namespace {
 constexpr double ALPHA_RELU = 0.1;
 
 // Static upper bounds for stack-allocated scratch arrays.
-// MAX_I: maximum subset size (q choose i).
+// MAX_I: maximum subset size (the `i` in the inclusion-exclusion loop).
 // MAX_M: maximum number of objectives.
-constexpr int MAX_I = 16;
+constexpr int MAX_I = 32;
 constexpr int MAX_M = 8;
 
 // Numerically stable softplus: log(1 + exp(y)).

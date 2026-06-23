@@ -380,3 +380,47 @@ class TestFusedKernelCorrectness(BotorchTestCase):
         finally:
             logei_module._C = saved
         self.assertAllClose(val_fused, val_python, atol=1e-6, rtol=0)
+
+    def test_fused_kernel_fallback_large_q(self) -> None:
+        """Verify that q > _FUSED_MAX_I gracefully falls back to Python path."""
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        d = 2
+        m = 2
+        q = 4
+
+        torch.manual_seed(0)
+        train_X = torch.rand(10, d, **tkwargs)
+        train_Y = torch.randn(10, m, **tkwargs)
+        model = SingleTaskGP(train_X, train_Y)
+        ref_point = train_Y.min(dim=0).values - 0.1
+        partitioning = NondominatedPartitioning(ref_point=ref_point, Y=train_Y[:3])
+        sampler = SobolQMCNormalSampler(sample_shape=torch.Size([4]))
+        acqf = qLogExpectedHypervolumeImprovement(
+            model=model,
+            ref_point=ref_point.tolist(),
+            partitioning=partitioning,
+            sampler=sampler,
+        )
+        test_X = torch.rand(q, d, **tkwargs).requires_grad_(True)
+
+        # With _FUSED_MAX_I artificially set below q, should use Python path.
+        saved_max_i = logei_module._FUSED_MAX_I
+        logei_module._FUSED_MAX_I = q - 1
+        try:
+            torch.manual_seed(42)
+            val_fallback = acqf(test_X)
+            val_fallback.sum().backward()
+            grad_fallback = test_X.grad.clone()
+            test_X.grad = None
+        finally:
+            logei_module._FUSED_MAX_I = saved_max_i
+
+        # With fused kernel available (q is within the real limit), should match.
+        torch.manual_seed(42)
+        val_fused = acqf(test_X)
+        val_fused.sum().backward()
+        grad_fused = test_X.grad.clone()
+        test_X.grad = None
+
+        self.assertAllClose(val_fallback, val_fused, atol=1e-6, rtol=1e-6)
+        self.assertAllClose(grad_fallback, grad_fused, atol=1e-6, rtol=1e-6)
