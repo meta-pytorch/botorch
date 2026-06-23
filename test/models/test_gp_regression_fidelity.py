@@ -22,7 +22,7 @@ from gpytorch.kernels.linear_kernel import LinearKernel
 from gpytorch.kernels.rbf_kernel import RBFKernel
 from gpytorch.kernels.scale_kernel import ScaleKernel
 from gpytorch.likelihoods import FixedNoiseGaussianLikelihood
-from gpytorch.means import ConstantMean
+from gpytorch.means import ConstantMean, LinearMean, ZeroMean
 from gpytorch.mlls.exact_marginal_log_likelihood import ExactMarginalLogLikelihood
 from torch import Tensor
 
@@ -493,6 +493,86 @@ class TestSingleTaskMultiFidelityGP(BotorchTestCase):
         model_kwargs.update({"linear_truncated": True})
         with self.assertRaises(ValueError):
             model = SingleTaskMultiFidelityGP(**model_kwargs, covar_module=covar_module)
+
+    def test_custom_mean_module(self):
+        iteration_fidelity, data_fidelities = self.FIDELITY_TEST_PAIRS[0]
+        batch_shape = torch.Size([2])
+        m = 2
+        tkwargs = {"device": self.device, "dtype": torch.double}
+
+        _, model_kwargs = self._get_model_and_data(
+            iteration_fidelity=iteration_fidelity,
+            data_fidelities=data_fidelities,
+            batch_shape=batch_shape,
+            m=m,
+            lin_truncated=False,
+            **tkwargs,
+        )
+        mean_module = ZeroMean().to(**tkwargs)
+        model = SingleTaskMultiFidelityGP(**model_kwargs, mean_module=mean_module)
+        self.assertIs(model.mean_module, mean_module)
+
+        X = torch.rand(batch_shape + torch.Size([3, 2]), **tkwargs)
+        posterior = model.posterior(X)
+        self.assertEqual(posterior.mean.shape, batch_shape + torch.Size([3, m]))
+
+    def test_subset_output_with_custom_mean_module(self):
+        iteration_fidelity, data_fidelities = self.FIDELITY_TEST_PAIRS[0]
+        batch_shape = torch.Size([2])
+        m = 2
+        tkwargs = {"device": self.device, "dtype": torch.double}
+
+        for lin_truncated, mean_module_factory in itertools.product(
+            (False, True),
+            (
+                ZeroMean,
+                lambda: ConstantMean(batch_shape=batch_shape + torch.Size([m])),
+            ),
+        ):
+            _, model_kwargs = self._get_model_and_data(
+                iteration_fidelity=iteration_fidelity,
+                data_fidelities=data_fidelities,
+                batch_shape=batch_shape,
+                m=m,
+                lin_truncated=lin_truncated,
+                **tkwargs,
+            )
+
+            model = SingleTaskMultiFidelityGP(
+                **model_kwargs, mean_module=mean_module_factory().to(**tkwargs)
+            )
+
+            X = torch.rand(batch_shape + torch.Size([3, 2]), **tkwargs)
+            posterior = model.posterior(X)
+            subset_model = model.subset_output([0])
+            subset_posterior = subset_model.posterior(X)
+            self.assertAllClose(subset_posterior.mean, posterior.mean[..., [0]])
+            self.assertAllClose(subset_posterior.variance, posterior.variance[..., [0]])
+
+    def test_subset_output_with_unsupported_custom_mean_module(self):
+        iteration_fidelity, data_fidelities = self.FIDELITY_TEST_PAIRS[0]
+        batch_shape = torch.Size([2])
+        m = 2
+        tkwargs = {"device": self.device, "dtype": torch.double}
+
+        _, model_kwargs = self._get_model_and_data(
+            iteration_fidelity=iteration_fidelity,
+            data_fidelities=data_fidelities,
+            batch_shape=batch_shape,
+            m=m,
+            lin_truncated=False,
+            **tkwargs,
+        )
+        mean_module = LinearMean(
+            input_size=2, batch_shape=batch_shape + torch.Size([m])
+        ).to(**tkwargs)
+        model = SingleTaskMultiFidelityGP(**model_kwargs, mean_module=mean_module)
+        with self.assertRaisesRegex(
+            UnsupportedError,
+            "`subset_output` is not supported for custom mean modules with "
+            "output-batched parameters.",
+        ):
+            model.subset_output([0])
 
 
 class TestFixedNoiseSingleTaskMultiFidelityGP(TestSingleTaskMultiFidelityGP):
