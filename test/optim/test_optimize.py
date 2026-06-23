@@ -2418,6 +2418,33 @@ class TestOptimizeAcqfList(BotorchTestCase):
                         else:
                             self.assertEqual(expected_call_args[k], v)
 
+    @mock.patch("botorch.optim.optimize.optimize_acqf")
+    @mock.patch("botorch.optim.optimize.optimize_acqf_mixed")
+    def test_optimize_acqf_list_forwards_retry_flag(
+        self, mock_optimize_acqf_mixed, mock_optimize_acqf
+    ):
+        bounds = torch.stack([torch.zeros(3), 4 * torch.ones(3)])
+        rv = (torch.rand(1, 3), torch.rand(1))
+        for ffl, mocked in (
+            (None, mock_optimize_acqf),  # → optimize_acqf branch
+            ([{0: 0.5}], mock_optimize_acqf_mixed),  # → optimize_acqf_mixed branch
+        ):
+            for retry in (True, False):
+                mock_optimize_acqf.reset_mock()
+                mock_optimize_acqf_mixed.reset_mock()
+                mocked.side_effect = [rv]
+                optimize_acqf_list(
+                    acq_function_list=[MockAcquisitionFunction()],
+                    bounds=bounds,
+                    num_restarts=2,
+                    raw_samples=10,
+                    fixed_features_list=ffl,
+                    retry_on_optimization_warning=retry,
+                )
+                self.assertEqual(
+                    mocked.call_args.kwargs["retry_on_optimization_warning"], retry
+                )
+
     def test_optimize_acqf_list_empty_list(self):
         with self.assertRaises(ValueError):
             optimize_acqf_list(

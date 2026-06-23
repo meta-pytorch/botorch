@@ -920,6 +920,7 @@ def optimize_acqf_mixed_alternating(
     inequality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
     equality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
     return_acq_values: bool = True,
+    retry_on_optimization_warning: bool = True,
 ) -> tuple[Tensor, Tensor | None]:
     r"""
     Optimizes acquisition function over mixed integer, categorical, and continuous
@@ -989,6 +990,9 @@ def optimize_acqf_mixed_alternating(
             ``[(torch.tensor([1, 3]), torch.tensor([1.0, 0.5]), -0.1)]`` Equality
             constraints can only be used with continuous degrees of freedom.
         return_acq_values: Return acquisition values.
+        retry_on_optimization_warning: Whether to retry candidate generation with a new
+            set of initial conditions if it fails with an `OptimizationWarning`.
+            Applies to the continuous optimization sub-steps.
 
     Returns:
         A tuple of two tensors: a (q x d)-dim tensor of optimized points
@@ -1079,6 +1083,7 @@ def optimize_acqf_mixed_alternating(
         gen_candidates=gen_candidates_scipy,
         sequential=sequential,  # only relevant if all dims are cont.
         return_acq_values=True,  # Internal functions need acq values for logic
+        retry_on_optimization_warning=retry_on_optimization_warning,
     )
     if sequential:
         # Sequential optimization requires return_best_only to be True

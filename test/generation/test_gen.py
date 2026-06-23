@@ -118,6 +118,36 @@ class TestGenCandidates(TestBaseCandidateGeneration):
     def test_gen_candidates_torch(self):
         self.test_gen_candidates(gen_candidates=gen_candidates_torch)
 
+    def test_gen_candidates_scipy_custom_method_dispatch(self):
+        """Smoke-test the scipy ``_custom`` callable-method path.
+
+        Passing a callable via ``options["method"]`` should reach the user
+        function via scipy's ``_custom`` dispatch. We confirm this minimally:
+        a callable that raises a sentinel exception is passed in, and we
+        assert the exception propagates back out of ``gen_candidates_scipy``.
+
+        If any layer (gen.py extracts/forwards ``method``, minimize_with_timeout
+        forwards ``method``, scipy dispatches to the callable) breaks the chain,
+        this test catches it.
+        """
+
+        class _Reached(Exception):
+            pass
+
+        def custom_method(*args, **kwargs):
+            raise _Reached
+
+        self._setUp(double=True)
+        acqf = qExpectedImprovement(self.model, best_f=self.f_best)
+        with self.assertRaises(_Reached):
+            gen_candidates_scipy(
+                initial_conditions=self.initial_conditions,
+                acquisition_function=acqf,
+                lower_bounds=0,
+                upper_bounds=1,
+                options={"method": custom_method, "maxiter": 1},
+            )
+
     def test_gen_candidates_with_fixed_features(
         self, gen_candidates=gen_candidates_scipy, options=None, timeout_sec=None
     ):

@@ -1019,6 +1019,7 @@ def optimize_acqf_list(
     ic_generator: TGenInitialConditions | None = None,
     ic_gen_kwargs: dict | None = None,
     return_acq_values: bool = True,
+    retry_on_optimization_warning: bool = True,
 ) -> tuple[Tensor, Tensor | None]:
     r"""Generate a list of candidates from a list of acquisition functions.
 
@@ -1073,6 +1074,10 @@ def optimize_acqf_list(
         ic_gen_kwargs: Additional keyword arguments passed to function specified by
             ``ic_generator``
         return_acq_values: Return acquisition values.
+        retry_on_optimization_warning: Whether to retry candidate generation with a new
+            set of initial conditions if it fails with an `OptimizationWarning`.
+            Forwarded to each per-acquisition-function `optimize_acqf` /
+            `optimize_acqf_mixed` call.
 
     Returns:
         A two-element tuple containing
@@ -1115,6 +1120,7 @@ def optimize_acqf_list(
                 ic_generator=ic_generator,
                 ic_gen_kwargs=ic_gen_kwargs,
                 return_acq_values=return_acq_values,
+                retry_on_optimization_warning=retry_on_optimization_warning,
             )
         else:
             ic_gen_kwargs = ic_gen_kwargs or {}
@@ -1134,6 +1140,7 @@ def optimize_acqf_list(
                 return_acq_values=return_acq_values,
                 sequential=False,
                 ic_generator=ic_generator,
+                retry_on_optimization_warning=retry_on_optimization_warning,
                 **ic_gen_kwargs,
             )
         candidate_list.append(candidate)
