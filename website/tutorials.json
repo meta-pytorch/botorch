@@ -133,6 +133,10 @@
     {
       "id": "relevance_pursuit_robust_regression",
       "title": "Robust Gaussian Processes via Relevance Pursuit"
+    },
+    {
+      "id": "empirical_gaussian_processes",
+      "title": "Empirical Gaussian Processes"
     }
   ],
   "Advanced Usage": [
