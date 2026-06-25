@@ -175,6 +175,9 @@ Kernels
 .. automodule:: botorch.models.kernels.heterogeneous_multitask
 .. autoclass:: MultiTaskConditionalKernel
 
+.. automodule:: botorch.models.kernels.integrated_white_noise
+.. autoclass:: IntegratedWhiteNoiseKernel
+
 Likelihoods
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 .. automodule:: botorch.models.likelihoods.pairwise
