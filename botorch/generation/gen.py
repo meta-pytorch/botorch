@@ -358,9 +358,19 @@ def gen_candidates_scipy(
                 nl_ineq_constraints = (
                     _no_fixed_features.nonlinear_inequality_constraints
                 )
+                # The constraints in ``nl_ineq_constraints`` have already been
+                # transformed by ``_generate_unfixed_nonlin_constraints`` to operate
+                # on the reduced (unfixed) variable and re-insert the fixed features
+                # internally. We therefore must NOT re-apply ``fixed_features`` in the
+                # wrapper, otherwise the fixed features would be inserted twice,
+                # producing a wrongly permuted input to the constraint (see #3332).
+                constraint_f_np_wrapper = partial(
+                    f_np_wrapper,
+                    fixed_features=None,
+                )
                 constraints += make_scipy_nonlinear_inequality_constraints(
                     nonlinear_inequality_constraints=nl_ineq_constraints,
-                    f_np_wrapper=f_np_wrapper_,
+                    f_np_wrapper=constraint_f_np_wrapper,
                     x0=x0,
                     shapeX=candidates_.shape,
                 )

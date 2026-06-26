@@ -94,6 +94,17 @@ class SquaredAcquisitionFunction(AcquisitionFunction):
             return torch.linalg.norm(X, dim=-1).squeeze(-1)
 
 
+class NegSquaredDistanceAcquisitionFunction(AcquisitionFunction):
+    """Negative squared distance to a target, summed over the q-batch."""
+
+    def __init__(self, target: Tensor, model=None):  # noqa: D107
+        super().__init__(model=model)
+        self.register_buffer("target", target)
+
+    def forward(self, X):
+        return -((X - self.target.to(X)) ** 2).sum(dim=-1).sum(dim=-1)
+
+
 class MockOneShotEvaluateAcquisitionFunction(MockOneShotAcquisitionFunction):
     def evaluate(self, X: Tensor, bounds: Tensor):
         return X.sum()
@@ -1336,6 +1347,52 @@ class TestOptimizeAcqf(BotorchTestCase):
                     num_restarts=1,
                     raw_samples=16,
                 )
+
+    def test_optimize_acqf_nonlinear_constraints_with_fixed_features(self):
+        # Regression test for
+        # https://github.com/meta-pytorch/botorch/issues/3332
+        # When ``fixed_features`` and ``nonlinear_inequality_constraints`` are
+        # combined, the constraints are transformed by
+        # ``_generate_unfixed_nonlin_constraints`` to operate on the reduced
+        # (unfixed) variable and re-insert the fixed features internally. The
+        # SLSQP wrapper must therefore NOT re-apply ``fixed_features`` on top,
+        # otherwise the fixed features are inserted twice and the constraint
+        # receives a wrongly permuted input.
+        for dtype in (torch.float, torch.double):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            target = torch.tensor([1.0, 0.05, 0.5, 0.5, 0.5], **tkwargs)
+            acqf = NegSquaredDistanceAcquisitionFunction(target=target)
+            bounds = torch.tensor(
+                [[0.0, 0.0, 0.0, 0.0, 0.0], [5.0, 1.0, 1.0, 1.0, 1.0]], **tkwargs
+            )
+
+            # Coordinate-sensitive constraint: x2 * x3 / 2 - x1 >= 0. This is not
+            # permutation invariant, so a scrambled input order would change its
+            # value. Feasible at the target: 0.5 * 0.5 / 2 - 0.05 = 0.075 >= 0.
+            def constraint(x):
+                return x[..., 2] * x[..., 3] / 2.0 - x[..., 1]
+
+            ic = torch.tensor([[[1.0, 0.20, 0.70, 0.70, 0.80]]], **tkwargs)
+            # The initial condition is feasible for the original full constraint.
+            self.assertGreaterEqual(constraint(ic).item(), 0.0)
+
+            candidate, _ = optimize_acqf(
+                acq_function=acqf,
+                bounds=bounds,
+                q=1,
+                num_restarts=1,
+                raw_samples=16,
+                fixed_features={0: 1.0},
+                nonlinear_inequality_constraints=[(constraint, True)],
+                batch_initial_conditions=ic,
+                options={"method": "SLSQP", "batch_limit": 1, "maxiter": 200},
+            )
+            # The fixed feature is respected.
+            self.assertAlmostEqual(candidate[0, 0].item(), 1.0, places=4)
+            # The returned candidate satisfies the original full-dim constraint.
+            self.assertGreaterEqual(constraint(candidate).item(), -1e-6)
+            # And it converges to the (feasible) target.
+            self.assertAllClose(candidate, target.unsqueeze(0), atol=1e-2)
 
     @mock.patch("botorch.optim.optimize.gen_batch_initial_conditions")
     @mock.patch("botorch.optim.optimize.gen_candidates_scipy")
