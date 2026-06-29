@@ -661,11 +661,35 @@ def nonlinear_constraint_is_feasible(
     return is_feasible.view(x.shape[:-2])
 
 
+def _get_f_np_wrapper_for_projection(
+    shapeX: torch.Size, device: torch.device, dtype: torch.dtype
+) -> Callable:
+    """Numpy wrapper for evaluating nonlinear constraints during projection."""
+
+    def f_np_wrapper(
+        x: npt.NDArray,
+        f: Callable,
+    ) -> tuple[float, np.ndarray]:
+        X = (
+            torch.from_numpy(x)
+            .to(device=device, dtype=dtype)
+            .view(shapeX)
+            .contiguous()
+            .requires_grad_(True)
+        )
+        loss = f(X).sum()
+        gradf = _arrayify(torch.autograd.grad(loss, X)[0].contiguous().view(-1))
+        return loss.item(), gradf
+
+    return f_np_wrapper
+
+
 def make_scipy_nonlinear_inequality_constraints(
     nonlinear_inequality_constraints: list[tuple[Callable, bool]],
     f_np_wrapper: Callable,
     x0: Tensor,
     shapeX: torch.Size,
+    validate_feasibility: bool = True,
 ) -> list[dict]:
     r"""Generate Scipy nonlinear inequality constraints from callables.
 
@@ -689,6 +713,9 @@ def make_scipy_nonlinear_inequality_constraints(
         x0: The starting point for SLSQP. We return this starting point in (rare)
             cases where SLSQP fails and thus require it to be feasible.
         shapeX: Shape of the three-dimensional batch X, that should be optimized.
+        validate_feasibility: If True, require that ``x0`` satisfies all nonlinear
+            inequality constraints. Set to False when ``x0`` may be infeasible, e.g.
+            during projection onto the feasible set.
 
     Returns:
         A list of dictionaries containing callables for constraint function
@@ -708,9 +735,12 @@ def make_scipy_nonlinear_inequality_constraints(
                 f"got length {len(constraint)}."
             )
         nlc, is_intrapoint = constraint
-        if not nonlinear_constraint_is_feasible(
-            nlc, is_intrapoint=is_intrapoint, x=x0.reshape(shapeX)
-        ).all():
+        if (
+            validate_feasibility
+            and not nonlinear_constraint_is_feasible(
+                nlc, is_intrapoint=is_intrapoint, x=x0.reshape(shapeX)
+            ).all()
+        ):
             raise ValueError(
                 "`batch_initial_conditions` must satisfy the non-linear inequality "
                 "constraints."
@@ -818,6 +848,7 @@ def project_to_feasible_space_via_slsqp(
     bounds: Tensor,
     inequality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
     equality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
+    nonlinear_inequality_constraints: list[tuple[Callable, bool]] | None = None,
     fixed_features: dict[int, float | Tensor] | None = None,
 ) -> Tensor:
     """Project X onto the feasible space by solving a quadratic program.
@@ -838,6 +869,9 @@ def project_to_feasible_space_via_slsqp(
             ``coefficients`` should be torch tensors. See the docstring of
             ``make_scipy_linear_constraints`` for an example.
         equality_constraints: A list of tuples (indices, coefficients, rhs).
+        nonlinear_inequality_constraints: A list of tuples representing the nonlinear
+            inequality constraints. See ``make_scipy_nonlinear_inequality_constraints``
+            for the expected format (``callable(x) >= 0``).
         fixed_features: A dictionary mapping feature indices to their fixed values.
             These dimensions will not be modified during projection. Values can be
             scalars (applied to all elements) or 1D tensors matching the batch size
@@ -846,7 +880,11 @@ def project_to_feasible_space_via_slsqp(
     Returns:
         A ``(batch_shape x) n x d``-dim tensor of projected values.
     """
-    if inequality_constraints is None and equality_constraints is None:
+    if (
+        inequality_constraints is None
+        and equality_constraints is None
+        and nonlinear_inequality_constraints is None
+    ):
         return X
 
     d = X.shape[-1]
@@ -870,9 +908,10 @@ def project_to_feasible_space_via_slsqp(
                 ub[flat_idx] = X_fixed_flat[flat_idx]
 
     bounds_scipy = Bounds(lb=lb, ub=ub, keep_feasible=True)
+    shapeX = _validate_linear_constraints_shape_input(X.shape)
     constraints = list(
         make_scipy_linear_constraints(
-            shapeX=X.shape,
+            shapeX=shapeX,
             inequality_constraints=inequality_constraints,
             equality_constraints=equality_constraints,
         )
@@ -893,6 +932,18 @@ def project_to_feasible_space_via_slsqp(
         .numpy()
         .flatten()
     )
+    if nonlinear_inequality_constraints:
+        f_np_wrapper = _get_f_np_wrapper_for_projection(
+            shapeX=shapeX, device=X.device, dtype=X.dtype
+        )
+        x0_tensor = torch.from_numpy(x0).to(device=X.device, dtype=X.dtype)
+        constraints += make_scipy_nonlinear_inequality_constraints(
+            nonlinear_inequality_constraints=nonlinear_inequality_constraints,
+            f_np_wrapper=f_np_wrapper,
+            x0=x0_tensor,
+            shapeX=shapeX,
+            validate_feasibility=False,
+        )
     # NOTE: A proper specialized QP solver would be a better choice here,
     # but we'd like to avoid adding dependency on additional packages.
     # SLSQP should be able to solve this reliably and quickly since the

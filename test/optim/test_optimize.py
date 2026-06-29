@@ -1709,13 +1709,14 @@ class TestOptimizeAcqf(BotorchTestCase):
             )
 
     @mock.patch(
-        "botorch.optim.parameter_constraints.project_to_feasible_space_via_slsqp"
+        "botorch.optim.optimize.project_to_feasible_space_via_slsqp",
+        wraps=project_to_feasible_space_via_slsqp,
     )
     @mock.patch("botorch.generation.gen.minimize_with_timeout")
-    def test_optimize_acqf_projection_not_applied_with_nonlinear_constraints(
+    def test_optimize_acqf_projection_applied_with_nonlinear_constraints(
         self, mock_minimize: mock.Mock, mock_project_slsqp: mock.Mock
     ) -> None:
-        """Test that projection is not applied when nonlinear constraints exist."""
+        """Test projection repairs infeasible candidates with nonlinear constraints."""
         for dtype in (torch.float, torch.double):
             mock_project_slsqp.reset_mock()
             infeasible_candidates = torch.tensor(
@@ -1724,7 +1725,6 @@ class TestOptimizeAcqf(BotorchTestCase):
 
             mock_acq_function, bounds = self._setup_projection_test(d=2, dtype=dtype)
 
-            # Define both linear and nonlinear constraints
             inequality_constraints = [
                 (
                     torch.tensor([0, 1], dtype=torch.long, device=self.device),
@@ -1738,9 +1738,7 @@ class TestOptimizeAcqf(BotorchTestCase):
 
             nonlinear_inequality_constraints = [(callable_constraint, True)]
 
-            # Test that optimization should raise error due to infeasible candidates
-            # when nonlinear constraints are present (projection not applied)
-            self._run_optimize_acqf_with_projection(
+            candidates = self._run_optimize_acqf_with_projection(
                 mock_minimize,
                 mock_acq_function,
                 bounds,
@@ -1748,12 +1746,19 @@ class TestOptimizeAcqf(BotorchTestCase):
                 q=1,
                 inequality_constraints=inequality_constraints,
                 nonlinear_inequality_constraints=nonlinear_inequality_constraints,
-                should_raise_error=True,
-                error_regex="infeasible candidates",
             )
 
-            # Verify that project_to_feasible_space_via_slsqp was NOT called
-            mock_project_slsqp.assert_not_called()
+            def check_inequality_constraint(candidates):
+                for i in range(candidates.shape[0]):
+                    constraint_value = candidates[i, 0] + candidates[i, 1]
+                    self.assertGreaterEqual(constraint_value, 1.5 - 1e-6)
+
+            self._verify_projection_called_and_constraints_satisfied(
+                mock_project_slsqp=mock_project_slsqp,
+                candidates=candidates,
+                bounds=bounds,
+                constraint_checks=[check_inequality_constraint],
+            )
 
     @mock.patch(
         "botorch.optim.optimize.project_to_feasible_space_via_slsqp",
