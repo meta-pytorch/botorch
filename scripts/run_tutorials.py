@@ -18,7 +18,11 @@ from memory_profiler import memory_usage
 
 
 # Ignored in smoke tests and full runs
-IGNORE_ALWAYS = {"optimization_issue_diagnostics.ipynb"}
+IGNORE_ALWAYS = {
+    "optimization_issue_diagnostics.ipynb",
+    # Times out the nightly cron job.
+    "empirical_gaussian_processes.ipynb",
+}
 RUN_IF_SMOKE_TEST_IGNORE_IF_STANDARD = {"robot.ipynb"}  # only used in smoke tests
 
 
