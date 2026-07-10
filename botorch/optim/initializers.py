@@ -1004,10 +1004,13 @@ def initialize_q_batch(
         return X, acq_vals
 
     Ystd = acq_vals.std(dim=0)
-    if torch.any(Ystd == 0):
+    if torch.any(Ystd == 0) or not torch.isfinite(Ystd).all():
+        # A non-finite std indicates non-finite acquisition values, for example when
+        # the acquisition function evaluates to -inf for all raw samples. Sampling
+        # probabilities proportional to exp(eta * Z) are not defined in either case.
         warnings.warn(
-            "All acquisition values for raw samples points are the same for "
-            "at least one batch. Choosing initial conditions at random.",
+            "All acquisition values for raw samples points are the same or not "
+            "finite for at least one batch. Choosing initial conditions at random.",
             BadInitialCandidatesWarning,
             stacklevel=3,
         )

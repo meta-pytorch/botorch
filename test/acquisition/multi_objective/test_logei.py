@@ -153,6 +153,43 @@ class TestLogQExpectedHypervolumeImprovement(BotorchTestCase):
         else:  # This is an interesting difference between the exp and the fat tail.
             self.assertEqual(0, exp_log_res)
 
+    def test_q_log_expected_hypervolume_improvement_empty_partitioning(self):
+        # An approximate box decomposition (alpha > 0) can prune all hypercells
+        # when there are many objectives and few observations. The hypervolume
+        # improvement over an empty cell set is zero, so the log acquisition
+        # value is -inf rather than an IndexError, see
+        # https://github.com/meta-pytorch/botorch/issues/3335.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        Y = torch.tensor(
+            [
+                [-0.0290, -0.6380, -0.3541, -0.3603, -0.0456, -0.9788, -0.1836],
+                [-0.8259, -0.8002, -0.6951, -0.7300, -0.8310, -0.6017, -0.3212],
+                [-0.0013, -0.3934, -0.2733, -0.0116, -0.0056, -0.4870, -0.5419],
+            ],
+            **tkwargs,
+        )
+        ref_point = Y.min(dim=0).values - 1e-8
+        partitioning = NondominatedPartitioning(ref_point=ref_point, Y=Y, alpha=0.1)
+        # all cells of the approximate decomposition are pruned for this input
+        self.assertEqual(partitioning.get_hypercell_bounds().shape[-2], 0)
+
+        samples = torch.zeros(1, 1, 7, **tkwargs)
+        mm = MockModel(MockPosterior(samples=samples))
+        X = torch.zeros(1, 1, **tkwargs)
+        for fat in (True, False):
+            with self.subTest(fat=fat):
+                acqf = qLogExpectedHypervolumeImprovement(
+                    model=mm,
+                    ref_point=ref_point.tolist(),
+                    partitioning=partitioning,
+                    sampler=IIDNormalSampler(sample_shape=torch.Size([1])),
+                    fat=fat,
+                )
+                res = acqf(X)
+                self.assertTrue(res.isneginf().all())
+                # zero hypervolume improvement upon exponentiation
+                self.assertEqual(res.exp().item(), 0.0)
+
 
 @unittest.skipIf(_fused_C is None, "C++ extension not available")
 class TestFusedKernelCorrectness(BotorchTestCase):

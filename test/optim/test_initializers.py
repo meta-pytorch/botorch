@@ -164,6 +164,14 @@ class TestInitializeQBatch(BotorchTestCase):
             with self.assertRaises(RuntimeError):
                 initialize_q_batch(X=X, acq_vals=acq_vals, n=10)
 
+            # ensure a warning rather than an error for non-finite values, e.g. when
+            # the acquisition function evaluates to -inf for all raw samples, see
+            # https://github.com/meta-pytorch/botorch/issues/3335
+            acq_vals = torch.full((5,), -torch.inf, device=self.device, dtype=dtype)
+            with self.assertWarns(BadInitialCandidatesWarning):
+                ics, _ = initialize_q_batch(X=X, acq_vals=acq_vals, n=2)
+            self.assertEqual(ics.shape, torch.Size([2, *batch_shape, 3, 4]))
+
     def test_initialize_q_batch_topn(self):
         for dtype in (torch.float, torch.double):
             # basic test
