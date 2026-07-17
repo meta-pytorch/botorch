@@ -32,6 +32,7 @@ from botorch.utils.safe_math import (
     logexpit,
     logmeanexp,
     logplusexp,
+    logsumexp,
     sigmoid,
     smooth_amax,
 )
@@ -281,6 +282,35 @@ class TestLogMeanExp(BotorchTestCase):
                 logmeanexp(X.log(), dim=(0, -1), keepdim=True).exp(),
                 X.mean(dim=(0, -1), keepdim=True),
             )
+
+
+class TestEmptyReductionDims(BotorchTestCase):
+    def test_empty_reduction_dims(self):
+        # The maximum over an empty set is -inf. logsumexp and the fat maximum
+        # approximations follow torch.logsumexp for zero-size reduction dims
+        # instead of erroring, see
+        # https://github.com/meta-pytorch/botorch/issues/3335.
+        for dtype in (torch.float32, torch.float64):
+            X = torch.empty(3, 0, 2, dtype=dtype, device=self.device)
+            for fun, dim, keepdim in product(
+                (logsumexp, fatmax, smooth_amax), (1, (1, -1), (0, 1)), (True, False)
+            ):
+                with self.subTest(fun=fun, dim=dim, keepdim=keepdim):
+                    res = fun(X, dim=dim, keepdim=keepdim)
+                    self.assertEqual(res.shape, X.sum(dim=dim, keepdim=keepdim).shape)
+                    self.assertTrue(res.isneginf().all())
+
+            # exact agreement with torch.logsumexp
+            self.assertTrue(torch.equal(logsumexp(X, dim=1), torch.logsumexp(X, dim=1)))
+
+            # reducing a non-empty dim of an otherwise empty tensor is unaffected
+            self.assertEqual(logsumexp(X, dim=-1).shape, torch.Size([3, 0]))
+
+            # gradients remain defined
+            X = torch.empty(2, 0, dtype=dtype, device=self.device, requires_grad=True)
+            logsumexp(X, dim=-1).sum().backward()
+            self.assertEqual(X.grad.shape, X.shape)
+            self.assertTrue(torch.isfinite(X.grad).all())
 
 
 class TestSmoothNonLinearities(BotorchTestCase):

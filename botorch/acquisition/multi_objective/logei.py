@@ -322,6 +322,9 @@ class qLogExpectedHypervolumeImprovement(
             and self.fat
             and obj.device.type == "cpu"
             and q <= _FUSED_MAX_I
+            # An approximate box decomposition can have zero cells; there is
+            # nothing to fuse then and the Python path handles it directly.
+            and self.cell_lower_bounds.shape[-2] > 0
         )
 
         if use_fused and cell_batch_ndim > 0:

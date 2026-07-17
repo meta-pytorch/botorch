@@ -162,8 +162,15 @@ def _inf_max_helper(
 
     Returns:
         The Tensor representing the smooth approximation to the maximum over the
-        specified dimensions.
+        specified dimensions. If the reduced dimensions of ``x`` have zero size,
+        the result is ``-inf``, consistent with the maximum over an empty set.
     """
+    dims = (dim,) if isinstance(dim, int) else tuple(dim)
+    if any(x.shape[d] == 0 for d in dims):
+        # The maximum over an empty set is -inf, which also matches the behavior of
+        # torch.logsumexp over a zero-size dimension. The sum keeps the result
+        # connected to the autograd graph, so gradients w.r.t. x remain defined.
+        return x.sum(dim=dim, keepdim=keepdim) - torch.inf
     M = x.amax(dim=dim, keepdim=True)
     is_inf_max = torch.logical_and(*torch.broadcast_tensors(M.isinf(), x == M))
     has_inf_max = _any(is_inf_max, dim=dim, keepdim=True)
