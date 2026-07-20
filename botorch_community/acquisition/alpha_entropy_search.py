@@ -53,7 +53,7 @@ class qAlphaEntropySearch(AcquisitionFunction, MCSamplerMixin):
 
     Alpha entropy search (AES) acquisition function is a generalization of
     joint entropy search (JES). Instead of computing the Kullback-Leibler
-    divergence between the joint distribution between the joint distribution
+    divergence between the joint distribution
     p({x*, y*}, y) and the marginals p({x*, y*}) and p(y), it computes the
     Amari's alpha divergence between the joint distribution p({x*, y*}, y)
     and the marginals p({x*, y*}) and p(y).
