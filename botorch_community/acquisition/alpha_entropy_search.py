@@ -263,7 +263,7 @@ class qAlphaEntropySearch(AcquisitionFunction, MCSamplerMixin):
             torch.zeros(1, device=X.device, dtype=X.dtype),
             torch.ones(1, device=X.device, dtype=X.dtype),
         )
-        noiseless_normalized_mvs = (self.optimal_outputs - mean_cond) / noiseless_stdv
+        noiseless_normalized_mvs = (self.optimal_output_values - mean_cond) / noiseless_stdv
         noiseless_cdf_mvs = normal.cdf(noiseless_normalized_mvs).clamp_min(CLAMP_LB)
         noiseless_pdf_mvs = torch.exp(normal.log_prob(noiseless_normalized_mvs))
 
