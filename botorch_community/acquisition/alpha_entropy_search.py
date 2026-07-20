@@ -71,7 +71,7 @@ class qAlphaEntropySearch(AcquisitionFunction, MCSamplerMixin):
         X_pending: Tensor | None = None,
         estimation_type: str = "LB",
         num_samples: int = 64,
-        alpha: int = 0.5,
+        alpha: float = 0.5,
         eps: float = 1e-6,
     ) -> None:
         r"""Alpha entropy search acquisition function.
