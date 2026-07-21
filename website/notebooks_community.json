@@ -1,5 +1,9 @@
 [
   {
+    "id": "alpha_entropy_search",
+    "title": "Alpha Entropy Search"
+  },
+  {
     "id": "clf_constrained_bo",
     "title": "BO with Binary Black-box Constraint"
   },
