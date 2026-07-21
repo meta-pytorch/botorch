@@ -165,11 +165,6 @@ class qAlphaEntropySearch(AcquisitionFunction, MCSamplerMixin):
                         )
                     )
 
-        if estimation_type not in ESTIMATION_TYPES:
-            raise ValueError(
-                f"Estimation type {estimation_type} is not valid. "
-                f"Please specify any of {ESTIMATION_TYPES}"
-            )
         self.estimation_type = estimation_type
         self.set_X_pending(X_pending)
 
@@ -263,7 +258,9 @@ class qAlphaEntropySearch(AcquisitionFunction, MCSamplerMixin):
             torch.zeros(1, device=X.device, dtype=X.dtype),
             torch.ones(1, device=X.device, dtype=X.dtype),
         )
-        noiseless_normalized_mvs = (self.optimal_output_values - mean_cond) / noiseless_stdv
+        noiseless_normalized_mvs = (
+            self.optimal_output_values - mean_cond
+        ) / noiseless_stdv
         noiseless_cdf_mvs = normal.cdf(noiseless_normalized_mvs).clamp_min(CLAMP_LB)
         noiseless_pdf_mvs = torch.exp(normal.log_prob(noiseless_normalized_mvs))
 
