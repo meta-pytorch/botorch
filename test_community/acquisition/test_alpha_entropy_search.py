@@ -12,7 +12,6 @@ from botorch.models.fully_bayesian import SaasFullyBayesianSingleTaskGP
 from botorch.sampling.normal import SobolQMCNormalSampler
 from botorch.utils.test_helpers import get_model
 from botorch.utils.testing import BotorchTestCase
-
 from botorch_community.acquisition.alpha_entropy_search import qAlphaEntropySearch
 
 
