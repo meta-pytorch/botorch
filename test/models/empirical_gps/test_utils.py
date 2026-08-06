@@ -12,14 +12,30 @@ from typing import Callable
 import numpy as np
 import torch
 from botorch.exceptions.errors import UnsupportedError
+from botorch.models.empirical_gps.empirical_1d_gp import (
+    EmpiricalOneDimensionalKernel,
+    EmpiricalOneDimensionalMean,
+)
 from botorch.models.empirical_gps.utils import (
+    build_basis_interpolant,
+    build_mean_interpolant,
+    build_unique_inputs,
     center_curves,
     compute_basis_matrix,
     compute_orthogonal_basis,
     compute_sample_covariance,
+    em_prior_to_basis_curves,
+    ExperimentDataset,
     instantiate_ard,
     LinearInterpolation1D,
+    project_psd,
+    trace_matched_shrinkage,
+    UniqueInputs,
+    validate_historical_curves_3d,
+    validate_no_transforms,
 )
+from botorch.models.transforms.input import Normalize
+from botorch.models.transforms.outcome import Standardize
 from botorch.utils.testing import BotorchTestCase
 from gpytorch.kernels import Kernel
 from scipy.interpolate import interp1d
@@ -279,6 +295,14 @@ class TestUtils(BotorchTestCase):
         self.assertTrue(dummy_custom.ard)
         self.assertAllClose(dummy_custom.curve_weights, custom_weights)
 
+        # A plain (non-Parameter) Tensor is accepted, matching the docstring,
+        # and wrapped into a Parameter rather than raising in register_parameter.
+        dummy_plain = DummyModule()
+        plain_weights = torch.rand(num_curves, dtype=torch.float64, device=self.device)
+        instantiate_ard(dummy_plain, num_curves=num_curves, curve_weights=plain_weights)
+        self.assertIsInstance(dummy_plain.curve_weights, torch.nn.Parameter)
+        self.assertAllClose(dummy_plain.curve_weights.detach(), plain_weights)
+
     def test_linear_interpolation_1d(self) -> None:
         """Test LinearInterpolation1D: scipy correctness, batching, module features."""
 
@@ -422,3 +446,416 @@ class TestUtils(BotorchTestCase):
             self.assertEqual(buf.device.type, self.device.type)
         y_moved = interp_moved(x_query.to(self.device))
         self.assertAllClose(y_moved.cpu(), y_f32, atol=1e-6)
+
+    def test_build_unique_inputs(self) -> None:
+        # Test basic functionality with overlapping inputs
+        X1 = torch.tensor([[0.0, 0.0], [1.0, 1.0], [2.0, 2.0]])
+        Y1 = torch.tensor([[1.0], [2.0], [3.0]])
+        X2 = torch.tensor([[1.0, 1.0], [3.0, 3.0]])  # [1,1] overlaps with X1
+        Y2 = torch.tensor([[4.0], [5.0]])
+
+        datasets = [
+            ExperimentDataset(X=X1, Y=Y1),
+            ExperimentDataset(X=X2, Y=Y2),
+        ]
+
+        result = build_unique_inputs(datasets, X_forward=None)
+
+        self.assertIsInstance(result, UniqueInputs)
+        # Should have 4 unique points: [0,0], [1,1], [2,2], [3,3]
+        expected_X_all = torch.tensor([[0.0, 0.0], [1.0, 1.0], [2.0, 2.0], [3.0, 3.0]])
+        self.assertEqual(result.X_all.shape[0], 4)
+        self.assertAllClose(result.X_all, expected_X_all, atol=0, rtol=0)
+        self.assertEqual(len(result.experiment_indices), 2)
+        self.assertEqual(len(result.experiment_indices[0]), 3)
+        self.assertEqual(len(result.experiment_indices[1]), 2)
+        # Forward indices should be empty
+        self.assertEqual(len(result.forward_indices), 0)
+
+        # Test with forward inputs
+        X1 = torch.tensor([[0.0], [1.0], [2.0]])
+        Y1 = torch.tensor([[1.0], [2.0], [3.0]])
+        X_forward = torch.tensor([[1.0], [3.0]])  # [1.0] overlaps with X1
+
+        datasets = [ExperimentDataset(X=X1, Y=Y1)]
+
+        result = build_unique_inputs(datasets, X_forward=X_forward)
+
+        # Should have 4 unique points: [0], [1], [2], [3]
+        expected_X_all = torch.tensor([[0.0], [1.0], [2.0], [3.0]])
+        self.assertEqual(result.X_all.shape[0], 4)
+        self.assertAllClose(result.X_all, expected_X_all, atol=0, rtol=0)
+        self.assertEqual(len(result.experiment_indices), 1)
+        self.assertEqual(len(result.experiment_indices[0]), 3)
+        self.assertEqual(len(result.forward_indices), 2)
+        # Verify forward_indices point to the correct unique inputs
+        # [1.0] -> index 1, [3.0] -> index 3
+        self.assertAllClose(
+            result.X_all[result.forward_indices], X_forward, atol=0, rtol=0
+        )
+
+        # Test with only forward inputs (empty datasets)
+        X_forward = torch.tensor([[0.0], [1.0], [1.0], [2.0]])  # [1.0] duplicated
+
+        result = build_unique_inputs(datasets=[], X_forward=X_forward)
+
+        # Should have 3 unique points: [0], [1], [2]
+        expected_X_all = torch.tensor([[0.0], [1.0], [2.0]])
+        self.assertEqual(result.X_all.shape[0], 3)
+        self.assertAllClose(result.X_all, expected_X_all, atol=0, rtol=0)
+        self.assertEqual(len(result.experiment_indices), 0)
+        self.assertEqual(len(result.forward_indices), 4)
+        # Verify forward_indices correctly map back to original X_forward
+        # [0.0] -> 0, [1.0] -> 1, [1.0] -> 1, [2.0] -> 2
+        self.assertAllClose(
+            result.X_all[result.forward_indices], X_forward, atol=0, rtol=0
+        )
+
+        # Test empty datasets and None X_forward raises ValueError
+        with self.assertRaisesRegex(
+            ValueError,
+            "Cannot build unique inputs: datasets is empty and X_forward is None",
+        ):
+            build_unique_inputs(datasets=[], X_forward=None)
+
+        # Test index mapping correctness
+        X1 = torch.tensor([[0.0], [1.0]])
+        Y1 = torch.tensor([[1.0], [2.0]])
+        X2 = torch.tensor([[1.0], [2.0]])
+        Y2 = torch.tensor([[3.0], [4.0]])
+
+        datasets = [
+            ExperimentDataset(X=X1, Y=Y1),
+            ExperimentDataset(X=X2, Y=Y2),
+        ]
+
+        result = build_unique_inputs(datasets, X_forward=None)
+
+        # Verify that indexing X_all with experiment_indices recovers original inputs
+        for i, dataset in enumerate(datasets):
+            recovered_X = result.X_all[result.experiment_indices[i]]
+            self.assertAllClose(recovered_X, dataset.X, atol=0, rtol=0)
+
+    def test_project_psd(self) -> None:
+        eigval_tol = 1e-12
+        # Test already PSD matrix (identity) is unchanged
+        A = torch.eye(3, dtype=torch.float64)
+
+        A_psd = project_psd(A)
+
+        self.assertAllClose(A_psd, A)
+
+        # Test matrix with negative eigenvalues gets projected to PSD
+        eigvals = torch.tensor([-1.0, 1.0, 2.0], dtype=torch.float64)
+        V = torch.linalg.qr(torch.randn(3, 3, dtype=torch.float64))[0]
+        A = V @ torch.diag(eigvals) @ V.T
+        min_eigval = eigval_tol
+        A_psd = project_psd(A, min_eigval=min_eigval)
+
+        # Result should be PSD (all eigenvalues >= 0)
+        eigvals_result = torch.linalg.eigvalsh(A_psd)
+        self.assertTrue((eigvals_result >= min_eigval - eigval_tol).all())
+        # Result should be symmetric
+        self.assertAllClose(A_psd, A_psd.T)
+
+        # Test with min_eigval parameter
+        eigvals = torch.tensor([-1.0, 0.5, 2.0], dtype=torch.float64)
+        V = torch.linalg.qr(torch.randn(3, 3, dtype=torch.float64))[0]
+        A = V @ torch.diag(eigvals) @ V.T
+
+        min_eigval = 0.1
+        A_psd = project_psd(A, min_eigval=min_eigval)
+
+        # All eigenvalues should be >= min_eigval
+        eigvals_result = torch.linalg.eigvalsh(A_psd)
+        self.assertTrue((eigvals_result >= min_eigval - eigval_tol).all())
+
+        # Test symmetry preservation for random symmetric matrix
+        A = torch.randn(5, 5, dtype=torch.float64)
+        A = 0.5 * (A + A.T)
+
+        A_psd = project_psd(A)
+
+        self.assertAllClose(A_psd, A_psd.T)
+
+    def test_trace_matched_shrinkage(self) -> None:
+        tkwargs = {"dtype": torch.float64, "device": self.device}
+        torch.manual_seed(0)
+        # A random SPD covariance and a distinct SPD target.
+        Q = torch.linalg.qr(torch.randn(4, 4, **tkwargs))[0]
+        cov = Q @ torch.diag(torch.tensor([3.0, 2.0, 1.0, 0.5], **tkwargs)) @ Q.T
+        target = torch.eye(4, **tkwargs) + 0.1 * torch.ones(4, 4, **tkwargs)
+
+        # alpha = 0 returns cov unchanged.
+        self.assertAllClose(trace_matched_shrinkage(cov, target, 0.0), cov)
+
+        # alpha = 1 returns the trace-matched target (tr preserved).
+        blended1 = trace_matched_shrinkage(cov, target, 1.0)
+        self.assertAlmostEqual(
+            float(torch.trace(blended1)), float(torch.trace(cov)), places=6
+        )
+        tr_ratio = torch.trace(cov) / torch.trace(target)
+        self.assertAllClose(blended1, tr_ratio * target)
+
+        # 0 < alpha < 1 matches the explicit convex blend and preserves the trace.
+        alpha = 0.3
+        expected = (1.0 - alpha) * cov + alpha * tr_ratio * target
+        blended = trace_matched_shrinkage(cov, target, alpha)
+        self.assertAllClose(blended, expected)
+        self.assertAlmostEqual(
+            float(torch.trace(blended)), float(torch.trace(cov)), places=6
+        )
+
+        # Result preserves dtype/device and stays symmetric.
+        self.assertEqual(blended.dtype, cov.dtype)
+        self.assertEqual(blended.device.type, cov.device.type)
+        self.assertAllClose(blended, blended.T)
+
+        # A tensor-valued alpha (as produced by the fittable models) works too.
+        alpha_t = torch.tensor(0.3, **tkwargs)
+        self.assertAllClose(trace_matched_shrinkage(cov, target, alpha_t), expected)
+
+        # A (near-)zero-trace target degenerates gracefully via the internal trace
+        # clamp: the result is (1 - alpha) * cov, with no NaN/inf.
+        zero_target = torch.zeros(4, 4, **tkwargs)
+        degraded = trace_matched_shrinkage(cov, zero_target, 0.3)
+        self.assertTrue(torch.isfinite(degraded).all())
+        self.assertAllClose(degraded, 0.7 * cov)
+
+        # alpha outside [0, 1] is rejected, as a float and as a Tensor.
+        for bad_alpha in (-0.1, 1.5):
+            with self.assertRaisesRegex(ValueError, r"alpha must be in \[0, 1\]"):
+                trace_matched_shrinkage(cov, target, bad_alpha)
+            with self.assertRaisesRegex(ValueError, r"alpha must be in \[0, 1\]"):
+                trace_matched_shrinkage(cov, target, torch.tensor(bad_alpha, **tkwargs))
+
+    def test_validate_historical_curves_3d(self) -> None:
+        Y3 = torch.randn(4, 5, 1, dtype=torch.float64, device=self.device)
+        # Valid 3D tensors do not raise (default and custom name).
+        validate_historical_curves_3d(Y3)
+        validate_historical_curves_3d(Y3, name="historical_Y")
+
+        # Non-3D tensors raise with the given name in the message.
+        with self.assertRaisesRegex(ValueError, "Expected Y_full to be 3-dim"):
+            validate_historical_curves_3d(Y3.squeeze(-1))
+        with self.assertRaisesRegex(ValueError, "Expected historical_Y to be 3-dim"):
+            validate_historical_curves_3d(Y3.squeeze(-1), name="historical_Y")
+
+    def test_validate_no_transforms(self) -> None:
+        # No transforms: does not raise.
+        validate_no_transforms(None, None, "SomeModel")
+
+        with self.assertRaisesRegex(
+            UnsupportedError, "input_transform is not yet supported for SomeModel"
+        ):
+            validate_no_transforms(Normalize(d=1), None, "SomeModel")
+
+        with self.assertRaisesRegex(
+            UnsupportedError, "outcome_transform is not yet supported for SomeModel"
+        ):
+            validate_no_transforms(None, Standardize(m=1), "SomeModel")
+
+    def test_build_mean_interpolant(self) -> None:
+        num_curves, num_progression, m = 6, 7, 2
+        X_full = torch.linspace(
+            0, 1, num_progression, dtype=torch.float64, device=self.device
+        ).unsqueeze(-1)
+        Y_full = torch.randn(
+            num_curves, num_progression, m, dtype=torch.float64, device=self.device
+        )
+
+        f, num_outputs, mean_full = build_mean_interpolant(X_full, Y_full)
+
+        self.assertEqual(num_outputs, m)
+        self.assertEqual(mean_full.shape, (m, num_progression))
+        self.assertAllClose(mean_full, Y_full.mean(dim=0).T)
+        self.assertIsInstance(f, LinearInterpolation1D)
+        # Interpolating at the knots recovers the mean curves exactly.
+        self.assertAllClose(f(X_full.squeeze(-1)), mean_full)
+
+    def test_build_basis_interpolant(self) -> None:
+        torch.manual_seed(0)
+        num_curves, num_progression, m = 8, 5, 3
+        X_full = torch.linspace(
+            0, 1, num_progression, dtype=torch.float64, device=self.device
+        ).unsqueeze(-1)
+        Y_full = torch.randn(
+            num_curves, num_progression, m, dtype=torch.float64, device=self.device
+        )
+        _, Y_centered = center_curves(Y_full, curve_dim=-3)
+        Y_basis = Y_centered.movedim(-1, 0)  # m x num_curves x num_progression
+        knots = X_full.squeeze(-1)
+
+        # --- vectorize_outputs=False, ARD disables SVD ---
+        f, eff, used = build_basis_interpolant(
+            X_full,
+            Y_full,
+            ard=True,
+            use_svd=None,
+            vectorize_outputs=False,
+            method="eigh",
+        )
+        self.assertFalse(used)
+        self.assertEqual(eff, num_curves)
+        self.assertAllClose(f(knots), Y_basis)
+
+        # --- vectorize_outputs=False, default SVD (num_curves > num_progression) ---
+        f, eff, used = build_basis_interpolant(
+            X_full,
+            Y_full,
+            ard=False,
+            use_svd=None,
+            vectorize_outputs=False,
+            method="eigh",
+        )
+        self.assertTrue(used)
+        self.assertEqual(eff, min(num_curves, num_progression))
+        basis = f(knots)  # m x r x num_progression
+        self.assertEqual(basis.shape, (m, eff, num_progression))
+        # Per-output covariance is preserved by the SVD compression.
+        self.assertAllClose(
+            basis.transpose(-2, -1) @ basis,
+            Y_basis.transpose(-2, -1) @ Y_basis,
+            atol=1e-8,
+        )
+
+        # --- vectorize_outputs=True, SVD off ---
+        f, eff, used = build_basis_interpolant(
+            X_full, Y_full, ard=False, use_svd=False, vectorize_outputs=True
+        )
+        self.assertFalse(used)
+        self.assertEqual(eff, num_curves)
+        self.assertAllClose(f(knots), Y_basis)
+
+        # --- vectorize_outputs=True, SVD forced on (num_curves < num_progression*m) ---
+        f, eff, used = build_basis_interpolant(
+            X_full, Y_full, ard=False, use_svd=True, vectorize_outputs=True
+        )
+        self.assertTrue(used)
+        self.assertEqual(eff, min(num_curves, num_progression * m))
+        basis = f(knots)  # m x eff x num_progression
+        self.assertEqual(basis.shape, (m, eff, num_progression))
+        # Vectorized cross-output Gram matrix is preserved by the SVD compression.
+        Y_svd = basis.movedim(0, -1).reshape(eff, num_progression * m)
+        Y_vec = Y_centered.reshape(num_curves, num_progression * m)
+        self.assertAllClose(Y_svd.T @ Y_svd, Y_vec.T @ Y_vec, atol=1e-8)
+
+        # --- vectorize_outputs=True, default SVD (num_curves > num_progression*m) ---
+        num_curves_big = 20
+        Y_big = torch.randn(
+            num_curves_big,
+            num_progression,
+            m,
+            dtype=torch.float64,
+            device=self.device,
+        )
+        f, eff, used = build_basis_interpolant(
+            X_full, Y_big, ard=False, use_svd=None, vectorize_outputs=True
+        )
+        self.assertTrue(used)
+        self.assertEqual(eff, min(num_curves_big, num_progression * m))
+
+
+class TestEMPriorToBasisCurves(BotorchTestCase):
+    """Verify em_prior_to_basis_curves reproduces an EM prior on the grid."""
+
+    def _make_prior(self, n: int, tkwargs: dict) -> tuple[Tensor, Tensor, Tensor]:
+        """A full-rank RBF prior (mu, Sigma) on a 1D grid."""
+        X_full = torch.linspace(0.0, 1.0, n, **tkwargs).unsqueeze(-1)
+        d2 = (X_full - X_full.transpose(-1, -2)) ** 2
+        Sigma = torch.exp(-0.5 * d2 / 0.15**2) + 1e-4 * torch.eye(n, **tkwargs)
+        mu = torch.sin(3.0 * X_full.squeeze(-1))
+        return X_full, mu, Sigma
+
+    def test_reproduces_mu_and_sigma_exactly(self) -> None:
+        tkwargs = {"dtype": torch.double, "device": self.device}
+        n = 12
+        X_full, mu, Sigma = self._make_prior(n, tkwargs)
+
+        Y_full = em_prior_to_basis_curves(mu, Sigma)
+        # Full-rank Sigma (r = n) requires r + 1 = n + 1 curves.
+        self.assertEqual(Y_full.shape, (n + 1, n, 1))
+
+        mean_module = EmpiricalOneDimensionalMean(X_full=X_full, Y_full=Y_full)
+        kernel = EmpiricalOneDimensionalKernel(X_full=X_full, Y_full=Y_full)
+
+        mean_grid = mean_module(X_full).reshape(-1)
+        self.assertAllClose(mean_grid, mu, atol=1e-6)
+
+        K = kernel(X_full, X_full).to_dense()
+        self.assertEqual(K.shape, (n, n))
+        self.assertAllClose(K, Sigma, atol=1e-5)
+
+    def test_truncation_matches_low_rank_reconstruction(self) -> None:
+        tkwargs = {"dtype": torch.double, "device": self.device}
+        n, k = 12, 3
+        X_full, mu, Sigma = self._make_prior(n, tkwargs)
+
+        Y_full = em_prior_to_basis_curves(mu, Sigma, num_modes=k)
+        self.assertEqual(Y_full.shape, (k + 1, n, 1))
+
+        kernel = EmpiricalOneDimensionalKernel(X_full=X_full, Y_full=Y_full)
+        K = kernel(X_full, X_full).to_dense()
+
+        # K should equal the rank-k eigen-reconstruction of Sigma.
+        evals, evecs = torch.linalg.eigh(Sigma)
+        order = torch.argsort(evals, descending=True)
+        evals_k = evals[order][:k]
+        evecs_k = evecs[:, order][:, :k]
+        Sigma_k = (evecs_k * evals_k) @ evecs_k.transpose(-1, -2)
+        self.assertAllClose(K, Sigma_k, atol=1e-5)
+
+        # The mean is exact regardless of truncation.
+        mean_module = EmpiricalOneDimensionalMean(X_full=X_full, Y_full=Y_full)
+        self.assertAllClose(mean_module(X_full).reshape(-1), mu, atol=1e-6)
+
+    def test_more_modes_reduce_covariance_error(self) -> None:
+        tkwargs = {"dtype": torch.double, "device": self.device}
+        n = 12
+        X_full, mu, Sigma = self._make_prior(n, tkwargs)
+
+        def cov_err(num_modes: int) -> float:
+            Y_full = em_prior_to_basis_curves(mu, Sigma, num_modes=num_modes)
+            kernel = EmpiricalOneDimensionalKernel(X_full=X_full, Y_full=Y_full)
+            K = kernel(X_full, X_full).to_dense()
+            return (K - Sigma).norm().item()
+
+        self.assertGreater(cov_err(2), cov_err(5))
+
+    def test_degenerate_prior_raises(self) -> None:
+        tkwargs = {"dtype": torch.double, "device": self.device}
+        n = 5
+        mu = torch.zeros(n, **tkwargs)
+        Sigma = torch.zeros(n, n, **tkwargs)
+        with self.assertRaises(ValueError):
+            em_prior_to_basis_curves(mu, Sigma)
+
+    def test_correction_round_trips_and_validates(self) -> None:
+        tkwargs = {"dtype": torch.double, "device": self.device}
+        n = 10
+        X_full, mu, Sigma = self._make_prior(n, tkwargs)
+        # A non-default Bessel correction must round-trip when the kernel uses
+        # the same correction (guards the sqrt(num_curves - correction) scale).
+        Y_full = em_prior_to_basis_curves(mu, Sigma, correction=1)
+        kernel = EmpiricalOneDimensionalKernel(
+            X_full=X_full, Y_full=Y_full, correction=1
+        )
+        K = kernel(X_full, X_full).to_dense()
+        self.assertAllClose(K, Sigma, atol=1e-5)
+        # correction >= number of synthesized curves is rejected (would otherwise
+        # take the square root of a negative number).
+        with self.assertRaisesRegex(ValueError, "correction"):
+            em_prior_to_basis_curves(mu, Sigma, correction=n + 5)
+
+    def test_input_validation(self) -> None:
+        tkwargs = {"dtype": torch.double, "device": self.device}
+        _, mu, Sigma = self._make_prior(6, tkwargs)
+        # mu/Sigma dimension mismatch is rejected (shape-assert guard).
+        with self.assertRaisesRegex(ValueError, "matching n"):
+            em_prior_to_basis_curves(torch.zeros(4, **tkwargs), torch.eye(3, **tkwargs))
+        # A non-1D mu is rejected by the same guard.
+        with self.assertRaisesRegex(ValueError, "Expected mu"):
+            em_prior_to_basis_curves(mu.unsqueeze(-1), Sigma)
+        # num_modes < 1 raises a clear error (not the degenerate-prior message).
+        with self.assertRaisesRegex(ValueError, "num_modes"):
+            em_prior_to_basis_curves(mu, Sigma, num_modes=0)
