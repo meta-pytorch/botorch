@@ -27,6 +27,9 @@ if TYPE_CHECKING:
         GenericDeterministicModel,
         PosteriorMeanModel,
     )
+    from botorch.models.empirical_gps import (  # noqa: F401
+        MultiOutputEmpiricalOneDimensionalGP,
+    )
     from botorch.models.empirical_gps.em_empirical_gp import (  # noqa: F401
         EMEmpiricalGaussianProcess,
         EMPriorContainer,
@@ -70,6 +73,10 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "EmpiricalOneDimensionalGP": (
         ".empirical_gps.empirical_1d_gp",
         "EmpiricalOneDimensionalGP",
+    ),
+    "MultiOutputEmpiricalOneDimensionalGP": (
+        ".empirical_gps.multioutput_empirical_1d_gp",
+        "MultiOutputEmpiricalOneDimensionalGP",
     ),
     "SingleTaskGP": (".gp_regression", "SingleTaskGP"),
     "SingleTaskMultiFidelityGP": (
