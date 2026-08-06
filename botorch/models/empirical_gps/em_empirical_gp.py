@@ -197,9 +197,10 @@ def _compute_observation_factors(
     n = Sigma_SS.shape[0]
     if likelihood_noise is not None:
         # Move noise to the covariance's device/dtype to avoid mismatches
-        # (e.g. a CPU likelihood noise with CUDA data).
-        noise_diag = likelihood_noise.to(Sigma_SS).expand(n).squeeze()
-        Sigma_SS = Sigma_SS + torch.diag(noise_diag)
+        # (e.g. a CPU likelihood noise with CUDA data). Use diag_embed so a
+        # single-observation dataset (n == 1) does not collapse to a 0-d scalar.
+        noise_diag = likelihood_noise.to(Sigma_SS).reshape(-1).expand(n)
+        Sigma_SS = Sigma_SS + torch.diag_embed(noise_diag)
 
     L = psd_safe_cholesky(Sigma_SS)
     residual = y - mu_S
@@ -414,7 +415,7 @@ def _m_step(
     for i in range(K):
         diff = cond_means[i] - mu_new
         scatter = scatter + cond_covs[i]
-        scatter = torch.addr(scatter, diff, diff)
+        scatter = scatter + torch.outer(diff, diff)
 
     # Apply prior regularization
     if Psi is None:
@@ -906,6 +907,12 @@ class EMEmpiricalGaussianProcess(ExactGP, GPyTorchModel):
 
         # Unified path: create container if not provided
         using_pretrained = em_prior is not None
+        if using_pretrained and covariance_shrinkage > 0.0:
+            raise ValueError(
+                "covariance_shrinkage only applies when fitting the EM prior from "
+                "`datasets`; with a pretrained `em_prior`, use "
+                "from_pretrained(..., base_covar_module=...) instead."
+            )
         if em_prior is None:
             # Validate required arguments for from-scratch initialization
             if datasets is None:
