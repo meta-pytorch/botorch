@@ -13,12 +13,17 @@ import numpy as np
 import torch
 from botorch.exceptions.errors import UnsupportedError
 from botorch.models.empirical_gps.utils import (
+    build_unique_inputs,
     center_curves,
     compute_basis_matrix,
     compute_orthogonal_basis,
     compute_sample_covariance,
+    ExperimentDataset,
     instantiate_ard,
     LinearInterpolation1D,
+    project_psd,
+    trace_matched_shrinkage,
+    UniqueInputs,
 )
 from botorch.utils.testing import BotorchTestCase
 from gpytorch.kernels import Kernel
@@ -422,3 +427,185 @@ class TestUtils(BotorchTestCase):
             self.assertEqual(buf.device.type, self.device.type)
         y_moved = interp_moved(x_query.to(self.device))
         self.assertAllClose(y_moved.cpu(), y_f32, atol=1e-6)
+
+    def test_build_unique_inputs(self) -> None:
+        # Test basic functionality with overlapping inputs
+        X1 = torch.tensor([[0.0, 0.0], [1.0, 1.0], [2.0, 2.0]])
+        Y1 = torch.tensor([[1.0], [2.0], [3.0]])
+        X2 = torch.tensor([[1.0, 1.0], [3.0, 3.0]])  # [1,1] overlaps with X1
+        Y2 = torch.tensor([[4.0], [5.0]])
+
+        datasets = [
+            ExperimentDataset(X=X1, Y=Y1),
+            ExperimentDataset(X=X2, Y=Y2),
+        ]
+
+        result = build_unique_inputs(datasets, X_forward=None)
+
+        self.assertIsInstance(result, UniqueInputs)
+        # Should have 4 unique points: [0,0], [1,1], [2,2], [3,3]
+        expected_X_all = torch.tensor([[0.0, 0.0], [1.0, 1.0], [2.0, 2.0], [3.0, 3.0]])
+        self.assertEqual(result.X_all.shape[0], 4)
+        self.assertAllClose(result.X_all, expected_X_all, atol=0, rtol=0)
+        self.assertEqual(len(result.experiment_indices), 2)
+        self.assertEqual(len(result.experiment_indices[0]), 3)
+        self.assertEqual(len(result.experiment_indices[1]), 2)
+        # Forward indices should be empty
+        self.assertEqual(len(result.forward_indices), 0)
+
+        # Test with forward inputs
+        X1 = torch.tensor([[0.0], [1.0], [2.0]])
+        Y1 = torch.tensor([[1.0], [2.0], [3.0]])
+        X_forward = torch.tensor([[1.0], [3.0]])  # [1.0] overlaps with X1
+
+        datasets = [ExperimentDataset(X=X1, Y=Y1)]
+
+        result = build_unique_inputs(datasets, X_forward=X_forward)
+
+        # Should have 4 unique points: [0], [1], [2], [3]
+        expected_X_all = torch.tensor([[0.0], [1.0], [2.0], [3.0]])
+        self.assertEqual(result.X_all.shape[0], 4)
+        self.assertAllClose(result.X_all, expected_X_all, atol=0, rtol=0)
+        self.assertEqual(len(result.experiment_indices), 1)
+        self.assertEqual(len(result.experiment_indices[0]), 3)
+        self.assertEqual(len(result.forward_indices), 2)
+        # Verify forward_indices point to the correct unique inputs
+        # [1.0] -> index 1, [3.0] -> index 3
+        self.assertAllClose(
+            result.X_all[result.forward_indices], X_forward, atol=0, rtol=0
+        )
+
+        # Test with only forward inputs (empty datasets)
+        X_forward = torch.tensor([[0.0], [1.0], [1.0], [2.0]])  # [1.0] duplicated
+
+        result = build_unique_inputs(datasets=[], X_forward=X_forward)
+
+        # Should have 3 unique points: [0], [1], [2]
+        expected_X_all = torch.tensor([[0.0], [1.0], [2.0]])
+        self.assertEqual(result.X_all.shape[0], 3)
+        self.assertAllClose(result.X_all, expected_X_all, atol=0, rtol=0)
+        self.assertEqual(len(result.experiment_indices), 0)
+        self.assertEqual(len(result.forward_indices), 4)
+        # Verify forward_indices correctly map back to original X_forward
+        # [0.0] -> 0, [1.0] -> 1, [1.0] -> 1, [2.0] -> 2
+        self.assertAllClose(
+            result.X_all[result.forward_indices], X_forward, atol=0, rtol=0
+        )
+
+        # Test empty datasets and None X_forward raises ValueError
+        with self.assertRaisesRegex(
+            ValueError,
+            "Cannot build unique inputs: datasets is empty and X_forward is None",
+        ):
+            build_unique_inputs(datasets=[], X_forward=None)
+
+        # Test index mapping correctness
+        X1 = torch.tensor([[0.0], [1.0]])
+        Y1 = torch.tensor([[1.0], [2.0]])
+        X2 = torch.tensor([[1.0], [2.0]])
+        Y2 = torch.tensor([[3.0], [4.0]])
+
+        datasets = [
+            ExperimentDataset(X=X1, Y=Y1),
+            ExperimentDataset(X=X2, Y=Y2),
+        ]
+
+        result = build_unique_inputs(datasets, X_forward=None)
+
+        # Verify that indexing X_all with experiment_indices recovers original inputs
+        for i, dataset in enumerate(datasets):
+            recovered_X = result.X_all[result.experiment_indices[i]]
+            self.assertAllClose(recovered_X, dataset.X, atol=0, rtol=0)
+
+    def test_project_psd(self) -> None:
+        eigval_tol = 1e-12
+        # Test already PSD matrix (identity) is unchanged
+        A = torch.eye(3, dtype=torch.float64)
+
+        A_psd = project_psd(A)
+
+        self.assertAllClose(A_psd, A)
+
+        # Test matrix with negative eigenvalues gets projected to PSD
+        eigvals = torch.tensor([-1.0, 1.0, 2.0], dtype=torch.float64)
+        V = torch.linalg.qr(torch.randn(3, 3, dtype=torch.float64))[0]
+        A = V @ torch.diag(eigvals) @ V.T
+        min_eigval = eigval_tol
+        A_psd = project_psd(A, min_eigval=min_eigval)
+
+        # Result should be PSD (all eigenvalues >= 0)
+        eigvals_result = torch.linalg.eigvalsh(A_psd)
+        self.assertTrue((eigvals_result >= min_eigval - eigval_tol).all())
+        # Result should be symmetric
+        self.assertAllClose(A_psd, A_psd.T)
+
+        # Test with min_eigval parameter
+        eigvals = torch.tensor([-1.0, 0.5, 2.0], dtype=torch.float64)
+        V = torch.linalg.qr(torch.randn(3, 3, dtype=torch.float64))[0]
+        A = V @ torch.diag(eigvals) @ V.T
+
+        min_eigval = 0.1
+        A_psd = project_psd(A, min_eigval=min_eigval)
+
+        # All eigenvalues should be >= min_eigval
+        eigvals_result = torch.linalg.eigvalsh(A_psd)
+        self.assertTrue((eigvals_result >= min_eigval - eigval_tol).all())
+
+        # Test symmetry preservation for random symmetric matrix
+        A = torch.randn(5, 5, dtype=torch.float64)
+        A = 0.5 * (A + A.T)
+
+        A_psd = project_psd(A)
+
+        self.assertAllClose(A_psd, A_psd.T)
+
+    def test_trace_matched_shrinkage(self) -> None:
+        tkwargs = {"dtype": torch.float64, "device": self.device}
+        torch.manual_seed(0)
+        # A random SPD covariance and a distinct SPD target.
+        Q = torch.linalg.qr(torch.randn(4, 4, **tkwargs))[0]
+        cov = Q @ torch.diag(torch.tensor([3.0, 2.0, 1.0, 0.5], **tkwargs)) @ Q.T
+        target = torch.eye(4, **tkwargs) + 0.1 * torch.ones(4, 4, **tkwargs)
+
+        # alpha = 0 returns cov unchanged.
+        self.assertAllClose(trace_matched_shrinkage(cov, target, 0.0), cov)
+
+        # alpha = 1 returns the trace-matched target (tr preserved).
+        blended1 = trace_matched_shrinkage(cov, target, 1.0)
+        self.assertAlmostEqual(
+            float(torch.trace(blended1)), float(torch.trace(cov)), places=6
+        )
+        tr_ratio = torch.trace(cov) / torch.trace(target)
+        self.assertAllClose(blended1, tr_ratio * target)
+
+        # 0 < alpha < 1 matches the explicit convex blend and preserves the trace.
+        alpha = 0.3
+        expected = (1.0 - alpha) * cov + alpha * tr_ratio * target
+        blended = trace_matched_shrinkage(cov, target, alpha)
+        self.assertAllClose(blended, expected)
+        self.assertAlmostEqual(
+            float(torch.trace(blended)), float(torch.trace(cov)), places=6
+        )
+
+        # Result preserves dtype/device and stays symmetric.
+        self.assertEqual(blended.dtype, cov.dtype)
+        self.assertEqual(blended.device.type, cov.device.type)
+        self.assertAllClose(blended, blended.T)
+
+        # A tensor-valued alpha (as produced by the fittable models) works too.
+        alpha_t = torch.tensor(0.3, **tkwargs)
+        self.assertAllClose(trace_matched_shrinkage(cov, target, alpha_t), expected)
+
+        # A (near-)zero-trace target degenerates gracefully via the internal trace
+        # clamp: the result is (1 - alpha) * cov, with no NaN/inf.
+        zero_target = torch.zeros(4, 4, **tkwargs)
+        degraded = trace_matched_shrinkage(cov, zero_target, 0.3)
+        self.assertTrue(torch.isfinite(degraded).all())
+        self.assertAllClose(degraded, 0.7 * cov)
+
+        # alpha outside [0, 1] is rejected, as a float and as a Tensor.
+        for bad_alpha in (-0.1, 1.5):
+            with self.assertRaisesRegex(ValueError, r"alpha must be in \[0, 1\]"):
+                trace_matched_shrinkage(cov, target, bad_alpha)
+            with self.assertRaisesRegex(ValueError, r"alpha must be in \[0, 1\]"):
+                trace_matched_shrinkage(cov, target, torch.tensor(bad_alpha, **tkwargs))
