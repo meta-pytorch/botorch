@@ -12,6 +12,10 @@ from typing import Callable
 import numpy as np
 import torch
 from botorch.exceptions.errors import UnsupportedError
+from botorch.models.empirical_gps.empirical_1d_gp import (
+    EmpiricalOneDimensionalKernel,
+    EmpiricalOneDimensionalMean,
+)
 from botorch.models.empirical_gps.utils import (
     build_basis_interpolant,
     build_mean_interpolant,
@@ -20,6 +24,7 @@ from botorch.models.empirical_gps.utils import (
     compute_basis_matrix,
     compute_orthogonal_basis,
     compute_sample_covariance,
+    em_prior_to_basis_curves,
     ExperimentDataset,
     instantiate_ard,
     LinearInterpolation1D,
@@ -749,3 +754,108 @@ class TestUtils(BotorchTestCase):
         )
         self.assertTrue(used)
         self.assertEqual(eff, min(num_curves_big, num_progression * m))
+
+
+class TestEMPriorToBasisCurves(BotorchTestCase):
+    """Verify em_prior_to_basis_curves reproduces an EM prior on the grid."""
+
+    def _make_prior(self, n: int, tkwargs: dict) -> tuple[Tensor, Tensor, Tensor]:
+        """A full-rank RBF prior (mu, Sigma) on a 1D grid."""
+        X_full = torch.linspace(0.0, 1.0, n, **tkwargs).unsqueeze(-1)
+        d2 = (X_full - X_full.transpose(-1, -2)) ** 2
+        Sigma = torch.exp(-0.5 * d2 / 0.15**2) + 1e-4 * torch.eye(n, **tkwargs)
+        mu = torch.sin(3.0 * X_full.squeeze(-1))
+        return X_full, mu, Sigma
+
+    def test_reproduces_mu_and_sigma_exactly(self) -> None:
+        tkwargs = {"dtype": torch.double, "device": self.device}
+        n = 12
+        X_full, mu, Sigma = self._make_prior(n, tkwargs)
+
+        Y_full = em_prior_to_basis_curves(mu, Sigma)
+        # Full-rank Sigma (r = n) requires r + 1 = n + 1 curves.
+        self.assertEqual(Y_full.shape, (n + 1, n, 1))
+
+        mean_module = EmpiricalOneDimensionalMean(X_full=X_full, Y_full=Y_full)
+        kernel = EmpiricalOneDimensionalKernel(X_full=X_full, Y_full=Y_full)
+
+        mean_grid = mean_module(X_full).reshape(-1)
+        self.assertAllClose(mean_grid, mu, atol=1e-6)
+
+        K = kernel(X_full, X_full).to_dense()
+        self.assertEqual(K.shape, (n, n))
+        self.assertAllClose(K, Sigma, atol=1e-5)
+
+    def test_truncation_matches_low_rank_reconstruction(self) -> None:
+        tkwargs = {"dtype": torch.double, "device": self.device}
+        n, k = 12, 3
+        X_full, mu, Sigma = self._make_prior(n, tkwargs)
+
+        Y_full = em_prior_to_basis_curves(mu, Sigma, num_modes=k)
+        self.assertEqual(Y_full.shape, (k + 1, n, 1))
+
+        kernel = EmpiricalOneDimensionalKernel(X_full=X_full, Y_full=Y_full)
+        K = kernel(X_full, X_full).to_dense()
+
+        # K should equal the rank-k eigen-reconstruction of Sigma.
+        evals, evecs = torch.linalg.eigh(Sigma)
+        order = torch.argsort(evals, descending=True)
+        evals_k = evals[order][:k]
+        evecs_k = evecs[:, order][:, :k]
+        Sigma_k = (evecs_k * evals_k) @ evecs_k.transpose(-1, -2)
+        self.assertAllClose(K, Sigma_k, atol=1e-5)
+
+        # The mean is exact regardless of truncation.
+        mean_module = EmpiricalOneDimensionalMean(X_full=X_full, Y_full=Y_full)
+        self.assertAllClose(mean_module(X_full).reshape(-1), mu, atol=1e-6)
+
+    def test_more_modes_reduce_covariance_error(self) -> None:
+        tkwargs = {"dtype": torch.double, "device": self.device}
+        n = 12
+        X_full, mu, Sigma = self._make_prior(n, tkwargs)
+
+        def cov_err(num_modes: int) -> float:
+            Y_full = em_prior_to_basis_curves(mu, Sigma, num_modes=num_modes)
+            kernel = EmpiricalOneDimensionalKernel(X_full=X_full, Y_full=Y_full)
+            K = kernel(X_full, X_full).to_dense()
+            return (K - Sigma).norm().item()
+
+        self.assertGreater(cov_err(2), cov_err(5))
+
+    def test_degenerate_prior_raises(self) -> None:
+        tkwargs = {"dtype": torch.double, "device": self.device}
+        n = 5
+        mu = torch.zeros(n, **tkwargs)
+        Sigma = torch.zeros(n, n, **tkwargs)
+        with self.assertRaises(ValueError):
+            em_prior_to_basis_curves(mu, Sigma)
+
+    def test_correction_round_trips_and_validates(self) -> None:
+        tkwargs = {"dtype": torch.double, "device": self.device}
+        n = 10
+        X_full, mu, Sigma = self._make_prior(n, tkwargs)
+        # A non-default Bessel correction must round-trip when the kernel uses
+        # the same correction (guards the sqrt(num_curves - correction) scale).
+        Y_full = em_prior_to_basis_curves(mu, Sigma, correction=1)
+        kernel = EmpiricalOneDimensionalKernel(
+            X_full=X_full, Y_full=Y_full, correction=1
+        )
+        K = kernel(X_full, X_full).to_dense()
+        self.assertAllClose(K, Sigma, atol=1e-5)
+        # correction >= number of synthesized curves is rejected (would otherwise
+        # take the square root of a negative number).
+        with self.assertRaisesRegex(ValueError, "correction"):
+            em_prior_to_basis_curves(mu, Sigma, correction=n + 5)
+
+    def test_input_validation(self) -> None:
+        tkwargs = {"dtype": torch.double, "device": self.device}
+        _, mu, Sigma = self._make_prior(6, tkwargs)
+        # mu/Sigma dimension mismatch is rejected (shape-assert guard).
+        with self.assertRaisesRegex(ValueError, "matching n"):
+            em_prior_to_basis_curves(torch.zeros(4, **tkwargs), torch.eye(3, **tkwargs))
+        # A non-1D mu is rejected by the same guard.
+        with self.assertRaisesRegex(ValueError, "Expected mu"):
+            em_prior_to_basis_curves(mu.unsqueeze(-1), Sigma)
+        # num_modes < 1 raises a clear error (not the degenerate-prior message).
+        with self.assertRaisesRegex(ValueError, "num_modes"):
+            em_prior_to_basis_curves(mu, Sigma, num_modes=0)
