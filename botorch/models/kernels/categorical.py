@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import torch
+from botorch.exceptions.errors import BotorchTensorDimensionError
 from gpytorch.kernels.kernel import Kernel
 from torch import Tensor
 
@@ -30,11 +31,14 @@ class CategoricalKernel(Kernel):
         last_dim_is_batch: bool = False,
     ) -> Tensor:
         if diag:
+            if x1.shape[-2] != x2.shape[-2]:
+                raise BotorchTensorDimensionError(
+                    "diag=True requires `x1` and `x2` to have the same number of "
+                    f"points, but got {x1.shape[-2]} and {x2.shape[-2]}."
+                )
             # Comparing rows directly avoids the `n1 x n2 x d` cross-product that would
-            # otherwise be built and then discarded. `torch.diagonal` yields
-            # `min(n1, n2)` entries for uneven inputs, so truncate to match.
-            n = min(x1.shape[-2], x2.shape[-2])
-            dists = (x1[..., :n, :] != x2[..., :n, :]) / self.lengthscale
+            # otherwise be built and then discarded.
+            dists = (x1 != x2) / self.lengthscale
             if last_dim_is_batch:
                 return torch.exp(-dists.transpose(-1, -2))
             return torch.exp(-dists.mean(-1))

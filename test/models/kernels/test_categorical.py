@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import torch
+from botorch.exceptions.errors import BotorchTensorDimensionError
 from botorch.models.kernels.categorical import CategoricalKernel
 from botorch.utils.testing import BotorchTestCase
 from gpytorch.test.base_kernel_test_case import BaseKernelTestCase
@@ -108,9 +109,9 @@ class TestCategoricalKernel(BotorchTestCase, BaseKernelTestCase):
             "batched ard": {"batch_shape": torch.Size([2]), "ard_num_dims": 3},
         }
         for name, kwargs in cases.items():
-            for n1, n2 in [(4, 4), (5, 3), (1, 6)]:
+            for n in [1, 4]:
                 for last_dim_is_batch in [False, True]:
-                    with self.subTest(name, n1=n1, n2=n2, ldib=last_dim_is_batch):
+                    with self.subTest(name, n=n, ldib=last_dim_is_batch):
                         kernel = CategoricalKernel(**kwargs).to(dtype=torch.double)
                         # randomized so a misaligned lengthscale axis cannot cancel out
                         with torch.no_grad():
@@ -118,8 +119,8 @@ class TestCategoricalKernel(BotorchTestCase, BaseKernelTestCase):
                                 torch.rand_like(kernel.raw_lengthscale)
                             )
                         batch = kwargs.get("batch_shape", torch.Size([]))
-                        x1 = torch.randint(3, size=(*batch, n1, 3)).to(torch.double)
-                        x2 = torch.randint(3, size=(*batch, n2, 3)).to(torch.double)
+                        x1 = torch.randint(3, size=(*batch, n, 3)).to(torch.double)
+                        x2 = torch.randint(3, size=(*batch, n, 3)).to(torch.double)
 
                         dense = kernel.forward(
                             x1, x2, last_dim_is_batch=last_dim_is_batch
@@ -130,6 +131,15 @@ class TestCategoricalKernel(BotorchTestCase, BaseKernelTestCase):
                         )
                         self.assertEqual(res.shape, expected.shape)
                         self.assertAllClose(res, expected)
+
+    def test_diag_raises_on_mismatched_shapes(self):
+        kernel = CategoricalKernel(ard_num_dims=3).to(dtype=torch.double)
+        x1 = torch.randint(3, size=(5, 3)).to(dtype=torch.double)
+        x2 = torch.randint(3, size=(4, 3)).to(dtype=torch.double)
+        with self.assertRaisesRegex(BotorchTensorDimensionError, "5 and 4"):
+            kernel.forward(x1, x2, diag=True)
+        # the full matrix is well defined for uneven inputs
+        self.assertEqual(kernel.forward(x1, x2).shape, torch.Size([5, 4]))
 
     def test_diag_does_not_materialize_pairwise_matrix(self):
         # the diagonal should stay linear in n rather than allocating `n x n x d`
