@@ -12,6 +12,10 @@
     "title": "Feasibility-driven Trust Region Bayesian Optimization (FuRBO)"
   },
   {
+    "id": "gitbo",
+    "title": "Gradient-Informed Bayesian Optimization (GIT-BO)"
+  },
+  {
     "id": "hentropy_search",
     "title": "H-Entropy Search"
   },
