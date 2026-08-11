@@ -424,5 +424,30 @@ class TestMaxValueEntropySearch(BotorchTestCase):
     def test_sample_max_value_Gumbel(self):
         self._test_max_value_sampler_base(sampler=_sample_max_value_Gumbel)
 
+    def test_sample_max_value_Gumbel_batched_matches_loop(self):
+        for dtype in (torch.float, torch.double):
+            torch.manual_seed(7)
+            model = SingleTaskGP(
+                train_X=torch.rand(10, 2, device=self.device, dtype=dtype),
+                train_Y=torch.rand(10, 1, device=self.device, dtype=dtype),
+            )
+            candidate_set = torch.rand(2, 3, 10, 2, device=self.device, dtype=dtype)
+
+            torch.manual_seed(11)
+            batched_samples = _sample_max_value_Gumbel(
+                model=model, candidate_set=candidate_set, num_samples=5
+            )
+            loop_samples = []
+            for candidates in candidate_set.reshape(-1, 10, 2):
+                torch.manual_seed(11)
+                loop_samples.append(
+                    _sample_max_value_Gumbel(
+                        model=model, candidate_set=candidates, num_samples=5
+                    )[:, 0]
+                )
+            expected = torch.stack(loop_samples, dim=-1).reshape(5, 2, 3)
+
+            self.assertAllClose(batched_samples, expected)
+
     def test_sample_max_value_Thompson(self):
         self._test_max_value_sampler_base(sampler=_sample_max_value_Thompson)
