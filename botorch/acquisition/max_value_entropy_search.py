@@ -938,8 +938,8 @@ def _sample_max_value_Thompson(
 
     Args:
         model: A fitted single-outcome model.
-        candidate_set: A ``n x d`` Tensor including ``n`` candidate points to
-            discretize the design space.
+        candidate_set: A ``batch_shape x n x d`` Tensor including ``n`` candidate
+            points per batch to discretize the design space.
         num_samples: Number of max value samples.
         posterior_transform: A PosteriorTransform. If using a multi-output model,
             a PosteriorTransform that transforms the multi-output posterior into a
@@ -947,7 +947,8 @@ def _sample_max_value_Thompson(
         maximize: If True, consider the problem a maximization problem.
 
     Returns:
-        A ``num_samples x 1`` Tensor of posterior max value samples.
+        A ``num_samples x batch_shape`` Tensor of posterior max value samples,
+        where ``batch_shape`` is ``(1,)`` for an unbatched posterior.
     """
     posterior = model.posterior(candidate_set, posterior_transform=posterior_transform)
     weight = 1.0 if maximize else -1.0
@@ -973,8 +974,8 @@ def _sample_max_value_Gumbel(
 
     Args:
         model: A fitted single-outcome model.
-        candidate_set: A ``n x d`` Tensor including ``n`` candidate points to
-            discretize the design space.
+        candidate_set: A ``batch_shape x n x d`` Tensor including ``n`` candidate
+            points per batch to discretize the design space.
         num_samples: Number of max value samples.
         posterior_transform: A PosteriorTransform. If using a multi-output model,
             a PosteriorTransform that transforms the multi-output posterior into a
@@ -982,27 +983,30 @@ def _sample_max_value_Gumbel(
         maximize: If True, consider the problem a maximization problem.
 
     Returns:
-        A ``num_samples x num_fantasies`` Tensor of posterior max value samples.
+        A ``num_samples x batch_shape`` Tensor of posterior max value samples,
+        where ``batch_shape`` is ``(1,)`` for an unbatched posterior.
     """
     # define the approximate CDF for the max value under the independence assumption
     posterior = model.posterior(candidate_set, posterior_transform=posterior_transform)
     weight = 1.0 if maximize else -1.0
     mu = weight * posterior.mean
     sigma = posterior.variance.clamp_min(1e-8).sqrt()
-    # mu, sigma is (num_fantasies) X n X 1
-    if len(mu.shape) == 3 and mu.shape[-1] == 1:
-        mu = mu.squeeze(-1).T
-        sigma = sigma.squeeze(-1).T
-    # mu, sigma is now n X num_fantasies or n X 1
+    batch_shape = mu.shape[:-2]
+    n = mu.shape[-2]
+    # Flatten all posterior batch dimensions for the scalar quantile searches.
+    # mu, sigma are now n X num_batches, where num_batches is one for an
+    # unbatched posterior.
+    mu = mu.reshape(-1, n).transpose(0, 1)
+    sigma = sigma.reshape(-1, n).transpose(0, 1)
 
     # bisect search to find the quantiles 25, 50, 75
     lo = (mu - 3 * sigma).min(dim=0).values
     hi = (mu + 5 * sigma).max(dim=0).values
-    num_fantasies = mu.shape[1]
+    num_batches = mu.shape[1]
     device = candidate_set.device
     dtype = candidate_set.dtype
-    quantiles = torch.zeros(num_fantasies, 3, device=device, dtype=dtype)
-    for i in range(num_fantasies):
+    quantiles = torch.zeros(num_batches, 3, device=device, dtype=dtype)
+    for i in range(num_batches):
         lo_, hi_ = lo[i], hi[i]
         N = norm(mu[:, i].numpy(force=True), sigma[:, i].numpy(force=True))
         quantiles[i, :] = torch.tensor(
@@ -1012,7 +1016,7 @@ def _sample_max_value_Gumbel(
             ]
         )
     q25, q50, q75 = quantiles[:, 0], quantiles[:, 1], quantiles[:, 2]
-    # q25, q50, q75 are 1 dimensional tensor with size of either 1 or num_fantasies
+    # q25, q50, q75 are one-dimensional tensors of size num_batches.
 
     # parameter fitting based on matching percentiles for the Gumbel distribution
     b = (q25 - q75) / (log(log(4.0 / 3.0)) - log(log(4.0)))
@@ -1023,4 +1027,5 @@ def _sample_max_value_Gumbel(
     eps = torch.rand(*sample_shape, device=device, dtype=dtype)
     max_values = a - b * eps.log().mul(-1.0).log()
 
-    return max_values  # num_samples x 1
+    output_batch_shape = batch_shape or torch.Size([1])
+    return max_values.reshape(num_samples, *output_batch_shape)
