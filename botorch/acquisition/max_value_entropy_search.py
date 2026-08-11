@@ -996,8 +996,8 @@ def _sample_max_value_Gumbel(
     # Flatten all posterior batch dimensions for the scalar quantile searches.
     # mu, sigma are now n X num_batches, where num_batches is one for an
     # unbatched posterior.
-    mu = mu.squeeze(-1).reshape(-1, n).transpose(0, 1)
-    sigma = sigma.squeeze(-1).reshape(-1, n).transpose(0, 1)
+    mu = mu.reshape(-1, n).transpose(0, 1)
+    sigma = sigma.reshape(-1, n).transpose(0, 1)
 
     # bisect search to find the quantiles 25, 50, 75
     lo = (mu - 3 * sigma).min(dim=0).values
