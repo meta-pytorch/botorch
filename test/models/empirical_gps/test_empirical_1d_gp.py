@@ -13,6 +13,7 @@ import torch
 from botorch.exceptions.errors import UnsupportedError
 from botorch.fit import fit_gpytorch_mll
 from botorch.models.empirical_gps import (
+    BaseAugmentedEmpiricalKernel,
     EmpiricalOneDimensionalGP,
     EmpiricalOneDimensionalKernel,
     EmpiricalOneDimensionalMean,
@@ -25,7 +26,7 @@ from botorch.models.model_list_gp_regression import ModelListGP
 from botorch.models.transforms.input import Normalize
 from botorch.models.transforms.outcome import Standardize
 from botorch.utils.testing import BotorchTestCase
-from gpytorch.kernels import RBFKernel
+from gpytorch.kernels import RBFKernel, ScaleKernel
 from gpytorch.likelihoods import FixedNoiseGaussianLikelihood, GaussianLikelihood
 from gpytorch.mlls import ExactMarginalLogLikelihood, SumMarginalLogLikelihood
 from torch import Tensor
@@ -867,3 +868,58 @@ class TestEmpiricalOneDimensionalGP(BotorchTestCase):
 
         # SVD acceleration tests
         self._test_svd_acceleration()
+
+
+class TestBaseAugmentedEmpiricalKernel(BotorchTestCase):
+    """Tests for the base-augmented empirical kernel and its 1D wiring."""
+
+    def test_additive_combination(self) -> None:
+        tkwargs = {"dtype": torch.double, "device": self.device}
+        X = torch.linspace(0.0, 1.0, 5, **tkwargs).unsqueeze(-1)
+        k1 = RBFKernel().to(**tkwargs)
+        k1.lengthscale = 0.2
+        k2 = ScaleKernel(RBFKernel()).to(**tkwargs)
+        k2.base_kernel.lengthscale = 1.0
+        k2.outputscale = 2.0
+        K1 = k1(X, X).to_dense()
+        K2 = k2(X, X).to_dense()
+        add = BaseAugmentedEmpiricalKernel(k1, k2)
+        # K = K_empirical + K_base: each component keeps its own magnitude.
+        self.assertAllClose(add(X, X).to_dense(), K1 + K2)
+        # diag path matches the dense diagonal.
+        self.assertAllClose(add(X, X, diag=True), (K1 + K2).diagonal(dim1=-2, dim2=-1))
+        # The additive kernel adds no parameters of its own; the base kernel's
+        # parameters are trainable iff the caller left them so.
+        self.assertTrue(k2.raw_outputscale.requires_grad)
+        self.assertTrue(any(p is k2.raw_outputscale for p in add.parameters()))
+
+    def test_model_with_base_covar_module(self) -> None:
+        tkwargs = {"dtype": torch.double, "device": self.device}
+        torch.manual_seed(0)
+        hist_X = torch.linspace(0.0, 1.0, 10, **tkwargs).unsqueeze(-1)
+        hist_Y = torch.stack(
+            [
+                torch.sin(3.0 * hist_X).squeeze(-1) + 0.1 * torch.randn(10, **tkwargs)
+                for _ in range(8)
+            ]
+        ).unsqueeze(-1)
+        train_X = hist_X[:4]
+        train_Y = torch.sin(3.0 * train_X)
+        base = ScaleKernel(RBFKernel()).to(**tkwargs)
+        base.base_kernel.lengthscale = 0.3
+        model = EmpiricalOneDimensionalGP(
+            train_X=train_X,
+            train_Y=train_Y,
+            historical_X=hist_X,
+            historical_Y=hist_Y,
+            base_covar_module=base,
+        )
+        # The covariance is the additive combination of empirical + base kernel,
+        # and the base kernel's parameters are fit iff the caller left requires_grad.
+        self.assertIsInstance(model.covar_module, BaseAugmentedEmpiricalKernel)
+        self.assertIs(model.covar_module.base_kernel, base)
+        self.assertTrue(model.covar_module.base_kernel.raw_outputscale.requires_grad)
+        model.eval()
+        with torch.no_grad():
+            post = model.posterior(hist_X)
+        self.assertEqual(post.mean.shape[-2], hist_X.shape[0])
