@@ -11,13 +11,13 @@ repos:
             - PyYAML
 
 -   repo: https://github.com/omnilib/ufmt
-    rev: v2.9.0
+    rev: v2.9.1
     hooks:
     -   id: ufmt
         additional_dependencies:
         - black==25.11.0
         - usort==1.1.0
-        - ruff-api==0.2.0
+        - ruff-api==0.2.1
         - stdlibs==2025.10.28
         args: [format]
 
