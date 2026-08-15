@@ -202,6 +202,9 @@ class TestActiveSubspace(BotorchTestCase):
         for bad_rank in (0, -1, -0.5):
             with self.assertRaisesRegex(ValueError, "rank must be positive"):
                 compute_active_subspace(gradients, rank=bad_rank)
+        # all-zero gradients in percent mode fall back to rank 1
+        subspace, _ = compute_active_subspace(torch.zeros(4, d, **tkwargs), rank=0.5)
+        self.assertEqual(subspace.shape, torch.Size([d, 1]))
         with self.assertRaisesRegex(ValueError, "gradients must be"):
             compute_active_subspace(gradients.unsqueeze(0), rank=2)
 

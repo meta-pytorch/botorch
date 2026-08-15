@@ -4,6 +4,8 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+from unittest.mock import patch
+
 import torch
 from botorch.utils.testing import BotorchTestCase
 from botorch_community.acquisition.gitbo import gitbo_step, quantile_ucb
@@ -71,6 +73,19 @@ class TestTabPFNv2Model(BotorchTestCase):
         train_Y = torch.rand(5, 1, device=self.device)
         with self.assertRaisesRegex(ValueError, "bar_distribution"):
             TabPFNv2Model(train_X, train_Y, model=DummyTabPFNv2())
+
+    def test_downloads_model_when_not_provided(self):
+        train_X = torch.rand(5, 3, device=self.device)
+        train_Y = torch.rand(5, 1, device=self.device)
+        with patch(
+            "botorch_community.models.tabpfn_v2.download_tabpfn_v2_regressor",
+            return_value=(DummyTabPFNv2(), DummyBarDistribution()),
+        ) as mock_download:
+            model = TabPFNv2Model(train_X, train_Y, accept_license=True)
+        mock_download.assert_called_once_with(accept_license=True)
+        with torch.no_grad():
+            posterior = model.posterior(torch.rand(4, 3, device=self.device))
+        self.assertTrue(torch.isfinite(posterior.mean).all())
 
     def test_posterior_in_raw_units(self):
         tkwargs = {"device": self.device, "dtype": torch.float}

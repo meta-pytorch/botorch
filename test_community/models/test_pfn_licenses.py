@@ -58,8 +58,7 @@ class TestModelLicenses(BotorchTestCase):
     def test_gated_license_accepted_via_kwarg_and_marker_persists(self):
         with tempfile.TemporaryDirectory() as cache_dir:
             with patch(
-                "botorch_community.models.utils.prior_fitted_network."
-                "save_license_copy"
+                "botorch_community.models.utils.prior_fitted_network.save_license_copy"
             ) as mock_save:
                 ensure_license_accepted(
                     GATED_LICENSE, accept_license=True, cache_dir=cache_dir
@@ -84,7 +83,7 @@ class TestModelLicenses(BotorchTestCase):
             response = MagicMock()
             response.text = "LICENSE TEXT"
             with patch(
-                "botorch_community.models.utils.prior_fitted_network." "requests.get",
+                "botorch_community.models.utils.prior_fitted_network.requests.get",
                 return_value=response,
             ) as mock_get:
                 path = save_license_copy(GATED_LICENSE, cache_dir=cache_dir)

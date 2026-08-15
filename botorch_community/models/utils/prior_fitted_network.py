@@ -166,7 +166,7 @@ def ensure_license_accepted(
             ``/tmp/botorch_pfn_models``.
     """
     notice = (
-        f"This model is distributed under the {license.name} license: " f"{license.url}"
+        f"This model is distributed under the {license.name} license: {license.url}"
     )
     if license.attribution is not None:
         notice += f' (attribution requirement: "{license.attribution}")'

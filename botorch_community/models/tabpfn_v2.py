@@ -66,7 +66,7 @@ TABPFN_V2_REG_REPO = "Prior-Labs/TabPFN-v2-reg"
 TABPFN_V2_REG_FILE = "tabpfn-v2-regressor.ckpt"
 
 
-def download_tabpfn_v2_regressor(
+def download_tabpfn_v2_regressor(  # pragma: no cover - requires network + tabpfn
     accept_license: bool = False,
 ) -> tuple[Module, Module]:
     """Download and load the pretrained TabPFN v2 regressor.
