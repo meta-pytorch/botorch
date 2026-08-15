@@ -22,6 +22,11 @@ from botorch.models.empirical_gps.multioutput_empirical_1d_gp import (
     MultiOutputEmpiricalOneDimensionalKernel,
     MultiOutputEmpiricalOneDimensionalMean,
 )
+from botorch.models.empirical_gps.multitask_empirical_1d_gp import (
+    MultiTaskEmpiricalOneDimensionalGP,
+    MultiTaskEmpiricalOneDimensionalKernel,
+    MultiTaskEmpiricalOneDimensionalMean,
+)
 from botorch.models.empirical_gps.utils import trace_matched_shrinkage
 
 
@@ -37,6 +42,9 @@ __all__ = [
     "MultiOutputEmpiricalOneDimensionalGP",
     "MultiOutputEmpiricalOneDimensionalKernel",
     "MultiOutputEmpiricalOneDimensionalMean",
+    "MultiTaskEmpiricalOneDimensionalGP",
+    "MultiTaskEmpiricalOneDimensionalKernel",
+    "MultiTaskEmpiricalOneDimensionalMean",
     "pretrain_em_prior",
     "trace_matched_shrinkage",
 ]
