@@ -45,8 +45,16 @@ fully_bayesian = [
     "numpyro>=0.18.0",
 ]
 
+# pandas/pyarrow are only needed by the LCBench benchmark data loader in
+# ``botorch.utils.lcbench``, which reads GZIP-compressed Parquet files.
+lcbench = [
+    "pandas",
+    "pyarrow",
+]
+
 test = [
     "botorch[fully_bayesian]",
+    "botorch[lcbench]",
     "pytest",
     "pytest-cov",
     "requests",
@@ -65,6 +73,7 @@ dev = [
 
 tutorials = [
     "botorch[fully_bayesian]",
+    "botorch[lcbench]",
     "cma",
     "jupyter",
     "matplotlib",
