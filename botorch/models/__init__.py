@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     )
     from botorch.models.empirical_gps import (  # noqa: F401
         MultiOutputEmpiricalOneDimensionalGP,
+        MultiTaskEmpiricalOneDimensionalGP,
     )
     from botorch.models.empirical_gps.em_empirical_gp import (  # noqa: F401
         EMEmpiricalGaussianProcess,
@@ -77,6 +78,10 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "MultiOutputEmpiricalOneDimensionalGP": (
         ".empirical_gps.multioutput_empirical_1d_gp",
         "MultiOutputEmpiricalOneDimensionalGP",
+    ),
+    "MultiTaskEmpiricalOneDimensionalGP": (
+        ".empirical_gps.multitask_empirical_1d_gp",
+        "MultiTaskEmpiricalOneDimensionalGP",
     ),
     "SingleTaskGP": (".gp_regression", "SingleTaskGP"),
     "SingleTaskMultiFidelityGP": (
