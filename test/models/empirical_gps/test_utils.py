@@ -13,6 +13,8 @@ import numpy as np
 import torch
 from botorch.exceptions.errors import UnsupportedError
 from botorch.models.empirical_gps.utils import (
+    build_basis_interpolant,
+    build_mean_interpolant,
     build_unique_inputs,
     center_curves,
     compute_basis_matrix,
@@ -24,7 +26,11 @@ from botorch.models.empirical_gps.utils import (
     project_psd,
     trace_matched_shrinkage,
     UniqueInputs,
+    validate_historical_curves_3d,
+    validate_no_transforms,
 )
+from botorch.models.transforms.input import Normalize
+from botorch.models.transforms.outcome import Standardize
 from botorch.utils.testing import BotorchTestCase
 from gpytorch.kernels import Kernel
 from scipy.interpolate import interp1d
@@ -283,6 +289,14 @@ class TestUtils(BotorchTestCase):
 
         self.assertTrue(dummy_custom.ard)
         self.assertAllClose(dummy_custom.curve_weights, custom_weights)
+
+        # A plain (non-Parameter) Tensor is accepted, matching the docstring,
+        # and wrapped into a Parameter rather than raising in register_parameter.
+        dummy_plain = DummyModule()
+        plain_weights = torch.rand(num_curves, dtype=torch.float64, device=self.device)
+        instantiate_ard(dummy_plain, num_curves=num_curves, curve_weights=plain_weights)
+        self.assertIsInstance(dummy_plain.curve_weights, torch.nn.Parameter)
+        self.assertAllClose(dummy_plain.curve_weights.detach(), plain_weights)
 
     def test_linear_interpolation_1d(self) -> None:
         """Test LinearInterpolation1D: scipy correctness, batching, module features."""
@@ -609,3 +623,129 @@ class TestUtils(BotorchTestCase):
                 trace_matched_shrinkage(cov, target, bad_alpha)
             with self.assertRaisesRegex(ValueError, r"alpha must be in \[0, 1\]"):
                 trace_matched_shrinkage(cov, target, torch.tensor(bad_alpha, **tkwargs))
+
+    def test_validate_historical_curves_3d(self) -> None:
+        Y3 = torch.randn(4, 5, 1, dtype=torch.float64, device=self.device)
+        # Valid 3D tensors do not raise (default and custom name).
+        validate_historical_curves_3d(Y3)
+        validate_historical_curves_3d(Y3, name="historical_Y")
+
+        # Non-3D tensors raise with the given name in the message.
+        with self.assertRaisesRegex(ValueError, "Expected Y_full to be 3-dim"):
+            validate_historical_curves_3d(Y3.squeeze(-1))
+        with self.assertRaisesRegex(ValueError, "Expected historical_Y to be 3-dim"):
+            validate_historical_curves_3d(Y3.squeeze(-1), name="historical_Y")
+
+    def test_validate_no_transforms(self) -> None:
+        # No transforms: does not raise.
+        validate_no_transforms(None, None, "SomeModel")
+
+        with self.assertRaisesRegex(
+            UnsupportedError, "input_transform is not yet supported for SomeModel"
+        ):
+            validate_no_transforms(Normalize(d=1), None, "SomeModel")
+
+        with self.assertRaisesRegex(
+            UnsupportedError, "outcome_transform is not yet supported for SomeModel"
+        ):
+            validate_no_transforms(None, Standardize(m=1), "SomeModel")
+
+    def test_build_mean_interpolant(self) -> None:
+        num_curves, num_progression, m = 6, 7, 2
+        X_full = torch.linspace(
+            0, 1, num_progression, dtype=torch.float64, device=self.device
+        ).unsqueeze(-1)
+        Y_full = torch.randn(
+            num_curves, num_progression, m, dtype=torch.float64, device=self.device
+        )
+
+        f, num_outputs, mean_full = build_mean_interpolant(X_full, Y_full)
+
+        self.assertEqual(num_outputs, m)
+        self.assertEqual(mean_full.shape, (m, num_progression))
+        self.assertAllClose(mean_full, Y_full.mean(dim=0).T)
+        self.assertIsInstance(f, LinearInterpolation1D)
+        # Interpolating at the knots recovers the mean curves exactly.
+        self.assertAllClose(f(X_full.squeeze(-1)), mean_full)
+
+    def test_build_basis_interpolant(self) -> None:
+        torch.manual_seed(0)
+        num_curves, num_progression, m = 8, 5, 3
+        X_full = torch.linspace(
+            0, 1, num_progression, dtype=torch.float64, device=self.device
+        ).unsqueeze(-1)
+        Y_full = torch.randn(
+            num_curves, num_progression, m, dtype=torch.float64, device=self.device
+        )
+        _, Y_centered = center_curves(Y_full, curve_dim=-3)
+        Y_basis = Y_centered.movedim(-1, 0)  # m x num_curves x num_progression
+        knots = X_full.squeeze(-1)
+
+        # --- vectorize_outputs=False, ARD disables SVD ---
+        f, eff, used = build_basis_interpolant(
+            X_full,
+            Y_full,
+            ard=True,
+            use_svd=None,
+            vectorize_outputs=False,
+            method="eigh",
+        )
+        self.assertFalse(used)
+        self.assertEqual(eff, num_curves)
+        self.assertAllClose(f(knots), Y_basis)
+
+        # --- vectorize_outputs=False, default SVD (num_curves > num_progression) ---
+        f, eff, used = build_basis_interpolant(
+            X_full,
+            Y_full,
+            ard=False,
+            use_svd=None,
+            vectorize_outputs=False,
+            method="eigh",
+        )
+        self.assertTrue(used)
+        self.assertEqual(eff, min(num_curves, num_progression))
+        basis = f(knots)  # m x r x num_progression
+        self.assertEqual(basis.shape, (m, eff, num_progression))
+        # Per-output covariance is preserved by the SVD compression.
+        self.assertAllClose(
+            basis.transpose(-2, -1) @ basis,
+            Y_basis.transpose(-2, -1) @ Y_basis,
+            atol=1e-8,
+        )
+
+        # --- vectorize_outputs=True, SVD off ---
+        f, eff, used = build_basis_interpolant(
+            X_full, Y_full, ard=False, use_svd=False, vectorize_outputs=True
+        )
+        self.assertFalse(used)
+        self.assertEqual(eff, num_curves)
+        self.assertAllClose(f(knots), Y_basis)
+
+        # --- vectorize_outputs=True, SVD forced on (num_curves < num_progression*m) ---
+        f, eff, used = build_basis_interpolant(
+            X_full, Y_full, ard=False, use_svd=True, vectorize_outputs=True
+        )
+        self.assertTrue(used)
+        self.assertEqual(eff, min(num_curves, num_progression * m))
+        basis = f(knots)  # m x eff x num_progression
+        self.assertEqual(basis.shape, (m, eff, num_progression))
+        # Vectorized cross-output Gram matrix is preserved by the SVD compression.
+        Y_svd = basis.movedim(0, -1).reshape(eff, num_progression * m)
+        Y_vec = Y_centered.reshape(num_curves, num_progression * m)
+        self.assertAllClose(Y_svd.T @ Y_svd, Y_vec.T @ Y_vec, atol=1e-8)
+
+        # --- vectorize_outputs=True, default SVD (num_curves > num_progression*m) ---
+        num_curves_big = 20
+        Y_big = torch.randn(
+            num_curves_big,
+            num_progression,
+            m,
+            dtype=torch.float64,
+            device=self.device,
+        )
+        f, eff, used = build_basis_interpolant(
+            X_full, Y_big, ard=False, use_svd=None, vectorize_outputs=True
+        )
+        self.assertTrue(used)
+        self.assertEqual(eff, min(num_curves_big, num_progression * m))

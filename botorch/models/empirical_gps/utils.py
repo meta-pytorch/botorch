@@ -13,6 +13,8 @@ from typing import Callable
 
 import torch
 from botorch.exceptions.errors import UnsupportedError
+from botorch.models.transforms.input import InputTransform
+from botorch.models.transforms.outcome import OutcomeTransform
 from botorch.utils.constraints import NonTransformedInterval
 from torch import Tensor
 from torch.nn import Module
@@ -232,8 +234,13 @@ def instantiate_ard(
     """
     if curve_weights is None:
         curve_weights = Parameter(torch.ones(num_curves, dtype=dtype, device=device))
+    elif not isinstance(curve_weights, Parameter):
+        # Docstrings advertise a plain Tensor; wrap it so register_parameter
+        # (which rejects non-Parameter tensors) does not raise.
+        curve_weights = Parameter(
+            curve_weights, requires_grad=curve_weights.requires_grad
+        )
     obj.register_parameter("curve_weights", curve_weights)
-    # IDEA: Could also apply a softmax so that we are taking a weighted average.
     obj.register_constraint(
         "curve_weights",
         NonTransformedInterval(lower_bound=0.0, upper_bound=torch.inf),
@@ -385,6 +392,164 @@ def _interp1d_raise_out_of_bounds_error(
 
 
 # =============================================================================
+# Model Setup Helpers
+# =============================================================================
+
+
+def validate_historical_curves_3d(Y: Tensor, name: str = "Y_full") -> None:
+    """Validate that a historical-curves tensor is 3-dimensional.
+
+    Empirical one-dimensional GPs expect historical curves shaped as
+    ``num_curves x num_progression x m`` (with ``m=1`` for single-output).
+
+    Args:
+        Y: The tensor to validate.
+        name: Name used in the error message (e.g. ``"Y_full"`` or
+            ``"historical_Y"``).
+
+    Raises:
+        ValueError: If ``Y`` is not 3-dimensional.
+    """
+    if Y.ndim != 3:
+        raise ValueError(
+            f"Expected {name} to be 3-dim (num_curves x num_progression x m), "
+            f"got {Y.ndim}-dim."
+        )
+
+
+def validate_no_transforms(
+    input_transform: InputTransform | None,
+    outcome_transform: OutcomeTransform | None,
+    model_name: str,
+) -> None:
+    """Raise if input/outcome transforms are provided.
+
+    Empirical one-dimensional GP models do not yet support transforms.
+
+    Args:
+        input_transform: Input transform argument to validate.
+        outcome_transform: Outcome transform argument to validate.
+        model_name: Name of the model, used in the error messages.
+
+    Raises:
+        UnsupportedError: If either transform is not None.
+    """
+    if input_transform is not None:
+        raise UnsupportedError(
+            f"input_transform is not yet supported for {model_name}."
+        )
+    if outcome_transform is not None:
+        raise UnsupportedError(
+            f"outcome_transform is not yet supported for {model_name}."
+        )
+
+
+def build_mean_interpolant(
+    X_full: Tensor,
+    Y_full: Tensor,
+) -> tuple[LinearInterpolation1D, int, Tensor]:
+    """Build the interpolant for an empirical mean function.
+
+    Averages the historical curves across the curve dimension and constructs a
+    1D linear interpolant over the progression values.
+
+    Args:
+        X_full: `num_progression x 1`-dim Tensor of progression values.
+        Y_full: `num_curves x num_progression x m`-dim Tensor of historical
+            curves.
+
+    Returns:
+        A tuple ``(f, num_outputs, mean_full)`` where ``f`` is a
+        ``LinearInterpolation1D`` over the per-output mean curves, ``num_outputs``
+        is ``m``, and ``mean_full`` is the `m x num_progression`-dim mean.
+    """
+    num_outputs = Y_full.shape[-1]
+    # num_curves x num_progression x m -> num_progression x m -> m x num_progression
+    mean_full = Y_full.mean(dim=0).T
+    f = LinearInterpolation1D(X_full.squeeze(-1), mean_full)
+    return f, num_outputs, mean_full
+
+
+def build_basis_interpolant(
+    X_full: Tensor,
+    Y_full: Tensor,
+    *,
+    ard: bool,
+    use_svd: bool | None,
+    vectorize_outputs: bool,
+    method: str = "svd",
+) -> tuple[LinearInterpolation1D, int, bool]:
+    """Build the basis interpolant shared by empirical one-dimensional kernels.
+
+    Centers the historical curves across the curve dimension, optionally applies
+    an orthogonal-basis (SVD) compression, and constructs a 1D linear interpolant
+    over the (per-output) basis curves.
+
+    The ``vectorize_outputs`` flag captures the difference between the
+    single-output and multi-output kernels:
+
+    - ``vectorize_outputs=False`` (single-output): the SVD threshold is
+      ``num_progression`` and the orthogonal basis is computed per output on
+      the 3D ``m x num_curves x num_progression`` tensor.
+    - ``vectorize_outputs=True`` (multi-output): the SVD threshold is
+      ``num_progression * m`` and the orthogonal basis is computed on the
+      vectorized 2D ``num_curves x (num_progression * m)`` tensor (to capture
+      cross-output correlations) before reshaping back.
+
+    Args:
+        X_full: `num_progression x 1`-dim Tensor of progression values.
+        Y_full: `num_curves x num_progression x m`-dim Tensor of historical
+            curves.
+        ard: Whether ARD is enabled. When True, SVD is disabled by default.
+        use_svd: Whether to use SVD acceleration. If None, SVD is used when
+            ``num_curves > threshold`` and ``ard`` is False.
+        vectorize_outputs: See above. Selects the single- vs multi-output setup.
+        method: Decomposition passed to ``compute_orthogonal_basis``.
+
+    Returns:
+        A tuple ``(f, effective_num_curves, use_svd)`` where ``f`` is a
+        ``LinearInterpolation1D`` over the `m x effective_num_curves x
+        num_progression` basis, ``effective_num_curves`` is the basis size after
+        any SVD compression, and ``use_svd`` is the resolved SVD flag.
+    """
+    num_curves = Y_full.shape[-3]
+    num_progression = Y_full.shape[-2]
+    num_outputs = Y_full.shape[-1]
+
+    # Center curves across the curve dimension
+    _, Y_centered = center_curves(Y_full, curve_dim=-3)
+
+    threshold = num_progression * num_outputs if vectorize_outputs else num_progression
+    if use_svd is None:
+        use_svd = not ard and num_curves > threshold
+
+    if use_svd:
+        if vectorize_outputs:
+            # SVD on the vectorized basis to capture cross-output correlations.
+            Y_vectorized = Y_centered.reshape(num_curves, num_progression * num_outputs)
+            Y_svd = compute_orthogonal_basis(Y_vectorized, method=method)
+            effective_num_curves = Y_svd.shape[0]
+            # Reshape back to (r, num_progression, m) then move m to the front.
+            Y_for_interp = Y_svd.reshape(
+                effective_num_curves, num_progression, num_outputs
+            ).movedim(-1, 0)
+        else:
+            # Per-output SVD on the 3D basis (batched over outputs).
+            Y_for_interp = compute_orthogonal_basis(
+                Y_centered.movedim(-1, 0), method=method
+            )
+            # r == min(num_curves, num_progression) (economy SVD), read from the
+            # actual basis so this stays correct if the basis size ever changes.
+            effective_num_curves = Y_for_interp.shape[-2]
+    else:
+        effective_num_curves = num_curves
+        Y_for_interp = Y_centered.movedim(-1, 0)
+
+    f = LinearInterpolation1D(X_full.squeeze(-1), Y_for_interp)
+    return f, effective_num_curves, use_svd
+
+
+# =============================================================================
 # Data Structures
 # =============================================================================
 
@@ -396,7 +561,11 @@ class ExperimentDataset:
     Args:
         X: (n, d) Tensor of input locations.
         Y: (n, m) Tensor of target values.
-        Yvar: Optional (n, m) Tensor of observation noise variances.
+        Yvar: Optional (n, m) Tensor of observation noise variances. Note: the
+            EM routines (``pretrain_em_prior`` / ``EMEmpiricalGaussianProcess``)
+            currently use a single shared scalar likelihood noise and do NOT
+            consume per-dataset ``Yvar``; it is accepted for forward-compatibility
+            and ignored by the EM path.
     """
 
     X: Tensor

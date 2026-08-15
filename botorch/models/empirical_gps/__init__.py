@@ -12,13 +12,16 @@ from botorch.models.empirical_gps.em_empirical_gp import (
     pretrain_em_prior,
 )
 from botorch.models.empirical_gps.empirical_1d_gp import (
+    BaseAugmentedEmpiricalKernel,
     EmpiricalOneDimensionalGP,
     EmpiricalOneDimensionalKernel,
     EmpiricalOneDimensionalMean,
 )
+from botorch.models.empirical_gps.utils import trace_matched_shrinkage
 
 
 __all__ = [
+    "BaseAugmentedEmpiricalKernel",
     "build_shared_gp_model_list",
     "EMEmpiricalGaussianProcess",
     "EMEmpiricalMarginalLogLikelihood",
@@ -27,4 +30,5 @@ __all__ = [
     "EmpiricalOneDimensionalKernel",
     "EmpiricalOneDimensionalMean",
     "pretrain_em_prior",
+    "trace_matched_shrinkage",
 ]

@@ -21,16 +21,16 @@ References
 
 from __future__ import annotations
 
-from botorch.exceptions.errors import UnsupportedError
 from botorch.models import SingleTaskGP
 from botorch.models.empirical_gps.utils import (
-    center_curves,
+    build_basis_interpolant,
+    build_mean_interpolant,
     compute_basis_matrix,
-    compute_orthogonal_basis,
     compute_sample_covariance,
     extract_slice_for_interp,
     instantiate_ard,
-    LinearInterpolation1D,
+    validate_historical_curves_3d,
+    validate_no_transforms,
 )
 from botorch.models.transforms.input import InputTransform
 from botorch.models.transforms.outcome import OutcomeTransform
@@ -38,6 +38,56 @@ from gpytorch.kernels import Kernel
 from gpytorch.likelihoods.likelihood import Likelihood
 from gpytorch.means import Mean
 from torch import Tensor
+
+
+# =============================================================================
+# Base-Augmented Empirical Kernel
+# =============================================================================
+
+
+class BaseAugmentedEmpiricalKernel(Kernel):
+    r"""Sum of an empirical kernel and a base kernel: ``K = K_empirical + K_base``.
+
+    Gives the (rank-limited, noisy) empirical covariance a full-rank, structured
+    *additive* component. Unlike a convex combination, each kernel keeps its own
+    magnitude, so as more target observations arrive the (fittable) base kernel can
+    grow to explain them and the model degrades gracefully toward a standard GP with
+    that base kernel -- it never performs worse than the base kernel asymptotically.
+
+    Which of the base kernel's parameters are optimized by the marginal likelihood is
+    controlled entirely by the ``requires_grad`` flags on the ``base_kernel`` the
+    caller supplies; this kernel adds no shrinkage weight of its own:
+
+    - a fresh ``ScaleKernel(MaternKernel(...))`` with all parameters trainable fits its
+      lengthscales and outputscale (fully adaptive; recommended for single-task
+      settings such as automl surrogates);
+    - a pre-fit base kernel with frozen lengthscales but a trainable ``outputscale``
+      fits only its magnitude (recommended for multi-task transfer, where the learned
+      cross-task structure should be reused rather than re-optimized).
+
+    Pass the base kernel wrapped in a ``ScaleKernel`` so its magnitude is learnable.
+    """
+
+    def __init__(self, empirical_kernel: Kernel, base_kernel: Kernel) -> None:
+        """Sum an empirical kernel with an additive base kernel.
+
+        Args:
+            empirical_kernel: The rank-limited empirical kernel.
+            base_kernel: The additive base kernel (typically a ``ScaleKernel(...)``
+                so its magnitude is learnable).
+        """
+        super().__init__()
+        self.empirical_kernel = empirical_kernel
+        self.base_kernel = base_kernel
+
+    def forward(self, x1: Tensor, x2: Tensor, diag: bool = False, **params) -> Tensor:
+        k_emp = self.empirical_kernel(x1, x2, diag=diag, **params)
+        k_base = self.base_kernel(x1, x2, diag=diag, **params)
+        if hasattr(k_emp, "to_dense"):
+            k_emp = k_emp.to_dense()
+        if hasattr(k_base, "to_dense"):
+            k_base = k_base.to_dense()
+        return k_emp + k_base
 
 
 # =============================================================================
@@ -67,6 +117,7 @@ class EmpiricalOneDimensionalGP(SingleTaskGP):
         outcome_transform: OutcomeTransform | None = None,
         mean_module: Mean | None = None,
         covar_module: Kernel | None = None,
+        base_covar_module: Kernel | None = None,
         ard: bool = False,
     ) -> None:
         """Instantiates an empirical one-dimensional GP model.
@@ -90,6 +141,11 @@ class EmpiricalOneDimensionalGP(SingleTaskGP):
             outcome_transform: Outcome transform for the model. Not yet supported.
             mean_module: Optional custom mean module.
             covar_module: Optional custom covariance module.
+            base_covar_module: Optional base kernel added to the empirical kernel as
+                ``K_empirical + K_base`` (see :class:`BaseAugmentedEmpiricalKernel`).
+                Its magnitude/lengthscales are fit by MLL per the ``requires_grad``
+                flags the caller sets on it; pass a ``ScaleKernel(...)`` so its
+                magnitude is learnable. None (default) uses the pure empirical kernel.
             ard: Whether to use Automatic Relevance Determination on the basis.
 
         Raises:
@@ -98,21 +154,12 @@ class EmpiricalOneDimensionalGP(SingleTaskGP):
             UnsupportedError: If input_transform or outcome_transform is provided.
         """
         # Check for unsupported transforms
-        if input_transform is not None:
-            raise UnsupportedError(
-                "input_transform is not yet supported for EmpiricalOneDimensionalGP."
-            )
-        if outcome_transform is not None:
-            raise UnsupportedError(
-                "outcome_transform is not yet supported for EmpiricalOneDimensionalGP."
-            )
+        validate_no_transforms(
+            input_transform, outcome_transform, "EmpiricalOneDimensionalGP"
+        )
 
         # Validate historical_Y is 3D
-        if historical_Y.ndim != 3:
-            raise ValueError(
-                f"Expected historical_Y to be 3-dim (num_curves x num_progression x m),"
-                f" got {historical_Y.ndim}-dim."
-            )
+        validate_historical_curves_3d(historical_Y, name="historical_Y")
 
         # Validate matching number of outputs
         num_outputs_train = train_Y.shape[-1]
@@ -136,6 +183,10 @@ class EmpiricalOneDimensionalGP(SingleTaskGP):
             )
         elif ard != covar_module.ard:
             raise ValueError("`ard` argument must equal `covar_module.ard`.")
+
+        # Optional additive base kernel: K = K_empirical + K_base.
+        if base_covar_module is not None:
+            covar_module = BaseAugmentedEmpiricalKernel(covar_module, base_covar_module)
 
         if mean_module is None:
             mean_module = EmpiricalOneDimensionalMean(
@@ -178,25 +229,14 @@ class EmpiricalOneDimensionalMean(Mean):
             Y_full: `num_curves x num_progression x m`-dim Tensor of historical
                 curves, where m is the number of outputs (m=1 for single-output).
         """
-        if Y_full.ndim != 3:
-            raise ValueError(
-                f"Expected Y_full to be 3-dim (num_curves x num_progression x m), "
-                f"got {Y_full.ndim}-dim."
-            )
+        validate_historical_curves_3d(Y_full)
 
         super().__init__()
-        self.X_full = X_full  # num_progression x 1
 
-        self.num_outputs = Y_full.shape[-1]
-
-        # Compute mean across curves:
-        # num_curves x num_progression x m -> num_progression x m
-        # Then transpose to m x num_progression for interpolation
-        self.mean_full = Y_full.mean(dim=0).T  # m x num_progression
-
-        self.f = LinearInterpolation1D(
-            self.X_full.squeeze(-1),
-            self.mean_full,
+        # Average historical curves and build the interpolant.
+        self.f, self.num_outputs, self.mean_full = build_mean_interpolant(
+            X_full=X_full,
+            Y_full=Y_full,
         )
 
     def forward(self, x: Tensor) -> Tensor:
@@ -272,45 +312,23 @@ class EmpiricalOneDimensionalKernel(Kernel):
             correction: Degree of freedom correction to use for the computation of
                 sample covariance, see `compute_sample_covariance` for details.
         """
-        if Y_full.ndim != 3:
-            raise ValueError(
-                f"Expected Y_full to be 3-dim (num_curves x num_progression x m), "
-                f"got {Y_full.ndim}-dim."
-            )
+        validate_historical_curves_3d(Y_full)
 
         super().__init__()
-
-        self.X_full = X_full
 
         self.num_curves = Y_full.shape[0]
         self.correction = correction
         self.num_outputs = Y_full.shape[-1]
-        num_progression = Y_full.shape[1]
 
-        # Center curves across the curve dimension (dim 0)
-        _, Y_centered = center_curves(Y_full, curve_dim=0)
-
-        # Reshape for interpolation: m x num_curves x num_progression
-        Y_for_interp = Y_centered.movedim(-1, 0)
-
-        # Apply SVD if requested (must be after reshaping for correct batched SVD)
-        if use_svd is None:
-            # Default: use SVD when num_curves > num_progression and ard is False
-            self._use_svd = not ard and self.num_curves > num_progression
-        else:
-            self._use_svd = use_svd
-
-        if self._use_svd:
-            Y_for_interp = compute_orthogonal_basis(Y_for_interp, method="eigh")
-            # After SVD, curve dim becomes r = min(num_curves, num_progression)
-            self._effective_num_curves = min(self.num_curves, num_progression)
-        else:
-            self._effective_num_curves = self.num_curves
-
-        self.f = LinearInterpolation1D(self.X_full.squeeze(-1), Y_for_interp)
-
-        self.Y_full = Y_full
-        self.Y_full_centered = Y_centered
+        # Center curves, optionally SVD-compress, and build the interpolant.
+        self.f, self._effective_num_curves, self._use_svd = build_basis_interpolant(
+            X_full=X_full,
+            Y_full=Y_full,
+            ard=ard,
+            use_svd=use_svd,
+            vectorize_outputs=False,
+            method="eigh",
+        )
 
         if ard:
             # When using SVD + ARD, apply ARD weights to the SVD basis vectors

@@ -1175,6 +1175,29 @@ class TestEMEmpiricalGaussianProcess(BotorchTestCase):
         output = model(test_X)
         self.assertTrue(torch.isfinite(output.mean).all())
 
+    def test_shrinkage_validation_and_single_obs(self) -> None:
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        datasets = self._make_datasets(5, 4, tkwargs)
+        prior = self._make_pretrained_prior(datasets, tkwargs)
+        train_X = torch.rand(3, 1, **tkwargs)
+        train_Y = torch.randn(3, 1, **tkwargs)
+
+        # covariance_shrinkage is a from-datasets-only knob; passing it together
+        # with a pretrained em_prior raises instead of being silently ignored.
+        with self.assertRaisesRegex(ValueError, "covariance_shrinkage"):
+            EMEmpiricalGaussianProcess(
+                em_prior=prior,
+                train_X=train_X,
+                train_Y=train_Y,
+                covariance_shrinkage=0.3,
+            )
+
+        # EM handles single-observation datasets (n_i == 1) without crashing.
+        prior_single = self._make_pretrained_prior(
+            self._make_datasets(3, 1, tkwargs), tkwargs
+        )
+        self.assertTrue(torch.isfinite(prior_single.Sigma_inducing).all())
+
 
 class TestBuildSharedGPModelList(BotorchTestCase):
     """Tests for build_shared_gp_model_list and fit_gpytorch_mll compatibility."""
