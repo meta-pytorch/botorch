@@ -717,3 +717,121 @@ def trace_matched_shrinkage(
         raise ValueError(f"Shrinkage intensity alpha must be in [0, 1]; got {alpha}.")
     tr_ratio = torch.trace(cov) / torch.trace(target).clamp_min(1e-12)
     return (1.0 - alpha) * cov + alpha * tr_ratio * target
+
+
+# =============================================================================
+# EM Prior -> Empirical Basis Curves
+# =============================================================================
+
+
+def em_prior_to_basis_curves(
+    mu: Tensor,
+    Sigma: Tensor,
+    num_modes: int | None = None,
+    correction: int = 0,
+    eigenvalue_tol: float = 0.0,
+) -> Tensor:
+    """Synthesize empirical basis curves that reproduce an EM prior on a grid.
+
+    Given an EM-learned prior mean ``mu`` and covariance ``Sigma`` defined on a
+    grid of ``n`` progression points, this builds a small set of synthetic
+    historical curves ``Y_full`` such that ``EmpiricalOneDimensionalGP`` (which
+    forms a *centered* sample covariance of its curves) reproduces ``(mu, Sigma)``
+    exactly at the grid points. This lets the cheaper empirical 1D GP act as a
+    surrogate for the full EM prior.
+
+    The construction is a Karhunen-Loeve expansion of ``Sigma`` encoded through a
+    simplex so that the curves' cross-curve mean is exactly ``mu`` and their
+    centered scatter is exactly ``Sigma``. Because the empirical kernel centers
+    the curves (removing one degree of freedom), a rank-``r`` covariance requires
+    ``r + 1`` curves -- not ``r``. With ``S`` an ``r x (r+1)`` matrix of
+    orthonormal rows orthogonal to the all-ones vector (``S Sᵀ = I_r``,
+    ``S 1 = 0``), the per-curve deviations are the columns of
+    ``U Λ^{1/2} (√(r + 1 - correction)) S`` where ``Σ = U Λ Uᵀ``; the centered
+    scatter is then ``(r + 1 - correction) Σ`` and the kernel's division by
+    ``num_curves - correction`` recovers ``Sigma``.
+
+    Args:
+        mu: ``(n,)`` EM-learned mean at the grid points.
+        Sigma: ``(n, n)`` EM-learned covariance at the grid points.
+        num_modes: Cap on the number of leading eigenmodes retained; the
+            effective rank is ``r = min(num_modes, #{eigenvalues >
+            eigenvalue_tol})``. ``None`` (default) keeps every mode above
+            ``eigenvalue_tol``, reproducing ``Sigma`` exactly. A smaller value
+            yields a rank-``r`` approximation (fewer, cheaper curves).
+        correction: Degrees-of-freedom correction matching the
+            ``EmpiricalOneDimensionalGP`` / kernel ``correction`` the curves will
+            be used with (the kernel divides by ``num_curves - correction``).
+            Defaults to 0.
+        eigenvalue_tol: Eigenvalues ``<= eigenvalue_tol`` are dropped as numerical
+            noise / null space (default: 0.0).
+
+    Returns:
+        ``Y_full`` of shape ``(r + 1, n, 1)`` -- ``r + 1`` synthetic single-output
+        curves on the grid -- suitable as ``historical_Y`` for
+        ``EmpiricalOneDimensionalGP`` (paired with the grid as ``historical_X``).
+
+    Raises:
+        ValueError: If ``Sigma`` has no eigenvalues above ``eigenvalue_tol`` (the
+            prior is degenerate, so no covariance structure can be encoded).
+    """
+    if (
+        mu.dim() != 1
+        or Sigma.dim() != 2
+        or Sigma.shape[-1] != Sigma.shape[-2]
+        or mu.shape[-1] != Sigma.shape[-1]
+    ):
+        raise ValueError(
+            "Expected mu of shape (n,) and Sigma of shape (n, n) with matching n; "
+            f"got mu {tuple(mu.shape)} and Sigma {tuple(Sigma.shape)}."
+        )
+    tkwargs = {"dtype": Sigma.dtype, "device": Sigma.device}
+    # Match mu to Sigma's dtype/device so the mu + deviations sum below is safe.
+    mu = mu.to(**tkwargs)
+
+    # Eigendecomposition of the (symmetric PSD) covariance; eigh returns ascending.
+    evals, evecs = torch.linalg.eigh(0.5 * (Sigma + Sigma.transpose(-1, -2)))
+    # Sort descending so num_modes keeps the dominant variance directions.
+    order = torch.argsort(evals, descending=True)
+    evals = evals[order]
+    evecs = evecs[:, order]
+
+    if num_modes is not None:
+        if num_modes < 1:
+            raise ValueError(f"num_modes must be >= 1 if specified; got {num_modes}.")
+        evals = evals[:num_modes]
+        evecs = evecs[:, :num_modes]
+
+    keep = evals > eigenvalue_tol
+    evals = evals[keep]
+    evecs = evecs[:, keep]
+
+    r = int(evals.numel())
+    if r == 0:
+        raise ValueError(
+            "Sigma has no eigenvalues above eigenvalue_tol; the prior is "
+            "degenerate and cannot be encoded as empirical basis curves."
+        )
+
+    num_curves = r + 1
+    if correction >= num_curves:
+        raise ValueError(
+            f"correction ({correction}) must be < the number of synthesized "
+            f"curves (r + 1 = {num_curves}); otherwise the curve scale "
+            "sqrt(num_curves - correction) is undefined."
+        )
+
+    # S: (r, r + 1) with orthonormal rows orthogonal to the all-ones vector.
+    # The complete QR of the ones vector gives an orthonormal basis whose first
+    # column is proportional to ones; the remaining r columns span its complement.
+    ones = torch.ones(num_curves, 1, **tkwargs)
+    Q, _ = torch.linalg.qr(ones, mode="complete")  # (r+1, r+1)
+    S = Q[:, 1:].transpose(-1, -2)  # (r, r+1): S Sᵀ = I_r, S 1 = 0
+
+    scale = float(num_curves - correction) ** 0.5
+    # Deviations: (n, r+1) = U Λ^{1/2} (scale · S)
+    deviations = (evecs * evals.clamp_min(0.0).sqrt()) @ (scale * S)
+
+    # Curves: mu + deviation, shaped (num_curves, n, 1) for single-output Y_full.
+    Y_full = (mu.unsqueeze(-1) + deviations).transpose(-1, -2).unsqueeze(-1)
+    return Y_full
