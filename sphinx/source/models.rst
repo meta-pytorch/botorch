@@ -59,6 +59,9 @@ Empirical GP Models
 .. automodule:: botorch.models.empirical_gps.empirical_1d_gp
     :members:
 
+.. automodule:: botorch.models.empirical_gps.multioutput_empirical_1d_gp
+    :members:
+
 .. automodule:: botorch.models.empirical_gps.em_empirical_gp
     :members:
 
