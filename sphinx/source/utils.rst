@@ -107,6 +107,11 @@ Safe Math
 .. automodule:: botorch.utils.safe_math
 		:members:
 
+LCBench Data Loader
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.. automodule:: botorch.utils.lcbench
+		:members:
+
 Multi-Objective Utilities
 -------------------------------------------
 
