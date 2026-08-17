@@ -149,6 +149,7 @@ class qExpectedUtilityOfBestOption(MCAcquisitionFunction):
         sampler: MCSampler | None = None,
         objective: MCAcquisitionObjective | None = None,
         posterior_transform: PosteriorTransform | None = None,
+        previous_winner: Tensor | None = None,
         X_pending: Tensor | None = None,
     ) -> None:
         r"""MC-based Expected Utility of Best Option (qEUBO) as proposed
@@ -166,6 +167,7 @@ class qExpectedUtilityOfBestOption(MCAcquisitionFunction):
             objective: The MCAcquisitionObjective under which the samples are evaluated.
                 Defaults to ``IdentityMCObjective()``.
             posterior_transform: A PosteriorTransform (optional).
+            previous_winner: Tensor representing the previous winner in the Y space.
             X_pending:  A ``m x d``-dim Tensor of ``m`` design points that have been
                 submitted for function evaluation but have not yet been evaluated.
                 Concatenated into X upon forward call. Copied and set
@@ -180,6 +182,7 @@ class qExpectedUtilityOfBestOption(MCAcquisitionFunction):
         )
         # ensure the model is in eval mode
         self.add_module("outcome_model", outcome_model)
+        self.register_buffer("previous_winner", previous_winner)
 
     @concatenate_pending_points
     @t_batch_mode_transform()
@@ -197,6 +200,9 @@ class qExpectedUtilityOfBestOption(MCAcquisitionFunction):
             of model and input ``X``.
         """
         Y = X if self.outcome_model is None else self.outcome_model(X)
+
+        if self.previous_winner is not None:
+            Y = torch.cat([Y, match_batch_shape(self.previous_winner, Y)], dim=-2)
 
         _, obj = self._get_samples_and_objectives(Y)
         obj_best = obj.max(dim=-1).values
