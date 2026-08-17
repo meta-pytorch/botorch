@@ -17,7 +17,7 @@ from botorch.models.approximate_gp import (
     SingleTaskVariationalGP,
 )
 from botorch.models.transforms.input import Normalize
-from botorch.models.transforms.outcome import Log
+from botorch.models.transforms.outcome import Log, Standardize
 from botorch.models.utils.inducing_point_allocators import (
     GreedyImprovementReduction,
     GreedyVarianceReduction,
@@ -63,20 +63,160 @@ class TestApproximateGP(BotorchTestCase):
         )
         self.assertEqual(model.num_outputs, 2)
 
+    def test_load_state_dict(self) -> None:
+        test_X = torch.rand(5, 1, device=self.device)
+
+        for label, train_Y in [
+            ("with_train_Y", self.train_Y),
+            ("no_train_Y", None),
+        ]:
+            with self.subTest(label=label):
+                model = ApproximateGPyTorchModel(
+                    train_X=self.train_X,
+                    train_Y=train_Y,
+                    likelihood=BetaLikelihood(),
+                ).to(self.device)
+                state_dict = model.state_dict()
+
+                restored = ApproximateGPyTorchModel(
+                    train_X=self.train_X,
+                    train_Y=train_Y,
+                    likelihood=BetaLikelihood(),
+                ).to(self.device)
+                restored.load_state_dict(state_dict=state_dict)
+                restored_state = restored.state_dict()
+                self.assertEqual(set(state_dict.keys()), set(restored_state.keys()))
+                for key in state_dict:
+                    self.assertTrue(
+                        torch.equal(state_dict[key], restored_state[key]),
+                        msg=f"Mismatch for key {key}",
+                    )
+
+                model.eval()
+                restored.eval()
+                torch.manual_seed(0)
+                orig_posterior = model.posterior(test_X)
+                torch.manual_seed(0)
+                restored_posterior = restored.posterior(test_X)
+                self.assertAllClose(orig_posterior.mean, restored_posterior.mean)
+                self.assertAllClose(
+                    orig_posterior.variance, restored_posterior.variance
+                )
+
 
 class TestSingleTaskVariationalGP(BotorchTestCase):
     def setUp(self):
         super().setUp()
-        train_X = torch.rand(10, 1, device=self.device)
-        train_y = torch.sin(train_X) + torch.randn_like(train_X) * 0.2
+        self.train_X = torch.rand(10, 1, device=self.device)
+        self.train_y = torch.sin(self.train_X) + torch.randn_like(self.train_X) * 0.2
 
         self.model = SingleTaskVariationalGP(
-            train_X=train_X, likelihood=GaussianLikelihood()
+            train_X=self.train_X,
+            train_Y=self.train_y,
+            likelihood=GaussianLikelihood(),
+            outcome_transform=Standardize(m=1),
         ).to(self.device)
 
         mll = VariationalELBO(self.model.likelihood, self.model.model, num_data=10)
-        loss = -mll(self.model.likelihood(self.model(train_X)), train_y).sum()
+        loss = -mll(self.model.likelihood(self.model(self.train_X)), self.train_y).sum()
         loss.backward()
+
+    def test_load_state_dict(self) -> None:
+        test_X = torch.rand(5, 1, device=self.device)
+
+        for label, train_Y in [
+            ("with_train_Y", self.train_y),
+            ("no_train_Y", None),
+        ]:
+            with self.subTest(label=label):
+                model = SingleTaskVariationalGP(
+                    train_X=self.train_X,
+                    train_Y=train_Y,
+                    likelihood=BetaLikelihood(),
+                ).to(self.device)
+                state_dict = model.state_dict()
+
+                restored = SingleTaskVariationalGP(
+                    train_X=self.train_X,
+                    train_Y=train_Y,
+                    likelihood=BetaLikelihood(),
+                ).to(self.device)
+                restored.load_state_dict(state_dict=state_dict)
+                restored_state = restored.state_dict()
+                self.assertEqual(set(state_dict.keys()), set(restored_state.keys()))
+                for key in state_dict:
+                    self.assertTrue(
+                        torch.equal(state_dict[key], restored_state[key]),
+                        msg=f"Mismatch for key {key}",
+                    )
+
+                # Posterior numerical identity. manual_seed is needed because
+                # CholeskyVariationalDistribution.initialize_variational_distribution
+                # adds random noise on the first posterior call.
+                model.eval()
+                restored.eval()
+                torch.manual_seed(0)
+                orig_posterior = model.posterior(test_X)
+                torch.manual_seed(0)
+                restored_posterior = restored.posterior(test_X)
+                self.assertAllClose(orig_posterior.mean, restored_posterior.mean)
+                self.assertAllClose(
+                    orig_posterior.variance, restored_posterior.variance
+                )
+
+        # Test keep_transforms with different training data (CV-style).
+        # The restored model is built with one fewer data point, so its
+        # Standardize means/stdvs differ from the source model's.
+        with self.subTest("keep_transforms"):
+            model = SingleTaskVariationalGP(
+                train_X=self.train_X,
+                train_Y=self.train_y,
+                outcome_transform=Standardize(m=1),
+                input_transform=Normalize(d=1),
+            ).to(self.device)
+            state_dict = model.state_dict()
+            original_train_targets = model.model.train_targets.clone()
+
+            cv_X = self.train_X[:-1]
+            cv_Y = self.train_y[:-1]
+
+            for keep_transforms in [True, False]:
+                with self.subTest(keep_transforms=keep_transforms):
+                    restored = SingleTaskVariationalGP(
+                        train_X=cv_X,
+                        train_Y=cv_Y,
+                        outcome_transform=Standardize(m=1),
+                        input_transform=Normalize(d=1),
+                    ).to(self.device)
+                    restored.load_state_dict(
+                        state_dict=state_dict, keep_transforms=keep_transforms
+                    )
+
+                    if keep_transforms:
+                        # Transform params are loaded from state_dict, and
+                        # train_targets are re-standardized under the loaded
+                        # transform, so they match the original (minus the
+                        # dropped point).
+                        self.assertAllClose(
+                            restored.model.train_targets,
+                            original_train_targets[..., :-1],
+                        )
+                        self.assertTrue(
+                            torch.equal(
+                                restored.outcome_transform.means,
+                                state_dict["outcome_transform.means"],
+                            )
+                        )
+                    else:
+                        # Transform params are loaded but train_targets are
+                        # NOT re-standardized, so they still reflect the
+                        # cv_Y-based standardization and won't match.
+                        self.assertFalse(
+                            torch.allclose(
+                                restored.model.train_targets,
+                                original_train_targets[..., :-1],
+                            )
+                        )
 
     def test_posterior(self):
         # basic test of checking that the posterior works as intended
