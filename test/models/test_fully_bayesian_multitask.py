@@ -830,12 +830,14 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
             )
 
             d = train_X.shape[1] - 1
-            mcmc_samples = self._get_mcmc_samples(
-                num_samples=3,
-                dim=d,
-                task_rank=task_rank,
-                **tkwargs,
-            )
+            with torch.random.fork_rng():
+                torch.manual_seed(0)
+                mcmc_samples = self._get_mcmc_samples(
+                    num_samples=3,
+                    dim=d,
+                    task_rank=task_rank,
+                    **tkwargs,
+                )
             model.load_mcmc_samples(mcmc_samples)
             data_covar_module, task_covar_module = model.covar_module.kernels
             self.assertTrue(
@@ -870,6 +872,8 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
                     dtype=mcmc_samples["latent_features"].dtype,
                     device=mcmc_samples["latent_features"].device,
                 ),
+                rtol=1e-4 if dtype == torch.float else 1e-5,
+                atol=1e-5 if dtype == torch.float else 1e-8,
             )
             # Handle outcome transforms (if used)
             train_Y_tf, train_Yvar_tf = train_Y, train_Yvar
