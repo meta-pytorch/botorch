@@ -98,6 +98,19 @@ class TestOrthogonalAdditiveKernel(BotorchTestCase):
                 with self.assertRaisesRegex(UnsupportedError, "does not support"):
                     oak.forward(x1=X, x2=X, last_dim_is_batch=True)
 
+                with self.subTest("check_hypercube=False evaluates outside the cube"):
+                    unchecked = OrthogonalAdditiveKernel(
+                        d,
+                        MaternKernel().to(device=self.device),
+                        per_dim_lengthscales=False,
+                        batch_shape=batch_shape,
+                        check_hypercube=False,
+                        **tkwargs,
+                    )
+                    K = unchecked(X_out_of_hypercube, X).to_dense()
+                    self.assertEqual(K.shape, (*batch_shape, n, n))
+                    self.assertTrue(K.isfinite().all())
+
                 X2 = torch.rand(*batch_shape, n, d, **tkwargs)
                 with self.assertRaisesRegex(UnsupportedError, "diag=True"):
                     oak.forward(x1=X, x2=X2, diag=True)

@@ -49,6 +49,7 @@ class OrthogonalAdditiveKernel(Kernel):
         offset_prior: Prior | None = None,
         coeffs_1_prior: Prior | None = None,
         coeffs_2_prior: Prior | None = None,
+        check_hypercube: bool = True,
     ):
         """
         Args:
@@ -75,8 +76,13 @@ class OrthogonalAdditiveKernel(Kernel):
                 non-negative support.
             coeffs_2_prior: Prior on the parameter interactions. Should
                 be prior with non-negative support.
+            check_hypercube: If True (default), raise on inputs outside [0, 1]^d,
+                where the quadrature no longer enforces orthogonality. Set to
+                False to evaluate them anyway, accepting components that are
+                only approximately orthogonal.
         """
         super().__init__(batch_shape=batch_shape)
+        self.check_hypercube = check_hypercube
         self.per_dim_lengthscales = per_dim_lengthscales
         expected_base_batch = (
             self.batch_shape + torch.Size([dim])
@@ -518,9 +524,11 @@ class OrthogonalAdditiveKernel(Kernel):
             A ``batch_shape x d x n1 x n2``-dim Tensor, or a `batch_shape x d x n1`-dim
             Tensor if `diag=True`.
         """
-        _check_hypercube(x1, "x1")
+        if self.check_hypercube:
+            _check_hypercube(x1, "x1")
         if x1 is not x2:
-            _check_hypercube(x2, "x2")
+            if self.check_hypercube:
+                _check_hypercube(x2, "x2")
             if diag:
                 raise UnsupportedError(
                     "OrthogonalAdditiveKernel does not support `diag=True` "
