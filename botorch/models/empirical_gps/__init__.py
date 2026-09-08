@@ -16,6 +16,15 @@ from botorch.models.empirical_gps.empirical_1d_gp import (
     EmpiricalOneDimensionalGP,
     EmpiricalOneDimensionalKernel,
     EmpiricalOneDimensionalMean,
+    PerOutputBaseKernel,
+)
+from botorch.models.empirical_gps.hyperbo import (
+    HyperBODeepKernel,
+    HyperBOLinearMean,
+    HyperBOModel,
+    HyperBOPriorContainer,
+    MLPFeatureExtractor,
+    pretrain_hyperbo,
 )
 from botorch.models.empirical_gps.multioutput_empirical_1d_gp import (
     MultiOutputEmpiricalOneDimensionalGP,
@@ -27,11 +36,25 @@ from botorch.models.empirical_gps.multitask_empirical_1d_gp import (
     MultiTaskEmpiricalOneDimensionalKernel,
     MultiTaskEmpiricalOneDimensionalMean,
 )
-from botorch.models.empirical_gps.utils import trace_matched_shrinkage
+from botorch.models.empirical_gps.pacoh import (
+    PACOHGPConfig,
+    PACOHGPModel,
+    PACOHPriorContainer,
+    pretrain_pacoh_gp,
+)
+from botorch.models.empirical_gps.svgd import svgd_kernel, svgd_update
+from botorch.models.empirical_gps.utils import (
+    BatchedLinear,
+    build_sliding_window_curves,
+    filter_diverged_curves,
+    kronecker_factored_covariance,
+    trace_matched_shrinkage,
+)
 
 
 __all__ = [
     "BaseAugmentedEmpiricalKernel",
+    "BatchedLinear",
     "build_shared_gp_model_list",
     "EMEmpiricalGaussianProcess",
     "EMEmpiricalMarginalLogLikelihood",
@@ -39,12 +62,28 @@ __all__ = [
     "EmpiricalOneDimensionalGP",
     "EmpiricalOneDimensionalKernel",
     "EmpiricalOneDimensionalMean",
+    "HyperBODeepKernel",
+    "HyperBOLinearMean",
+    "HyperBOModel",
+    "HyperBOPriorContainer",
+    "MLPFeatureExtractor",
     "MultiOutputEmpiricalOneDimensionalGP",
     "MultiOutputEmpiricalOneDimensionalKernel",
     "MultiOutputEmpiricalOneDimensionalMean",
     "MultiTaskEmpiricalOneDimensionalGP",
     "MultiTaskEmpiricalOneDimensionalKernel",
     "MultiTaskEmpiricalOneDimensionalMean",
+    "PACOHGPConfig",
+    "PACOHGPModel",
+    "PACOHPriorContainer",
+    "build_sliding_window_curves",
+    "filter_diverged_curves",
+    "kronecker_factored_covariance",
+    "PerOutputBaseKernel",
     "pretrain_em_prior",
+    "pretrain_hyperbo",
+    "pretrain_pacoh_gp",
+    "svgd_kernel",
+    "svgd_update",
     "trace_matched_shrinkage",
 ]

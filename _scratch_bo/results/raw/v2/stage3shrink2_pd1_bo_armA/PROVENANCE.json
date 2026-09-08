@@ -1,0 +1,300 @@
+{
+  "stage": "stage3shrink2_pd1_bo_armA",
+  "regime": "pd1_bo_armA",
+  "commit": "3e71dbdc2c6e1647a87619ae6ce447fac998fd01",
+  "generated_utc": "2026-08-23T14:15:49Z",
+  "regime_flags": "--benchmark pd1_loo --pd1-source full --pd1-group all --pd1-candidate-pool matched --pd1-pretrain-pool matched --n-iters 50 --n-seeds 1 --n-init 3 --per-task-standardize --output-warp neglog --meta-subsample 64 --meta-task-batch 5 --hyperbo-iters 25000",
+  "harness": "bo_experiment",
+  "cells": [
+    {
+      "name": "s2_ctrl_p0",
+      "flags": "--em-shrinkage 0.0 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "s2_ctrl_p1",
+      "flags": "--em-shrinkage 0.0 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "s2_ctrl_p2",
+      "flags": "--em-shrinkage 0.0 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "s2_ctrl_p3",
+      "flags": "--em-shrinkage 0.0 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "s2_ctrl_p4",
+      "flags": "--em-shrinkage 0.0 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "s2_ctrl_p5",
+      "flags": "--em-shrinkage 0.0 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "s2_ctrl_p6",
+      "flags": "--em-shrinkage 0.0 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "s2_ctrl_p7",
+      "flags": "--em-shrinkage 0.0 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "s2_ctrl_p8",
+      "flags": "--em-shrinkage 0.0 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    },
+    {
+      "name": "s2_a008_p0",
+      "flags": "--em-shrinkage 0.08 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "s2_a008_p1",
+      "flags": "--em-shrinkage 0.08 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "s2_a008_p2",
+      "flags": "--em-shrinkage 0.08 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "s2_a008_p3",
+      "flags": "--em-shrinkage 0.08 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "s2_a008_p4",
+      "flags": "--em-shrinkage 0.08 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "s2_a008_p5",
+      "flags": "--em-shrinkage 0.08 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "s2_a008_p6",
+      "flags": "--em-shrinkage 0.08 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "s2_a008_p7",
+      "flags": "--em-shrinkage 0.08 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "s2_a008_p8",
+      "flags": "--em-shrinkage 0.08 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    },
+    {
+      "name": "s2_a012_p0",
+      "flags": "--em-shrinkage 0.12 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "s2_a012_p1",
+      "flags": "--em-shrinkage 0.12 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "s2_a012_p2",
+      "flags": "--em-shrinkage 0.12 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "s2_a012_p3",
+      "flags": "--em-shrinkage 0.12 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "s2_a012_p4",
+      "flags": "--em-shrinkage 0.12 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "s2_a012_p5",
+      "flags": "--em-shrinkage 0.12 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "s2_a012_p6",
+      "flags": "--em-shrinkage 0.12 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "s2_a012_p7",
+      "flags": "--em-shrinkage 0.12 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "s2_a012_p8",
+      "flags": "--em-shrinkage 0.12 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    },
+    {
+      "name": "s2_a015_p0",
+      "flags": "--em-shrinkage 0.15 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "s2_a015_p1",
+      "flags": "--em-shrinkage 0.15 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "s2_a015_p2",
+      "flags": "--em-shrinkage 0.15 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "s2_a015_p3",
+      "flags": "--em-shrinkage 0.15 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "s2_a015_p4",
+      "flags": "--em-shrinkage 0.15 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "s2_a015_p5",
+      "flags": "--em-shrinkage 0.15 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "s2_a015_p6",
+      "flags": "--em-shrinkage 0.15 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "s2_a015_p7",
+      "flags": "--em-shrinkage 0.15 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "s2_a015_p8",
+      "flags": "--em-shrinkage 0.15 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    },
+    {
+      "name": "s2_tau020_p0",
+      "flags": "--em-shrinkage-mode oas_whitened --iw-target-ridge 0.20 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "s2_tau020_p1",
+      "flags": "--em-shrinkage-mode oas_whitened --iw-target-ridge 0.20 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "s2_tau020_p2",
+      "flags": "--em-shrinkage-mode oas_whitened --iw-target-ridge 0.20 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "s2_tau020_p3",
+      "flags": "--em-shrinkage-mode oas_whitened --iw-target-ridge 0.20 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "s2_tau020_p4",
+      "flags": "--em-shrinkage-mode oas_whitened --iw-target-ridge 0.20 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "s2_tau020_p5",
+      "flags": "--em-shrinkage-mode oas_whitened --iw-target-ridge 0.20 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "s2_tau020_p6",
+      "flags": "--em-shrinkage-mode oas_whitened --iw-target-ridge 0.20 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "s2_tau020_p7",
+      "flags": "--em-shrinkage-mode oas_whitened --iw-target-ridge 0.20 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "s2_tau020_p8",
+      "flags": "--em-shrinkage-mode oas_whitened --iw-target-ridge 0.20 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    },
+    {
+      "name": "s2_tau050_p0",
+      "flags": "--em-shrinkage-mode oas_whitened --iw-target-ridge 0.50 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "s2_tau050_p1",
+      "flags": "--em-shrinkage-mode oas_whitened --iw-target-ridge 0.50 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "s2_tau050_p2",
+      "flags": "--em-shrinkage-mode oas_whitened --iw-target-ridge 0.50 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "s2_tau050_p3",
+      "flags": "--em-shrinkage-mode oas_whitened --iw-target-ridge 0.50 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "s2_tau050_p4",
+      "flags": "--em-shrinkage-mode oas_whitened --iw-target-ridge 0.50 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "s2_tau050_p5",
+      "flags": "--em-shrinkage-mode oas_whitened --iw-target-ridge 0.50 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "s2_tau050_p6",
+      "flags": "--em-shrinkage-mode oas_whitened --iw-target-ridge 0.50 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "s2_tau050_p7",
+      "flags": "--em-shrinkage-mode oas_whitened --iw-target-ridge 0.50 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "s2_tau050_p8",
+      "flags": "--em-shrinkage-mode oas_whitened --iw-target-ridge 0.50 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    },
+    {
+      "name": "s2_tau080_p0",
+      "flags": "--em-shrinkage-mode oas_whitened --iw-target-ridge 0.80 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "s2_tau080_p1",
+      "flags": "--em-shrinkage-mode oas_whitened --iw-target-ridge 0.80 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "s2_tau080_p2",
+      "flags": "--em-shrinkage-mode oas_whitened --iw-target-ridge 0.80 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "s2_tau080_p3",
+      "flags": "--em-shrinkage-mode oas_whitened --iw-target-ridge 0.80 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "s2_tau080_p4",
+      "flags": "--em-shrinkage-mode oas_whitened --iw-target-ridge 0.80 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "s2_tau080_p5",
+      "flags": "--em-shrinkage-mode oas_whitened --iw-target-ridge 0.80 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "s2_tau080_p6",
+      "flags": "--em-shrinkage-mode oas_whitened --iw-target-ridge 0.80 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "s2_tau080_p7",
+      "flags": "--em-shrinkage-mode oas_whitened --iw-target-ridge 0.80 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "s2_tau080_p8",
+      "flags": "--em-shrinkage-mode oas_whitened --iw-target-ridge 0.80 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    },
+    {
+      "name": "s2_oas_p0",
+      "flags": "--em-shrinkage-mode oas --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "s2_oas_p1",
+      "flags": "--em-shrinkage-mode oas --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "s2_oas_p2",
+      "flags": "--em-shrinkage-mode oas --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "s2_oas_p3",
+      "flags": "--em-shrinkage-mode oas --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "s2_oas_p4",
+      "flags": "--em-shrinkage-mode oas --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "s2_oas_p5",
+      "flags": "--em-shrinkage-mode oas --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "s2_oas_p6",
+      "flags": "--em-shrinkage-mode oas --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "s2_oas_p7",
+      "flags": "--em-shrinkage-mode oas --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "s2_oas_p8",
+      "flags": "--em-shrinkage-mode oas --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    }
+  ],
+  "note": "Everything under results/raw/v2/ was produced by the post-2026-08-17 binary. The S27.15 RNG-order change makes it incomparable with any result outside v2/. Do not mix them.",
+  "history": []
+}
