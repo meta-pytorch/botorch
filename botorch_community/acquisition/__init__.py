@@ -11,6 +11,13 @@ from botorch_community.acquisition.bayesian_active_learning import (
     qHyperparameterInformedPredictiveExploration,
     qStatisticalDistanceActiveLearning,
 )
+from botorch_community.acquisition.gitbo import (
+    compute_active_subspace,
+    gitbo_step,
+    GITBOStepResult,
+    quantile_ucb,
+    sample_subspace_candidates,
+)
 
 # NOTE: This import is needed to register the input constructors.
 from botorch_community.acquisition.input_constructors import (  # noqa F401
@@ -24,6 +31,9 @@ from botorch_community.acquisition.rei import (
 from botorch_community.acquisition.scorebo import qSelfCorrectingBayesianOptimization
 
 __all__ = [
+    "compute_active_subspace",
+    "gitbo_step",
+    "GITBOStepResult",
     "LocalEntropySearch",
     "LogRegionalExpectedImprovement",
     "qAlphaEntropySearch",
@@ -34,4 +44,6 @@ __all__ = [
     "qLogRegionalExpectedImprovement",
     "qSelfCorrectingBayesianOptimization",
     "qStatisticalDistanceActiveLearning",
+    "quantile_ucb",
+    "sample_subspace_candidates",
 ]
