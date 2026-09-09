@@ -835,3 +835,277 @@ def em_prior_to_basis_curves(
     # Curves: mu + deviation, shaped (num_curves, n, 1) for single-output Y_full.
     Y_full = (mu.unsqueeze(-1) + deviations).transpose(-1, -2).unsqueeze(-1)
     return Y_full
+
+
+#: Default (empty) batch shape for :class:`BatchedLinear`. Bound at module level
+#: because a call expression in an argument default is evaluated once at
+#: definition time; ``torch.Size`` is an immutable tuple subclass, so sharing one
+#: instance is safe and this is purely to satisfy flake8-bugbear B008.
+_EMPTY_BATCH_SHAPE: torch.Size = torch.Size()
+
+
+class BatchedLinear(Module):
+    """Linear layer with batch_shape support.
+
+    ``nn.Linear`` uses ``F.linear`` which calls ``weight.t()`` -- this only works
+    for 2D weight tensors. We use ``weight.transpose(-2, -1)`` instead, which
+    supports arbitrary leading batch dimensions while remaining equivalent for 2D.
+
+    This enables batching over multiple "particles" or MCMC samples of model
+    parameters, following the same ``batch_shape`` convention used by GPyTorch
+    kernels (e.g., ``MaternKernel(batch_shape=[K])``) and likelihoods.
+
+    Args:
+        in_features: Size of each input sample.
+        out_features: Size of each output sample.
+        batch_shape: Leading batch dimensions for the weight and bias. When empty
+            (default), this is equivalent to ``nn.Linear``.
+        bias: If False, the layer will not learn an additive bias.
+    """
+
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        batch_shape: torch.Size = _EMPTY_BATCH_SHAPE,
+        bias: bool = True,
+    ) -> None:
+        super().__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.weight = Parameter(torch.empty(*batch_shape, out_features, in_features))
+        if bias:
+            self.bias: Parameter | None = Parameter(
+                torch.empty(*batch_shape, out_features)
+            )
+        else:
+            self.bias = None
+        self.reset_parameters()
+
+    def reset_parameters(self) -> None:
+        """Initialize parameters using Kaiming uniform, matching nn.Linear."""
+        torch.nn.init.kaiming_uniform_(self.weight, a=5**0.5)
+        if self.bias is not None:
+            fan_in = self.weight.shape[-1]
+            bound = 1 / fan_in**0.5 if fan_in > 0 else 0
+            torch.nn.init.uniform_(self.bias, -bound, bound)
+
+    def forward(self, x: Tensor) -> Tensor:
+        """Apply batched linear transformation.
+
+        Args:
+            x: ``*batch_shape x ... x in_features`` tensor of inputs.
+
+        Returns:
+            ``*batch_shape x ... x out_features`` tensor of outputs.
+        """
+        out = x @ self.weight.transpose(-2, -1)
+        if self.bias is not None:
+            out = out + self.bias.unsqueeze(-2)
+        return out
+++ fbcode/pytorch/botorch/botorch/models/empirical_gps/utils.py
+
+
+def build_sliding_window_curves(
+    series: Tensor,
+    window_size: int,
+    stride: int = 1,
+) -> Tensor:
+    """Slice a single long series into overlapping sliding-window curves.
+
+    Empirical GPs need a corpus of related historical curves, but many time
+    series arrive as one long realization (a price series, a sensor trace). The
+    standard construction is to treat each fixed-length window of that series as
+    a separate sample path, which is what this returns -- shaped ready to pass
+    as ``historical_Y``.
+
+    Args:
+        series: A ``(T,)`` or ``(T, m)``-dim Tensor holding one long series with
+            ``m`` outputs (``m = 1`` if 1-dimensional).
+        window_size: The length of each window, i.e. the number of progression
+            points of the resulting curves.
+        stride: The step between consecutive window starts. ``1`` (default)
+            yields maximally overlapping windows.
+
+    Returns:
+        A ``(num_windows, window_size, m)``-dim Tensor of historical curves,
+        where ``num_windows = (T - window_size) // stride + 1``.
+
+    Raises:
+        ValueError: If ``series`` is not 1- or 2-dimensional, if ``window_size``
+            or ``stride`` is not positive, or if ``window_size`` exceeds ``T``.
+
+    Example:
+        >>> curves = build_sliding_window_curves(prices, window_size=252)
+        >>> model = EmpiricalOneDimensionalGP(
+        ...     train_X=train_X,
+        ...     train_Y=train_Y,
+        ...     historical_X=grid,
+        ...     historical_Y=curves,
+        ... )
+    """
+    if series.dim() not in (1, 2):
+        raise ValueError(
+            f"Expected series of shape (T,) or (T, m); got {tuple(series.shape)}."
+        )
+    if window_size <= 0 or stride <= 0:
+        raise ValueError(
+            f"window_size and stride must be positive; got {window_size} and {stride}."
+        )
+    num_points = series.shape[0]
+    if window_size > num_points:
+        raise ValueError(
+            f"window_size ({window_size}) exceeds the series length ({num_points})."
+        )
+
+    # (T,) -> (T, 1) so the single- and multi-output paths are identical.
+    values = series.unsqueeze(-1) if series.dim() == 1 else series
+    # unfold gives (num_windows, m, window_size); swap to put progression before
+    # the output dimension, matching the historical_Y convention.
+    windows = values.unfold(0, window_size, stride).transpose(-1, -2)
+    # unfold returns a strided view; materialize it so downstream reshapes and
+    # in-place ops behave predictably.
+    return windows.contiguous()
+
+
+def filter_diverged_curves(
+    Y: Tensor,
+    max_abs_value: float | None = 1e3,
+) -> tuple[Tensor, Tensor]:
+    """Drop historical curves containing non-finite or blown-up values.
+
+    Learning-curve benchmarks record real training runs, and some of those runs
+    diverge: LCBench's ``Train/loss`` reaches ``1e13`` and ``inf`` on 5 of its 35
+    datasets. A single such curve destroys any statistic computed over the
+    corpus -- a per-output standardization divides by a standard deviation of
+    ``1e11``, collapsing every other curve to zero -- so these curves must be
+    removed *before* splitting or standardizing, not detected afterwards by
+    noticing that the resulting errors are absurd.
+
+    Filtering here rather than on the model's output matters for correctness as
+    well as robustness: dropping data based on an outcome (an error that came
+    out large) is a selection rule correlated with model performance, and can
+    bias a comparison between models. This filter depends only on the inputs.
+
+    Args:
+        Y: A ``num_curves x num_progression`` or
+            ``num_curves x num_progression x m``-dim Tensor of curves.
+        max_abs_value: Curves containing an absolute value above this are
+            dropped, in addition to any curve containing a NaN or an infinity.
+            ``None`` drops only non-finite curves. The default of ``1e3`` suits
+            losses and accuracies on their natural scales; pass an explicit
+            bound when the metric's legitimate range is larger, since a value
+            that is normal for one metric may be divergence for another.
+
+    Returns:
+        A tuple ``(Y_kept, keep_mask)`` where ``keep_mask`` is a
+        ``num_curves``-dim bool Tensor. The mask is returned so the same curves
+        can be dropped from parallel arrays -- the matching parameters, a second
+        metric, or a task index.
+
+    Raises:
+        ValueError: If ``Y`` is not 2- or 3-dimensional, or if every curve would
+            be dropped.
+
+    Example:
+        >>> metrics, keep = filter_diverged_curves(metrics)
+        >>> parameters = parameters[keep]
+    """
+    if Y.dim() not in (2, 3):
+        raise ValueError(
+            "Expected Y of shape (num_curves, num_progression) or "
+            f"(num_curves, num_progression, m); got {tuple(Y.shape)}."
+        )
+    flat = Y.reshape(Y.shape[0], -1)
+    keep = torch.isfinite(flat).all(dim=-1)
+    if max_abs_value is not None:
+        # nan_to_num so the comparison does not re-flag the non-finite entries
+        # that `keep` already covers, which would be redundant but also emit
+        # comparison warnings for NaN on some backends.
+        bounded = flat.nan_to_num(nan=0.0, posinf=0.0, neginf=0.0).abs()
+        keep = keep & (bounded <= max_abs_value).all(dim=-1)
+    if not bool(keep.any()):
+        raise ValueError(
+            f"All {Y.shape[0]} curves were dropped as diverged "
+            f"(max_abs_value={max_abs_value}); the threshold is likely wrong "
+            "for this metric's scale."
+        )
+    return Y[keep], keep
+
+
+def kronecker_factored_covariance(
+    Y: Tensor,
+    num_iters: int = 5,
+    ridge: float = 1e-8,
+) -> tuple[Tensor, Tensor]:
+    r"""Estimate a separable covariance ``Sigma ~= Sigma_progression (x) Sigma_output``.
+
+    The unconstrained empirical covariance of ``(num_curves, n, m)`` curves is the
+    sample covariance over the flattened ``n * m`` index set, so it has
+    ``(n*m)(n*m+1)/2`` free parameters but rank at most ``num_curves``. With few
+    historical curves most directions therefore carry *zero* prior variance and
+    the model is grossly over-confident in them.
+
+    Constraining the covariance to a Kronecker product collapses the parameter
+    count to ``n(n+1)/2 + m(m+1)/2`` -- for ``n=50, m=3`` that is 1281 rather than
+    11325 -- so far fewer curves are needed for a well-conditioned estimate. The
+    benefit *grows* with ``m``, which is exactly the regime where the
+    unconstrained estimate degrades fastest.
+
+    Uses the standard "flip-flop" algorithm for the matrix-normal MLE: hold one
+    factor fixed and solve for the other in closed form, alternate. Each half-step
+    is the MLE of its factor given the other, so the likelihood is non-decreasing;
+    a handful of iterations is typically enough.
+
+    The factorization is only identified up to scale (``(cA) (x) (B/c)`` is the
+    same product), so ``Sigma_output`` is normalized to unit trace and all
+    magnitude is carried by ``Sigma_progression``.
+
+    Args:
+        Y: `num_curves x n x m`-dim tensor of curves, already centered or not --
+            the mean is removed internally.
+        num_iters: Number of flip-flop sweeps.
+        ridge: Small value added to each factor's diagonal to keep the solves
+            well-posed when a factor is itself rank-deficient.
+
+    Returns:
+        A two-tuple ``(Sigma_progression, Sigma_output)`` of shapes `n x n` and
+        `m x m`, whose Kronecker product approximates the full covariance under
+        the interleaved index convention ``flat = i * m + t``.
+
+    Raises:
+        ValueError: If ``Y`` is not 3-dimensional or has fewer than two curves.
+    """
+    if Y.ndim != 3:
+        raise ValueError(f"Y must be (num_curves, n, m); got shape {tuple(Y.shape)}.")
+    num_curves, n, m = Y.shape
+    if num_curves < 2:
+        raise ValueError(f"Need at least 2 curves; got {num_curves}.")
+
+    centered = Y - Y.mean(dim=0, keepdim=True)
+    eye_n = torch.eye(n, dtype=Y.dtype, device=Y.device)
+    eye_m = torch.eye(m, dtype=Y.dtype, device=Y.device)
+    sigma_output = eye_m.clone()
+
+    sigma_progression = eye_n.clone()
+    for _ in range(num_iters):
+        # Sigma_progression = E[ C Sigma_output^-1 C^T ] / m
+        inv_output = torch.linalg.inv(sigma_output + ridge * eye_m)
+        sigma_progression = torch.einsum(
+            "kim,mn,kjn->ij", centered, inv_output, centered
+        ) / (num_curves * m)
+        sigma_progression = 0.5 * (sigma_progression + sigma_progression.T)
+
+        # Sigma_output = E[ C^T Sigma_progression^-1 C ] / n
+        inv_progression = torch.linalg.inv(sigma_progression + ridge * eye_n)
+        sigma_output = torch.einsum(
+            "kia,ij,kjb->ab", centered, inv_progression, centered
+        ) / (num_curves * n)
+        sigma_output = 0.5 * (sigma_output + sigma_output.T)
+
+        # Fix the scale ambiguity so the iteration cannot drift.
+        trace = sigma_output.diagonal().sum()
+        sigma_output = sigma_output * (m / trace)
+        sigma_progression = sigma_progression * (trace / m)
+
+    return sigma_progression, sigma_output

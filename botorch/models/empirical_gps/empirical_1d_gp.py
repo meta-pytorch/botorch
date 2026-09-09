@@ -21,6 +21,7 @@ References
 
 from __future__ import annotations
 
+import torch
 from botorch.models import SingleTaskGP
 from botorch.models.empirical_gps.utils import (
     build_basis_interpolant,
@@ -34,6 +35,7 @@ from botorch.models.empirical_gps.utils import (
 )
 from botorch.models.transforms.input import InputTransform
 from botorch.models.transforms.outcome import OutcomeTransform
+from gpytorch.constraints import Interval, Positive
 from gpytorch.kernels import Kernel
 from gpytorch.likelihoods.likelihood import Likelihood
 from gpytorch.means import Mean
@@ -88,6 +90,116 @@ class BaseAugmentedEmpiricalKernel(Kernel):
         if hasattr(k_base, "to_dense"):
             k_base = k_base.to_dense()
         return k_emp + k_base
+
+
+class PerOutputBaseKernel(Kernel):
+    r"""A base kernel applied *independently per output*: ``K_base(x1, x2) * I_m``.
+
+    Intended as the ``base_covar_module`` of
+    :class:`~botorch.models.empirical_gps.multioutput_empirical_1d_gp.MultiOutputEmpiricalOneDimensionalGP`.
+
+    That model expands its inputs to ``(n * m, 1)`` -- progression values only, with
+    no output/index column -- so a plain base kernel evaluated on them adds the
+    *same* covariance to every pair of outputs, i.e. ``K_base ⊗ J_m``, a fully
+    cross-correlated component. This kernel supplies the complement, ``K_base ⊗ I_m``:
+    block-diagonal in output space, adding within-output structure only.
+
+    The distinction matters because the two do opposite things to the empirical
+    prior. The empirical cross-output covariance is estimated over an ``(n * m)``-dim
+    index set and is badly rank-limited when historical curves are scarce, which
+    makes the joint posterior over-confident. A ``J_m``-shaped additive term
+    *reinforces* cross-output coupling; an ``I_m``-shaped one gives each output its
+    own slack so it need not borrow a poorly-estimated correlation to explain its
+    own residual. It is therefore complementary to a cross-output shrinkage weight
+    rather than a substitute for it -- shrinkage removes bad correlation, this adds
+    good independent structure.
+
+    Assumes the interleaved index convention shared by the multi-output model:
+    flat index ``i * m + t`` for progression point ``i`` and output ``t``.
+
+    Example:
+        >>> base = ScaleKernel(MaternKernel(nu=2.5))
+        >>> model = MultiOutputEmpiricalOneDimensionalGP(
+        ...     train_X=X, train_Y=Y,
+        ...     historical_X=grid, historical_Y=curves,
+        ...     base_covar_module=PerOutputBaseKernel(base, num_outputs=Y.shape[-1]),
+        ... )
+    """
+
+    def __init__(
+        self,
+        base_kernel: Kernel,
+        num_outputs: int,
+        per_output_outputscale: bool = False,
+        outputscale_constraint: Interval | None = None,
+    ) -> None:
+        """
+        Args:
+            base_kernel: The kernel evaluated on the progression inputs. Wrap it in
+                a ``ScaleKernel`` if its magnitude should be learnable, or set
+                ``per_output_outputscale`` to give each output its own.
+            num_outputs: ``m``, the number of outputs the model interleaves.
+            per_output_outputscale: If ``True``, learn a separate outputscale per
+                output, scaling block ``t`` by ``outputscale[t]``. Pass an
+                *unscaled* ``base_kernel`` in that case: a ``ScaleKernel`` on top
+                contributes a global factor that is not identifiable against these
+                ``m``, which tends to make the fit wander.
+            outputscale_constraint: Constraint on the per-output outputscales.
+                Defaults to ``Positive()``. Ignored unless
+                ``per_output_outputscale`` is set.
+
+        Raises:
+            ValueError: If ``num_outputs`` is not positive.
+        """
+        if num_outputs < 1:
+            raise ValueError(f"num_outputs must be >= 1; got {num_outputs}.")
+        super().__init__()
+        self.base_kernel = base_kernel
+        self.num_outputs = num_outputs
+        if per_output_outputscale:
+            self.register_parameter(
+                name="raw_outputscale",
+                parameter=torch.nn.Parameter(torch.zeros(num_outputs)),
+            )
+            self.register_constraint(
+                "raw_outputscale", outputscale_constraint or Positive()
+            )
+
+    @property
+    def outputscale(self) -> Tensor:
+        """The per-output outputscales, shape ``(m,)``."""
+        return self.raw_outputscale_constraint.transform(self.raw_outputscale)
+
+    @outputscale.setter
+    def outputscale(self, value: Tensor | float) -> None:
+        if not torch.is_tensor(value):
+            value = torch.as_tensor(value)
+        value = value.to(self.raw_outputscale).expand_as(self.raw_outputscale)
+        self.initialize(
+            raw_outputscale=self.raw_outputscale_constraint.inverse_transform(value)
+        )
+
+    def forward(self, x1: Tensor, x2: Tensor, diag: bool = False, **params) -> Tensor:
+        k_base = self.base_kernel(x1, x2, diag=diag, **params)
+        if hasattr(k_base, "to_dense"):
+            k_base = k_base.to_dense()
+        m = self.num_outputs
+        scaled = hasattr(self, "raw_outputscale")
+        outputs_1 = torch.arange(x1.shape[-2], device=k_base.device) % m
+        if diag:
+            # The diagonal only ever pairs an index with itself, so every entry is
+            # already same-output and the mask is the identity.
+            if not scaled:
+                return k_base
+            return k_base * self.outputscale.to(k_base)[outputs_1]
+        outputs_2 = torch.arange(x2.shape[-2], device=k_base.device) % m
+        same_output = outputs_1.unsqueeze(-1) == outputs_2.unsqueeze(-2)
+        k_base = k_base * same_output.to(k_base.dtype)
+        if not scaled:
+            return k_base
+        # Surviving entries have outputs_1[i] == outputs_2[j], so indexing by the
+        # row output picks the right scale; masked entries are already zero.
+        return k_base * self.outputscale.to(k_base)[outputs_1].unsqueeze(-1)
 
 
 # =============================================================================
