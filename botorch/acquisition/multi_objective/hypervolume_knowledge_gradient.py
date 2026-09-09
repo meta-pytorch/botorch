@@ -42,7 +42,7 @@ from botorch.models.deterministic import PosteriorMeanModel
 from botorch.models.model import Model
 from botorch.sampling.base import MCSampler
 from botorch.sampling.list_sampler import ListSampler
-from botorch.sampling.normal import SobolQMCNormalSampler
+from botorch.sampling.normal import IIDNormalSampler, SobolQMCNormalSampler
 from botorch.sampling.stochastic_samplers import StochasticSampler
 from botorch.utils.multi_objective.box_decompositions.non_dominated import (
     FastNondominatedPartitioning,
@@ -83,7 +83,7 @@ class qHypervolumeKnowledgeGradient(
         ref_point: Tensor,
         num_fantasies: int = 8,
         num_pareto: int = 10,
-        sampler: ListSampler | None = None,
+        sampler: MCSampler | None = None,
         objective: MCMultiOutputObjective | None = None,
         inner_sampler: MCSampler | None = None,
         X_evaluation_mask: list[Tensor] | None = None,
@@ -109,7 +109,8 @@ class qHypervolumeKnowledgeGradient(
                 As the number of fantasies increases, the estimation of the
                 expectation over fantasies becomes more accurate, but the one-
                 shot optimization problem gets harder as there are more "fantasy"
-                designs that need to be optimized.
+                designs that need to be optimized. If an evaluation mask is used,
+                this must be a ``ListSampler``.
             objective: The objective under which the samples are evaluated. If
                 ``None``, then the analytic posterior mean is used. Otherwise, the
                 objective is MC-evaluated (using inner_sampler).
@@ -142,13 +143,12 @@ class qHypervolumeKnowledgeGradient(
         if sampler is None:
             # base samples should be fixed for joint optimization over X, X_fantasies
             samplers = [
-                SobolQMCNormalSampler(sample_shape=torch.Size([num_fantasies]))
+                IIDNormalSampler(sample_shape=torch.Size([num_fantasies]))
                 for _ in range(model.num_outputs)
             ]
             sampler = ListSampler(*samplers)
         else:
-            sample_shape = sampler.samplers[0].sample_shape
-            if sample_shape != torch.Size([num_fantasies]):
+            if sampler.sample_shape != torch.Size([num_fantasies]):
                 raise ValueError(
                     f"The sampler shape must match num_fantasies={num_fantasies}."
                 )
