@@ -2,6 +2,16 @@
 
 The release log for BoTorch.
 
+## [Unreleased]
+
+#### Changes to botorch_community & community notebooks
+* Add Context-Aware Kernel Evolution (CAKE) from NeurIPS 2025
+  ([paper](https://proceedings.neurips.cc/paper_files/paper/2025/file/c03a2610bca2712b984b331fd4f7bb6f-Paper-Conference.pdf)):
+  LLM-guided compositional GP kernel search with BAKER query selection, plus a
+  community notebook that runs the full CAKE+BAKER loop against a misspecified
+  squared-exponential GP + LogEI baseline.
+
+
 ## [0.18.1] -- Jun 8, 2026
 
 * Make JAX/jaxlib/NumPyro optional dependencies, only required for fitting
