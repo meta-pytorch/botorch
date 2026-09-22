@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 from collections.abc import Callable
+from types import SimpleNamespace
 from unittest import mock
 
 import torch
@@ -26,6 +27,7 @@ from botorch.models.gp_regression_fidelity import SingleTaskMultiFidelityGP
 from botorch.models.model_list_gp_regression import ModelListGP
 from botorch.sampling.normal import SobolQMCNormalSampler
 from botorch.utils.testing import BotorchTestCase
+from torch import Tensor
 
 
 class TestMaxValueEntropySearch(BotorchTestCase):
@@ -165,6 +167,115 @@ class TestMaxValueEntropySearch(BotorchTestCase):
             )
             with self.assertRaisesRegex(UnsupportedError, "X_pending is not None"):
                 qGIBBON(X)
+
+    def test_q_lower_bound_max_value_entropy_no_underflow(self):
+        # With max values far above the posterior mean, 1 - u rounds to 1 and the
+        # information gain used to be exactly 0. It is small but positive.
+        for dtype in (torch.float, torch.double):
+            torch.manual_seed(7)
+            model = SingleTaskGP(
+                train_X=torch.rand(10, 2, device=self.device, dtype=dtype),
+                train_Y=torch.rand(10, 1, device=self.device, dtype=dtype),
+            )
+            candidate_set = torch.rand(100, 2, device=self.device, dtype=dtype)
+            X = torch.rand(1, 1, 2, device=self.device, dtype=dtype)
+            with torch.no_grad():
+                posterior = model.posterior(X)
+            # 10 posterior standard deviations above the mean at X
+            max_values = (posterior.mean + 10 * posterior.variance.sqrt()).view(1, 1)
+            for acqf_class, X_pending in (
+                (qLowerBoundMaxValueEntropy, None),
+                (qLowerBoundMaxValueEntropy, candidate_set[:2]),
+                (qMultiFidelityLowerBoundMaxValueEntropy, None),
+            ):
+                acqf = acqf_class(
+                    model=model,
+                    candidate_set=candidate_set,
+                    num_mv_samples=5,
+                    X_pending=X_pending,
+                )
+                acqf.posterior_max_values = max_values.expand(5, 1)
+                X_grad = X.clone().requires_grad_(True)
+                acq = acqf(X_grad)
+                (grad,) = torch.autograd.grad(acq.sum(), X_grad)
+                self.assertTrue(torch.isfinite(acq).all())
+                self.assertTrue(torch.isfinite(grad).all())
+                if X_pending is None:
+                    self.assertTrue((acq > 0).all())
+                    self.assertTrue((grad != 0).any())
+
+    def test_q_lower_bound_max_value_entropy_information_gain_values(self):
+        def information_gain(gamma: Tensor, covar: Tensor) -> Tensor:
+            # Unit variances, so that rho^2 = covar^2 and gamma = m* - mean.
+            n = gamma.shape[0]
+            variance = torch.ones(n, 1, 1, device=self.device, dtype=gamma.dtype)
+            stand_in = SimpleNamespace(
+                model=mock.Mock(
+                    posterior=mock.Mock(return_value=SimpleNamespace(variance=variance))
+                ),
+                posterior_max_values=torch.zeros_like(gamma[:1]).view(1, 1),
+                posterior_transform=None,
+                X_pending=None,
+            )
+            return qLowerBoundMaxValueEntropy._compute_information_gain(
+                stand_in,
+                X=torch.zeros_like(variance),
+                mean_M=-gamma.view(n, 1),
+                variance_M=variance.view(n, 1),
+                covar_mM=covar.view(n, 1, 1),
+            ).view(n)
+
+        # -0.5 * log(1 - rho^2 * r * (gamma + r)) with r = phi(gamma) / Phi(gamma),
+        # computed with mpmath at 60 digits of precision.
+        gammas = [0.5, 2.0, 5.0, 8.0, 12.0]
+        references = {
+            1.0: [
+                3.605928707099e-01,
+                6.026417937969e-02,
+                3.716814772108e-06,
+                2.020908433415e-14,
+                1.287830241398e-31,
+            ],
+            0.1: [
+                2.637478576985e-02,
+                5.709881580377e-03,
+                3.716802338892e-07,
+                2.020908433415e-15,
+                1.287830241398e-32,
+            ],
+        }
+        for dtype, rtol in ((torch.float, 1e-4), (torch.double, 1e-10)):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            gamma = torch.tensor(gammas, **tkwargs)
+            for rho_squared, reference in references.items():
+                covar = torch.full_like(gamma, rho_squared**0.5)
+                self.assertAllClose(
+                    information_gain(gamma, covar),
+                    torch.tensor(reference, **tkwargs),
+                    rtol=rtol,
+                    atol=0.0,
+                )
+
+            # Finite, non-zero gradients where the gain used to be exactly 0, and
+            # finite gradients at zero correlation.
+            gamma = torch.tensor([12.0, 12.0, 1.0], **tkwargs).requires_grad_(True)
+            covar = torch.tensor([1.0, 0.0, 0.0], **tkwargs).requires_grad_(True)
+            ig = information_gain(gamma, covar)
+            self.assertEqual(ig[1:].tolist(), [0.0, 0.0])
+            grad_gamma, grad_covar = torch.autograd.grad(ig.sum(), (gamma, covar))
+            self.assertTrue(torch.isfinite(grad_gamma).all())
+            self.assertTrue(torch.isfinite(grad_covar).all())
+            self.assertLess(grad_gamma[0].item(), 0.0)
+
+        # Agrees with the direct expression where that is accurate.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        gamma = torch.linspace(0.0, 3.0, 31, **tkwargs)
+        normal = torch.distributions.Normal(0.0, 1.0)
+        ratio = normal.log_prob(gamma).exp() / normal.cdf(gamma)
+        for rho_squared in (1.0, 0.1):
+            direct = -0.5 * torch.log(1 - rho_squared * ratio * (gamma + ratio))
+            covar = torch.full_like(gamma, rho_squared**0.5)
+            self.assertAllClose(information_gain(gamma, covar), direct, rtol=1e-8)
 
     def test_fantasy_max_values(self):
         """Test that max values are computed correctly with fantasies."""
