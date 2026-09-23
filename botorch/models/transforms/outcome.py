@@ -741,8 +741,9 @@ class Log(OutcomeTransform):
 
     When observation noise is provided, the variance is transformed using the
     delta method approximation: Var[log(Y)] ≈ Var[Y] / Y^2. This assumes that
-    the observation noise is Gaussian in the log-transformed space, which
-    corresponds to log-normal observation noise in the original space.
+    the observation noise will be Gaussian in the log-transformed space, which
+    corresponds to log-normal observation noise in the original space (input as
+    user-provided Yvar).
     """
 
     def __init__(self, outputs: list[int] | None = None) -> None:
