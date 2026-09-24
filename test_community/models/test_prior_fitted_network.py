@@ -342,8 +342,13 @@ class TestPriorFittedNetworkUtils(BotorchTestCase):
             # $RUNNER_TEMP is set by GitHub Actions as tmp, /tmp does not work there
         )
 
-        # Assertions for cache miss
-        mock_requests_get.assert_called_once()
+        # Assertions for cache miss. requests.get is called twice: once for
+        # the model weights and once to save a copy of the model license.
+        self.assertEqual(mock_requests_get.call_count, 2)
+        self.assertEqual(
+            mock_requests_get.call_args_list[0].args[0],
+            ModelPaths.pfns4bo_hebo.value,
+        )
         mock_gzip.assert_called_once()
         mock_torch_load.assert_called_once()
         mock_torch_save.assert_called_once()
