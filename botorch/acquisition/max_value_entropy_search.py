@@ -45,6 +45,7 @@ from botorch.models.cost import AffineFidelityCostModel
 from botorch.models.model import Model
 from botorch.models.utils import check_no_nans
 from botorch.sampling.normal import SobolQMCNormalSampler
+from botorch.utils.probability.utils import standard_normal_log_hazard
 from botorch.utils.transforms import (
     average_over_ensemble_models,
     match_batch_shape,
@@ -543,31 +544,31 @@ class qLowerBoundMaxValueEntropy(MaxValueBase):
         stdv = variance_M.sqrt()
         # batch_shape x 1
 
-        # define normal distribution to compute cdf and pdf
-        normal = torch.distributions.Normal(
-            torch.zeros(1, device=X.device, dtype=X.dtype),
-            torch.ones(1, device=X.device, dtype=X.dtype),
-        )
-
         # prepare max value quantities required by GIBBON
         mvs = torch.transpose(self.posterior_max_values, 0, 1)
         # 1 x s_M
         normalized_mvs = (mvs - mean_M) / stdv
         # batch_shape x s_M
 
-        cdf_mvs = normal.cdf(normalized_mvs).clamp_min(CLAMP_LB)
-        pdf_mvs = torch.exp(normal.log_prob(normalized_mvs))
-        ratio = pdf_mvs / cdf_mvs
-        check_no_nans(ratio)
+        # log of the ratio pdf / cdf, i.e. the standard normal log-hazard at -gamma
+        log_ratio = standard_normal_log_hazard(-normalized_mvs)
+        check_no_nans(log_ratio)
 
         # prepare squared correlation between current and target fidelity
         rhos_squared = torch.pow(covar_mM.squeeze(-1), 2) / (variance_m * variance_M)
         # batch_shape x 1
         check_no_nans(rhos_squared)
 
-        # calculate quality contribution to the GIBBON acquisition function
-        inner_term = 1 - rhos_squared * ratio * (normalized_mvs + ratio)
-        acq = -0.5 * inner_term.clamp_min(CLAMP_LB).log()
+        # calculate quality contribution to the GIBBON acquisition function,
+        # -0.5 * log(1 - u) with u = rho^2 * ratio * (gamma + ratio). u is assembled
+        # in log space and passed to log1p, since 1 - u rounds to 1 for large gamma.
+        # gamma + ratio > 0 and u < 1 hold mathematically, the clamps guard rounding.
+        finfo = torch.finfo(X.dtype)
+        log_gamma_plus_ratio = (
+            (normalized_mvs + log_ratio.exp()).clamp_min(finfo.tiny).log()
+        )
+        u = rhos_squared * (log_ratio + log_gamma_plus_ratio).exp()
+        acq = -0.5 * torch.log1p(-u.clamp_max(1 - finfo.eps / 2))
         # average over posterior max samples
         acq = acq.mean(dim=1).unsqueeze(0)
 
