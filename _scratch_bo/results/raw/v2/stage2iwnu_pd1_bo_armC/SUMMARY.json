@@ -1,0 +1,2096 @@
+{
+  "stage": "stage2iwnu_pd1_bo_armC",
+  "commit": "6f583e3e1590ee2c0c3a5d8e8744785c380fc6a8",
+  "regime": "pd1_bo_armC",
+  "cells_expected": 45,
+  "cells_present": 45,
+  "cells": {
+    "iwnu_ledoit_p0": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 41.30434782608695,
+          "budget_to_0.001": 49.21739130434783,
+          "final_regret_mean": 0.03520213419811778,
+          "solve_rate_0.01": 0.391304347826087
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 38.69565217391305,
+          "budget_to_0.001": 45.56521739130435,
+          "final_regret_mean": 0.031320951942790186,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 37.21739130434783,
+          "budget_to_0.001": 42.52173913043478,
+          "final_regret_mean": 0.031393885267472325,
+          "solve_rate_0.01": 0.391304347826087
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 39.47826086956522,
+          "budget_to_0.001": 47.30434782608695,
+          "final_regret_mean": 0.03771963321080352,
+          "solve_rate_0.01": 0.391304347826087
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_ledoit_p1": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 41.69565217391305,
+          "budget_to_0.001": 49.08695652173913,
+          "final_regret_mean": 0.02927364741115023,
+          "solve_rate_0.01": 0.4782608695652174
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 38.608695652173914,
+          "budget_to_0.001": 45.73913043478261,
+          "final_regret_mean": 0.03442773417213433,
+          "solve_rate_0.01": 0.391304347826087
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 38.56521739130435,
+          "budget_to_0.001": 44.608695652173914,
+          "final_regret_mean": 0.030031335063358252,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 36.34782608695652,
+          "budget_to_0.001": 44.26086956521739,
+          "final_regret_mean": 0.03293962784560067,
+          "solve_rate_0.01": 0.391304347826087
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_ledoit_p2": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 41.130434782608695,
+          "budget_to_0.001": 48.608695652173914,
+          "final_regret_mean": 0.029350212320743477,
+          "solve_rate_0.01": 0.391304347826087
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 38.52173913043478,
+          "budget_to_0.001": 45.608695652173914,
+          "final_regret_mean": 0.03277573968854081,
+          "solve_rate_0.01": 0.30434782608695654
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 37.56521739130435,
+          "budget_to_0.001": 43.26086956521739,
+          "final_regret_mean": 0.0279177969903619,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 37.78260869565217,
+          "budget_to_0.001": 44.21739130434783,
+          "final_regret_mean": 0.030458464806116938,
+          "solve_rate_0.01": 0.391304347826087
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_ledoit_p3": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 39.869565217391305,
+          "budget_to_0.001": 49.608695652173914,
+          "final_regret_mean": 0.04373143791053518,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 39.391304347826086,
+          "budget_to_0.001": 44.30434782608695,
+          "final_regret_mean": 0.034026666056853755,
+          "solve_rate_0.01": 0.30434782608695654
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 37.78260869565217,
+          "budget_to_0.001": 42.56521739130435,
+          "final_regret_mean": 0.03966511108727117,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 33.73913043478261,
+          "budget_to_0.001": 43.130434782608695,
+          "final_regret_mean": 0.0350130155053689,
+          "solve_rate_0.01": 0.4782608695652174
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_ledoit_p4": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 42.95652173913044,
+          "budget_to_0.001": 47.78260869565217,
+          "final_regret_mean": 0.04439649114526163,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 38.869565217391305,
+          "budget_to_0.001": 43.65217391304348,
+          "final_regret_mean": 0.030436390090771755,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 37.21739130434783,
+          "budget_to_0.001": 42.869565217391305,
+          "final_regret_mean": 0.025676663083594557,
+          "solve_rate_0.01": 0.43478260869565216
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 39.95652173913044,
+          "budget_to_0.001": 45.869565217391305,
+          "final_regret_mean": 0.027385045255321087,
+          "solve_rate_0.01": 0.391304347826087
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_ledoit_p5": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 43.04347826086956,
+          "budget_to_0.001": 49.47826086956522,
+          "final_regret_mean": 0.032686729037163416,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 40.69565217391305,
+          "budget_to_0.001": 45.04347826086956,
+          "final_regret_mean": 0.03330239494933291,
+          "solve_rate_0.01": 0.2608695652173913
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 39.21739130434783,
+          "budget_to_0.001": 44.73913043478261,
+          "final_regret_mean": 0.04314765526487524,
+          "solve_rate_0.01": 0.30434782608695654
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 38.869565217391305,
+          "budget_to_0.001": 47.47826086956522,
+          "final_regret_mean": 0.039838547456468,
+          "solve_rate_0.01": 0.30434782608695654
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_ledoit_p6": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 38.47826086956522,
+          "budget_to_0.001": 47.869565217391305,
+          "final_regret_mean": 0.037942980513033873,
+          "solve_rate_0.01": 0.4782608695652174
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 36.30434782608695,
+          "budget_to_0.001": 46.21739130434783,
+          "final_regret_mean": 0.022544243278085453,
+          "solve_rate_0.01": 0.4782608695652174
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 40.52173913043478,
+          "budget_to_0.001": 45.34782608695652,
+          "final_regret_mean": 0.030784442991420552,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 36.04347826086956,
+          "budget_to_0.001": 45.34782608695652,
+          "final_regret_mean": 0.03799630153621322,
+          "solve_rate_0.01": 0.43478260869565216
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_ledoit_p7": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 42.04347826086956,
+          "budget_to_0.001": 47.69565217391305,
+          "final_regret_mean": 0.03233538146141895,
+          "solve_rate_0.01": 0.43478260869565216
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 36.73913043478261,
+          "budget_to_0.001": 43.47826086956522,
+          "final_regret_mean": 0.027587938289626544,
+          "solve_rate_0.01": 0.43478260869565216
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 36.56521739130435,
+          "budget_to_0.001": 42.78260869565217,
+          "final_regret_mean": 0.03925293706689599,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 37.69565217391305,
+          "budget_to_0.001": 44.95652173913044,
+          "final_regret_mean": 0.03913835518936115,
+          "solve_rate_0.01": 0.34782608695652173
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_ledoit_p8": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 40.608695652173914,
+          "budget_to_0.001": 46.608695652173914,
+          "final_regret_mean": 0.030618886288608947,
+          "solve_rate_0.01": 0.391304347826087
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 40.608695652173914,
+          "budget_to_0.001": 45.391304347826086,
+          "final_regret_mean": 0.029921321243859,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 38.56521739130435,
+          "budget_to_0.001": 43.56521739130435,
+          "final_regret_mean": 0.03240156923449998,
+          "solve_rate_0.01": 0.30434782608695654
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 37.30434782608695,
+          "budget_to_0.001": 44.65217391304348,
+          "final_regret_mean": 0.035462264481429584,
+          "solve_rate_0.01": 0.391304347826087
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_manual_p0": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 41.30434782608695,
+          "budget_to_0.001": 49.21739130434783,
+          "final_regret_mean": 0.03520213419811778,
+          "solve_rate_0.01": 0.391304347826087
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 38.69565217391305,
+          "budget_to_0.001": 45.56521739130435,
+          "final_regret_mean": 0.031320951942790186,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 37.21739130434783,
+          "budget_to_0.001": 42.52173913043478,
+          "final_regret_mean": 0.031393885267472325,
+          "solve_rate_0.01": 0.391304347826087
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 39.47826086956522,
+          "budget_to_0.001": 47.30434782608695,
+          "final_regret_mean": 0.03771963321080352,
+          "solve_rate_0.01": 0.391304347826087
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_manual_p1": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 41.69565217391305,
+          "budget_to_0.001": 49.08695652173913,
+          "final_regret_mean": 0.02927364741115023,
+          "solve_rate_0.01": 0.4782608695652174
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 38.608695652173914,
+          "budget_to_0.001": 45.73913043478261,
+          "final_regret_mean": 0.03442773417213433,
+          "solve_rate_0.01": 0.391304347826087
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 38.56521739130435,
+          "budget_to_0.001": 44.608695652173914,
+          "final_regret_mean": 0.030031335063358252,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 36.34782608695652,
+          "budget_to_0.001": 44.26086956521739,
+          "final_regret_mean": 0.03293962784560067,
+          "solve_rate_0.01": 0.391304347826087
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_manual_p2": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 41.130434782608695,
+          "budget_to_0.001": 48.608695652173914,
+          "final_regret_mean": 0.029350212320743477,
+          "solve_rate_0.01": 0.391304347826087
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 38.08695652173913,
+          "budget_to_0.001": 45.608695652173914,
+          "final_regret_mean": 0.03210834703561775,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 37.56521739130435,
+          "budget_to_0.001": 43.26086956521739,
+          "final_regret_mean": 0.0279177969903619,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 37.78260869565217,
+          "budget_to_0.001": 44.21739130434783,
+          "final_regret_mean": 0.030458464806116938,
+          "solve_rate_0.01": 0.391304347826087
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_manual_p3": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 39.869565217391305,
+          "budget_to_0.001": 49.608695652173914,
+          "final_regret_mean": 0.04373143791053518,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 39.391304347826086,
+          "budget_to_0.001": 44.30434782608695,
+          "final_regret_mean": 0.034137438755790846,
+          "solve_rate_0.01": 0.30434782608695654
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 37.78260869565217,
+          "budget_to_0.001": 42.56521739130435,
+          "final_regret_mean": 0.03966511108727117,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 33.73913043478261,
+          "budget_to_0.001": 43.130434782608695,
+          "final_regret_mean": 0.0350130155053689,
+          "solve_rate_0.01": 0.4782608695652174
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_manual_p4": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 42.95652173913044,
+          "budget_to_0.001": 47.78260869565217,
+          "final_regret_mean": 0.04439649114526163,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 38.869565217391305,
+          "budget_to_0.001": 43.65217391304348,
+          "final_regret_mean": 0.030436390090771755,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 37.21739130434783,
+          "budget_to_0.001": 42.869565217391305,
+          "final_regret_mean": 0.025676663083594557,
+          "solve_rate_0.01": 0.43478260869565216
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 39.95652173913044,
+          "budget_to_0.001": 45.869565217391305,
+          "final_regret_mean": 0.027385045255321087,
+          "solve_rate_0.01": 0.391304347826087
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_manual_p5": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 43.04347826086956,
+          "budget_to_0.001": 49.47826086956522,
+          "final_regret_mean": 0.032686729037163416,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 40.69565217391305,
+          "budget_to_0.001": 45.04347826086956,
+          "final_regret_mean": 0.03330239494933291,
+          "solve_rate_0.01": 0.2608695652173913
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 39.21739130434783,
+          "budget_to_0.001": 44.73913043478261,
+          "final_regret_mean": 0.04314765526487524,
+          "solve_rate_0.01": 0.30434782608695654
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 38.869565217391305,
+          "budget_to_0.001": 47.47826086956522,
+          "final_regret_mean": 0.039838547456468,
+          "solve_rate_0.01": 0.30434782608695654
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_manual_p6": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 38.47826086956522,
+          "budget_to_0.001": 47.869565217391305,
+          "final_regret_mean": 0.037942980513033873,
+          "solve_rate_0.01": 0.4782608695652174
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 36.30434782608695,
+          "budget_to_0.001": 46.21739130434783,
+          "final_regret_mean": 0.022544243278085453,
+          "solve_rate_0.01": 0.4782608695652174
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 40.52173913043478,
+          "budget_to_0.001": 45.34782608695652,
+          "final_regret_mean": 0.030784442991420552,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 36.04347826086956,
+          "budget_to_0.001": 45.34782608695652,
+          "final_regret_mean": 0.03799630153621322,
+          "solve_rate_0.01": 0.43478260869565216
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_manual_p7": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 42.04347826086956,
+          "budget_to_0.001": 47.69565217391305,
+          "final_regret_mean": 0.03233538146141895,
+          "solve_rate_0.01": 0.43478260869565216
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 36.73913043478261,
+          "budget_to_0.001": 43.47826086956522,
+          "final_regret_mean": 0.027587938289626544,
+          "solve_rate_0.01": 0.43478260869565216
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 36.56521739130435,
+          "budget_to_0.001": 42.78260869565217,
+          "final_regret_mean": 0.03925293706689599,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 37.69565217391305,
+          "budget_to_0.001": 44.95652173913044,
+          "final_regret_mean": 0.03913835518936115,
+          "solve_rate_0.01": 0.34782608695652173
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_manual_p8": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 40.608695652173914,
+          "budget_to_0.001": 46.608695652173914,
+          "final_regret_mean": 0.030618886288608947,
+          "solve_rate_0.01": 0.391304347826087
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 40.608695652173914,
+          "budget_to_0.001": 45.391304347826086,
+          "final_regret_mean": 0.029921321243859,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 38.56521739130435,
+          "budget_to_0.001": 43.56521739130435,
+          "final_regret_mean": 0.03240156923449998,
+          "solve_rate_0.01": 0.30434782608695654
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 37.30434782608695,
+          "budget_to_0.001": 44.65217391304348,
+          "final_regret_mean": 0.035462264481429584,
+          "solve_rate_0.01": 0.391304347826087
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_oas_p0": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 41.30434782608695,
+          "budget_to_0.001": 49.21739130434783,
+          "final_regret_mean": 0.03520213419811778,
+          "solve_rate_0.01": 0.391304347826087
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 38.69565217391305,
+          "budget_to_0.001": 45.56521739130435,
+          "final_regret_mean": 0.031320951942790186,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 37.21739130434783,
+          "budget_to_0.001": 42.52173913043478,
+          "final_regret_mean": 0.031393885267472325,
+          "solve_rate_0.01": 0.391304347826087
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 39.47826086956522,
+          "budget_to_0.001": 47.30434782608695,
+          "final_regret_mean": 0.03771963321080352,
+          "solve_rate_0.01": 0.391304347826087
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_oas_p1": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 41.73913043478261,
+          "budget_to_0.001": 49.130434782608695,
+          "final_regret_mean": 0.02927364741115023,
+          "solve_rate_0.01": 0.4782608695652174
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 38.608695652173914,
+          "budget_to_0.001": 45.73913043478261,
+          "final_regret_mean": 0.03442773417213433,
+          "solve_rate_0.01": 0.391304347826087
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 38.56521739130435,
+          "budget_to_0.001": 44.608695652173914,
+          "final_regret_mean": 0.030031335063358252,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 36.34782608695652,
+          "budget_to_0.001": 44.26086956521739,
+          "final_regret_mean": 0.03293962784560067,
+          "solve_rate_0.01": 0.391304347826087
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_oas_p2": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 41.130434782608695,
+          "budget_to_0.001": 48.608695652173914,
+          "final_regret_mean": 0.029350212320743477,
+          "solve_rate_0.01": 0.391304347826087
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 38.52173913043478,
+          "budget_to_0.001": 45.608695652173914,
+          "final_regret_mean": 0.03277573968854081,
+          "solve_rate_0.01": 0.30434782608695654
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 37.56521739130435,
+          "budget_to_0.001": 43.26086956521739,
+          "final_regret_mean": 0.0279177969903619,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 37.78260869565217,
+          "budget_to_0.001": 44.21739130434783,
+          "final_regret_mean": 0.030458464806116938,
+          "solve_rate_0.01": 0.391304347826087
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_oas_p3": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 39.869565217391305,
+          "budget_to_0.001": 49.608695652173914,
+          "final_regret_mean": 0.04373143791053518,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 39.391304347826086,
+          "budget_to_0.001": 44.30434782608695,
+          "final_regret_mean": 0.034026666056853755,
+          "solve_rate_0.01": 0.30434782608695654
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 37.78260869565217,
+          "budget_to_0.001": 42.56521739130435,
+          "final_regret_mean": 0.03977877980773437,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 33.73913043478261,
+          "budget_to_0.001": 43.130434782608695,
+          "final_regret_mean": 0.0350130155053689,
+          "solve_rate_0.01": 0.4782608695652174
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_oas_p4": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 42.95652173913044,
+          "budget_to_0.001": 47.78260869565217,
+          "final_regret_mean": 0.04439649114526163,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 38.869565217391305,
+          "budget_to_0.001": 43.65217391304348,
+          "final_regret_mean": 0.030436390090771755,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 37.21739130434783,
+          "budget_to_0.001": 42.869565217391305,
+          "final_regret_mean": 0.025676663083594557,
+          "solve_rate_0.01": 0.43478260869565216
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 39.95652173913044,
+          "budget_to_0.001": 45.869565217391305,
+          "final_regret_mean": 0.027385045255321087,
+          "solve_rate_0.01": 0.391304347826087
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_oas_p5": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 43.04347826086956,
+          "budget_to_0.001": 49.47826086956522,
+          "final_regret_mean": 0.032686729037163416,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 40.69565217391305,
+          "budget_to_0.001": 45.04347826086956,
+          "final_regret_mean": 0.03330239494933291,
+          "solve_rate_0.01": 0.2608695652173913
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 39.21739130434783,
+          "budget_to_0.001": 44.73913043478261,
+          "final_regret_mean": 0.04314765526487524,
+          "solve_rate_0.01": 0.30434782608695654
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 38.869565217391305,
+          "budget_to_0.001": 47.47826086956522,
+          "final_regret_mean": 0.039838547456468,
+          "solve_rate_0.01": 0.30434782608695654
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_oas_p6": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 38.47826086956522,
+          "budget_to_0.001": 47.869565217391305,
+          "final_regret_mean": 0.037942980513033873,
+          "solve_rate_0.01": 0.4782608695652174
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 36.30434782608695,
+          "budget_to_0.001": 46.21739130434783,
+          "final_regret_mean": 0.022544243278085453,
+          "solve_rate_0.01": 0.4782608695652174
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 40.52173913043478,
+          "budget_to_0.001": 45.34782608695652,
+          "final_regret_mean": 0.030784442991420552,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 36.04347826086956,
+          "budget_to_0.001": 45.34782608695652,
+          "final_regret_mean": 0.03799630153621322,
+          "solve_rate_0.01": 0.43478260869565216
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_oas_p7": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 42.04347826086956,
+          "budget_to_0.001": 47.69565217391305,
+          "final_regret_mean": 0.03233538146141895,
+          "solve_rate_0.01": 0.43478260869565216
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 36.73913043478261,
+          "budget_to_0.001": 43.47826086956522,
+          "final_regret_mean": 0.027727706415063516,
+          "solve_rate_0.01": 0.43478260869565216
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 36.56521739130435,
+          "budget_to_0.001": 42.78260869565217,
+          "final_regret_mean": 0.03925293706689599,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 37.69565217391305,
+          "budget_to_0.001": 44.95652173913044,
+          "final_regret_mean": 0.03913835518936115,
+          "solve_rate_0.01": 0.34782608695652173
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_oas_p8": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 40.608695652173914,
+          "budget_to_0.001": 46.608695652173914,
+          "final_regret_mean": 0.030618886288608947,
+          "solve_rate_0.01": 0.391304347826087
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 40.608695652173914,
+          "budget_to_0.001": 45.391304347826086,
+          "final_regret_mean": 0.029921321243859,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 38.56521739130435,
+          "budget_to_0.001": 43.56521739130435,
+          "final_regret_mean": 0.03240156923449998,
+          "solve_rate_0.01": 0.30434782608695654
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 37.30434782608695,
+          "budget_to_0.001": 44.65217391304348,
+          "final_regret_mean": 0.035462264481429584,
+          "solve_rate_0.01": 0.391304347826087
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_whiten005_p0": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 41.34782608695652,
+          "budget_to_0.001": 49.26086956521739,
+          "final_regret_mean": 0.03729476039560094,
+          "solve_rate_0.01": 0.391304347826087
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 38.69565217391305,
+          "budget_to_0.001": 45.56521739130435,
+          "final_regret_mean": 0.03078251458711407,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 37.21739130434783,
+          "budget_to_0.001": 42.52173913043478,
+          "final_regret_mean": 0.031393885267472325,
+          "solve_rate_0.01": 0.391304347826087
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 39.47826086956522,
+          "budget_to_0.001": 47.30434782608695,
+          "final_regret_mean": 0.03771963321080352,
+          "solve_rate_0.01": 0.391304347826087
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_whiten005_p1": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 41.30434782608695,
+          "budget_to_0.001": 49.08695652173913,
+          "final_regret_mean": 0.028025381949947824,
+          "solve_rate_0.01": 0.5217391304347826
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 38.608695652173914,
+          "budget_to_0.001": 45.73913043478261,
+          "final_regret_mean": 0.03442773417213433,
+          "solve_rate_0.01": 0.391304347826087
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 38.56521739130435,
+          "budget_to_0.001": 44.608695652173914,
+          "final_regret_mean": 0.030031335063358252,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 36.34782608695652,
+          "budget_to_0.001": 44.26086956521739,
+          "final_regret_mean": 0.03293962784560067,
+          "solve_rate_0.01": 0.391304347826087
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_whiten005_p2": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 41.26086956521739,
+          "budget_to_0.001": 48.69565217391305,
+          "final_regret_mean": 0.03562027036982601,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 38.52173913043478,
+          "budget_to_0.001": 45.608695652173914,
+          "final_regret_mean": 0.03277573968854081,
+          "solve_rate_0.01": 0.30434782608695654
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 37.56521739130435,
+          "budget_to_0.001": 43.26086956521739,
+          "final_regret_mean": 0.0279177969903619,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 37.78260869565217,
+          "budget_to_0.001": 44.21739130434783,
+          "final_regret_mean": 0.030458464806116938,
+          "solve_rate_0.01": 0.391304347826087
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_whiten005_p3": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 39.869565217391305,
+          "budget_to_0.001": 49.608695652173914,
+          "final_regret_mean": 0.04182697608363367,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 39.391304347826086,
+          "budget_to_0.001": 44.391304347826086,
+          "final_regret_mean": 0.034026666056853755,
+          "solve_rate_0.01": 0.30434782608695654
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 37.78260869565217,
+          "budget_to_0.001": 42.69565217391305,
+          "final_regret_mean": 0.03977877980773437,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 33.73913043478261,
+          "budget_to_0.001": 43.130434782608695,
+          "final_regret_mean": 0.0350130155053689,
+          "solve_rate_0.01": 0.4782608695652174
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_whiten005_p4": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 43.21739130434783,
+          "budget_to_0.001": 48.82608695652174,
+          "final_regret_mean": 0.04465762262535624,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 38.95652173913044,
+          "budget_to_0.001": 43.65217391304348,
+          "final_regret_mean": 0.030436390090771755,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 37.21739130434783,
+          "budget_to_0.001": 42.869565217391305,
+          "final_regret_mean": 0.025676663083594557,
+          "solve_rate_0.01": 0.43478260869565216
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 39.95652173913044,
+          "budget_to_0.001": 45.869565217391305,
+          "final_regret_mean": 0.027385045255321087,
+          "solve_rate_0.01": 0.391304347826087
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_whiten005_p5": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 42.65217391304348,
+          "budget_to_0.001": 49.47826086956522,
+          "final_regret_mean": 0.032686729037163416,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 40.69565217391305,
+          "budget_to_0.001": 45.04347826086956,
+          "final_regret_mean": 0.03330239494933291,
+          "solve_rate_0.01": 0.2608695652173913
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 39.21739130434783,
+          "budget_to_0.001": 44.73913043478261,
+          "final_regret_mean": 0.04314765526487524,
+          "solve_rate_0.01": 0.30434782608695654
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 38.869565217391305,
+          "budget_to_0.001": 47.47826086956522,
+          "final_regret_mean": 0.039838547456468,
+          "solve_rate_0.01": 0.30434782608695654
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_whiten005_p6": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 39.56521739130435,
+          "budget_to_0.001": 48.91304347826087,
+          "final_regret_mean": 0.04093114857084064,
+          "solve_rate_0.01": 0.43478260869565216
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 36.34782608695652,
+          "budget_to_0.001": 46.391304347826086,
+          "final_regret_mean": 0.02228759802597474,
+          "solve_rate_0.01": 0.5217391304347826
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 40.52173913043478,
+          "budget_to_0.001": 45.34782608695652,
+          "final_regret_mean": 0.030784442991420552,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 36.04347826086956,
+          "budget_to_0.001": 45.34782608695652,
+          "final_regret_mean": 0.03799630153621322,
+          "solve_rate_0.01": 0.43478260869565216
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_whiten005_p7": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 42.130434782608695,
+          "budget_to_0.001": 47.78260869565217,
+          "final_regret_mean": 0.03586006935547462,
+          "solve_rate_0.01": 0.391304347826087
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 36.78260869565217,
+          "budget_to_0.001": 43.47826086956522,
+          "final_regret_mean": 0.028649541527049523,
+          "solve_rate_0.01": 0.43478260869565216
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 36.56521739130435,
+          "budget_to_0.001": 42.78260869565217,
+          "final_regret_mean": 0.03925293706689599,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 37.69565217391305,
+          "budget_to_0.001": 44.95652173913044,
+          "final_regret_mean": 0.03913835518936115,
+          "solve_rate_0.01": 0.34782608695652173
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_whiten005_p8": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 40.65217391304348,
+          "budget_to_0.001": 46.608695652173914,
+          "final_regret_mean": 0.030618886288608947,
+          "solve_rate_0.01": 0.391304347826087
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 40.608695652173914,
+          "budget_to_0.001": 45.391304347826086,
+          "final_regret_mean": 0.029921321243859,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 38.34782608695652,
+          "budget_to_0.001": 43.56521739130435,
+          "final_regret_mean": 0.03172942814472843,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 37.30434782608695,
+          "budget_to_0.001": 44.65217391304348,
+          "final_regret_mean": 0.035462264481429584,
+          "solve_rate_0.01": 0.391304347826087
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_whiten020_p0": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 41.34782608695652,
+          "budget_to_0.001": 49.26086956521739,
+          "final_regret_mean": 0.03729476039560094,
+          "solve_rate_0.01": 0.391304347826087
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 38.69565217391305,
+          "budget_to_0.001": 45.56521739130435,
+          "final_regret_mean": 0.03078251458711407,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 37.21739130434783,
+          "budget_to_0.001": 42.52173913043478,
+          "final_regret_mean": 0.031393885267472325,
+          "solve_rate_0.01": 0.391304347826087
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 39.47826086956522,
+          "budget_to_0.001": 47.30434782608695,
+          "final_regret_mean": 0.03771963321080352,
+          "solve_rate_0.01": 0.391304347826087
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_whiten020_p1": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 41.34782608695652,
+          "budget_to_0.001": 49.130434782608695,
+          "final_regret_mean": 0.028025381949947824,
+          "solve_rate_0.01": 0.5217391304347826
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 38.608695652173914,
+          "budget_to_0.001": 45.73913043478261,
+          "final_regret_mean": 0.03442773417213433,
+          "solve_rate_0.01": 0.391304347826087
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 38.56521739130435,
+          "budget_to_0.001": 44.608695652173914,
+          "final_regret_mean": 0.030031335063358252,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 36.34782608695652,
+          "budget_to_0.001": 44.26086956521739,
+          "final_regret_mean": 0.03293962784560067,
+          "solve_rate_0.01": 0.391304347826087
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_whiten020_p2": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 41.26086956521739,
+          "budget_to_0.001": 48.69565217391305,
+          "final_regret_mean": 0.03562027036982601,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 38.52173913043478,
+          "budget_to_0.001": 45.608695652173914,
+          "final_regret_mean": 0.03277573968854081,
+          "solve_rate_0.01": 0.30434782608695654
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 37.56521739130435,
+          "budget_to_0.001": 43.26086956521739,
+          "final_regret_mean": 0.0279177969903619,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 37.78260869565217,
+          "budget_to_0.001": 44.21739130434783,
+          "final_regret_mean": 0.030458464806116938,
+          "solve_rate_0.01": 0.391304347826087
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_whiten020_p3": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 39.869565217391305,
+          "budget_to_0.001": 49.608695652173914,
+          "final_regret_mean": 0.04182697608363367,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 39.391304347826086,
+          "budget_to_0.001": 44.391304347826086,
+          "final_regret_mean": 0.034026666056853755,
+          "solve_rate_0.01": 0.30434782608695654
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 37.78260869565217,
+          "budget_to_0.001": 42.69565217391305,
+          "final_regret_mean": 0.03977877980773437,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 33.73913043478261,
+          "budget_to_0.001": 43.130434782608695,
+          "final_regret_mean": 0.0350130155053689,
+          "solve_rate_0.01": 0.4782608695652174
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_whiten020_p4": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 43.21739130434783,
+          "budget_to_0.001": 48.82608695652174,
+          "final_regret_mean": 0.0445026197954439,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 38.869565217391305,
+          "budget_to_0.001": 43.65217391304348,
+          "final_regret_mean": 0.030436390090771755,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 37.21739130434783,
+          "budget_to_0.001": 42.869565217391305,
+          "final_regret_mean": 0.025676663083594557,
+          "solve_rate_0.01": 0.43478260869565216
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 39.95652173913044,
+          "budget_to_0.001": 45.869565217391305,
+          "final_regret_mean": 0.027385045255321087,
+          "solve_rate_0.01": 0.391304347826087
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_whiten020_p5": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 42.69565217391305,
+          "budget_to_0.001": 49.47826086956522,
+          "final_regret_mean": 0.032686729037163416,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 40.69565217391305,
+          "budget_to_0.001": 45.04347826086956,
+          "final_regret_mean": 0.03330239494933291,
+          "solve_rate_0.01": 0.2608695652173913
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 39.21739130434783,
+          "budget_to_0.001": 44.73913043478261,
+          "final_regret_mean": 0.04314765526487524,
+          "solve_rate_0.01": 0.30434782608695654
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 38.869565217391305,
+          "budget_to_0.001": 47.47826086956522,
+          "final_regret_mean": 0.039838547456468,
+          "solve_rate_0.01": 0.30434782608695654
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_whiten020_p6": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 38.65217391304348,
+          "budget_to_0.001": 48.0,
+          "final_regret_mean": 0.037549509407033076,
+          "solve_rate_0.01": 0.4782608695652174
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 36.30434782608695,
+          "budget_to_0.001": 46.21739130434783,
+          "final_regret_mean": 0.022544243278085453,
+          "solve_rate_0.01": 0.4782608695652174
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 40.52173913043478,
+          "budget_to_0.001": 45.34782608695652,
+          "final_regret_mean": 0.030784442991420552,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 36.04347826086956,
+          "budget_to_0.001": 45.34782608695652,
+          "final_regret_mean": 0.03799630153621322,
+          "solve_rate_0.01": 0.43478260869565216
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_whiten020_p7": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 42.130434782608695,
+          "budget_to_0.001": 47.78260869565217,
+          "final_regret_mean": 0.03586006935547462,
+          "solve_rate_0.01": 0.391304347826087
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 36.78260869565217,
+          "budget_to_0.001": 43.47826086956522,
+          "final_regret_mean": 0.028649541527049523,
+          "solve_rate_0.01": 0.43478260869565216
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 36.56521739130435,
+          "budget_to_0.001": 42.78260869565217,
+          "final_regret_mean": 0.03925293706689599,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 37.69565217391305,
+          "budget_to_0.001": 44.95652173913044,
+          "final_regret_mean": 0.03913835518936115,
+          "solve_rate_0.01": 0.34782608695652173
+        }
+      },
+      "shards_present": 12
+    },
+    "iwnu_whiten020_p8": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 40.65217391304348,
+          "budget_to_0.001": 46.608695652173914,
+          "final_regret_mean": 0.030618886288608947,
+          "solve_rate_0.01": 0.391304347826087
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 23,
+          "budget_to_0.01": 40.608695652173914,
+          "budget_to_0.001": 45.391304347826086,
+          "final_regret_mean": 0.029921321243859,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 38.34782608695652,
+          "budget_to_0.001": 43.56521739130435,
+          "final_regret_mean": 0.03172942814472843,
+          "solve_rate_0.01": 0.34782608695652173
+        },
+        "hyperbo_frozen": {
+          "n_runs": 23,
+          "budget_to_0.01": 37.30434782608695,
+          "budget_to_0.001": 44.65217391304348,
+          "final_regret_mean": 0.035462264481429584,
+          "solve_rate_0.01": 0.391304347826087
+        }
+      },
+      "shards_present": 12
+    }
+  },
+  "configs": {
+    "iwnu_ledoit": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 207,
+          "budget_to_0.01": 41.23671497584541,
+          "budget_to_0.001": 48.43961352657005,
+          "final_regret_mean": 0.035059766698448167,
+          "solve_rate_0.01": 0.40096618357487923
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 207,
+          "budget_to_0.01": 38.71497584541063,
+          "budget_to_0.001": 45.0,
+          "final_regret_mean": 0.030704819967999415,
+          "solve_rate_0.01": 0.357487922705314
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 207,
+          "budget_to_0.01": 38.13526570048309,
+          "budget_to_0.001": 43.58454106280193,
+          "final_regret_mean": 0.033363488449972216,
+          "solve_rate_0.01": 0.3526570048309179
+        },
+        "hyperbo_frozen": {
+          "n_runs": 207,
+          "budget_to_0.01": 37.468599033816425,
+          "budget_to_0.001": 45.2463768115942,
+          "final_regret_mean": 0.03510569503185367,
+          "solve_rate_0.01": 0.391304347826087
+        }
+      },
+      "n_priors": 9,
+      "shards_present": 108,
+      "between_prior": {
+        "em_frozen": {
+          "budget_to_0.01": {
+            "per_prior": [
+              41.30434782608695,
+              41.69565217391305,
+              41.130434782608695,
+              39.869565217391305,
+              42.95652173913044,
+              43.04347826086956,
+              38.47826086956522,
+              42.04347826086956,
+              40.608695652173914
+            ],
+            "between_prior_var_of_mean": 0.2357231207262712
+          }
+        },
+        "em_additive_hyperbo": {
+          "budget_to_0.01": {
+            "per_prior": [
+              38.69565217391305,
+              38.608695652173914,
+              38.52173913043478,
+              39.391304347826086,
+              38.869565217391305,
+              40.69565217391305,
+              36.30434782608695,
+              36.73913043478261,
+              40.608695652173914
+            ],
+            "between_prior_var_of_mean": 0.24659268594366301
+          }
+        },
+        "em_additive_hyperbo_frozen": {
+          "budget_to_0.01": {
+            "per_prior": [
+              37.21739130434783,
+              38.56521739130435,
+              37.56521739130435,
+              37.78260869565217,
+              37.21739130434783,
+              39.21739130434783,
+              40.52173913043478,
+              36.56521739130435,
+              38.56521739130435
+            ],
+            "between_prior_var_of_mean": 0.16437956545076876
+          }
+        },
+        "hyperbo_frozen": {
+          "budget_to_0.01": {
+            "per_prior": [
+              39.47826086956522,
+              36.34782608695652,
+              37.78260869565217,
+              33.73913043478261,
+              39.95652173913044,
+              38.869565217391305,
+              36.04347826086956,
+              37.69565217391305,
+              37.30434782608695
+            ],
+            "between_prior_var_of_mean": 0.4106163504399172
+          }
+        }
+      }
+    },
+    "iwnu_manual": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 207,
+          "budget_to_0.01": 41.23671497584541,
+          "budget_to_0.001": 48.43961352657005,
+          "final_regret_mean": 0.035059766698448167,
+          "solve_rate_0.01": 0.40096618357487923
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 207,
+          "budget_to_0.01": 38.666666666666664,
+          "budget_to_0.001": 45.0,
+          "final_regret_mean": 0.030642973306445418,
+          "solve_rate_0.01": 0.36231884057971014
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 207,
+          "budget_to_0.01": 38.13526570048309,
+          "budget_to_0.001": 43.58454106280193,
+          "final_regret_mean": 0.033363488449972216,
+          "solve_rate_0.01": 0.3526570048309179
+        },
+        "hyperbo_frozen": {
+          "n_runs": 207,
+          "budget_to_0.01": 37.468599033816425,
+          "budget_to_0.001": 45.2463768115942,
+          "final_regret_mean": 0.03510569503185367,
+          "solve_rate_0.01": 0.391304347826087
+        }
+      },
+      "n_priors": 9,
+      "shards_present": 108,
+      "between_prior": {
+        "em_frozen": {
+          "budget_to_0.01": {
+            "per_prior": [
+              41.30434782608695,
+              41.69565217391305,
+              41.130434782608695,
+              39.869565217391305,
+              42.95652173913044,
+              43.04347826086956,
+              38.47826086956522,
+              42.04347826086956,
+              40.608695652173914
+            ],
+            "between_prior_var_of_mean": 0.2357231207262712
+          }
+        },
+        "em_additive_hyperbo": {
+          "budget_to_0.01": {
+            "per_prior": [
+              38.69565217391305,
+              38.608695652173914,
+              38.08695652173913,
+              39.391304347826086,
+              38.869565217391305,
+              40.69565217391305,
+              36.30434782608695,
+              36.73913043478261,
+              40.608695652173914
+            ],
+            "between_prior_var_of_mean": 0.251260239445495
+          }
+        },
+        "em_additive_hyperbo_frozen": {
+          "budget_to_0.01": {
+            "per_prior": [
+              37.21739130434783,
+              38.56521739130435,
+              37.56521739130435,
+              37.78260869565217,
+              37.21739130434783,
+              39.21739130434783,
+              40.52173913043478,
+              36.56521739130435,
+              38.56521739130435
+            ],
+            "between_prior_var_of_mean": 0.16437956545076876
+          }
+        },
+        "hyperbo_frozen": {
+          "budget_to_0.01": {
+            "per_prior": [
+              39.47826086956522,
+              36.34782608695652,
+              37.78260869565217,
+              33.73913043478261,
+              39.95652173913044,
+              38.869565217391305,
+              36.04347826086956,
+              37.69565217391305,
+              37.30434782608695
+            ],
+            "between_prior_var_of_mean": 0.4106163504399172
+          }
+        }
+      }
+    },
+    "iwnu_oas": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 207,
+          "budget_to_0.01": 41.24154589371981,
+          "budget_to_0.001": 48.44444444444444,
+          "final_regret_mean": 0.035059766698448167,
+          "solve_rate_0.01": 0.40096618357487923
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 207,
+          "budget_to_0.01": 38.71497584541063,
+          "budget_to_0.001": 45.0,
+          "final_regret_mean": 0.030720349759714632,
+          "solve_rate_0.01": 0.357487922705314
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 207,
+          "budget_to_0.01": 38.13526570048309,
+          "budget_to_0.001": 43.58454106280193,
+          "final_regret_mean": 0.03337611830780146,
+          "solve_rate_0.01": 0.3526570048309179
+        },
+        "hyperbo_frozen": {
+          "n_runs": 207,
+          "budget_to_0.01": 37.468599033816425,
+          "budget_to_0.001": 45.2463768115942,
+          "final_regret_mean": 0.03510569503185367,
+          "solve_rate_0.01": 0.391304347826087
+        }
+      },
+      "n_priors": 9,
+      "shards_present": 108,
+      "between_prior": {
+        "em_frozen": {
+          "budget_to_0.01": {
+            "per_prior": [
+              41.30434782608695,
+              41.73913043478261,
+              41.130434782608695,
+              39.869565217391305,
+              42.95652173913044,
+              43.04347826086956,
+              38.47826086956522,
+              42.04347826086956,
+              40.608695652173914
+            ],
+            "between_prior_var_of_mean": 0.23630073047212286
+          }
+        },
+        "em_additive_hyperbo": {
+          "budget_to_0.01": {
+            "per_prior": [
+              38.69565217391305,
+              38.608695652173914,
+              38.52173913043478,
+              39.391304347826086,
+              38.869565217391305,
+              40.69565217391305,
+              36.30434782608695,
+              36.73913043478261,
+              40.608695652173914
+            ],
+            "between_prior_var_of_mean": 0.24659268594366301
+          }
+        },
+        "em_additive_hyperbo_frozen": {
+          "budget_to_0.01": {
+            "per_prior": [
+              37.21739130434783,
+              38.56521739130435,
+              37.56521739130435,
+              37.78260869565217,
+              37.21739130434783,
+              39.21739130434783,
+              40.52173913043478,
+              36.56521739130435,
+              38.56521739130435
+            ],
+            "between_prior_var_of_mean": 0.16437956545076876
+          }
+        },
+        "hyperbo_frozen": {
+          "budget_to_0.01": {
+            "per_prior": [
+              39.47826086956522,
+              36.34782608695652,
+              37.78260869565217,
+              33.73913043478261,
+              39.95652173913044,
+              38.869565217391305,
+              36.04347826086956,
+              37.69565217391305,
+              37.30434782608695
+            ],
+            "between_prior_var_of_mean": 0.4106163504399172
+          }
+        }
+      }
+    },
+    "iwnu_whiten005": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 207,
+          "budget_to_0.01": 41.333333333333336,
+          "budget_to_0.001": 48.69565217391305,
+          "final_regret_mean": 0.03639131607516137,
+          "solve_rate_0.01": 0.391304347826087
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 207,
+          "budget_to_0.01": 38.734299516908216,
+          "budget_to_0.001": 45.028985507246375,
+          "final_regret_mean": 0.030734433371292322,
+          "solve_rate_0.01": 0.36231884057971014
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 207,
+          "budget_to_0.01": 38.111111111111114,
+          "budget_to_0.001": 43.59903381642512,
+          "final_regret_mean": 0.03330143596449351,
+          "solve_rate_0.01": 0.357487922705314
+        },
+        "hyperbo_frozen": {
+          "n_runs": 207,
+          "budget_to_0.01": 37.468599033816425,
+          "budget_to_0.001": 45.2463768115942,
+          "final_regret_mean": 0.03510569503185367,
+          "solve_rate_0.01": 0.391304347826087
+        }
+      },
+      "n_priors": 9,
+      "shards_present": 108,
+      "between_prior": {
+        "em_frozen": {
+          "budget_to_0.01": {
+            "per_prior": [
+              41.34782608695652,
+              41.30434782608695,
+              41.26086956521739,
+              39.869565217391305,
+              43.21739130434783,
+              42.65217391304348,
+              39.56521739130435,
+              42.130434782608695,
+              40.65217391304348
+            ],
+            "between_prior_var_of_mean": 0.16199327872295724
+          }
+        },
+        "em_additive_hyperbo": {
+          "budget_to_0.01": {
+            "per_prior": [
+              38.69565217391305,
+              38.608695652173914,
+              38.52173913043478,
+              39.391304347826086,
+              38.95652173913044,
+              40.69565217391305,
+              36.34782608695652,
+              36.78260869565217,
+              40.608695652173914
+            ],
+            "between_prior_var_of_mean": 0.2417792713948986
+          }
+        },
+        "em_additive_hyperbo_frozen": {
+          "budget_to_0.01": {
+            "per_prior": [
+              37.21739130434783,
+              38.56521739130435,
+              37.56521739130435,
+              37.78260869565217,
+              37.21739130434783,
+              39.21739130434783,
+              40.52173913043478,
+              36.56521739130435,
+              38.34782608695652
+            ],
+            "between_prior_var_of_mean": 0.1623666830031037
+          }
+        },
+        "hyperbo_frozen": {
+          "budget_to_0.01": {
+            "per_prior": [
+              39.47826086956522,
+              36.34782608695652,
+              37.78260869565217,
+              33.73913043478261,
+              39.95652173913044,
+              38.869565217391305,
+              36.04347826086956,
+              37.69565217391305,
+              37.30434782608695
+            ],
+            "between_prior_var_of_mean": 0.4106163504399172
+          }
+        }
+      }
+    },
+    "iwnu_whiten020": {
+      "kind": "bo",
+      "n_tasks": 23,
+      "methods": {
+        "em_frozen": {
+          "n_runs": 207,
+          "budget_to_0.01": 41.24154589371981,
+          "budget_to_0.001": 48.59903381642512,
+          "final_regret_mean": 0.035998355853636935,
+          "solve_rate_0.01": 0.3961352657004831
+        },
+        "em_additive_hyperbo": {
+          "n_runs": 207,
+          "budget_to_0.01": 38.71980676328502,
+          "budget_to_0.001": 45.009661835748794,
+          "final_regret_mean": 0.030762949510415735,
+          "solve_rate_0.01": 0.357487922705314
+        },
+        "em_additive_hyperbo_frozen": {
+          "n_runs": 207,
+          "budget_to_0.01": 38.111111111111114,
+          "budget_to_0.001": 43.59903381642512,
+          "final_regret_mean": 0.03330143596449351,
+          "solve_rate_0.01": 0.357487922705314
+        },
+        "hyperbo_frozen": {
+          "n_runs": 207,
+          "budget_to_0.01": 37.468599033816425,
+          "budget_to_0.001": 45.2463768115942,
+          "final_regret_mean": 0.03510569503185367,
+          "solve_rate_0.01": 0.391304347826087
+        }
+      },
+      "n_priors": 9,
+      "shards_present": 108,
+      "between_prior": {
+        "em_frozen": {
+          "budget_to_0.01": {
+            "per_prior": [
+              41.34782608695652,
+              41.34782608695652,
+              41.26086956521739,
+              39.869565217391305,
+              43.21739130434783,
+              42.69565217391305,
+              38.65217391304348,
+              42.130434782608695,
+              40.65217391304348
+            ],
+            "between_prior_var_of_mean": 0.21897243809657202
+          }
+        },
+        "em_additive_hyperbo": {
+          "budget_to_0.01": {
+            "per_prior": [
+              38.69565217391305,
+              38.608695652173914,
+              38.52173913043478,
+              39.391304347826086,
+              38.869565217391305,
+              40.69565217391305,
+              36.30434782608695,
+              36.78260869565217,
+              40.608695652173914
+            ],
+            "between_prior_var_of_mean": 0.24422973698336067
+          }
+        },
+        "em_additive_hyperbo_frozen": {
+          "budget_to_0.01": {
+            "per_prior": [
+              37.21739130434783,
+              38.56521739130435,
+              37.56521739130435,
+              37.78260869565217,
+              37.21739130434783,
+              39.21739130434783,
+              40.52173913043478,
+              36.56521739130435,
+              38.34782608695652
+            ],
+            "between_prior_var_of_mean": 0.1623666830031037
+          }
+        },
+        "hyperbo_frozen": {
+          "budget_to_0.01": {
+            "per_prior": [
+              39.47826086956522,
+              36.34782608695652,
+              37.78260869565217,
+              33.73913043478261,
+              39.95652173913044,
+              38.869565217391305,
+              36.04347826086956,
+              37.69565217391305,
+              37.30434782608695
+            ],
+            "between_prior_var_of_mean": 0.4106163504399172
+          }
+        }
+      }
+    }
+  }
+}

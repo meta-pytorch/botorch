@@ -19,6 +19,7 @@ from botorch.models.empirical_gps.empirical_1d_gp import (
 from botorch.models.empirical_gps.utils import (
     build_basis_interpolant,
     build_mean_interpolant,
+    build_sliding_window_curves,
     build_unique_inputs,
     center_curves,
     compute_basis_matrix,
@@ -26,7 +27,9 @@ from botorch.models.empirical_gps.utils import (
     compute_sample_covariance,
     em_prior_to_basis_curves,
     ExperimentDataset,
+    filter_diverged_curves,
     instantiate_ard,
+    kronecker_factored_covariance,
     LinearInterpolation1D,
     project_psd,
     trace_matched_shrinkage,
@@ -859,3 +862,241 @@ class TestEMPriorToBasisCurves(BotorchTestCase):
         # num_modes < 1 raises a clear error (not the degenerate-prior message).
         with self.assertRaisesRegex(ValueError, "num_modes"):
             em_prior_to_basis_curves(mu, Sigma, num_modes=0)
+
+
+class TestBuildSlidingWindowCurves(BotorchTestCase):
+    def test_shapes_and_values_single_output(self) -> None:
+        series = torch.arange(10, dtype=torch.double)
+        curves = build_sliding_window_curves(series, window_size=4, stride=2)
+        # (10 - 4) // 2 + 1 == 4 windows
+        self.assertEqual(curves.shape, torch.Size([4, 4, 1]))
+        expected = torch.tensor(
+            [[0.0, 1, 2, 3], [2, 3, 4, 5], [4, 5, 6, 7], [6, 7, 8, 9]],
+            dtype=torch.double,
+        ).unsqueeze(-1)
+        self.assertAllClose(curves, expected)
+
+    def test_default_stride_is_maximally_overlapping(self) -> None:
+        series = torch.arange(6, dtype=torch.double)
+        curves = build_sliding_window_curves(series, window_size=3)
+        self.assertEqual(curves.shape, torch.Size([4, 3, 1]))
+
+    def test_multi_output_preserves_output_dim(self) -> None:
+        # Distinct per-output values so a transposed axis would be caught.
+        series = torch.stack(
+            [torch.arange(8, dtype=torch.double), 100 + torch.arange(8).double()],
+            dim=-1,
+        )
+        curves = build_sliding_window_curves(series, window_size=3, stride=3)
+        self.assertEqual(curves.shape, torch.Size([2, 3, 2]))
+        self.assertAllClose(curves[0, :, 0], torch.tensor([0.0, 1.0, 2.0]).double())
+        self.assertAllClose(curves[0, :, 1], torch.tensor([100.0, 101, 102]).double())
+
+    def test_window_equal_to_series_length(self) -> None:
+        series = torch.arange(5, dtype=torch.double)
+        curves = build_sliding_window_curves(series, window_size=5)
+        self.assertEqual(curves.shape, torch.Size([1, 5, 1]))
+
+    def test_output_is_contiguous(self) -> None:
+        # unfold returns a strided view; the helper must materialize it.
+        curves = build_sliding_window_curves(torch.arange(9).double(), window_size=3)
+        self.assertTrue(curves.is_contiguous())
+
+    def test_dtype_and_device_preserved(self) -> None:
+        series = torch.arange(6, dtype=torch.float32, device=self.device)
+        curves = build_sliding_window_curves(series, window_size=2)
+        self.assertEqual(curves.dtype, torch.float32)
+        self.assertEqual(curves.device.type, self.device.type)
+
+    def test_feeds_empirical_kernel(self) -> None:
+        # The whole point of the helper: the result is a valid historical_Y.
+        curves = build_sliding_window_curves(torch.randn(60).double(), window_size=10)
+        grid = torch.linspace(0, 1, 10, dtype=torch.double).unsqueeze(-1)
+        kernel = EmpiricalOneDimensionalKernel(X_full=grid, Y_full=curves)
+        mean = EmpiricalOneDimensionalMean(X_full=grid, Y_full=curves)
+        self.assertEqual(kernel(grid, grid).to_dense().shape, torch.Size([10, 10]))
+        self.assertEqual(mean(grid).shape, torch.Size([10]))
+
+    def test_invalid_inputs(self) -> None:
+        series = torch.arange(6, dtype=torch.double)
+        with self.assertRaisesRegex(ValueError, "shape"):
+            build_sliding_window_curves(series.reshape(1, 2, 3), window_size=2)
+        with self.assertRaisesRegex(ValueError, "must be positive"):
+            build_sliding_window_curves(series, window_size=0)
+        with self.assertRaisesRegex(ValueError, "must be positive"):
+            build_sliding_window_curves(series, window_size=2, stride=0)
+        with self.assertRaisesRegex(ValueError, "exceeds the series length"):
+            build_sliding_window_curves(series, window_size=7)
+
+
+class TestFilterDivergedCurves(BotorchTestCase):
+    def _corpus(self) -> torch.Tensor:
+        # 4 curves x 3 progression points x 1 output; curve 2 is fine, the
+        # others exercise each rejection reason.
+        return torch.tensor(
+            [
+                [1.0, 2.0, 3.0],  # ok
+                [1.0, float("nan"), 3.0],  # nan
+                [4.0, 5.0, 6.0],  # ok
+                [1.0, 1e13, 3.0],  # blown up
+            ],
+            dtype=torch.double,
+        ).unsqueeze(-1)
+
+    def test_drops_nonfinite_and_blown_up(self) -> None:
+        Y, keep = filter_diverged_curves(self._corpus())
+        self.assertEqual(Y.shape, torch.Size([2, 3, 1]))
+        self.assertEqual(keep.tolist(), [True, False, True, False])
+        self.assertAllClose(Y[:, :, 0], torch.tensor([[1.0, 2, 3], [4, 5, 6]]).double())
+
+    def test_infinity_is_dropped(self) -> None:
+        Y = torch.tensor([[1.0, 2.0], [1.0, float("inf")]], dtype=torch.double)
+        _, keep = filter_diverged_curves(Y)
+        self.assertEqual(keep.tolist(), [True, False])
+
+    def test_none_threshold_keeps_large_but_finite(self) -> None:
+        Y, keep = filter_diverged_curves(self._corpus(), max_abs_value=None)
+        # the 1e13 curve is finite, so only the NaN curve goes
+        self.assertEqual(keep.tolist(), [True, False, True, True])
+        self.assertEqual(Y.shape, torch.Size([3, 3, 1]))
+
+    def test_threshold_is_respected(self) -> None:
+        Y = torch.tensor([[1.0, 2.0], [1.0, 50.0]], dtype=torch.double)
+        self.assertEqual(
+            filter_diverged_curves(Y, max_abs_value=10.0)[1].tolist(), [True, False]
+        )
+        self.assertEqual(
+            filter_diverged_curves(Y, max_abs_value=100.0)[1].tolist(), [True, True]
+        )
+
+    def test_negative_divergence(self) -> None:
+        # the bound is on magnitude, so a large negative value is divergence too
+        Y = torch.tensor([[1.0, 2.0], [1.0, -1e9]], dtype=torch.double)
+        self.assertEqual(filter_diverged_curves(Y)[1].tolist(), [True, False])
+
+    def test_2d_input_supported(self) -> None:
+        Y, keep = filter_diverged_curves(torch.ones(3, 5, dtype=torch.double))
+        self.assertEqual(Y.shape, torch.Size([3, 5]))
+        self.assertTrue(bool(keep.all()))
+
+    def test_multi_output_drops_whole_curve(self) -> None:
+        # a curve is dropped if ANY output diverges: the outputs are modelled
+        # jointly, so a half-valid curve is not usable.
+        Y = torch.ones(2, 3, 2, dtype=torch.double)
+        Y[1, 0, 1] = 1e13
+        _, keep = filter_diverged_curves(Y)
+        self.assertEqual(keep.tolist(), [True, False])
+
+    def test_mask_aligns_parallel_arrays(self) -> None:
+        # the documented use: drop the matching rows of a parameter matrix
+        params = torch.arange(4, dtype=torch.double).unsqueeze(-1)
+        _, keep = filter_diverged_curves(self._corpus())
+        self.assertAllClose(params[keep].squeeze(-1), torch.tensor([0.0, 2.0]).double())
+
+    def test_invalid_inputs(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Expected Y of shape"):
+            filter_diverged_curves(torch.ones(5, dtype=torch.double))
+        with self.assertRaisesRegex(ValueError, "All 2 curves were dropped"):
+            filter_diverged_curves(torch.full((2, 3), 1e13, dtype=torch.double))
+
+
+class TestKroneckerFactoredCovariance(BotorchTestCase):
+    """Separable covariance estimation via the matrix-normal flip-flop MLE.
+
+    The point is rank: the unconstrained sample covariance over an ``n*m`` index
+    set has rank at most ``num_curves``, while the Kronecker form needs only
+    ``n(n+1)/2 + m(m+1)/2`` parameters, so it stays well-conditioned with far
+    fewer curves. The benefit grows with ``m``.
+    """
+
+    def _separable(self, n=6, m=3, num_curves=3000, seed=0):
+        torch.manual_seed(seed)
+        A = torch.randn(n, n, dtype=torch.double)
+        sigma_p = A @ A.T / n
+        B = torch.randn(m, m, dtype=torch.double)
+        sigma_o = B @ B.T / m
+        sigma_o = sigma_o * (m / sigma_o.diagonal().sum())
+        full = torch.kron(sigma_p, sigma_o)
+        chol = torch.linalg.cholesky(full + 1e-9 * torch.eye(n * m, dtype=torch.double))
+        draws = (chol @ torch.randn(n * m, num_curves, dtype=torch.double)).T
+        return draws.reshape(num_curves, n, m), sigma_p, sigma_o
+
+    def test_recovers_a_separable_covariance(self) -> None:
+        Y, sigma_p, sigma_o = self._separable()
+        p_hat, o_hat = kronecker_factored_covariance(Y, num_iters=8)
+        truth = torch.kron(sigma_p, sigma_o)
+        estimate = torch.kron(p_hat, o_hat)
+        self.assertLess(float((estimate - truth).norm() / truth.norm()), 0.1)
+
+    def test_output_factor_is_trace_normalized(self) -> None:
+        # The factorization is only identified up to scale; pinning the trace
+        # keeps the iteration from drifting.
+        Y, _, _ = self._separable()
+        _, o_hat = kronecker_factored_covariance(Y, num_iters=5)
+        self.assertAlmostEqual(float(o_hat.diagonal().sum()), o_hat.shape[-1], places=6)
+
+    def test_beats_the_unconstrained_estimate_on_rank(self) -> None:
+        # The entire motivation. 12 curves over a 6x3 = 18-dim index set: the
+        # unconstrained sample covariance can reach rank 12 at best.
+        torch.manual_seed(0)
+        n, m, num_curves = 6, 3, 12
+        Y = torch.randn(num_curves, n, m, dtype=torch.double)
+        flat = (Y - Y.mean(0, keepdim=True)).reshape(num_curves, -1)
+        unconstrained = flat.T @ flat / num_curves
+        p_hat, o_hat = kronecker_factored_covariance(Y, num_iters=5)
+        factored = torch.kron(p_hat, o_hat)
+
+        def _rank(K: torch.Tensor) -> int:
+            eig = torch.linalg.eigvalsh(0.5 * (K + K.transpose(-1, -2)))
+            return int((eig > eig.max() * K.shape[-1] * torch.finfo(K.dtype).eps).sum())
+
+        self.assertGreater(_rank(factored), _rank(unconstrained))
+
+    def test_both_factors_are_symmetric_psd(self) -> None:
+        Y, _, _ = self._separable(num_curves=500)
+        for factor in kronecker_factored_covariance(Y, num_iters=5):
+            self.assertAllClose(factor, factor.transpose(-1, -2))
+            eig = torch.linalg.eigvalsh(factor)
+            self.assertGreater(float(eig.min()), -1e-8)
+
+    def test_shapes(self) -> None:
+        Y = torch.randn(20, 7, 4, dtype=torch.double)
+        p_hat, o_hat = kronecker_factored_covariance(Y, num_iters=3)
+        self.assertEqual(p_hat.shape, torch.Size([7, 7]))
+        self.assertEqual(o_hat.shape, torch.Size([4, 4]))
+
+    def test_log_likelihood_is_non_decreasing(self) -> None:
+        # The guarantee flip-flop actually provides. Each half-step is the MLE of
+        # its factor given the other, so the Gaussian log-likelihood cannot
+        # decrease. Note this is NOT the same as monotone Frobenius distance to
+        # the true parameter -- at finite sample size the MLE is not the
+        # Frobenius-closest estimate, and asserting that instead fails here.
+        Y, _, _ = self._separable(num_curves=800)
+        num_curves = Y.shape[0]
+        centered = (Y - Y.mean(dim=0, keepdim=True)).reshape(num_curves, -1)
+        sample = centered.T @ centered / num_curves
+
+        log_likelihoods = []
+        for iters in (1, 2, 3, 5, 10):
+            p_hat, o_hat = kronecker_factored_covariance(Y, num_iters=iters)
+            estimate = torch.kron(p_hat, o_hat)
+            _, logdet = torch.linalg.slogdet(estimate)
+            log_likelihoods.append(
+                float(
+                    -0.5 * (logdet + torch.trace(torch.linalg.solve(estimate, sample)))
+                )
+            )
+        for earlier, later in zip(log_likelihoods, log_likelihoods[1:]):
+            self.assertGreaterEqual(later, earlier - 1e-9)
+
+    def test_converges_and_stays_put(self) -> None:
+        Y, _, _ = self._separable(num_curves=800)
+        p5, o5 = kronecker_factored_covariance(Y, num_iters=5)
+        p50, o50 = kronecker_factored_covariance(Y, num_iters=50)
+        self.assertAllClose(torch.kron(p5, o5), torch.kron(p50, o50), atol=1e-6)
+
+    def test_rejects_bad_input(self) -> None:
+        with self.assertRaisesRegex(ValueError, "must be"):
+            kronecker_factored_covariance(torch.randn(10, 5, dtype=torch.double))
+        with self.assertRaisesRegex(ValueError, "at least 2 curves"):
+            kronecker_factored_covariance(torch.randn(1, 5, 2, dtype=torch.double))

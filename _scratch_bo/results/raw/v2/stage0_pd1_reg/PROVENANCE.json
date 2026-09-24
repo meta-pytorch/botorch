@@ -1,0 +1,48 @@
+{
+  "stage": "stage0_pd1_reg",
+  "regime": "pd1_reg",
+  "commit": "784584e2f509e213b4659f84e970039d28454d8b",
+  "generated_utc": "2026-08-18T16:49:35Z",
+  "regime_flags": "--benchmark pd1_loo --pd1-source full --n-obs-grid 5,20,50 --meta-iters 25000",
+  "harness": "bo_diagnose",
+  "cells": [
+    {
+      "name": "baseline_p0",
+      "flags": "--methods em_frozen,em_noisefit,em_finetuned,hyperbo_frozen,ablr,vanilla_gp,random --pretrain-seed 0"
+    },
+    {
+      "name": "baseline_p1",
+      "flags": "--methods em_frozen,em_noisefit,em_finetuned,hyperbo_frozen,ablr,vanilla_gp,random --pretrain-seed 1"
+    },
+    {
+      "name": "baseline_p2",
+      "flags": "--methods em_frozen,em_noisefit,em_finetuned,hyperbo_frozen,ablr,vanilla_gp,random --pretrain-seed 2"
+    },
+    {
+      "name": "baseline_p3",
+      "flags": "--methods em_frozen,em_noisefit,em_finetuned,hyperbo_frozen,ablr,vanilla_gp,random --pretrain-seed 3"
+    },
+    {
+      "name": "baseline_p4",
+      "flags": "--methods em_frozen,em_noisefit,em_finetuned,hyperbo_frozen,ablr,vanilla_gp,random --pretrain-seed 4"
+    },
+    {
+      "name": "baseline_p5",
+      "flags": "--methods em_frozen,em_noisefit,em_finetuned,hyperbo_frozen,ablr,vanilla_gp,random --pretrain-seed 5"
+    },
+    {
+      "name": "baseline_p6",
+      "flags": "--methods em_frozen,em_noisefit,em_finetuned,hyperbo_frozen,ablr,vanilla_gp,random --pretrain-seed 6"
+    },
+    {
+      "name": "baseline_p7",
+      "flags": "--methods em_frozen,em_noisefit,em_finetuned,hyperbo_frozen,ablr,vanilla_gp,random --pretrain-seed 7"
+    },
+    {
+      "name": "baseline_p8",
+      "flags": "--methods em_frozen,em_noisefit,em_finetuned,hyperbo_frozen,ablr,vanilla_gp,random --pretrain-seed 8"
+    }
+  ],
+  "note": "Everything under results/raw/v2/ was produced by the post-2026-08-17 binary. The S27.15 RNG-order change makes it incomparable with any result outside v2/. Do not mix them.",
+  "history": []
+}

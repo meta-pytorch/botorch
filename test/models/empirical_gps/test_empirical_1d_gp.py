@@ -17,6 +17,7 @@ from botorch.models.empirical_gps import (
     EmpiricalOneDimensionalGP,
     EmpiricalOneDimensionalKernel,
     EmpiricalOneDimensionalMean,
+    PerOutputBaseKernel,
 )
 from botorch.models.empirical_gps.utils import (
     compute_sample_covariance,
@@ -923,3 +924,210 @@ class TestBaseAugmentedEmpiricalKernel(BotorchTestCase):
         with torch.no_grad():
             post = model.posterior(hist_X)
         self.assertEqual(post.mean.shape[-2], hist_X.shape[0])
+
+
+class TestPerOutputBaseKernel(BotorchTestCase):
+    """The complement of a plain base kernel on the multi-output model.
+
+    A plain base kernel sees only the expanded ``(n*m, 1)`` progression inputs, so
+    it adds ``K_base (x) J_m`` -- the same covariance to every output pair. This
+    one adds ``K_base (x) I_m``. The tests below pin that difference, since the
+    two shapes have opposite effects on cross-output coupling.
+    """
+
+    def _inputs(self, n: int = 4, m: int = 3) -> torch.Tensor:
+        # Interleaved: each progression point repeated m times, flat = i*m + t.
+        x = torch.linspace(0, 1, n, dtype=torch.double).unsqueeze(-1)
+        return x.repeat_interleave(m, dim=-2)
+
+    def _kernel(self, m: int = 3) -> PerOutputBaseKernel:
+        return PerOutputBaseKernel(ScaleKernel(RBFKernel()).double(), num_outputs=m)
+
+    def test_cross_output_blocks_are_zero(self) -> None:
+        m, n = 3, 4
+        x = self._inputs(n, m)
+        K = self._kernel(m).forward(x, x)
+        idx = torch.arange(n * m)
+        cross = idx.unsqueeze(-1) % m != idx.unsqueeze(-2) % m
+        self.assertTrue(torch.all(K[cross] == 0.0))
+        self.assertTrue(torch.any(K[~cross] != 0.0))
+
+    def test_within_output_matches_the_plain_base_kernel(self) -> None:
+        # Masking must not alter the surviving entries.
+        m, n = 3, 4
+        x = self._inputs(n, m)
+        base = ScaleKernel(RBFKernel()).double()
+        plain = base(x, x).to_dense()
+        masked = PerOutputBaseKernel(base, num_outputs=m).forward(x, x)
+        idx = torch.arange(n * m)
+        same = idx.unsqueeze(-1) % m == idx.unsqueeze(-2) % m
+        self.assertAllClose(masked[same], plain[same])
+
+    def test_is_psd(self) -> None:
+        # K_base is PSD and the mask is I_m-patterned, so the Hadamard product is
+        # PSD by the Schur product theorem.
+        x = self._inputs(5, 3)
+        K = self._kernel(3).forward(x, x)
+        eigvals = torch.linalg.eigvalsh(0.5 * (K + K.transpose(-1, -2)))
+        self.assertGreater(float(eigvals.min()), -1e-8)
+
+    def test_diag_is_unmasked(self) -> None:
+        # Diagonal entries always pair an index with itself, hence same-output.
+        x = self._inputs(4, 3)
+        kernel = self._kernel(3)
+        self.assertAllClose(
+            kernel.forward(x, x, diag=True),
+            kernel.forward(x, x).diagonal(dim1=-2, dim2=-1),
+        )
+
+    def test_single_output_is_a_no_op(self) -> None:
+        # With m=1 every pair is same-output, so nothing is masked.
+        x = torch.linspace(0, 1, 5, dtype=torch.double).unsqueeze(-1)
+        base = ScaleKernel(RBFKernel()).double()
+        self.assertAllClose(
+            PerOutputBaseKernel(base, num_outputs=1).forward(x, x),
+            base(x, x).to_dense(),
+        )
+
+    def test_rectangular_inputs(self) -> None:
+        m = 3
+        x1, x2 = self._inputs(4, m), self._inputs(2, m)
+        K = self._kernel(m).forward(x1, x2)
+        self.assertEqual(K.shape, torch.Size([4 * m, 2 * m]))
+        rows = torch.arange(4 * m) % m
+        cols = torch.arange(2 * m) % m
+        self.assertTrue(torch.all(K[rows.unsqueeze(-1) != cols.unsqueeze(-2)] == 0.0))
+
+    def test_differs_from_the_unmasked_base_kernel(self) -> None:
+        # Guards against the mask silently becoming a no-op: the J_m and I_m
+        # shapes must not coincide for m > 1.
+        x = self._inputs(4, 3)
+        base = ScaleKernel(RBFKernel()).double()
+        self.assertFalse(
+            torch.allclose(
+                PerOutputBaseKernel(base, num_outputs=3).forward(x, x),
+                base(x, x).to_dense(),
+            )
+        )
+
+    def test_invalid_num_outputs(self) -> None:
+        with self.assertRaisesRegex(ValueError, "num_outputs must be >= 1"):
+            PerOutputBaseKernel(ScaleKernel(RBFKernel()), num_outputs=0)
+
+    # -- per-output outputscale -------------------------------------------------
+    #
+    # A single shared outputscale forces one variance level on every output. On
+    # LCBench the two outputs want measurably different ones, so a shared value
+    # lands between them and is wrong for both. These tests pin the per-output
+    # variant and, importantly, that it still reduces to the shared behaviour.
+
+    def _scaled(self, m: int = 3, **kw) -> PerOutputBaseKernel:
+        return PerOutputBaseKernel(
+            RBFKernel(), num_outputs=m, per_output_outputscale=True, **kw
+        ).double()
+
+    def test_no_outputscale_parameter_unless_requested(self) -> None:
+        # The default must stay a pure mask, or every existing fit changes.
+        self.assertFalse(hasattr(self._kernel(3), "raw_outputscale"))
+        self.assertTrue(hasattr(self._scaled(3), "raw_outputscale"))
+
+    def test_outputscale_has_one_entry_per_output(self) -> None:
+        self.assertEqual(self._scaled(4).outputscale.shape, torch.Size([4]))
+
+    def test_outputscale_scales_each_block_independently(self) -> None:
+        m, n = 3, 4
+        x = self._inputs(n, m)
+        base = RBFKernel().double()
+        scales = torch.tensor([0.25, 1.0, 4.0], dtype=torch.double)
+        kernel = PerOutputBaseKernel(
+            base, num_outputs=m, per_output_outputscale=True
+        ).double()
+        kernel.outputscale = scales
+        K = kernel.forward(x, x)
+        unscaled = base(x, x).to_dense()
+        idx = torch.arange(n * m)
+        for t in range(m):
+            block = (idx.unsqueeze(-1) % m == t) & (idx.unsqueeze(-2) % m == t)
+            self.assertAllClose(K[block], scales[t] * unscaled[block])
+
+    def test_equal_outputscales_match_a_shared_scale_kernel(self) -> None:
+        # The per-output family must contain the shared one as a special case.
+        m, n, c = 3, 4, 2.5
+        x = self._inputs(n, m)
+        shared = ScaleKernel(RBFKernel()).double()
+        shared.outputscale = c
+        per_output = self._scaled(m)
+        per_output.outputscale = torch.full((m,), c, dtype=torch.double)
+        self.assertAllClose(
+            per_output.forward(x, x),
+            PerOutputBaseKernel(shared, num_outputs=m).forward(x, x),
+        )
+
+    def test_outputscale_applies_to_diag(self) -> None:
+        m = 3
+        x = self._inputs(4, m)
+        kernel = self._scaled(m)
+        kernel.outputscale = torch.tensor([0.25, 1.0, 4.0], dtype=torch.double)
+        self.assertAllClose(
+            kernel.forward(x, x, diag=True),
+            kernel.forward(x, x).diagonal(dim1=-2, dim2=-1),
+        )
+
+    def test_outputscale_is_psd(self) -> None:
+        m = 3
+        x = self._inputs(5, m)
+        kernel = self._scaled(m)
+        kernel.outputscale = torch.tensor([0.1, 1.0, 7.0], dtype=torch.double)
+        K = kernel.forward(x, x)
+        eigvals = torch.linalg.eigvalsh(0.5 * (K + K.transpose(-1, -2)))
+        self.assertGreater(float(eigvals.min()), -1e-8)
+
+    def test_outputscale_rectangular_inputs(self) -> None:
+        m = 3
+        x1, x2 = self._inputs(4, m), self._inputs(2, m)
+        kernel = self._scaled(m)
+        scales = torch.tensor([0.25, 1.0, 4.0], dtype=torch.double)
+        kernel.outputscale = scales
+        K = kernel.forward(x1, x2)
+        unscaled = RBFKernel().double()
+        unscaled.lengthscale = kernel.base_kernel.lengthscale
+        expected = unscaled(x1, x2).to_dense()
+        rows, cols = torch.arange(4 * m) % m, torch.arange(2 * m) % m
+        for t in range(m):
+            block = (rows.unsqueeze(-1) == t) & (cols.unsqueeze(-2) == t)
+            self.assertAllClose(K[block], scales[t] * expected[block])
+
+    def test_outputscale_roundtrips_and_stays_positive(self) -> None:
+        kernel = self._scaled(3)
+        value = torch.tensor([0.01, 0.5, 12.0], dtype=torch.double)
+        kernel.outputscale = value
+        self.assertAllClose(kernel.outputscale, value)
+        self.assertTrue(bool((kernel.outputscale > 0).all()))
+
+    def test_outputscale_accepts_a_scalar(self) -> None:
+        kernel = self._scaled(3)
+        kernel.outputscale = 2.0
+        self.assertAllClose(
+            kernel.outputscale, torch.full((3,), 2.0, dtype=torch.double)
+        )
+
+    def test_outputscale_receives_gradient(self) -> None:
+        # Without a gradient the parameter cannot be fit, which is the whole point.
+        m = 3
+        x = self._inputs(4, m)
+        kernel = self._scaled(m)
+        kernel.forward(x, x).sum().backward()
+        grad = kernel.raw_outputscale.grad
+        self.assertIsNotNone(grad)
+        self.assertEqual(grad.shape, torch.Size([m]))
+        self.assertTrue(bool((grad != 0).all()))
+
+    def test_outputscale_single_output(self) -> None:
+        x = torch.linspace(0, 1, 5, dtype=torch.double).unsqueeze(-1)
+        kernel = PerOutputBaseKernel(
+            RBFKernel(), num_outputs=1, per_output_outputscale=True
+        ).double()
+        kernel.outputscale = 3.0
+        self.assertAllClose(
+            kernel.forward(x, x), 3.0 * kernel.base_kernel(x, x).to_dense()
+        )
