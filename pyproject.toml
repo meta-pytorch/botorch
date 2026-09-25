@@ -94,7 +94,7 @@ Documentation = "https://botorch.org"
 Repository = "https://github.com/meta-pytorch/botorch"
 
 [tool.setuptools]
-packages.find.exclude = ["test", "test.*", "test_community.*"]
+packages.find.include = ["botorch", "botorch.*", "botorch_community", "botorch_community.*"]
 package-data.botorch = ["csrc/*.cpp"]
 
 [tool.setuptools_scm]
