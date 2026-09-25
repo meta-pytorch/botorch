@@ -136,9 +136,47 @@ class TestTruncatedMultivariateNormal(BotorchTestCase):
                 )
                 self.assertTrue(trunc.log_prob(oob).eq(-float("inf")).all())
 
+    def test_rsample_with_batch_shape(self):
+        batch_shape = torch.Size([2, 3])
+        event_size = 4
+        loc = torch.randn(*batch_shape, event_size, dtype=torch.float64)
+        covariance_matrix = torch.eye(event_size, dtype=torch.float64).expand(
+            *batch_shape, event_size, event_size
+        )
+        bounds = torch.stack([loc - 2, loc + 2], dim=-1)
+        trunc = TruncatedMultivariateNormal(
+            loc=loc,
+            covariance_matrix=covariance_matrix,
+            bounds=bounds,
+            validate_args=True,
+        )
+        with self.assertRaisesRegex(
+            ValueError, "custom `sampler` cannot be used with a batched"
+        ):
+            TruncatedMultivariateNormal(
+                loc=loc,
+                covariance_matrix=covariance_matrix,
+                bounds=bounds,
+                sampler=self.distributions[0].sampler,
+            )
+
+        with torch.random.fork_rng():
+            torch.random.manual_seed(next(self.seed_generator))
+            for sample_shape in (torch.Size(), torch.Size([5]), torch.Size([2, 5])):
+                samples = trunc.rsample(sample_shape=sample_shape)
+                self.assertEqual(
+                    samples.shape, sample_shape + batch_shape + torch.Size([event_size])
+                )
+                self.assertTrue((samples > bounds[..., 0]).all())
+                self.assertTrue((samples < bounds[..., 1]).all())
+
     def test_expand(self):
         trunc = next(iter(self.distributions))
         other = trunc.expand(torch.Size([2]))
         for key in ("loc", "covariance_matrix", "bounds", "log_partition"):
             a = getattr(trunc, key)
             self.assertTrue(all(a.allclose(b) for b in getattr(other, key).unbind()))
+        self.assertEqual(
+            other.rsample(sample_shape=torch.Size([3])).shape,
+            torch.Size([3, 2, *trunc.event_shape]),
+        )

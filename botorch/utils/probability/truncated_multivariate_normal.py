@@ -61,9 +61,16 @@ class TruncatedMultivariateNormal(MultivariateNormal):
             scale_tril=scale_tril,
             validate_args=validate_args,
         )
+        if sampler is not None and self.batch_shape:
+            raise ValueError(
+                "A custom `sampler` cannot be used with a batched "
+                "TruncatedMultivariateNormal."
+            )
         self.bounds = bounds
         self._solver = solver
-        self._sampler = sampler
+        self._sampler: (
+            LinearEllipticalSliceSampler | list[LinearEllipticalSliceSampler] | None
+        ) = sampler
 
     def log_prob(self, value: Tensor) -> Tensor:
         r"""Approximates the true log probability."""
@@ -90,7 +97,15 @@ class TruncatedMultivariateNormal(MultivariateNormal):
             The (sample_shape x batch_shape x event_shape) tensor of samples.
         """
         num_samples = sample_shape.numel() if sample_shape else 1
-        return self.loc + self.sampler.draw(n=num_samples).view(*sample_shape, -1)
+        sampler = self.sampler
+        if isinstance(sampler, LinearEllipticalSliceSampler):
+            samples = sampler.draw(n=num_samples).view(*sample_shape, -1)
+        else:
+            samples = torch.stack(
+                [batch_sampler.draw(n=num_samples) for batch_sampler in sampler],
+                dim=1,
+            ).reshape(sample_shape + self.batch_shape + self.event_shape)
+        return self.loc + samples
 
     @property
     def log_partition(self) -> Tensor:
@@ -107,10 +122,13 @@ class TruncatedMultivariateNormal(MultivariateNormal):
         return self._solver
 
     @property
-    def sampler(self) -> LinearEllipticalSliceSampler:
+    def sampler(
+        self,
+    ) -> LinearEllipticalSliceSampler | list[LinearEllipticalSliceSampler]:
         if self._sampler is None:
+            event_size = self.scale_tril.shape[-1]
             eye = torch.eye(
-                self.scale_tril.shape[-1],
+                event_size,
                 dtype=self.scale_tril.dtype,
                 device=self.scale_tril.device,
             )
@@ -124,10 +142,25 @@ class TruncatedMultivariateNormal(MultivariateNormal):
                 dim=-1,
             ).unsqueeze(-1)
 
-            self._sampler = LinearEllipticalSliceSampler(
-                inequality_constraints=(A, b),
-                covariance_root=self.scale_tril,
-            )
+            if self.batch_shape:
+                num_batches = self.batch_shape.numel()
+                roots = self.scale_tril.expand(
+                    self.batch_shape + torch.Size([event_size, event_size])
+                ).reshape(num_batches, event_size, event_size)
+                self._sampler = [
+                    LinearEllipticalSliceSampler(
+                        inequality_constraints=(A, batch_b),
+                        covariance_root=batch_root,
+                    )
+                    for batch_b, batch_root in zip(
+                        b.reshape(num_batches, 2 * event_size, 1), roots, strict=True
+                    )
+                ]
+            else:
+                self._sampler = LinearEllipticalSliceSampler(
+                    inequality_constraints=(A, b),
+                    covariance_root=self.scale_tril,
+                )
         return self._sampler
 
     def expand(
