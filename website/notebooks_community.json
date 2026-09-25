@@ -4,6 +4,10 @@
     "title": "Alpha Entropy Search"
   },
   {
+    "id": "cake",
+    "title": "Context-Aware Kernel Evolution (CAKE)"
+  },
+  {
     "id": "clf_constrained_bo",
     "title": "BO with Binary Black-box Constraint"
   },
