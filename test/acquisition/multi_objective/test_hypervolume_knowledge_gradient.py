@@ -28,9 +28,10 @@ from botorch.exceptions.errors import BotorchError, UnsupportedError
 from botorch.exceptions.warnings import NumericsWarning
 from botorch.models.deterministic import GenericDeterministicModel
 from botorch.models.gp_regression import SingleTaskGP
+from botorch.models.model import ModelList
 from botorch.models.model_list_gp_regression import ModelListGP
 from botorch.sampling.list_sampler import ListSampler
-from botorch.sampling.normal import SobolQMCNormalSampler
+from botorch.sampling.normal import IIDNormalSampler, SobolQMCNormalSampler
 from botorch.utils.multi_objective.box_decompositions.dominated import (
     DominatedPartitioning,
 )
@@ -47,6 +48,24 @@ def cost_fn(X):
 
 
 class TestHypervolumeKnowledgeGradient(BotorchTestCase):
+    def test_default_sampler_draws_independent_samples(self):
+        train_X = torch.rand(4, 2, device=self.device)
+        train_Y = torch.rand(4, 2, device=self.device)
+        model = ModelList(
+            SingleTaskGP(train_X, train_Y[:, :1]),
+            SingleTaskGP(train_X, train_Y[:, 1:]),
+        )
+        acqf = qHypervolumeKnowledgeGradient(
+            model=model,
+            ref_point=torch.zeros(2, device=self.device),
+            num_fantasies=1024,
+        )
+        for seed, sampler in enumerate(acqf.sampler.samplers):
+            sampler.seed = seed
+        samples = acqf.sampler(model.posterior(train_X[:1])).squeeze()
+        correlation = torch.corrcoef(samples.T)[0, 1]
+        self.assertLess(correlation.abs().item(), 0.1)
+
     def test_initialization(self):
         tkwargs = {"device": self.device}
         for dtype, acqf_class in product(
@@ -69,6 +88,9 @@ class TestHypervolumeKnowledgeGradient(BotorchTestCase):
             acqf = acqf_class(model=model, ref_point=ref_point, **mf_kwargs)
 
             self.assertIsInstance(acqf.sampler, ListSampler)
+            self.assertTrue(
+                all(isinstance(s, IIDNormalSampler) for s in acqf.sampler.samplers)
+            )
             self.assertEqual(acqf.sampler.samplers[0].sample_shape, torch.Size([8]))
             # test ref point
             self.assertTrue(torch.equal(acqf.ref_point, ref_point))
@@ -99,6 +121,16 @@ class TestHypervolumeKnowledgeGradient(BotorchTestCase):
             self.assertIsInstance(acqf.inner_sampler, SobolQMCNormalSampler)
             self.assertEqual(acqf.inner_sampler.sample_shape, torch.Size([32]))
             self.assertIsNone(acqf._cost_sampler)
+            # A sampler for a joint posterior does not need to be a ListSampler.
+            joint_sampler = SobolQMCNormalSampler(sample_shape=torch.Size([4]))
+            acqf = acqf_class(
+                model=model,
+                ref_point=ref_point,
+                num_fantasies=4,
+                sampler=joint_sampler,
+                **mf_kwargs,
+            )
+            self.assertIs(acqf.sampler, joint_sampler)
             # test objective
             mc_objective = GenericMCMultiOutputObjective(lambda Y, X: 2 * Y)
             acqf = acqf_class(
