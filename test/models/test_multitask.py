@@ -275,8 +275,9 @@ class TestMultiTaskGP(BotorchTestCase):
 
             # test that posterior w/ observation noise raises appropriate error
             with self.assertRaisesRegex(
-                NotImplementedError,
-                "Passing a tensor of observations is not supported by MultiTaskGP.",
+                UnsupportedError,
+                "Passing a tensor of observations is only supported if the likelihood "
+                "is FixedNoiseGaussianLikelihood.",
             ):
                 model.posterior(test_x, observation_noise=torch.rand(2, **tkwargs))
 

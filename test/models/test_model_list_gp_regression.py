@@ -549,6 +549,113 @@ class TestModelListGP(BotorchTestCase):
                                 )
                             )
 
+    def test_fantasize_multitask_models(self):
+        dtype = torch.double
+        train_x = torch.rand(5, 1, dtype=dtype)
+        task = torch.arange(2).repeat_interleave(5).unsqueeze(-1).to(dtype=dtype)
+        multitask_x = torch.cat([train_x.repeat(2, 1), task], dim=-1)
+        multitask_y = torch.rand(10, 1, dtype=dtype)
+        multitask_yvar = torch.cat(
+            [torch.full((5, 1), 0.1), torch.full((5, 1), 0.2)]
+        ).to(dtype=dtype)
+        multitask_model = MultiTaskGP(
+            train_X=multitask_x,
+            train_Y=multitask_y,
+            train_Yvar=multitask_yvar,
+            task_feature=-1,
+        )
+        single_y = torch.rand(5, 1, dtype=dtype)
+        single_model = SingleTaskGP(
+            train_X=train_x,
+            train_Y=single_y,
+            train_Yvar=torch.full_like(single_y, 0.3),
+        )
+        model = ModelListGP(multitask_model, single_model)
+        fantasy_x = torch.rand(3, 1, dtype=dtype)
+        sample_shape = torch.Size([2])
+        explicit_observation_noise = torch.tensor(
+            [[0.4, 0.5, 0.6], [0.4, 0.5, 0.6], [0.4, 0.5, 0.6]],
+            dtype=dtype,
+        )
+        singleton_observation_noise = explicit_observation_noise[:1]
+
+        for observation_noise in (
+            None,
+            singleton_observation_noise,
+            explicit_observation_noise,
+        ):
+            fantasy_model = model.fantasize(
+                X=fantasy_x,
+                sampler=IIDNormalSampler(sample_shape=sample_shape),
+                observation_noise=observation_noise,
+            )
+
+            self.assertEqual([m.num_outputs for m in fantasy_model.models], [2, 1])
+            self.assertEqual(
+                fantasy_model.models[0].train_inputs[0].shape,
+                torch.Size([2, 16, 2]),
+            )
+            self.assertEqual(
+                fantasy_model.models[1].train_inputs[0].shape,
+                torch.Size([2, 8, 1]),
+            )
+            if observation_noise is not None:
+                self.assertAllClose(
+                    fantasy_model.models[0].likelihood.noise[..., -6:],
+                    torch.tensor([0.4] * 3 + [0.5] * 3, dtype=dtype),
+                )
+                self.assertAllClose(
+                    fantasy_model.models[1].likelihood.noise[..., -3:],
+                    torch.full((3,), 0.6, dtype=dtype),
+                )
+
+        sampler = ListSampler(
+            IIDNormalSampler(sample_shape=sample_shape),
+            IIDNormalSampler(sample_shape=sample_shape),
+        )
+        evaluation_mask = torch.tensor(
+            [[True, True, False], [False, False, True], [True, True, True]]
+        )
+        for observation_noise in (
+            None,
+            singleton_observation_noise,
+            explicit_observation_noise,
+        ):
+            fantasy_model = model.fantasize(
+                X=fantasy_x,
+                sampler=sampler,
+                evaluation_mask=evaluation_mask,
+                observation_noise=observation_noise,
+            )
+            self.assertEqual(
+                fantasy_model.models[0].train_inputs[0].shape,
+                torch.Size([2, 14, 2]),
+            )
+            self.assertEqual(
+                fantasy_model.models[1].train_inputs[0].shape,
+                torch.Size([2, 7, 1]),
+            )
+            if observation_noise is not None:
+                self.assertAllClose(
+                    fantasy_model.models[0].likelihood.noise[..., -4:],
+                    torch.tensor([0.4, 0.4, 0.5, 0.5], dtype=dtype),
+                )
+                self.assertAllClose(
+                    fantasy_model.models[1].likelihood.noise[..., -2:],
+                    torch.full((2,), 0.6, dtype=dtype),
+                )
+
+        evaluation_mask[0, 1] = False
+        with self.assertRaisesRegex(
+            UnsupportedError,
+            "same evaluation mask",
+        ):
+            model.fantasize(
+                X=fantasy_x,
+                sampler=sampler,
+                evaluation_mask=evaluation_mask,
+            )
+
     def test_fantasize_with_outcome_transform(self) -> None:
         """
         Check that fantasized posteriors from a ``ModelListGP`` with transforms

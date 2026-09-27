@@ -947,6 +947,25 @@ class MultiTaskGPyTorchModel(GPyTorchModel, ABC):
         """
         restore_targets_and_noise_single_output(self, Y, Yvar, strict)
 
+    def _get_average_observation_noise(self, X: Tensor) -> Tensor:
+        """Get the average fixed observation noise for each task in ``X``."""
+        test_task_features = self._map_tasks(X[..., self._task_feature]).long()
+        train_task_features = self._map_tasks(
+            self.train_inputs[0][..., self._task_feature]
+        ).long()
+        noise_by_task = torch.zeros(
+            *self.batch_shape, self.num_tasks, dtype=X.dtype, device=X.device
+        )
+        for task_feature in test_task_features.unique():
+            mask = train_task_features == task_feature
+            noise_by_task[..., task_feature] = self.likelihood.noise[..., mask].mean(
+                dim=-1
+            )
+        noise_shape = broadcast_shapes(X.shape[:-2], self.batch_shape) + X.shape[-2:-1]
+        return noise_by_task.expand(*noise_shape[:-1], -1).gather(
+            dim=-1, index=test_task_features.expand(noise_shape)
+        )
+
     def _apply_noise(
         self,
         X: Tensor,
@@ -973,46 +992,31 @@ class MultiTaskGPyTorchModel(GPyTorchModel, ABC):
                 the true latent function.
             num_outputs: The number of outputs of the model.
             observation_noise: If True, add observation noise from the respective
-                likelihood. Tensor input is currently not supported.
+                likelihood. Tensor input is supported internally for fixed-noise,
+                long-format multi-task fantasies.
 
         Returns:
             The posterior predictive.
         """
         if torch.is_tensor(observation_noise):
-            raise NotImplementedError(
-                "Passing a tensor of observations is not supported by MultiTaskGP."
-            )
+            if observation_noise.shape[-1:] == torch.Size([1]):
+                observation_noise = observation_noise.squeeze(-1)
+            if (
+                not isinstance(self.likelihood, FixedNoiseGaussianLikelihood)
+                or observation_noise.shape[-1] != X.shape[-2]
+            ):
+                raise UnsupportedError(
+                    "Passing a tensor of observations is only supported if the "
+                    "likelihood is FixedNoiseGaussianLikelihood."
+                )
+            return self.likelihood(mvn, X, noise=observation_noise)
         elif observation_noise is False:
             return mvn
         elif isinstance(self.likelihood, FixedNoiseGaussianLikelihood):
-            # get task features for test points
-            test_task_features = X[..., self._task_feature]
-            test_task_features = self._map_tasks(test_task_features).long()
-            unique_test_task_features = test_task_features.unique()
-            # get task features for training points
-            train_task_features = self.train_inputs[0][..., self._task_feature]
-            train_task_features = self._map_tasks(train_task_features).long()
-            noise_by_task = torch.zeros(
-                *self.batch_shape, self.num_tasks, dtype=X.dtype, device=X.device
-            )
-            for task_feature in unique_test_task_features:
-                mask = train_task_features == task_feature
-                noise_by_task[..., task_feature] = self.likelihood.noise[
-                    ..., mask
-                ].mean(dim=-1)
-            # noise_shape is ``broadcast(test_batch_shape, model.batch_shape) x q``
-            noise_shape = (
-                broadcast_shapes(X.shape[:-2], self.batch_shape) + X.shape[-2:-1]
-            )
-            # Expand and gather ensures we pick correct noise dimensions for
-            # batch evaluations of batched models.
-            observation_noise = noise_by_task.expand(*noise_shape[:-1], -1).gather(
-                dim=-1, index=test_task_features.expand(noise_shape)
-            )
             return self.likelihood(
                 mvn,
                 X,
-                noise=observation_noise,
+                noise=self._get_average_observation_noise(X=X),
             )
         return self.likelihood(mvn, X)
 
