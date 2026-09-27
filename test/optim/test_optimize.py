@@ -1303,20 +1303,19 @@ class TestOptimizeAcqf(BotorchTestCase):
                 )
                 self.assertEqual(candidates.size(), torch.Size([1, 3]))
 
-            # batch_initial_conditions must be feasible
-            with self.assertRaisesRegex(
-                ValueError,
-                "`batch_initial_conditions` must satisfy the non-linear "
-                "inequality constraints.",
-            ):
-                optimize_acqf(
-                    acq_function=mock_acq_function,
-                    bounds=bounds,
-                    q=1,
-                    nonlinear_inequality_constraints=[(nlc1, True)],
-                    num_restarts=num_restarts,
-                    batch_initial_conditions=4 * torch.ones(1, 1, 3, **tkwargs),
-                )
+            # Infeasible initial conditions can be repaired by SLSQP.
+            target = torch.tensor([1.0, 1.0, 2.0], **tkwargs)
+            candidates, acq_value = optimize_acqf(
+                acq_function=NegSquaredDistanceAcquisitionFunction(target=target),
+                bounds=bounds,
+                q=1,
+                nonlinear_inequality_constraints=[(nlc1, True)],
+                num_restarts=1,
+                batch_initial_conditions=4 * torch.ones(1, 1, 3, **tkwargs),
+            )
+            self.assertAllClose(candidates, target.unsqueeze(0))
+            self.assertGreaterEqual(nlc1(candidates).item(), 0.0)
+            self.assertAllClose(acq_value, torch.tensor(0.0, **tkwargs))
             # Explicitly setting batch_limit to be >1 should raise
             with self.assertRaisesRegex(
                 ValueError,

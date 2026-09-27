@@ -26,6 +26,7 @@ from botorch.generation.utils import _remove_fixed_features_from_optimization
 from botorch.logging import logger
 from botorch.optim.parameter_constraints import (
     _arrayify,
+    evaluate_feasibility,
     make_scipy_bounds,
     make_scipy_linear_constraints,
     make_scipy_nonlinear_inequality_constraints,
@@ -373,6 +374,7 @@ def gen_candidates_scipy(
                     f_np_wrapper=constraint_f_np_wrapper,
                     x0=x0,
                     shapeX=candidates_.shape,
+                    validate_feasibility=False,
                 )
 
             x0 = _arrayify(x0)
@@ -410,6 +412,20 @@ def gen_candidates_scipy(
         replace_current_value=False,
     )
     clamped_candidates = clamped_candidates.reshape(original_initial_conditions_shape)
+
+    if nonlinear_inequality_constraints:
+        is_feasible = evaluate_feasibility(
+            X=clamped_candidates,
+            nonlinear_inequality_constraints=nonlinear_inequality_constraints,
+        )
+        if not is_feasible.all():
+            warnings.warn(
+                "The optimizer produced infeasible candidates. "
+                f"{(~is_feasible).sum().item()} out of {is_feasible.numel()} "
+                "batches of candidates were infeasible.",
+                OptimizationWarning,
+                stacklevel=2,
+            )
 
     with torch.no_grad():
         batch_acquisition = acquisition_function(clamped_candidates)

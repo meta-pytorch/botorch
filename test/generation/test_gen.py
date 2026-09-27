@@ -301,6 +301,39 @@ class TestGenCandidates(TestBaseCandidateGeneration):
         )
         self.assertTrue(expected_warning_raised)
 
+    def test_gen_candidates_scipy_warns_infeasible_result(self):
+        for dtype in (torch.float, torch.double):
+            initial_conditions = torch.ones(1, 1, 1, device=self.device, dtype=dtype)
+
+            def nonlinear_constraint(x):
+                return 0.2 - x.squeeze(-1)
+
+            result = OptimizeResult(
+                x=torch.full_like(initial_conditions, 0.6).cpu().numpy(),
+                success=False,
+                status=9,
+                message="Iteration limit reached",
+            )
+            with (
+                mock.patch(
+                    "botorch.generation.gen.minimize_with_timeout",
+                    return_value=result,
+                ),
+                self.assertWarnsRegex(
+                    OptimizationWarning,
+                    "The optimizer produced infeasible candidates.",
+                ),
+            ):
+                candidates, _ = gen_candidates_scipy(
+                    initial_conditions=initial_conditions,
+                    acquisition_function=MockAcquisitionFunction(),
+                    lower_bounds=0,
+                    upper_bounds=1,
+                    nonlinear_inequality_constraints=[(nonlinear_constraint, True)],
+                    options={"maxiter": 1},
+                )
+            self.assertAllClose(candidates, torch.full_like(candidates, 0.6))
+
     def test_gen_candidates_scipy_maxiter_behavior(self):
         # Check that no warnings are raised & log produced on hitting maxiter.
         for method in ("SLSQP", "L-BFGS-B"):
