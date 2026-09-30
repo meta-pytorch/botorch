@@ -1730,11 +1730,11 @@ class NumericToCategoricalEncoding(InputTransform):
                 f"of `categorical_features`  ({cf_keys})."
             )
 
-        self.ordinal_idx = list(
-            self.categorical_features.keys()
-        )  # indices of categorical features before encoding
+        # indices of categorical features before encoding, sorted so that they
+        # line up with `encoded_idx`, which is built in ascending index order below
+        self.ordinal_idx = sorted(self.categorical_features)
 
-        self.numerical_idx = list(
+        self.numerical_idx = sorted(
             set(range(dim)) - set(self.ordinal_idx)
         )  # indices of numerical features before encoding
 
@@ -1769,7 +1769,7 @@ class NumericToCategoricalEncoding(InputTransform):
         s[-1] = len(self.numerical_idx) + len(np.concatenate(self.encoded_idx))
         X_encoded = torch.zeros(size=s, device=X.device, dtype=X.dtype)
         X_encoded[..., self.new_numerical_idx] = X[..., self.numerical_idx]
-        for i, idx in enumerate(self.categorical_features.keys()):
+        for i, idx in enumerate(self.ordinal_idx):
             encoded_val = self.encoders[idx](X[..., idx].long()).to(X_encoded)
             X_encoded[..., self.encoded_idx[i]] = encoded_val
         return X_encoded
@@ -1837,7 +1837,7 @@ class OneHotToNumeric(InputTransform):
                 raise ValueError("Categorical features overlap.")
             if max(idx) >= dim:
                 raise ValueError("Categorical features exceed the provided dimension.")
-            self.numerical_idx = list(set(range(dim)) - set(idx))
+            self.numerical_idx = sorted(set(range(dim)) - set(idx))
 
             offset = 0
             self.ordinal_idx = []
@@ -1846,7 +1846,7 @@ class OneHotToNumeric(InputTransform):
                 offset += card - 1
 
             reduced_dim = len(self.ordinal_idx) + len(self.numerical_idx)
-            self.new_numerical_idx = list(
+            self.new_numerical_idx = sorted(
                 set(range(reduced_dim)) - set(self.ordinal_idx)
             )
 

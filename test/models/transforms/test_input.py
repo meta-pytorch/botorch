@@ -1465,6 +1465,34 @@ class TestInputTransforms(BotorchTestCase):
         )
         self.assertFalse(tf4.equals(tf3))
 
+    def test_numeric_to_categorical_encoding_unsorted_features(self) -> None:
+        # `categorical_features` given with keys in non-ascending order
+        tf = NumericToCategoricalEncoding(
+            dim=4,
+            categorical_features={3: 2, 0: 4},
+            encoders={
+                3: partial(one_hot, num_classes=2),
+                0: partial(one_hot, num_classes=4),
+            },
+        )
+        X = torch.tensor([[2.0, 0.5, 0.6, 1.0]], device=self.device)
+        expected = torch.tensor(
+            [[0.0, 0.0, 1.0, 0.0, 0.5, 0.6, 0.0, 1.0]], device=self.device
+        )
+        self.assertTrue(torch.equal(tf(X), expected))
+
+    def test_one_hot_to_numeric_preserves_numerical_order(self) -> None:
+        # A wide one-hot block makes `set(range(dim)) - set(idx)` iterate
+        # out of order (e.g. [8, 5, 6, 7]); numerical features must keep order.
+        tf = OneHotToNumeric(dim=9, categorical_features={0: 5})
+        X = torch.tensor(
+            [[0.0, 0.0, 1.0, 0.0, 0.0, 0.5, 0.6, 0.7, 0.8]], device=self.device
+        )
+        X_numeric = tf(X)
+        expected = torch.tensor([[2.0, 0.5, 0.6, 0.7, 0.8]], device=self.device)
+        self.assertTrue(torch.equal(X_numeric, expected))
+        self.assertTrue(torch.equal(tf.untransform(X_numeric), X))
+
     def test_one_hot_to_numeric(self) -> None:
         dim = 8
         # test exceptions
