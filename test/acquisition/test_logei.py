@@ -380,6 +380,26 @@ class TestQLogNoisyExpectedImprovement(BotorchTestCase):
             log_acqf.set_X_pending(None)
             self.assertTrue(torch.equal(log_acqf.X_baseline, X_baseline))
 
+            with self.subTest("init_X_pending_survives_set_X_pending"):
+                X_new = torch.ones(1, 1, device=self.device, dtype=dtype)
+                log_acqf = qLogNoisyExpectedImprovement(
+                    model=mm_noisy_pending,
+                    X_baseline=X_baseline,
+                    X_pending=X,
+                    prune_baseline=False,
+                    cache_root=False,
+                )
+                log_acqf.set_X_pending(X_new)
+                self.assertTrue(
+                    torch.equal(
+                        log_acqf.X_baseline, torch.cat([X_baseline, X, X_new], dim=0)
+                    )
+                )
+                log_acqf.set_X_pending(None)
+                self.assertTrue(
+                    torch.equal(log_acqf.X_baseline, torch.cat([X_baseline, X], dim=0))
+                )
+
     def test_q_noisy_expected_improvement_batch(self):
         for dtype in (torch.float, torch.double):
             # the event shape is ``b x q x t`` = 2 x 3 x 1

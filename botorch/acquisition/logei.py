@@ -362,11 +362,11 @@ class qLogNoisyExpectedImprovement(
         self.marginalize_dim = marginalize_dim
         if incremental:
             self.X_pending = None  # required to initialize attribute for optimize_acqf
+            # Added to the baseline after pruning on every ``_init_baseline`` call.
+            self._init_X_pending = X_pending
         self._init_baseline(
             model=model,
             X_baseline=X_baseline,
-            # This is ignored in incremental=False
-            X_pending=X_pending,
             sampler=sampler,
             objective=objective,
             posterior_transform=posterior_transform,
@@ -413,6 +413,12 @@ class qLogNoisyExpectedImprovement(
                 constraints=self._constraints,
             )
         self.register_buffer("_X_baseline", X_baseline)
+        if self.incremental and self._init_X_pending is not None:
+            X_pending = (
+                self._init_X_pending
+                if X_pending is None
+                else torch.cat([self._init_X_pending, X_pending], dim=-2)
+            )
         # full_X_baseline is the set of points that should be considered as the
         # incumbent. For incremental EI, this contains the previously evaluated
         # points (X_baseline) and pending points (X_pending). For non-incremental
