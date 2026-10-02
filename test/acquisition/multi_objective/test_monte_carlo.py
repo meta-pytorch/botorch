@@ -704,6 +704,338 @@ class TestQNoisyExpectedHypervolumeImprovement(BotorchTestCase):
                         qLogNoisyExpectedHypervolumeImprovement, dtype, m
                     )
 
+    def test_nehvi_pending_replacement_semantics(self) -> None:
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        X_baseline = torch.tensor([[0.2, 0.8], [0.8, 0.2]], **tkwargs)
+        X_pending = torch.tensor([[0.4, 0.6], [0.6, 0.4]], **tkwargs)
+        replacement = torch.tensor([[0.3, 0.7], [0.7, 0.3]], **tkwargs)
+        X = torch.tensor([[0.5, 0.5]], **tkwargs)
+
+        for acqf_class, cache_pending in product(
+            (
+                qNoisyExpectedHypervolumeImprovement,
+                qLogNoisyExpectedHypervolumeImprovement,
+            ),
+            (False, True),
+        ):
+            with (
+                self.subTest(
+                    acqf_class=acqf_class.__name__, cache_pending=cache_pending
+                ),
+                catch_warnings(),
+            ):
+                simplefilter("ignore", category=NumericsWarning)
+                constructor_model = GenericDeterministicModel(
+                    f=lambda x: x, num_outputs=2
+                )
+                kwargs = {
+                    "ref_point": [0.0, 0.0],
+                    "X_baseline": X_baseline,
+                    "cache_pending": cache_pending,
+                    "max_iep": 0,
+                    "cache_root": False,
+                }
+                constructor_acqf = acqf_class(
+                    model=constructor_model,
+                    X_pending=X_pending,
+                    **kwargs,
+                )
+                setter_acqf = acqf_class(
+                    model=GenericDeterministicModel(f=lambda x: x, num_outputs=2),
+                    **kwargs,
+                )
+                partitioning = setter_acqf.partitioning
+                setter_acqf.set_X_pending(None)
+                self.assertIs(setter_acqf.partitioning, partitioning)
+                setter_acqf.set_X_pending(X_pending)
+                self.assertTrue(torch.equal(constructor_acqf.X_pending, X_pending))
+                self.assertNotEqual(
+                    constructor_acqf.X_pending.data_ptr(), X_pending.data_ptr()
+                )
+                self.assertTrue(
+                    torch.equal(constructor_acqf.X_baseline, setter_acqf.X_baseline)
+                )
+                self.assertAllClose(
+                    constructor_acqf.cell_lower_bounds,
+                    setter_acqf.cell_lower_bounds,
+                )
+                self.assertAllClose(
+                    constructor_acqf.cell_upper_bounds,
+                    setter_acqf.cell_upper_bounds,
+                )
+
+                with mock.patch.object(
+                    constructor_model,
+                    "posterior",
+                    wraps=constructor_model.posterior,
+                ) as mock_posterior:
+                    evaluate(constructor_acqf, X)
+                expected_X = (
+                    torch.cat([X_baseline, X_pending, X], dim=-2)
+                    if cache_pending
+                    else torch.cat([X_baseline, X, X_pending], dim=-2)
+                ).unsqueeze(0)
+                self.assertTrue(
+                    torch.equal(mock_posterior.call_args.args[0], expected_X)
+                )
+
+                partitioning = constructor_acqf.partitioning
+                constructor_acqf.set_X_pending(X_pending.clone())
+                self.assertIs(constructor_acqf.partitioning, partitioning)
+
+                constructor_acqf.set_X_pending(replacement)
+                expected_baseline = (
+                    torch.cat([X_baseline, replacement], dim=-2)
+                    if cache_pending
+                    else X_baseline
+                )
+                self.assertTrue(
+                    torch.equal(constructor_acqf.X_baseline, expected_baseline)
+                )
+                constructor_acqf.set_X_pending(replacement.flip(0))
+                expected_baseline = (
+                    torch.cat([X_baseline, replacement.flip(0)], dim=-2)
+                    if cache_pending
+                    else X_baseline
+                )
+                self.assertTrue(
+                    torch.equal(constructor_acqf.X_baseline, expected_baseline)
+                )
+                constructor_acqf.set_X_pending(None)
+                self.assertIsNone(constructor_acqf.X_pending)
+                self.assertTrue(torch.equal(constructor_acqf.X_baseline, X_baseline))
+
+    def test_nehvi_pending_state_invariants(self) -> None:
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        X_baseline = torch.tensor([[0.2, 0.8], [0.8, 0.2]], **tkwargs)
+        X_pending = torch.tensor([[0.4, 0.6], [0.6, 0.4]], **tkwargs)
+        X = torch.tensor([[0.5, 0.5]], **tkwargs)
+        kwargs = {
+            "model": GenericDeterministicModel(f=lambda x: x, num_outputs=2),
+            "ref_point": [0.0, 0.0],
+            "X_baseline": X_baseline,
+            "X_pending": X_pending,
+            "cache_pending": True,
+            "max_iep": 0,
+            "cache_root": False,
+        }
+
+        with catch_warnings():
+            simplefilter("ignore", category=NumericsWarning)
+            acqf = qNoisyExpectedHypervolumeImprovement(
+                incremental_nehvi=False, **kwargs
+            )
+            del acqf._baseline_hvs
+            with self.assertRaisesRegex(RuntimeError, "observed baseline only"):
+                acqf._set_cell_bounds()
+
+            acqf = qNoisyExpectedHypervolumeImprovement(**kwargs)
+            acqf.X_pending = None
+            with self.assertRaisesRegex(
+                RuntimeError, "Cached pending points exist without X_pending"
+            ):
+                acqf._compute_posterior_samples_and_concat_pending(X)
+
+            acqf.X_pending = X_pending[:1]
+            with self.assertRaisesRegex(RuntimeError, "must be an exact prefix"):
+                acqf._compute_posterior_samples_and_concat_pending(X)
+
+            acqf.X_pending = X_pending.flip(0)
+            with self.assertRaisesRegex(RuntimeError, "must be an exact prefix"):
+                acqf._compute_posterior_samples_and_concat_pending(X)
+
+    def test_nehvi_pending_cache_promotion_and_restoration(self) -> None:
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        X_baseline = torch.tensor([[0.2, 0.8], [0.8, 0.2]], **tkwargs)
+        pending = torch.tensor([[0.3, 0.7], [0.5, 0.5], [0.7, 0.3]], **tkwargs)
+
+        for acqf_class in (
+            qNoisyExpectedHypervolumeImprovement,
+            qLogNoisyExpectedHypervolumeImprovement,
+        ):
+            with self.subTest(acqf_class=acqf_class.__name__), catch_warnings():
+                simplefilter("ignore", category=NumericsWarning)
+                kwargs = {
+                    "model": GenericDeterministicModel(f=lambda x: x, num_outputs=2),
+                    "ref_point": [0.0, 0.0],
+                    "X_baseline": X_baseline,
+                    "cache_pending": True,
+                    "max_iep": 1,
+                    "cache_root": False,
+                }
+                acqf = acqf_class(**kwargs)
+                acqf.set_X_pending(pending[:1])
+                self.assertTrue(torch.equal(acqf.X_baseline, X_baseline))
+                acqf.set_X_pending(pending[:2])
+                cached_baseline = torch.cat([X_baseline, pending[:2]], dim=-2)
+                self.assertTrue(torch.equal(acqf.X_baseline, cached_baseline))
+                acqf.set_X_pending(pending)
+                self.assertTrue(torch.equal(acqf.X_baseline, cached_baseline))
+
+                acqf.set_X_pending(pending[:2])
+                fresh_acqf = acqf_class(**{**kwargs, "X_pending": pending[:2]})
+                self.assertTrue(torch.equal(acqf.X_baseline, fresh_acqf.X_baseline))
+                self.assertAllClose(
+                    acqf.cell_lower_bounds, fresh_acqf.cell_lower_bounds
+                )
+                self.assertAllClose(
+                    acqf.cell_upper_bounds, fresh_acqf.cell_upper_bounds
+                )
+                self.assertAllClose(acqf._prev_nehvi, fresh_acqf._prev_nehvi)
+
+    def test_nonincremental_nehvi_dynamic_pending_replacement(self) -> None:
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        X_baseline = torch.tensor([[0.2, 0.8], [0.8, 0.2]], **tkwargs)
+        X_pending = torch.tensor([[0.4, 0.6]], **tkwargs)
+        replacement = torch.tensor([[0.3, 0.7]], **tkwargs)
+        X = torch.tensor([[0.5, 0.5]], **tkwargs)
+
+        for acqf_class in (
+            qNoisyExpectedHypervolumeImprovement,
+            qLogNoisyExpectedHypervolumeImprovement,
+        ):
+            with self.subTest(acqf_class=acqf_class.__name__), catch_warnings():
+                simplefilter("ignore", category=NumericsWarning)
+                model = GenericDeterministicModel(f=lambda x: x, num_outputs=2)
+                kwargs = {
+                    "ref_point": [0.0, 0.0],
+                    "X_baseline": X_baseline,
+                    "cache_pending": True,
+                    "max_iep": 1,
+                    "incremental_nehvi": False,
+                    "cache_root": False,
+                }
+                transitioned = acqf_class(model=model, X_pending=X_pending, **kwargs)
+                transitioned.set_X_pending(replacement)
+                fresh = acqf_class(
+                    model=GenericDeterministicModel(f=lambda x: x, num_outputs=2),
+                    X_pending=replacement,
+                    **kwargs,
+                )
+
+                self.assertTrue(torch.equal(transitioned.X_baseline, X_baseline))
+                self.assertEqual(transitioned._prev_nehvi.item(), 0.0)
+                with mock.patch.object(
+                    model, "posterior", wraps=model.posterior
+                ) as mock_posterior:
+                    transitioned_value = evaluate(transitioned, X)
+                expected_X = torch.cat([X_baseline, X, replacement], dim=-2).unsqueeze(
+                    0
+                )
+                self.assertTrue(
+                    torch.equal(mock_posterior.call_args.args[0], expected_X)
+                )
+                self.assertAllClose(transitioned_value, evaluate(fresh, X))
+
+    def test_nonincremental_nehvi_baseline_hvs_are_baseline_only(self) -> None:
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        X_baseline = torch.tensor([[0.2, 0.8], [0.8, 0.2]], **tkwargs)
+        X_pending = torch.tensor([[0.5, 0.5]], **tkwargs)
+        replacement = torch.tensor([[0.9, 0.9]], **tkwargs)
+
+        for acqf_class in (
+            qNoisyExpectedHypervolumeImprovement,
+            qLogNoisyExpectedHypervolumeImprovement,
+        ):
+            with self.subTest(acqf_class=acqf_class.__name__), catch_warnings():
+                simplefilter("ignore", category=NumericsWarning)
+                kwargs = {
+                    "ref_point": [0.0, 0.0],
+                    "X_baseline": X_baseline,
+                    "cache_pending": True,
+                    "max_iep": 0,
+                    "incremental_nehvi": False,
+                    "cache_root": False,
+                }
+                baseline_acqf = acqf_class(
+                    model=GenericDeterministicModel(f=lambda x: x, num_outputs=2),
+                    **kwargs,
+                )
+                pending_acqf = acqf_class(
+                    model=GenericDeterministicModel(f=lambda x: x, num_outputs=2),
+                    X_pending=X_pending,
+                    **kwargs,
+                )
+                baseline_hvs = pending_acqf._baseline_hvs.clone()
+                self.assertAllClose(baseline_hvs, baseline_acqf._baseline_hvs)
+                self.assertGreater(pending_acqf._prev_nehvi.item(), 0.0)
+
+                pending_acqf.set_X_pending(replacement)
+                self.assertAllClose(pending_acqf._baseline_hvs, baseline_hvs)
+                self.assertGreater(pending_acqf._prev_nehvi.item(), 0.0)
+                pending_acqf.set_X_pending(None)
+                self.assertAllClose(pending_acqf._baseline_hvs, baseline_hvs)
+                self.assertEqual(pending_acqf._prev_nehvi.item(), 0.0)
+
+    def test_nonincremental_nehvi_replacement_preserves_mc_samples(self) -> None:
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        torch.manual_seed(0)
+        train_X = torch.rand(5, 2, **tkwargs)
+        train_Y = torch.stack([train_X.sum(dim=-1), (train_X**2).sum(dim=-1)], dim=-1)
+        model = SingleTaskGP(train_X, train_Y)
+        X_baseline = train_X[:3]
+        X_pending = torch.tensor([[0.1, 0.3], [0.7, 0.9]], **tkwargs)
+        replacement = torch.tensor([[0.4, 0.6]], **tkwargs)
+        X = torch.tensor([[0.5, 0.2]], **tkwargs)
+
+        for acqf_class, cache_root in product(
+            (
+                qNoisyExpectedHypervolumeImprovement,
+                qLogNoisyExpectedHypervolumeImprovement,
+            ),
+            (False, True),
+        ):
+            with (
+                self.subTest(acqf_class=acqf_class.__name__, cache_root=cache_root),
+                catch_warnings(),
+            ):
+                simplefilter("ignore", category=NumericsWarning)
+                kwargs = {
+                    "model": model,
+                    "ref_point": [-1.0, -1.0],
+                    "X_baseline": X_baseline,
+                    "cache_pending": True,
+                    "max_iep": 0,
+                    "incremental_nehvi": False,
+                    "cache_root": cache_root,
+                }
+                transitioned = acqf_class(
+                    sampler=SobolQMCNormalSampler(
+                        sample_shape=torch.Size([16]), seed=1234
+                    ),
+                    X_pending=X_pending,
+                    **kwargs,
+                )
+                transitioned.set_X_pending(replacement)
+                fresh = acqf_class(
+                    sampler=SobolQMCNormalSampler(
+                        sample_shape=torch.Size([16]), seed=1234
+                    ),
+                    X_pending=replacement,
+                    **kwargs,
+                )
+                self.assertAllClose(transitioned._baseline_hvs, fresh._baseline_hvs)
+                self.assertAllClose(transitioned._prev_nehvi, fresh._prev_nehvi)
+                self.assertAllClose(
+                    transitioned.base_sampler.base_samples,
+                    fresh.base_sampler.base_samples,
+                )
+                if cache_root:
+                    self.assertAllClose(transitioned._baseline_L, fresh._baseline_L)
+                    self.assertEqual(
+                        transitioned._baseline_L.shape[-1],
+                        transitioned.X_baseline.shape[-2],
+                    )
+
+                transitioned_X = X.clone().requires_grad_(True)
+                fresh_X = X.clone().requires_grad_(True)
+                transitioned_value = evaluate(transitioned, transitioned_X)
+                fresh_value = evaluate(fresh, fresh_X)
+                self.assertAllClose(transitioned_value, fresh_value)
+                transitioned_value.sum().backward()
+                fresh_value.sum().backward()
+                self.assertAllClose(transitioned_X.grad, fresh_X.grad)
+
     def _test_q_noisy_expected_hypervolume_improvement_m1(
         self, acqf_class: type[AcquisitionFunction], dtype: torch.dtype
     ):
@@ -1010,13 +1342,13 @@ class TestQNoisyExpectedHypervolumeImprovement(BotorchTestCase):
                 ref_point=torch.tensor(ref_point).to(**tkwargs), Y=pareto_Y
             )
             initial_hv = bd.compute_hypervolume()
-            # test _initial_hvs
+            # test _baseline_hvs
             if not incremental_nehvi:
-                self.assertTrue(hasattr(acqf, "_initial_hvs"))
-                # test that _initial_hvs has the correct shape
-                self.assertEqual(acqf._initial_hvs.shape, acqf._batch_sample_shape)
-                # test that _initial_hvs contains the correct hypervolume values
-                self.assertTrue(torch.equal(acqf._initial_hvs, initial_hv.view(-1)))
+                self.assertTrue(hasattr(acqf, "_baseline_hvs"))
+                # test that _baseline_hvs has the correct shape
+                self.assertEqual(acqf._baseline_hvs.shape, acqf._batch_sample_shape)
+                # test that _baseline_hvs contains the correct hypervolume values
+                self.assertTrue(torch.equal(acqf._baseline_hvs, initial_hv.view(-1)))
             # test forward
             X_test = torch.rand(1, 1, dtype=dtype, device=self.device)
             with torch.no_grad():

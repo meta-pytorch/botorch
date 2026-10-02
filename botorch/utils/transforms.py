@@ -395,7 +395,9 @@ def concatenate_pending_points(
 
     @wraps(method)
     def decorated(cls: Any, X: Tensor, **kwargs: Any) -> Any:
-        if cls.X_pending is not None:
+        if cls.X_pending is not None and getattr(
+            cls, "_should_concatenate_pending_points", True
+        ):
             X = torch.cat([X, match_batch_shape(cls.X_pending, X)], dim=-2)
         return method(cls, X, **kwargs)
 

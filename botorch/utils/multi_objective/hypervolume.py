@@ -633,19 +633,21 @@ class NoisyExpectedHypervolumeMixin(CachedCholeskyMCSamplerMixin):
         # Base sampler is initialized in _set_cell_bounds.
         self.base_sampler = None
 
-        # is this called twice, once here, once in MultiObjectiveMCAcquisitionFunction?
+        # For incremental NEHVI with enough pending points to cache, initialize the
+        # first decomposition directly over B + P. All other cases need a valid
+        # baseline-only decomposition before applying the complete pending set.
+        can_initialize_with_pending = (
+            X_pending is not None
+            and self.cache_pending
+            and self.incremental_nehvi
+            and X_pending.shape[-2] > self._max_iep
+        )
+        if not can_initialize_with_pending:
+            self._set_cell_bounds()
         if X_pending is not None:
-            # This will call self._set_cell_bounds if the number of pending
-            # points is greater than self._max_iep.
             self.set_X_pending(X_pending)
-        # In the case that X_pending is not None, but there are fewer than
-        # max_iep pending points, the box decompositions are not performed in
-        # set_X_pending. Therefore, we need to perform a box decomposition over
-        # f(X_baseline) here.
-        if X_pending is None or X_pending.shape[-2] <= self._max_iep:
-            self._set_cell_bounds(num_new_points=X_baseline.shape[0])
 
-        # Set q_in=-1 to so that self.sampler is updated at the next forward call.
+        # Set q_in=-1 so that self.sampler is updated at the next forward call.
         self.q_in = -1
 
     @property
@@ -653,8 +655,11 @@ class NoisyExpectedHypervolumeMixin(CachedCholeskyMCSamplerMixin):
         r"""Return X_baseline augmented with pending points cached using CBD."""
         return self._X_baseline_and_pending
 
-    def _compute_initial_hvs(self, obj: Tensor, feas: Tensor | None = None) -> None:
-        r"""Compute hypervolume dominated by f(X_baseline) under each sample.
+    def _compute_baseline_hvs(self, obj: Tensor, feas: Tensor | None = None) -> None:
+        r"""Cache the baseline-only hypervolume reference for non-incremental NEHVI.
+
+        This is computed exactly once from samples at ``_X_baseline`` before pending
+        points are cached. It intentionally remains fixed across pending-set updates.
 
         Args:
             obj: A ``(sample_shape * batch_shape) x n x m``-dim tensor of samples
@@ -662,7 +667,7 @@ class NoisyExpectedHypervolumeMixin(CachedCholeskyMCSamplerMixin):
             feas: ``(sample_shape * batch_shape) x n``-dim tensor of samples
                 of feasibility indicators.
         """
-        initial_hvs = []
+        baseline_hvs = []
         for i, sample in enumerate(obj):
             if self.constraints is not None:
                 sample = sample[feas[i]]
@@ -671,22 +676,22 @@ class NoisyExpectedHypervolumeMixin(CachedCholeskyMCSamplerMixin):
                 Y=sample,
             )
             hv = dominated_partitioning.compute_hypervolume()
-            initial_hvs.append(hv)
+            baseline_hvs.append(hv)
         self.register_buffer(
-            "_initial_hvs",
-            torch.tensor(initial_hvs, dtype=obj.dtype, device=obj.device).view(
+            "_baseline_hvs",
+            torch.tensor(baseline_hvs, dtype=obj.dtype, device=obj.device).view(
                 self._batch_sample_shape
             ),
         )
 
-    def _set_cell_bounds(self, num_new_points: int) -> None:
+    def _set_cell_bounds(self, num_appended_points: int | None = None) -> None:
         r"""Compute the box decomposition under each posterior sample.
 
         Args:
-            num_new_points: The number of new points (beyond the points
-                in X_baseline) that were used in the previous box decomposition.
-                In the first box decomposition, this should be the number of points
-                in X_baseline.
+            num_appended_points: The number of points appended since the previous
+                valid decomposition. If None, this is an initial decomposition or a
+                full rebuild, so all points in ``X_baseline`` are treated as new for
+                sampler synchronization.
         """
         if self.X_baseline.shape[0] > 0:
             with torch.no_grad():
@@ -700,7 +705,12 @@ class NoisyExpectedHypervolumeMixin(CachedCholeskyMCSamplerMixin):
             else:
                 samples = self.base_sampler(posterior)
             n_w = posterior._extended_shape()[-2] // self.X_baseline.shape[-2]
-            self._set_sampler(q_in=num_new_points * n_w, posterior=posterior)
+            num_sampler_points = (
+                self.X_baseline.shape[-2]
+                if num_appended_points is None
+                else num_appended_points
+            )
+            self._set_sampler(q_in=num_sampler_points * n_w, posterior=posterior)
             # cache posterior
             if self._cache_root:
                 # Note that this implicitly uses LinearOperator's caching to check if
@@ -740,8 +750,14 @@ class NoisyExpectedHypervolumeMixin(CachedCholeskyMCSamplerMixin):
         if feas is not None:
             feas = feas.view(new_batch_shape, *feas.shape[-1:])
 
-        if self.partitioning is None and not self.incremental_nehvi:
-            self._compute_initial_hvs(obj=obj, feas=feas)
+        # Non-incremental NEHVI measures total improvement relative to HV(f(B)).
+        # Cache this baseline-only reference exactly once, before adding pending points.
+        if not hasattr(self, "_baseline_hvs") and not self.incremental_nehvi:
+            if obj.shape[-2] != self._X_baseline.shape[-2]:
+                raise RuntimeError(
+                    "_baseline_hvs must be computed from the observed baseline only."
+                )
+            self._compute_baseline_hvs(obj=obj, feas=feas)
 
         if self.ref_point.shape[-1] > 2:
             # the partitioning algorithms run faster on the CPU
@@ -777,16 +793,21 @@ class NoisyExpectedHypervolumeMixin(CachedCholeskyMCSamplerMixin):
         self.register_buffer("cell_lower_bounds", cell_bounds[0])
         self.register_buffer("cell_upper_bounds", cell_bounds[1])
 
+    @staticmethod
+    def _is_prefix(X_prefix: Tensor, X: Tensor) -> bool:
+        r"""Return whether ``X_prefix`` is an exact pointwise prefix of ``X``."""
+        n = X_prefix.shape[-2]
+        return n <= X.shape[-2] and torch.equal(X_prefix, X[..., :n, :])
+
     def set_X_pending(self, X_pending: Tensor | None = None) -> None:
-        r"""Informs the acquisition function about pending design points.
+        r"""Replace the complete set of pending design points.
 
         Args:
             X_pending: ``n x d`` Tensor with ``n`` ``d``-dim design points that have
                 been submitted for evaluation but have not yet been evaluated.
         """
-        if X_pending is None:
-            self.X_pending = None
-        else:
+        old_X_pending = self.X_pending
+        if X_pending is not None:
             if X_pending.requires_grad:
                 warnings.warn(
                     "Pending points require a gradient but the acquisition function"
@@ -794,28 +815,68 @@ class NoisyExpectedHypervolumeMixin(CachedCholeskyMCSamplerMixin):
                     BotorchWarning,
                     stacklevel=2,
                 )
-            self.X_pending = X_pending.detach().clone()
-            if self.cache_pending:
-                X_baseline = torch.cat([self._X_baseline, X_pending], dim=-2)
-                # Number of new points is the total number of points minus
-                # (the number of previously cached pending points plus the
-                # of number of baseline points).
-                num_new_points = X_baseline.shape[0] - self.X_baseline.shape[0]
-                if num_new_points > 0:
-                    if num_new_points > self._max_iep:
-                        # Set the new baseline points to include pending points.
-                        self.register_buffer("_X_baseline_and_pending", X_baseline)
-                        # Recompute box decompositions.
-                        self._set_cell_bounds(num_new_points=num_new_points)
-                        if not self.incremental_nehvi:
-                            self._prev_nehvi = (
-                                (self._hypervolumes - self._initial_hvs)
-                                .clamp_min(0.0)
-                                .mean()
-                            )
-                        # Set q_in=-1 to so that self.sampler is updated at the next
-                        # forward call.
-                        self.q_in = -1
+            X_pending = X_pending.detach().clone()
+        self.X_pending = X_pending
+
+        if old_X_pending is None and X_pending is None:
+            return
+        if (
+            old_X_pending is not None
+            and X_pending is not None
+            and torch.equal(old_X_pending, X_pending)
+        ):
+            return
+        if not self.cache_pending:
+            return
+
+        empty_pending = self._X_baseline[..., :0, :]
+        old_pending = old_X_pending if old_X_pending is not None else empty_pending
+        new_pending = X_pending if X_pending is not None else empty_pending
+        num_baseline = self._X_baseline.shape[-2]
+        cached_pending = self.X_baseline[..., num_baseline:, :]
+        is_append_only = self._is_prefix(
+            X_prefix=cached_pending, X=old_pending
+        ) and self._is_prefix(X_prefix=old_pending, X=new_pending)
+
+        if is_append_only:
+            num_uncached = new_pending.shape[-2] - cached_pending.shape[-2]
+            if num_uncached <= self._max_iep:
+                return
+            X_baseline = torch.cat([self._X_baseline, new_pending], dim=-2)
+            self.register_buffer("_X_baseline_and_pending", X_baseline)
+            if self.partitioning is None:
+                self._set_cell_bounds()
+            else:
+                self._set_cell_bounds(num_appended_points=num_uncached)
+        else:
+            # Replacement-like transitions invalidate every cache derived from the
+            # previous pending set. Cache the new set only when its dynamic suffix
+            # would exceed max_iep.
+            # Preserve common random numbers for the observed baseline while the
+            # sampler is resized to the replacement pending set. Keep _baseline_hvs:
+            # it depends only on the observed baseline, not on pending points.
+            self.partitioning = None
+            if hasattr(self, "_baseline_L"):
+                del self._baseline_L
+            self.q_in = -1
+            self.q_out = -1
+            self._prev_nehvi = torch.zeros_like(self._prev_nehvi)
+            pending_to_cache = (
+                new_pending if new_pending.shape[-2] > self._max_iep else empty_pending
+            )
+            X_baseline = torch.cat([self._X_baseline, pending_to_cache], dim=-2)
+            self.register_buffer("_X_baseline_and_pending", X_baseline)
+            self._set_cell_bounds()
+
+        # _prev_nehvi stores only the contribution from cached pending points.
+        # Dynamic pending points (at or below max_iep) remain in the forward q-batch,
+        # so adding their contribution here would count them twice.
+        if not self.incremental_nehvi and new_pending.shape[-2] > self._max_iep:
+            self._prev_nehvi = (
+                (self._hypervolumes - self._baseline_hvs).clamp_min(0.0).mean()
+            )
+        # Set q_in=-1 so that self.sampler is updated at the next forward call.
+        self.q_in = -1
 
     @property
     def _hypervolumes(self) -> Tensor:
@@ -844,22 +905,21 @@ class NoisyExpectedHypervolumeMixin(CachedCholeskyMCSamplerMixin):
             the ``batch_shape x (q + num_uncached_pending) x d`` X tensor including any
             pending observations that have not been cached.
         """
-        # Manually concatenate pending points only if:
-        # - pending points are not cached, or
-        # - number of pending points is less than max_iep
-        if self.X_pending is not None:
-            num_pending = self.X_pending.shape[-2]
-            num_X_baseline = self._X_baseline.shape[-2]
-            num_X_baseline_and_cached_pending = self.X_baseline.shape[-2]
-            num_uncached_pending = (
-                (num_pending + num_X_baseline - num_X_baseline_and_cached_pending)
-                if self.cache_pending
-                else num_pending
-            )
-            X_pending_uncached = self.X_pending[
-                ..., num_pending - num_uncached_pending :, :
-            ]
-            X = torch.cat([X, match_batch_shape(X_pending_uncached, X)], dim=-2)
+        num_cached_pending = self.X_baseline.shape[-2] - self._X_baseline.shape[-2]
+        if self.X_pending is None:
+            if num_cached_pending != 0:
+                raise RuntimeError("Cached pending points exist without X_pending.")
+        else:
+            if num_cached_pending > self.X_pending.shape[-2] or not self._is_prefix(
+                X_prefix=self.X_baseline[..., self._X_baseline.shape[-2] :, :],
+                X=self.X_pending,
+            ):
+                raise RuntimeError(
+                    "Cached pending points must be an exact prefix of X_pending."
+                )
+            X_pending_uncached = self.X_pending[..., num_cached_pending:, :]
+            if X_pending_uncached.shape[-2] > 0:
+                X = torch.cat([X, match_batch_shape(X_pending_uncached, X)], dim=-2)
         X_full = torch.cat([match_batch_shape(self.X_baseline, X), X], dim=-2)
         # NOTE: To ensure that we correctly sample ``f(X)`` from the joint distribution
         # ``f((X_baseline, X)) ~ P(f | D)``, it is critical to compute the joint
