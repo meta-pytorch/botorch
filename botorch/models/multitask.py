@@ -30,6 +30,7 @@ References
 from __future__ import annotations
 
 import math
+from copy import deepcopy
 from typing import Any
 
 import torch
@@ -40,13 +41,14 @@ from botorch.models.kernels.positive_index import PositiveIndexKernel
 from botorch.models.model import FantasizeMixin
 from botorch.models.transforms.input import InputTransform
 from botorch.models.transforms.outcome import OutcomeTransform, Standardize
-from botorch.models.utils.assorted import get_task_value_remapping
+from botorch.models.utils.assorted import _make_X_full, get_task_value_remapping
 from botorch.models.utils.gpytorch_modules import (
     get_covar_module_with_dim_scaled_prior,
     MIN_INFERRED_NOISE_LEVEL,
 )
 from botorch.models.utils.priors import BetaPrior
 from botorch.posteriors.multitask import MultitaskGPPosterior
+from botorch.sampling.base import MCSampler
 from botorch.utils.datasets import MultiTaskDataset, SupervisedDataset
 from botorch.utils.types import _DefaultType, DEFAULT
 from gpytorch.constraints import GreaterThan
@@ -393,6 +395,75 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
             task_values = self._task_mapper[long_task_values]
 
         return task_values
+
+    def fantasize(
+        self,
+        X: Tensor,
+        sampler: MCSampler,
+        observation_noise: Tensor | None = None,
+        **kwargs: Any,
+    ) -> MultiTaskGP:
+        r"""Construct a fantasy model in the long-format multi-task representation."""
+        if X.shape[-1] == self.num_non_task_features:
+            num_points = X.shape[-2]
+            X = _make_X_full(
+                X=X,
+                output_indices=self._output_tasks,
+                tf=self._task_feature,
+            )
+            if observation_noise is not None:
+                if observation_noise.shape[-2] == 1:
+                    observation_noise = observation_noise.expand(
+                        *observation_noise.shape[:-2],
+                        num_points,
+                        observation_noise.shape[-1],
+                    )
+                observation_noise = torch.cat(
+                    [
+                        observation_noise[..., i : i + 1]
+                        for i in range(self.num_outputs)
+                    ],
+                    dim=-2,
+                )
+        if observation_noise is None and isinstance(
+            self.likelihood, FixedNoiseGaussianLikelihood
+        ):
+            observation_noise = self._get_average_observation_noise(X=X).unsqueeze(-1)
+        if X.shape[-2] == 0:
+            # No observations are added. Avoid passing empty task indices to
+            # GPyTorch's fantasy strategy, which cannot handle that case.
+            batch_shape = sampler.sample_shape + torch.broadcast_shapes(
+                X.shape[:-2], self.batch_shape
+            )
+            fantasy_model = deepcopy(self)
+            fantasy_model.train_inputs = tuple(
+                train_X.expand(batch_shape + train_X.shape[-2:])
+                for train_X in self.train_inputs
+            )
+            fantasy_model.train_targets = self.train_targets.expand(
+                batch_shape + self.train_targets.shape[-1:]
+            )
+            if isinstance(self.likelihood, FixedNoiseGaussianLikelihood):
+                fantasy_model.likelihood.noise_covar.noise = (
+                    self.likelihood.noise.expand(
+                        batch_shape + self.likelihood.noise.shape[-1:]
+                    )
+                )
+            if self._original_train_inputs is not None:
+                fantasy_model._original_train_inputs = (
+                    self._original_train_inputs.expand(
+                        batch_shape + self._original_train_inputs.shape[-2:]
+                    )
+                )
+            fantasy_model.prediction_strategy = None
+            return fantasy_model
+        return FantasizeMixin.fantasize(
+            self,
+            X=X,
+            sampler=sampler,
+            observation_noise=observation_noise,
+            **kwargs,
+        )
 
     def _split_inputs(self, x: Tensor) -> tuple[Tensor, Tensor, Tensor]:
         r"""Extracts features before task feature, task indices, and features after
