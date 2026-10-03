@@ -1094,3 +1094,403 @@ class TestMultiOutputShrinkage(BotorchTestCase):
         with torch.no_grad():
             post = model.posterior(Xg)
         self.assertEqual(post.mean.shape[-2], n_prog)
+
+
+class TestCrossOutputShrinkage(BotorchTestCase):
+    """Tests for the learnable cross-output shrinkage parameter ``rho``."""
+
+    def _make_data(self, num_curves=8, num_progression=6, m=3, seed=0):
+        torch.manual_seed(seed)
+        X_full = torch.linspace(0, 1, num_progression, dtype=torch.double).unsqueeze(-1)
+        Y_full = torch.randn(num_curves, num_progression, m, dtype=torch.double)
+        return X_full, Y_full
+
+    def _kernels(self, X_full, Y_full):
+        plain = MultiOutputEmpiricalOneDimensionalKernel(X_full=X_full, Y_full=Y_full)
+        shrunk = MultiOutputEmpiricalOneDimensionalKernel(
+            X_full=X_full, Y_full=Y_full, learn_cross_output_shrinkage=True
+        )
+        return plain, shrunk
+
+    def test_disabled_by_default(self) -> None:
+        X_full, Y_full = self._make_data()
+        kernel = MultiOutputEmpiricalOneDimensionalKernel(X_full=X_full, Y_full=Y_full)
+        self.assertIsNone(kernel.rho)
+        # No new parameters, so existing state_dicts stay loadable.
+        self.assertNotIn("rho", dict(kernel.named_parameters()))
+
+    def test_rho_one_is_exact_noop(self) -> None:
+        # The backward-compatibility guarantee: enabling the flag without moving
+        # rho must not perturb any existing model.
+        X_full, Y_full = self._make_data()
+        plain, shrunk = self._kernels(X_full, Y_full)
+        self.assertAlmostEqual(float(shrunk.rho), 1.0)
+        K_plain = plain.forward(X_full, X_full)
+        K_shrunk = shrunk.forward(X_full, X_full)
+        self.assertTrue(torch.equal(K_plain, K_shrunk))
+
+    def test_rho_zero_block_diagonalizes(self) -> None:
+        X_full, Y_full = self._make_data()
+        plain, shrunk = self._kernels(X_full, Y_full)
+        with torch.no_grad():
+            shrunk.rho.fill_(0.0)
+        K_plain = plain.forward(X_full, X_full)
+        K_shrunk = shrunk.forward(X_full, X_full)
+
+        m = shrunk.num_outputs
+        idx = torch.arange(K_plain.shape[-1])
+        cross = idx.unsqueeze(-1) % m != idx.unsqueeze(-2) % m
+        # Cross-output entries are exactly zero...
+        self.assertTrue(torch.all(K_shrunk[cross] == 0.0))
+        # ...and same-output entries are untouched.
+        self.assertTrue(torch.equal(K_shrunk[~cross], K_plain[~cross]))
+
+    def test_intermediate_rho_scales_only_cross_blocks(self) -> None:
+        X_full, Y_full = self._make_data()
+        plain, shrunk = self._kernels(X_full, Y_full)
+        rho = 0.37
+        with torch.no_grad():
+            shrunk.rho.fill_(rho)
+        K_plain = plain.forward(X_full, X_full)
+        K_shrunk = shrunk.forward(X_full, X_full)
+
+        m = shrunk.num_outputs
+        idx = torch.arange(K_plain.shape[-1])
+        cross = idx.unsqueeze(-1) % m != idx.unsqueeze(-2) % m
+        self.assertAllClose(K_shrunk[cross], rho * K_plain[cross])
+        self.assertTrue(torch.equal(K_shrunk[~cross], K_plain[~cross]))
+
+    def test_psd_across_rho(self) -> None:
+        # PSD is guaranteed by the Schur product theorem on [0, 1]; verify it.
+        X_full, Y_full = self._make_data()
+        _, shrunk = self._kernels(X_full, Y_full)
+        for rho in (0.0, 0.25, 0.5, 0.75, 1.0):
+            with torch.no_grad():
+                shrunk.rho.fill_(rho)
+            K = shrunk.forward(X_full, X_full)
+            eigvals = torch.linalg.eigvalsh(0.5 * (K + K.transpose(-1, -2)))
+            self.assertGreater(float(eigvals.min()), -1e-8, msg=f"rho={rho}")
+
+    def test_diag_is_rho_invariant(self) -> None:
+        # diag only touches same-output entries, so rho must not change it.
+        X_full, Y_full = self._make_data()
+        _, shrunk = self._kernels(X_full, Y_full)
+        diags = []
+        for rho in (0.0, 0.5, 1.0):
+            with torch.no_grad():
+                shrunk.rho.fill_(rho)
+            diags.append(shrunk.forward(X_full, X_full, diag=True))
+            # diag must also still agree with the dense diagonal.
+            dense_diag = shrunk.forward(X_full, X_full).diagonal(dim1=-2, dim2=-1)
+            self.assertAllClose(diags[-1], dense_diag)
+        self.assertTrue(torch.equal(diags[0], diags[1]))
+        self.assertTrue(torch.equal(diags[1], diags[2]))
+
+    def test_non_square_inputs(self) -> None:
+        # x1 and x2 of different lengths exercise the n1 != n2 mask path.
+        X_full, Y_full = self._make_data()
+        _, shrunk = self._kernels(X_full, Y_full)
+        with torch.no_grad():
+            shrunk.rho.fill_(0.5)
+        x2 = X_full[:3]
+        K = shrunk.forward(X_full, x2)
+        m = shrunk.num_outputs
+        self.assertEqual(K.shape, torch.Size([X_full.shape[0] * m, x2.shape[0] * m]))
+
+    def test_constraint_admits_endpoints(self) -> None:
+        X_full, Y_full = self._make_data()
+        _, shrunk = self._kernels(X_full, Y_full)
+        constraint = shrunk.rho_constraint
+        self.assertEqual(float(constraint.lower_bound), 0.0)
+        self.assertEqual(float(constraint.upper_bound), 1.0)
+        # A sigmoid Interval could not represent the endpoints exactly, which
+        # would silently change rho=1 (the default) behavior.
+        for value in (0.0, 1.0):
+            t = torch.tensor(value, dtype=torch.double)
+            self.assertEqual(float(constraint.transform(t)), value)
+
+    def test_model_plumbing_and_posterior(self) -> None:
+        X_full, Y_full = self._make_data()
+        train_X = X_full[:4]
+        train_Y = Y_full[0, :4]
+        model = MultiOutputEmpiricalOneDimensionalGP(
+            train_X=train_X,
+            train_Y=train_Y,
+            historical_X=X_full,
+            historical_Y=Y_full,
+            learn_cross_output_shrinkage=True,
+        )
+        self.assertIsNotNone(model._base_kernel.rho)
+        self.assertIn("rho", {n.split(".")[-1] for n, _ in model.named_parameters()})
+        model.eval()
+        with torch.no_grad():
+            posterior = model.posterior(X_full)
+        self.assertEqual(
+            posterior.mean.shape, torch.Size([X_full.shape[0], Y_full.shape[-1]])
+        )
+
+    def test_model_rejects_mismatched_covar_module(self) -> None:
+        X_full, Y_full = self._make_data()
+        train_X, train_Y = X_full[:4], Y_full[0, :4]
+        plain, shrunk = self._kernels(X_full, Y_full)
+        for covar_module, flag in ((plain, True), (shrunk, False)):
+            with self.assertRaisesRegex(ValueError, "learn_cross_output_shrinkage"):
+                MultiOutputEmpiricalOneDimensionalGP(
+                    train_X=train_X,
+                    train_Y=train_Y,
+                    historical_X=X_full,
+                    historical_Y=Y_full,
+                    covar_module=covar_module,
+                    learn_cross_output_shrinkage=flag,
+                )
+
+
+class TestCovarianceRidge(BotorchTestCase):
+    """A nugget on the empirical covariance, to fix rank-deficiency.
+
+    The empirical covariance is ``U^T U / N``, so its rank is capped by the
+    number of historical curves. With fewer curves than index points, some
+    directions carry *exactly zero* prior variance and the model is infinitely
+    confident in them. A ridge shifts every eigenvalue up and lifts that null
+    space. A scalar multiplier provably cannot: it leaves a zero at zero.
+    """
+
+    def _data(self, num_curves: int = 6, n: int = 10, m: int = 2):
+        torch.manual_seed(0)
+        epochs = torch.linspace(0, 1, n, dtype=torch.double).unsqueeze(-1)
+        historical = torch.randn(num_curves, n, m, dtype=torch.double)
+        return epochs, historical
+
+    def _model(self, ridge: bool, num_curves: int = 6):
+        epochs, historical = self._data(num_curves=num_curves)
+        return MultiOutputEmpiricalOneDimensionalGP(
+            train_X=epochs[:3],
+            train_Y=torch.randn(3, 2, dtype=torch.double),
+            historical_X=epochs,
+            historical_Y=historical,
+            learn_covariance_ridge=ridge,
+        )
+
+    def _set_ridge(self, model, value: float) -> None:
+        kernel = model.covar_module.base_kernel
+        with torch.no_grad():
+            kernel.raw_ridge.fill_(
+                kernel.raw_ridge_constraint.inverse_transform(
+                    torch.tensor(value, dtype=torch.double)
+                )
+            )
+
+    def test_off_by_default(self) -> None:
+        model = self._model(ridge=False)
+        self.assertIsNone(model.covar_module.base_kernel.raw_ridge)
+        self.assertIsNone(model.covar_module.base_kernel.ridge)
+
+    def test_lifts_the_null_space(self) -> None:
+        # 6 historical curves over a 20-dim index set: rank <= 6, so 14 null
+        # directions before the ridge and none after.
+        epochs, _ = self._data()
+        without = self._model(ridge=False)
+        with torch.no_grad():
+            K0 = without.covar_module(epochs).to_dense()
+        eig0 = torch.linalg.eigvalsh(0.5 * (K0 + K0.transpose(-1, -2)))
+        self.assertLess(float(eig0.min()), 1e-10)
+
+        with_ridge = self._model(ridge=True)
+        self._set_ridge(with_ridge, 1e-2)
+        with torch.no_grad():
+            K1 = with_ridge.covar_module(epochs).to_dense()
+        eig1 = torch.linalg.eigvalsh(0.5 * (K1 + K1.transpose(-1, -2)))
+        self.assertGreater(float(eig1.min()), 1e-3)
+
+    def test_shifts_every_eigenvalue_by_the_ridge(self) -> None:
+        # The defining property: K + lambda*I, so the whole spectrum moves up by
+        # exactly lambda. This is what a scalar multiplier cannot do.
+        epochs, _ = self._data()
+        ridge_value = 5e-3
+        without = self._model(ridge=False)
+        with_ridge = self._model(ridge=True)
+        self._set_ridge(with_ridge, ridge_value)
+        with torch.no_grad():
+            K0 = without.covar_module(epochs).to_dense()
+            K1 = with_ridge.covar_module(epochs).to_dense()
+        eig0 = torch.linalg.eigvalsh(0.5 * (K0 + K0.transpose(-1, -2)))
+        eig1 = torch.linalg.eigvalsh(0.5 * (K1 + K1.transpose(-1, -2)))
+        self.assertAllClose(eig1, eig0 + ridge_value, atol=1e-9)
+
+    def test_only_added_where_inputs_coincide(self) -> None:
+        # A genuine white-noise nugget, not a constant added to every entry
+        # (which would be a rank-one bias term, not a ridge).
+        epochs, historical = self._data()
+        model = self._model(ridge=True)
+        self._set_ridge(model, 1e-2)
+        kernel = model.covar_module.base_kernel
+        x1, x2 = epochs[:4], epochs[5:8]  # disjoint inputs
+        with torch.no_grad():
+            cross = kernel.forward(x1, x2)
+            baseline = self._model(ridge=False).covar_module.base_kernel.forward(x1, x2)
+        self.assertAllClose(cross, baseline)
+
+    def test_diag_matches_the_full_diagonal(self) -> None:
+        epochs, _ = self._data()
+        model = self._model(ridge=True)
+        self._set_ridge(model, 1e-2)
+        kernel = model.covar_module.base_kernel
+        with torch.no_grad():
+            self.assertAllClose(
+                kernel.forward(epochs, epochs, diag=True),
+                kernel.forward(epochs, epochs).diagonal(dim1=-2, dim2=-1),
+            )
+
+    def test_increases_predictive_variance(self) -> None:
+        epochs, _ = self._data()
+        without = self._model(ridge=False)
+        with_ridge = self._model(ridge=True)
+        self._set_ridge(with_ridge, 1e-2)
+        with torch.no_grad():
+            v0 = without.posterior(epochs).variance
+            v1 = with_ridge.posterior(epochs).variance
+        self.assertTrue(torch.all(v1 >= v0 - 1e-9))
+        self.assertGreater(float(v1.mean()), float(v0.mean()))
+
+    def test_is_trainable(self) -> None:
+        model = self._model(ridge=True)
+        names = [
+            n for n, p in model.named_parameters() if "ridge" in n and p.requires_grad
+        ]
+        self.assertEqual(len(names), 1)
+
+    def test_flag_must_match_supplied_covar_module(self) -> None:
+        epochs, historical = self._data()
+        kernel = MultiOutputEmpiricalOneDimensionalKernel(
+            X_full=epochs, Y_full=historical, learn_covariance_ridge=False
+        )
+        with self.assertRaisesRegex(ValueError, "learn_covariance_ridge"):
+            MultiOutputEmpiricalOneDimensionalGP(
+                train_X=epochs[:3],
+                train_Y=torch.randn(3, 2, dtype=torch.double),
+                historical_X=epochs,
+                historical_Y=historical,
+                covar_module=kernel,
+                learn_covariance_ridge=True,
+            )
+
+    def test_composes_with_rho(self) -> None:
+        epochs, historical = self._data()
+        model = MultiOutputEmpiricalOneDimensionalGP(
+            train_X=epochs[:3],
+            train_Y=torch.randn(3, 2, dtype=torch.double),
+            historical_X=epochs,
+            historical_Y=historical,
+            learn_cross_output_shrinkage=True,
+            learn_covariance_ridge=True,
+        )
+        kernel = model.covar_module.base_kernel
+        self.assertIsNotNone(kernel.rho)
+        self.assertIsNotNone(kernel.ridge)
+        with torch.no_grad():
+            K = kernel.forward(epochs, epochs)
+        self.assertTrue(torch.isfinite(K).all())
+
+
+class TestKroneckerFactoredKernel(BotorchTestCase):
+    """Separable empirical covariance: Sigma_progression (x) Sigma_output.
+
+    The unconstrained estimate has rank <= num_curves, so below n*m curves it
+    leaves directions with exactly zero prior variance. The Kronecker constraint
+    needs only n(n+1)/2 + m(m+1)/2 parameters, so the same curves support a far
+    better conditioned estimate -- and the benefit grows with m.
+    """
+
+    def _data(self, num_curves: int = 6, n: int = 10, m: int = 2):
+        torch.manual_seed(0)
+        epochs = torch.linspace(0, 1, n, dtype=torch.double).unsqueeze(-1)
+        return epochs, torch.randn(num_curves, n, m, dtype=torch.double)
+
+    def _model(self, factored: bool, num_curves: int = 6, m: int = 2):
+        epochs, historical = self._data(num_curves=num_curves, m=m)
+        return MultiOutputEmpiricalOneDimensionalGP(
+            train_X=epochs[:3],
+            train_Y=torch.randn(3, m, dtype=torch.double),
+            historical_X=epochs,
+            historical_Y=historical,
+            kronecker_factored=factored,
+        )
+
+    def test_off_by_default(self) -> None:
+        self.assertFalse(
+            self._model(factored=False).covar_module.base_kernel.kronecker_factored
+        )
+
+    def test_raises_the_rank(self) -> None:
+        epochs, _ = self._data()
+        ranks = {}
+        for factored in (False, True):
+            with torch.no_grad():
+                K = self._model(factored).covar_module(epochs).to_dense()
+            K = 0.5 * (K + K.transpose(-1, -2))
+            eig = torch.linalg.eigvalsh(K)
+            tol = eig.max() * K.shape[-1] * torch.finfo(K.dtype).eps
+            ranks[factored] = int((eig > tol).sum())
+        self.assertGreater(ranks[True], ranks[False])
+
+    def test_is_psd(self) -> None:
+        epochs, _ = self._data()
+        with torch.no_grad():
+            K = self._model(True).covar_module(epochs).to_dense()
+        eig = torch.linalg.eigvalsh(0.5 * (K + K.transpose(-1, -2)))
+        self.assertGreater(float(eig.min()), -1e-8)
+
+    def test_has_kronecker_structure(self) -> None:
+        # The defining property: K[i*m+a, j*m+b] / K[i*m+c, j*m+d] must not depend
+        # on (i, j). Equivalently every m x m block is a scalar multiple of S.
+        epochs, _ = self._data(m=3)
+        m = 3
+        with torch.no_grad():
+            K = self._model(True, m=m).covar_module.base_kernel.forward(epochs, epochs)
+        block_00 = K[:m, :m]
+        for i in (1, 2, 4):
+            block = K[i * m : (i + 1) * m, :m]
+            scale = block[0, 0] / block_00[0, 0]
+            self.assertAllClose(block, block_00 * scale, atol=1e-8)
+
+    def test_diag_matches_the_full_diagonal(self) -> None:
+        epochs, _ = self._data()
+        kernel = self._model(True).covar_module.base_kernel
+        with torch.no_grad():
+            self.assertAllClose(
+                kernel.forward(epochs, epochs, diag=True),
+                kernel.forward(epochs, epochs).diagonal(dim1=-2, dim2=-1),
+            )
+
+    def test_evaluates_off_the_historical_grid(self) -> None:
+        # The whole reason the progression factor is rebuilt from the interpolated
+        # basis rather than stored as a fixed grid matrix.
+        _, _ = self._data()
+        off_grid = torch.tensor([[0.05], [0.17], [0.93]], dtype=torch.double)
+        with torch.no_grad():
+            K = self._model(True).covar_module.base_kernel.forward(off_grid, off_grid)
+        self.assertEqual(K.shape, torch.Size([6, 6]))
+        self.assertTrue(torch.isfinite(K).all())
+
+    def test_rectangular_inputs(self) -> None:
+        epochs, _ = self._data()
+        with torch.no_grad():
+            K = self._model(True).covar_module.base_kernel.forward(
+                epochs[:4], epochs[:2]
+            )
+        self.assertEqual(K.shape, torch.Size([8, 4]))
+
+    def test_flag_must_match_supplied_covar_module(self) -> None:
+        epochs, historical = self._data()
+        kernel = MultiOutputEmpiricalOneDimensionalKernel(
+            X_full=epochs, Y_full=historical, kronecker_factored=False
+        )
+        with self.assertRaisesRegex(ValueError, "kronecker_factored"):
+            MultiOutputEmpiricalOneDimensionalGP(
+                train_X=epochs[:3],
+                train_Y=torch.randn(3, 2, dtype=torch.double),
+                historical_X=epochs,
+                historical_Y=historical,
+                covar_module=kernel,
+                kronecker_factored=True,
+            )
