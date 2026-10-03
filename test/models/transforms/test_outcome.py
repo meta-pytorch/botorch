@@ -1091,3 +1091,26 @@ class TestOutcomeTransforms(BotorchTestCase):
             Y_tf_subset, Yvar_tf_subset = tf_subset(Y[..., [0]], None)
             self.assertTrue(torch.equal(Y_tf_subset, Y_tf[..., [0]]))
             self.assertIsNone(Yvar_tf_subset)
+
+    def test_subset_output_with_outputs(self) -> None:
+        # `subset_output` must re-index `outputs` to positions in the subset.
+        Y = 1 + torch.rand(5, 3, device=self.device, dtype=torch.double)
+        for tf in (
+            Standardize(m=3, outputs=[2]),
+            Log(outputs=[2]),
+            Power(power=2.0, outputs=[2]),
+            Bilog(outputs=[2]),
+        ):
+            with self.subTest(tf=tf.__class__.__name__):
+                tf(Y)  # learn the means / stdvs of Standardize
+                tf.eval()
+                Y_tf, _ = tf(Y)
+                for idcs, expected in (([2], [0]), ([1, 2], [1]), ([2, 0], [0])):
+                    tf_subset = tf.subset_output(idcs=idcs)
+                    self.assertEqual(tf_subset._outputs, expected)
+                    Y_tf_subset, _ = tf_subset(Y[..., idcs])
+                    self.assertAllClose(Y_tf_subset, Y_tf[..., idcs])
+                    # re-fitting the subset transforms the same outcomes
+                    tf_subset.train()
+                    Y_tf_subset, _ = tf_subset(Y[..., idcs])
+                    self.assertAllClose(Y_tf_subset, Y_tf[..., idcs])
