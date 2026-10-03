@@ -30,6 +30,7 @@ References
 from __future__ import annotations
 
 import math
+from copy import deepcopy
 from typing import Any
 
 import torch
@@ -428,6 +429,34 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
             self.likelihood, FixedNoiseGaussianLikelihood
         ):
             observation_noise = self._get_average_observation_noise(X=X).unsqueeze(-1)
+        if X.shape[-2] == 0:
+            # No observations are added. Avoid passing empty task indices to
+            # GPyTorch's fantasy strategy, which cannot handle that case.
+            batch_shape = sampler.sample_shape + torch.broadcast_shapes(
+                X.shape[:-2], self.batch_shape
+            )
+            fantasy_model = deepcopy(self)
+            fantasy_model.train_inputs = tuple(
+                train_X.expand(batch_shape + train_X.shape[-2:])
+                for train_X in self.train_inputs
+            )
+            fantasy_model.train_targets = self.train_targets.expand(
+                batch_shape + self.train_targets.shape[-1:]
+            )
+            if isinstance(self.likelihood, FixedNoiseGaussianLikelihood):
+                fantasy_model.likelihood.noise_covar.noise = (
+                    self.likelihood.noise.expand(
+                        batch_shape + self.likelihood.noise.shape[-1:]
+                    )
+                )
+            if self._original_train_inputs is not None:
+                fantasy_model._original_train_inputs = (
+                    self._original_train_inputs.expand(
+                        batch_shape + self._original_train_inputs.shape[-2:]
+                    )
+                )
+            fantasy_model.prediction_strategy = None
+            return fantasy_model
         return FantasizeMixin.fantasize(
             self,
             X=X,

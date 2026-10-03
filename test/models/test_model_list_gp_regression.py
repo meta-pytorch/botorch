@@ -645,6 +645,35 @@ class TestModelListGP(BotorchTestCase):
                     torch.full((2,), 0.6, dtype=dtype),
                 )
 
+        empty_multitask_mask = evaluation_mask.clone()
+        empty_multitask_mask[:, :2] = False
+        for component in (
+            multitask_model,
+            MultiTaskGP(multitask_x, multitask_y, task_feature=-1),
+        ):
+            for observation_noise in (None, singleton_observation_noise):
+                fantasy_model = ModelListGP(component, single_model).fantasize(
+                    X=fantasy_x,
+                    sampler=sampler,
+                    evaluation_mask=empty_multitask_mask,
+                    observation_noise=observation_noise,
+                )
+                self.assertEqual(
+                    fantasy_model.models[0].train_inputs[0].shape,
+                    torch.Size([2, 10, 2]),
+                )
+                self.assertTrue(
+                    torch.isfinite(fantasy_model.models[0].train_targets).all()
+                )
+                self.assertAllClose(
+                    fantasy_model.models[0].train_targets,
+                    component.train_targets.expand(2, -1),
+                )
+                posterior = fantasy_model.models[0].posterior(fantasy_x)
+                self.assertTrue(torch.isfinite(posterior.mean).all())
+                self.assertTrue(torch.isfinite(posterior.variance).all())
+                self.assertEqual(component.train_inputs[0].shape, torch.Size([10, 2]))
+
         evaluation_mask[0, 1] = False
         with self.assertRaisesRegex(
             UnsupportedError,

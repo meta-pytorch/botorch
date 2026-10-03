@@ -948,7 +948,7 @@ class MultiTaskGPyTorchModel(GPyTorchModel, ABC):
         restore_targets_and_noise_single_output(self, Y, Yvar, strict)
 
     def _get_average_observation_noise(self, X: Tensor) -> Tensor:
-        """Get the average fixed observation noise for each task in ``X``."""
+        """Get task-average noise, using all observations for unobserved tasks."""
         test_task_features = self._map_tasks(X[..., self._task_feature]).long()
         train_task_features = self._map_tasks(
             self.train_inputs[0][..., self._task_feature]
@@ -958,8 +958,10 @@ class MultiTaskGPyTorchModel(GPyTorchModel, ABC):
         )
         for task_feature in test_task_features.unique():
             mask = train_task_features == task_feature
-            noise_by_task[..., task_feature] = self.likelihood.noise[..., mask].mean(
-                dim=-1
+            noise_by_task[..., task_feature] = (
+                self.likelihood.noise[..., mask].mean(dim=-1)
+                if mask.any()
+                else self.likelihood.noise.mean(dim=-1)
             )
         noise_shape = broadcast_shapes(X.shape[:-2], self.batch_shape) + X.shape[-2:-1]
         return noise_by_task.expand(*noise_shape[:-1], -1).gather(
