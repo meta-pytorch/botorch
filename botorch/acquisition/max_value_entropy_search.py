@@ -59,6 +59,11 @@ from torch import Tensor
 
 
 CLAMP_LB = 1.0e-8
+# Below this value of the standardized max value gamma, GIBBON's information gain is
+# computed with a continued fraction, see `_gibbon_tail_terms`. The value is a
+# trade-off: the log-space evaluation loses accuracy as gamma decreases, while the
+# continued fraction needs more terms as gamma approaches zero.
+GIBBON_TAIL_BOUND = -5.0
 
 
 class MaxValueBase(AcquisitionFunction, ABC):
@@ -550,8 +555,19 @@ class qLowerBoundMaxValueEntropy(MaxValueBase):
         normalized_mvs = (mvs - mean_M) / stdv
         # batch_shape x s_M
 
+        # The quality contribution to the GIBBON acquisition function is
+        # -0.5 * log(1 - u) with u = rho^2 * ratio * (gamma + ratio), where
+        # ratio = pdf(gamma) / cdf(gamma). Evaluating this directly loses all
+        # precision in both tails: for large gamma, 1 - u rounds to 1, and for very
+        # negative gamma, ratio approaches -gamma, so that gamma + ratio cancels.
+        # We therefore use one branch per regime, and clamp gamma to the domain of
+        # each branch to avoid NaNs in the gradients.
+        is_tail = normalized_mvs < GIBBON_TAIL_BOUND
+        gamma_upper = normalized_mvs.clamp_min(GIBBON_TAIL_BOUND)
+        gamma_lower = normalized_mvs.clamp_max(GIBBON_TAIL_BOUND)
+
         # log of the ratio pdf / cdf, i.e. the standard normal log-hazard at -gamma
-        log_ratio = standard_normal_log_hazard(-normalized_mvs)
+        log_ratio = standard_normal_log_hazard(-gamma_upper)
         check_no_nans(log_ratio)
 
         # prepare squared correlation between current and target fidelity
@@ -559,16 +575,30 @@ class qLowerBoundMaxValueEntropy(MaxValueBase):
         # batch_shape x 1
         check_no_nans(rhos_squared)
 
-        # calculate quality contribution to the GIBBON acquisition function,
-        # -0.5 * log(1 - u) with u = rho^2 * ratio * (gamma + ratio). u is assembled
-        # in log space and passed to log1p, since 1 - u rounds to 1 for large gamma.
-        # gamma + ratio > 0 and u < 1 hold mathematically, the clamps guard rounding.
+        # 1) gamma >= GIBBON_TAIL_BOUND: ratio * (gamma + ratio) is assembled in log
+        # space. gamma + ratio > 0 holds mathematically, the clamp guards rounding.
         finfo = torch.finfo(X.dtype)
         log_gamma_plus_ratio = (
-            (normalized_mvs + log_ratio.exp()).clamp_min(finfo.tiny).log()
+            (gamma_upper + log_ratio.exp()).clamp_min(finfo.tiny).log()
         )
-        u = rhos_squared * (log_ratio + log_gamma_plus_ratio).exp()
-        acq = -0.5 * torch.log1p(-u.clamp_max(1 - finfo.eps / 2))
+        product_upper = (log_ratio + log_gamma_plus_ratio).exp()
+
+        # 2) gamma < GIBBON_TAIL_BOUND: ratio * (gamma + ratio) and its complement
+        # are computed with a continued fraction that is free of cancellation.
+        product_lower, complement_lower = _gibbon_tail_terms(gamma_lower)
+
+        # log(1 - u) is evaluated with log1p, so that 1 - u is never formed. u < 1
+        # holds mathematically, the clamp guards rounding.
+        u = rhos_squared * torch.where(is_tail, product_lower, product_upper)
+        log_inner = torch.log1p(-u.clamp_max(1 - finfo.eps / 2))
+        # In the tail, u can be close to 1. There, 1 - u is computed as the sum of the
+        # non-negative terms (1 - rho^2) + rho^2 * (1 - ratio * (gamma + ratio)). The
+        # clamp guards rounding of rho^2 above 1.
+        inner_tail = (1 - rhos_squared) + rhos_squared * complement_lower
+        log_inner = torch.where(
+            is_tail & (u > 0.5), inner_tail.clamp_min(finfo.tiny).log(), log_inner
+        )
+        acq = -0.5 * log_inner
         # average over posterior max samples
         acq = acq.mean(dim=1).unsqueeze(0)
 
@@ -924,6 +954,43 @@ class qMultiFidelityLowerBoundMaxValueEntropy(qMultiFidelityMaxValueEntropy):
         return qLowerBoundMaxValueEntropy._compute_information_gain(
             self, X=X, mean_M=mean_M, variance_M=variance_M, covar_mM=covar_mM
         )
+
+
+def _gibbon_tail_terms(gamma: Tensor, num_terms: int = 30) -> tuple[Tensor, Tensor]:
+    r"""Computes ``r * (gamma + r)`` and ``1 - r * (gamma + r)`` for
+    ``gamma <= GIBBON_TAIL_BOUND``, where ``r = phi(gamma) / Phi(gamma)`` and ``phi``
+    and ``Phi`` are the standard normal pdf and cdf.
+
+    For very negative ``gamma``, ``r`` approaches ``-gamma``, so that evaluating
+    ``gamma + r`` directly suffers from catastrophic cancellation, as does
+    subtracting ``r * (gamma + r)``, which approaches 1, from 1. With ``x = -gamma``,
+    ``r`` is the hazard function of the standard normal at ``x``, which has the
+    continued fraction ``r = x + 1 / (x + 2 / (x + 3 / (x + ...)))``. Writing
+    ``e = 2 / (x + 3 / (x + ...))`` and ``d = 1 / (x + e)``, this gives
+    ``gamma + r = d`` and
+
+        ``r * (gamma + r) = (x + d) * d``,
+        ``1 - r * (gamma + r) = (e * (x + e) - 1) * d^2``,
+
+    neither of which subtracts nearly equal quantities, since ``e * (x + e) > 2``.
+    The continued fraction is truncated after ``num_terms`` terms, which is accurate
+    to machine precision in double precision for ``gamma <= GIBBON_TAIL_BOUND``.
+
+    Args:
+        gamma: A tensor of any shape with values not exceeding ``GIBBON_TAIL_BOUND``.
+        num_terms: The number of terms of the continued fraction to evaluate.
+
+    Returns:
+        A two-tuple of tensors of the same shape as ``gamma``, containing
+        ``r * (gamma + r)`` and ``1 - r * (gamma + r)``.
+    """
+    x = -gamma
+    e = torch.zeros_like(x)
+    for k in range(num_terms, 1, -1):
+        e = k / (x + e)
+    x_plus_e = x + e
+    d = x_plus_e.reciprocal()
+    return (x + d) * d, (e * x_plus_e - 1) * d * d
 
 
 def _sample_max_value_Thompson(
