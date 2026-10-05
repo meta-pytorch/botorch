@@ -57,6 +57,7 @@ if TYPE_CHECKING:
         PairwiseGP,
         PairwiseLaplaceMarginalLogLikelihood,
     )
+    from botorch.models.target_aware_gp import TargetAwareEnsembleGP  # noqa: F401
 
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "ApproximateGPyTorchModel": (".approximate_gp", "ApproximateGPyTorchModel"),
@@ -102,6 +103,7 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
         ".pairwise_gp",
         "PairwiseLaplaceMarginalLogLikelihood",
     ),
+    "TargetAwareEnsembleGP": (".target_aware_gp", "TargetAwareEnsembleGP"),
 }
 
 __all__ = list(_LAZY_IMPORTS.keys())
