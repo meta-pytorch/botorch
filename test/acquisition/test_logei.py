@@ -360,10 +360,14 @@ class TestQLogNoisyExpectedImprovement(BotorchTestCase):
                 }
                 log_acqf = qLogNoisyExpectedImprovement(**kwargs)
                 log_acqf.set_X_pending(X)
-                self.assertIsNone(log_acqf.X_pending)
+                self.assertTrue(torch.equal(log_acqf.X_pending, X))
                 self.assertTrue(
                     torch.equal(log_acqf.X_baseline, torch.cat([X_baseline, X], dim=0))
                 )
+                if log_acqf._cache_root:
+                    self.assertEqual(
+                        log_acqf._baseline_L.shape[-1], log_acqf.X_baseline.shape[-2]
+                    )
                 af_val1 = log_acqf(X2)
                 kwargs = {
                     "model": mm_noisy_pending,
@@ -380,8 +384,10 @@ class TestQLogNoisyExpectedImprovement(BotorchTestCase):
             log_acqf.set_X_pending(None)
             self.assertTrue(torch.equal(log_acqf.X_baseline, X_baseline))
 
-            with self.subTest("init_X_pending_survives_set_X_pending"):
-                X_new = torch.ones(1, 1, device=self.device, dtype=dtype)
+            with self.subTest("X_pending_uses_replacement_semantics"):
+                X_new = torch.ones(
+                    1, 1, device=self.device, dtype=dtype, requires_grad=True
+                )
                 log_acqf = qLogNoisyExpectedImprovement(
                     model=mm_noisy_pending,
                     X_baseline=X_baseline,
@@ -389,16 +395,78 @@ class TestQLogNoisyExpectedImprovement(BotorchTestCase):
                     prune_baseline=False,
                     cache_root=False,
                 )
-                log_acqf.set_X_pending(X_new)
+                with self.assertWarns(BotorchWarning):
+                    log_acqf.set_X_pending(X_new)
+                self.assertTrue(torch.equal(log_acqf.X_pending, X_new))
+                self.assertFalse(log_acqf.X_pending.requires_grad)
+                self.assertNotEqual(log_acqf.X_pending.data_ptr(), X_new.data_ptr())
                 self.assertTrue(
                     torch.equal(
-                        log_acqf.X_baseline, torch.cat([X_baseline, X, X_new], dim=0)
+                        log_acqf.X_baseline,
+                        torch.cat([X_baseline, X_new.detach()], dim=0),
                     )
                 )
                 log_acqf.set_X_pending(None)
-                self.assertTrue(
-                    torch.equal(log_acqf.X_baseline, torch.cat([X_baseline, X], dim=0))
-                )
+                self.assertIsNone(log_acqf.X_pending)
+                self.assertTrue(torch.equal(log_acqf.X_baseline, X_baseline))
+
+    def test_q_log_nei_pending_posterior_inputs(self) -> None:
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        X_baseline = torch.tensor([[0.0]], **tkwargs)
+        X_pending = torch.tensor([[1.0]], **tkwargs)
+        X = torch.tensor([[2.0]], **tkwargs)
+        samples = torch.zeros(1, 3, 1, **tkwargs)
+
+        constructor_model = MockModel(MockPosterior(samples=samples))
+        constructor_acqf = qLogNoisyExpectedImprovement(
+            model=constructor_model,
+            X_baseline=X_baseline,
+            X_pending=X_pending,
+            sampler=IIDNormalSampler(sample_shape=torch.Size([1])),
+            prune_baseline=False,
+            cache_root=False,
+        )
+        setter_model = MockModel(MockPosterior(samples=samples))
+        setter_acqf = qLogNoisyExpectedImprovement(
+            model=setter_model,
+            X_baseline=X_baseline,
+            sampler=IIDNormalSampler(sample_shape=torch.Size([1])),
+            prune_baseline=False,
+            cache_root=False,
+        )
+        setter_acqf.set_X_pending(X_pending)
+        self.assertTrue(torch.equal(constructor_acqf.X_pending, X_pending))
+        self.assertTrue(
+            torch.equal(constructor_acqf.X_baseline, setter_acqf.X_baseline)
+        )
+
+        with mock.patch.object(
+            constructor_model, "posterior", wraps=constructor_model.posterior
+        ) as mock_posterior:
+            constructor_acqf(X)
+        expected_incremental_X = torch.cat(
+            [X_baseline, X_pending, X], dim=-2
+        ).unsqueeze(0)
+        self.assertTrue(
+            torch.equal(mock_posterior.call_args.args[0], expected_incremental_X)
+        )
+
+        joint_model = MockModel(MockPosterior(samples=samples))
+        joint_acqf = qLogNoisyExpectedImprovement(
+            model=joint_model,
+            X_baseline=X_baseline,
+            X_pending=X_pending,
+            sampler=IIDNormalSampler(sample_shape=torch.Size([1])),
+            prune_baseline=False,
+            cache_root=False,
+            incremental=False,
+        )
+        with mock.patch.object(
+            joint_model, "posterior", wraps=joint_model.posterior
+        ) as mock_posterior:
+            joint_acqf(X)
+        expected_joint_X = torch.cat([X_baseline, X, X_pending], dim=-2).unsqueeze(0)
+        self.assertTrue(torch.equal(mock_posterior.call_args.args[0], expected_joint_X))
 
     def test_q_noisy_expected_improvement_batch(self):
         for dtype in (torch.float, torch.double):

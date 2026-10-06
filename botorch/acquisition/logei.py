@@ -344,6 +344,7 @@ class qLogNoisyExpectedImprovement(
         # TODO: separate out baseline variables initialization and other functions
         # in qNEI to avoid duplication of both code and work at runtime.
         self.incremental = incremental
+        self._should_concatenate_pending_points = not incremental
 
         super().__init__(
             model=model,
@@ -361,12 +362,11 @@ class qLogNoisyExpectedImprovement(
         self.prune_baseline = prune_baseline
         self.marginalize_dim = marginalize_dim
         if incremental:
-            self.X_pending = None  # required to initialize attribute for optimize_acqf
-            # Added to the baseline after pruning on every ``_init_baseline`` call.
-            self._init_X_pending = X_pending
+            super().set_X_pending(X_pending=X_pending)
         self._init_baseline(
             model=model,
             X_baseline=X_baseline,
+            X_pending=self.X_pending,
             sampler=sampler,
             objective=objective,
             posterior_transform=posterior_transform,
@@ -413,12 +413,6 @@ class qLogNoisyExpectedImprovement(
                 constraints=self._constraints,
             )
         self.register_buffer("_X_baseline", X_baseline)
-        if self.incremental and self._init_X_pending is not None:
-            X_pending = (
-                self._init_X_pending
-                if X_pending is None
-                else torch.cat([self._init_X_pending, X_pending], dim=-2)
-            )
         # full_X_baseline is the set of points that should be considered as the
         # incumbent. For incremental EI, this contains the previously evaluated
         # points (X_baseline) and pending points (X_pending). For non-incremental
@@ -484,20 +478,13 @@ class qLogNoisyExpectedImprovement(
             X_pending: ``n x d`` Tensor with ``n`` ``d``-dim design points that have
                 been submitted for evaluation but have not yet been evaluated.
         """
-        if not self.incremental:
-            return super().set_X_pending(X_pending=X_pending)
-        if X_pending is None:
-            if not hasattr(self, "_full_X_baseline") or (
-                self._full_X_baseline.shape[-2] == self._X_baseline.shape[-2]
-            ):
-                return
-            else:
-                # reset pending points
-                X_pending = None
+        super().set_X_pending(X_pending=X_pending)
+        if not self.incremental or not hasattr(self, "_X_baseline"):
+            return
         self._init_baseline(
             model=self.model,
             X_baseline=self._X_baseline,
-            X_pending=X_pending,
+            X_pending=self.X_pending,
             sampler=self.sampler,
             objective=self.objective,
             posterior_transform=self.posterior_transform,

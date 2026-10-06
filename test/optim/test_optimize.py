@@ -506,6 +506,10 @@ class TestOptimizeAcqf(BotorchTestCase):
             options = {}
             for dtype, use_rounding in ((torch.float, True), (torch.double, False)):
                 mock_acq_function = MockAcquisitionFunction()
+                base_X_pending = torch.full(
+                    (2, 3), 0.5, device=self.device, dtype=dtype
+                )
+                mock_acq_function.X_pending = base_X_pending
                 mock_gen_batch_initial_conditions.side_effect = [
                     torch.zeros(num_restarts, 1, 3, device=self.device, dtype=dtype)
                     for _ in range(q)
@@ -577,6 +581,21 @@ class TestOptimizeAcqf(BotorchTestCase):
                     )
                 self.assertTrue(torch.equal(candidates, expected_candidates))
                 self.assertTrue(torch.equal(acq_value, expected_val))
+                pending_calls = mock_acq_function._call_args["set_X_pending"]
+                self.assertEqual(len(pending_calls), q)
+                for i, pending in enumerate(pending_calls[:-1], start=1):
+                    self.assertTrue(
+                        torch.equal(
+                            pending,
+                            torch.cat(
+                                [base_X_pending, expected_candidates[:i]], dim=-2
+                            ),
+                        )
+                    )
+                self.assertTrue(torch.equal(pending_calls[-1], base_X_pending))
+                self.assertTrue(
+                    torch.equal(mock_acq_function.X_pending, base_X_pending)
+                )
             # verify error when using a OneShotAcquisitionFunction
             with self.assertRaises(NotImplementedError):
                 optimize_acqf(

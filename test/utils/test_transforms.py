@@ -356,6 +356,12 @@ class TestConcatenatePendingPoints(BotorchTestCase):
         X = torch.rand(2, 1, 2)
         X_expected = torch.cat([X, X_pending.expand(2, 2, 2)], dim=-2)
         self.assertTrue(torch.equal(c.dummy_method(X), X_expected))
+        # Explicitly enabling the hook preserves the default behavior.
+        c._should_concatenate_pending_points = True
+        self.assertTrue(torch.equal(c.dummy_method(X), X_expected))
+        # Acquisition functions that incorporate pending points elsewhere can opt out.
+        c._should_concatenate_pending_points = False
+        self.assertTrue(torch.equal(c.dummy_method(X), X))
 
 
 class TestMatchBatchShape(BotorchTestCase):
