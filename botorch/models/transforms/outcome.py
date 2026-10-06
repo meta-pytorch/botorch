@@ -376,7 +376,8 @@ class Standardize(OutcomeTransform):
         nlzd_idcs = normalize_indices(idcs, d=self._m)
         new_outputs = None
         if self._outputs is not None:
-            new_outputs = [i for i in self._outputs if i in nlzd_idcs]
+            # map the transformed outputs to their positions in the subset
+            new_outputs = [j for j, i in enumerate(nlzd_idcs) if i in self._outputs]
         new_tf = self.__class__(
             m=new_m,
             outputs=new_outputs,
@@ -771,7 +772,8 @@ class Log(OutcomeTransform):
                     f"Negative indexing not supported for {self.__class__.__name__} "
                     "when subsetting outputs and only transforming some outputs."
                 )
-            new_outputs = [i for i in self._outputs if i in idcs]
+            # map the transformed outputs to their positions in the subset
+            new_outputs = [j for j, i in enumerate(idcs) if i in self._outputs]
         new_tf = self.__class__(outputs=new_outputs)
         if not self.training:
             new_tf.eval()
@@ -930,7 +932,8 @@ class Power(OutcomeTransform):
                     f"Negative indexing not supported for {self.__class__.__name__} "
                     "when subsetting outputs and only transforming some outputs."
                 )
-            new_outputs = [i for i in self._outputs if i in idcs]
+            # map the transformed outputs to their positions in the subset
+            new_outputs = [j for j, i in enumerate(idcs) if i in self._outputs]
         new_tf = self.__class__(power=self.power, outputs=new_outputs)
         if not self.training:
             new_tf.eval()
@@ -1063,7 +1066,8 @@ class Bilog(OutcomeTransform):
                     f"Negative indexing not supported for {self.__class__.__name__} "
                     "when subsetting outputs and only transforming some outputs."
                 )
-            new_outputs = [i for i in self._outputs if i in idcs]
+            # map the transformed outputs to their positions in the subset
+            new_outputs = [j for j, i in enumerate(idcs) if i in self._outputs]
         new_tf = self.__class__(outputs=new_outputs)
         if not self.training:
             new_tf.eval()
