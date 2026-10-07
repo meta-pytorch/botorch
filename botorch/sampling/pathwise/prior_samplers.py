@@ -9,6 +9,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
+import torch
 from botorch.models.approximate_gp import ApproximateGPyTorchModel
 from botorch.models.model_list_gp_regression import ModelListGP
 from botorch.sampling.pathwise.features import gen_kernel_features
@@ -29,6 +30,7 @@ from gpytorch.models import ApproximateGP, ExactGP, GP
 from gpytorch.variational import _VariationalStrategy
 from torch import Size, Tensor
 from torch.nn import Module
+from torch.quasirandom import SobolEngine
 
 TPathwisePriorSampler = Callable[[GP, Size], SamplePath]
 DrawKernelFeaturePaths = Dispatcher("draw_kernel_feature_paths")
@@ -73,12 +75,24 @@ def _draw_kernel_feature_paths_fallback(
     # Sample random weights with which to combine kernel features
     if weight_generator is None:
         # weight is sample_shape x batch_shape x num_outputs
-        weight = draw_sobol_normal_samples(
-            n=sample_shape.numel() * covar_module.batch_shape.numel(),
-            d=feature_map.num_outputs,
-            device=covar_module.device,
-            dtype=covar_module.dtype,
-        ).reshape(sample_shape + covar_module.batch_shape + (feature_map.num_outputs,))
+        n = sample_shape.numel() * covar_module.batch_shape.numel()
+        if feature_map.num_outputs <= SobolEngine.MAXDIM:
+            weight = draw_sobol_normal_samples(
+                n=n,
+                d=feature_map.num_outputs,
+                device=covar_module.device,
+                dtype=covar_module.dtype,
+            )
+        else:  # The Sobol engine does not support this many dimensions.
+            weight = torch.randn(
+                n,
+                feature_map.num_outputs,
+                device=covar_module.device,
+                dtype=covar_module.dtype,
+            )
+        weight = weight.reshape(
+            sample_shape + covar_module.batch_shape + (feature_map.num_outputs,)
+        )
     else:
         weight = weight_generator(
             sample_shape + covar_module.batch_shape + (feature_map.num_outputs,)
@@ -99,7 +113,9 @@ def _draw_kernel_feature_paths_fallback(
 def _draw_kernel_feature_paths_ExactGP(
     model: ExactGP, **kwargs: Any
 ) -> GeneralizedLinearPath:
-    (train_X,) = get_train_inputs(model, transformed=False)
+    # The kernel acts on transformed inputs, whose dimension may differ from the raw
+    # inputs (e.g. for `FilterFeatures` or one-hot encodings).
+    (train_X,) = get_train_inputs(model, transformed=True)
     return _draw_kernel_feature_paths_fallback(
         num_inputs=train_X.shape[-1],
         mean_module=model.mean_module,
@@ -125,7 +141,9 @@ def _draw_kernel_feature_paths_list(
 def _draw_kernel_feature_paths_ApproximateGPyTorchModel(
     model: ApproximateGPyTorchModel, **kwargs: Any
 ) -> GeneralizedLinearPath:
-    (train_X,) = get_train_inputs(model, transformed=False)
+    # The kernel acts on transformed inputs, whose dimension may differ from the raw
+    # inputs (e.g. for `FilterFeatures` or one-hot encodings).
+    (train_X,) = get_train_inputs(model, transformed=True)
     return DrawKernelFeaturePaths(
         model.model,
         num_inputs=train_X.shape[-1],
