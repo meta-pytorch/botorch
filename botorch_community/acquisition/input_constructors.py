@@ -8,7 +8,10 @@ r"""
 A registry of helpers for generating inputs to acquisition function
 constructors programmatically from a consistent input format.
 
-Contributor: hvarfner (bayesian_active_learning, scorebo)
+Contributors:
+    hvarfner (bayesian_active_learning, scorebo)
+    SaiAakash (rei)
+    sahilKirangi (113878) (rei input constructor)
 """
 
 from __future__ import annotations
@@ -37,6 +40,10 @@ from botorch_community.acquisition.discretized import (
     DiscretizedExpectedImprovement,
     DiscretizedNoisyExpectedImprovement,
     DiscretizedProbabilityOfImprovement,
+)
+from botorch_community.acquisition.rei import (
+    LogRegionalExpectedImprovement,
+    qLogRegionalExpectedImprovement,
 )
 from botorch_community.acquisition.scorebo import qSelfCorrectingBayesianOptimization
 from torch import Tensor
@@ -131,6 +138,67 @@ def construct_inputs_SAL(
         "X_pending": X_pending,
     }
     return inputs
+
+
+@acqf_input_constructor(
+    LogRegionalExpectedImprovement,
+    qLogRegionalExpectedImprovement,
+)
+def construct_inputs_rei(
+    model: Model,
+    training_data: SupervisedDataset | dict[Hashable, SupervisedDataset],
+    X_dev: Tensor,
+    posterior_transform: PosteriorTransform | None = None,
+    best_f: float | Tensor | None = None,
+    length: float = 0.8,
+    bounds: Tensor | None = None,
+) -> dict[str, Any]:
+    r"""Construct kwargs for Regional Expected Improvement.
+
+    Supports both the analytic ``LogRegionalExpectedImprovement`` and the
+    Monte Carlo ``qLogRegionalExpectedImprovement``.  The returned dict
+    covers the shared constructor arguments; MC-specific parameters
+    (e.g. ``sampler``, ``X_pending``) can be added by the caller.
+
+    Args:
+        model: A fitted single-outcome model.
+        training_data: Dataset(s) used to train the model.
+            Used to infer ``best_f`` when it is not provided explicitly.
+        X_dev: A ``n x d``-dim Tensor of ``n`` pre-drawn sample points in
+            ``[0, 1]^d`` representing relative positions within a trust
+            region.  Larger ``n`` gives a more accurate region average at
+            the cost of extra model evaluations.
+        posterior_transform: A ``PosteriorTransform``.  Required when using
+            a multi-output model so the posterior can be collapsed to a
+            single scalar output before computing improvement.
+        best_f: The incumbent (best observed) function value.  Improvement
+            is measured relative to this threshold.  Defaults to the
+            maximum observed ``Y`` in ``training_data``.
+        length: Side length of the cubic trust region centred on the
+            candidate point ``X``.  Must be in ``(0, 1]`` when the design
+            space is normalised to ``[0, 1]^d``.  Defaults to ``0.8``.
+        bounds: A ``2 x d``-dim Tensor of lower (row 0) and upper (row 1)
+            bounds for each input dimension.  Used to clamp the trust
+            region so it never extends outside the feasible space.
+            Defaults to the unit hypercube ``[0, 1]^d``.
+
+    Returns:
+        A dict mapping kwarg names of the acquisition function constructor
+        to their values.
+    """
+    if best_f is None:
+        best_f = get_best_f_analytic(
+            training_data=training_data,
+            posterior_transform=posterior_transform,
+        )
+    return {
+        "model": model,
+        "best_f": best_f,
+        "X_dev": X_dev,
+        "posterior_transform": posterior_transform,
+        "length": length,
+        "bounds": bounds,
+    }
 
 
 @acqf_input_constructor(qSelfCorrectingBayesianOptimization)
