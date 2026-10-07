@@ -34,6 +34,7 @@ from botorch.models.empirical_gps.utils import (
     compute_basis_matrix,
     compute_sample_covariance,
     instantiate_ard,
+    kronecker_factored_covariance,
     validate_historical_curves_3d,
     validate_no_transforms,
 )
@@ -41,6 +42,8 @@ from botorch.models.gpytorch import GPyTorchModel
 from botorch.models.transforms.input import InputTransform
 from botorch.models.transforms.outcome import OutcomeTransform
 from botorch.posteriors.gpytorch import GPyTorchPosterior
+from botorch.utils.constraints import NonTransformedInterval
+from gpytorch.constraints import GreaterThan
 from gpytorch.distributions import MultitaskMultivariateNormal, MultivariateNormal
 from gpytorch.kernels import Kernel
 from gpytorch.likelihoods import FixedNoiseGaussianLikelihood, GaussianLikelihood
@@ -48,6 +51,7 @@ from gpytorch.likelihoods.likelihood import Likelihood
 from gpytorch.means import Mean
 from gpytorch.models import ExactGP
 from linear_operator import to_linear_operator
+from pyre_extensions import none_throws
 from torch import Tensor
 
 
@@ -125,6 +129,26 @@ class MultiOutputEmpiricalOneDimensionalKernel(Kernel):
     uses SVD decomposition to accelerate computation. The SVD is applied to the
     vectorized bases of size `(num_curves, num_progression * m)` to capture
     cross-output correlations in the compressed representation.
+
+    The optional ``learn_cross_output_shrinkage`` flag adds a single scalar
+    ``rho in [0, 1]`` that scales the *cross-output* blocks of the covariance,
+    leaving the within-output blocks untouched::
+
+        K_rho = K * M,   M = kron(J_n, (1 - rho) I_m + rho J_m)
+
+    ``rho = 1`` recovers the full joint covariance (the default, and exactly the
+    behavior when the flag is off), while ``rho = 0`` decouples the outputs into
+    ``m`` independent empirical GPs that still share an observation noise. Since
+    ``(1 - rho) I_m + rho J_m`` has eigenvalues ``1 - rho`` and ``1 + (m - 1) rho``,
+    both non-negative on ``[0, 1]``, ``M`` is PSD and ``K * M`` stays PSD by the
+    Schur product theorem -- no eigenvalue repair is needed.
+
+    This matters because the dense cross-output covariance is estimated over an
+    ``(n * m)``-dimensional index set: with few historical curves it is badly
+    rank-limited, and trusting it fully makes the posterior over-confident.
+    Fitting ``rho`` by marginal likelihood lets the data decide how much
+    cross-output structure to keep, instead of forcing a choice between the joint
+    and independent models.
     """
 
     ard: bool = False
@@ -137,6 +161,9 @@ class MultiOutputEmpiricalOneDimensionalKernel(Kernel):
         curve_weights: Tensor | None = None,
         use_svd: bool | None = None,
         correction: int = 0,
+        learn_cross_output_shrinkage: bool = False,
+        learn_covariance_ridge: bool = False,
+        kronecker_factored: bool = False,
     ) -> None:
         """Instantiates a multi-output empirical learning curve kernel.
 
@@ -154,6 +181,19 @@ class MultiOutputEmpiricalOneDimensionalKernel(Kernel):
             correction: Bessel-style denominator correction for the empirical
                 covariance (divide by ``num_curves - correction``); defaults to 0
                 (divide by ``num_curves``).
+            learn_covariance_ridge: If True, register a positive scalar nugget
+                added to the empirical covariance where inputs coincide. The
+                empirical covariance is ``U^T U / N``, so its rank is capped by
+                the number of historical curves: with 25 curves on a 50-dim
+                index set, 26 directions have *exactly zero* prior variance and
+                the model is infinitely confident in them. A ridge shifts every
+                eigenvalue up, lifting the null space while barely perturbing
+                well-estimated directions. Note a scalar *multiplier* cannot do
+                this -- scaling leaves a zero eigenvalue at zero.
+            learn_cross_output_shrinkage: If True, register a scalar ``rho`` in
+                ``[0, 1]`` (initialized to 1, i.e. a no-op) that scales the
+                cross-output covariance blocks and is fit by marginal likelihood.
+                Defaults to False, which leaves the kernel exactly unchanged.
         """
         super().__init__()
         validate_historical_curves_3d(Y_full)
@@ -189,6 +229,161 @@ class MultiOutputEmpiricalOneDimensionalKernel(Kernel):
         else:
             self.curve_weights = curve_weights
             self.ard = False
+
+        # rho is registered only on request so that existing models keep an
+        # unchanged parameter set (and unchanged state_dict keys).
+        if learn_cross_output_shrinkage:
+            self.register_parameter(
+                "rho",
+                torch.nn.Parameter(
+                    torch.ones(1, dtype=Y_full.dtype, device=Y_full.device)
+                ),
+            )
+            # NonTransformedInterval (rather than a sigmoid Interval) so that the
+            # endpoints are attainable: rho = 1 must exactly reproduce the
+            # unshrunk kernel, and rho = 0 the fully independent one.
+            self.register_constraint(
+                "rho", NonTransformedInterval(0.0, 1.0, initial_value=1.0)
+            )
+        else:
+            self.rho = None
+
+        # Kronecker factorization of the empirical covariance. Estimated once
+        # here, from the historical curves on their own grid; ``forward`` then
+        # rebuilds the progression factor from the *interpolated* basis so the
+        # kernel still evaluates at arbitrary progression values.
+        self.kronecker_factored = kronecker_factored
+        if kronecker_factored:
+            _, sigma_output = kronecker_factored_covariance(Y_full)
+            self.register_buffer("_sigma_output", sigma_output)
+        else:
+            self._sigma_output = None
+
+        # The ridge is registered only on request, for the same reason as rho:
+        # existing models must keep an identical parameter set.
+        if learn_covariance_ridge:
+            self.register_parameter(
+                "raw_ridge",
+                torch.nn.Parameter(torch.zeros(*self.batch_shape, 1, 1)),
+            )
+            # Softplus-style positivity with a small floor. Unlike rho the
+            # endpoints do not need to be attainable -- ridge = 0 exactly is the
+            # unridged kernel, which is already available by not setting the flag.
+            self.register_constraint("raw_ridge", GreaterThan(0.0))
+        else:
+            self.raw_ridge = None
+
+    @property
+    def ridge(self) -> Tensor | None:
+        """The ridge magnitude, or None when the flag is off."""
+        if self.raw_ridge is None:
+            return None
+        return self.raw_ridge_constraint.transform(self.raw_ridge)
+
+    def _kronecker_covariance(self, Ux1: Tensor, Ux2: Tensor, diag: bool) -> Tensor:
+        r"""Separable covariance ``Sigma_progression (x) Sigma_output``.
+
+        The unconstrained estimate ``U^T U / N`` has rank at most ``num_curves``,
+        so below ``n * m`` historical curves it leaves directions with exactly
+        zero prior variance -- the measured cause of the joint model's
+        over-confidence, and the reason it degrades as ``m`` grows. Constraining
+        the covariance to a Kronecker product drops the free parameters from
+        ``(nm)(nm+1)/2`` to ``n(n+1)/2 + m(m+1)/2``, so the same curves support a
+        far better conditioned estimate, and the benefit *grows* with ``m``.
+
+        ``Sigma_output`` is estimated once at construction. The progression factor
+        is rebuilt here from the interpolated basis, which is what lets the kernel
+        evaluate away from the historical grid:
+
+            Sigma_prog(x1, x2) = 1/(N m) sum_k U_k(x1)^T Sigma_output^-1 U_k(x2)
+
+        and the result is the Kronecker product under the interleaved index
+        convention ``flat = i * m + t``.
+        """
+        m = self.num_outputs
+        sigma_output = none_throws(self._sigma_output).to(Ux1.dtype)
+        eye_m = torch.eye(m, dtype=Ux1.dtype, device=Ux1.device)
+        inv_output = torch.linalg.inv(sigma_output + 1e-8 * eye_m)
+
+        # (num_curves, n, m) from the flattened interleaved basis.
+        curves_1 = Ux1.reshape(*Ux1.shape[:-1], -1, m)
+        curves_2 = Ux2.reshape(*Ux2.shape[:-1], -1, m)
+        sigma_progression = torch.einsum(
+            "...kia,ab,...kjb->...ij", curves_1, inv_output, curves_2
+        ) / (self.num_curves * m)
+
+        if diag:
+            # Diagonal of kron(A, B) is outer(diag(A), diag(B)), flattened in the
+            # same interleaved order.
+            return (
+                sigma_progression.diagonal(dim1=-2, dim2=-1).unsqueeze(-1)
+                * sigma_output.diagonal()
+            ).reshape(*sigma_progression.shape[:-2], -1)
+        # kron under flat = i * m + t, i.e. K[i*m+a, j*m+b] = P[i,j] * S[a,b].
+        # The intermediate has index order (i, a, j, b), so P must broadcast over
+        # the two output axes and S over the two progression axes -- hence the
+        # unsqueeze(-2) on S. Without it S aligns against a progression axis and
+        # the shapes silently disagree.
+        kron = sigma_progression.unsqueeze(-1).unsqueeze(-3) * sigma_output.unsqueeze(
+            -2
+        )
+        return kron.reshape(
+            *sigma_progression.shape[:-2],
+            sigma_progression.shape[-2] * m,
+            sigma_progression.shape[-1] * m,
+        )
+
+    def _apply_ridge(self, K: Tensor, x1: Tensor, x2: Tensor, diag: bool) -> Tensor:
+        """Add a white-noise nugget ``lambda`` where the inputs coincide.
+
+        **This is equivalent to observation noise for prediction**, and the
+        equivalence has been measured rather than assumed. At a test point
+        distinct from every training input, a nugget ``lambda`` and an
+        observation noise ``sigma^2 = lambda`` give identical posterior means,
+        and the nugget's *latent* variance equals the noise model's *observation*
+        variance (agreement to ~1e-9 on both). Choose this over likelihood noise
+        only when you want the term to be part of the latent process -- e.g. so
+        it appears in ``posterior().variance`` without ``observation_noise=True``,
+        or so it is shared between a training input and a prediction at that same
+        input, which is the one place the two genuinely differ.
+
+        It is *not* a way to get uncertainty that observation noise cannot
+        provide.
+
+        Added only where ``x1`` and ``x2`` refer to the same input, so it is a
+        genuine white-noise process rather than a constant offset added to every
+        entry (which would be a rank-one bias term, not a ridge).
+        """
+        ridge = self.ridge.to(K.dtype).squeeze(-1).squeeze(-1)
+        if diag:
+            return K + ridge
+        m = self.num_outputs
+        # Same flat index requires both the same progression point and the same
+        # output, under the interleaved convention flat = i * m + t.
+        # x1/x2 arrive already squeezed to (batch..., n), so the comparison
+        # broadcasts straight to (batch..., n1, n2).
+        same_point = x1.unsqueeze(-1) == x2.unsqueeze(-2)
+        same_point = same_point.repeat_interleave(m, dim=-2).repeat_interleave(
+            m, dim=-1
+        )
+        outputs_1 = torch.arange(K.shape[-2], device=K.device) % m
+        outputs_2 = torch.arange(K.shape[-1], device=K.device) % m
+        same_output = outputs_1.unsqueeze(-1) == outputs_2.unsqueeze(-2)
+        return K + ridge * (same_point & same_output).to(K.dtype)
+
+    def _apply_cross_output_shrinkage(self, K: Tensor, n1: int, n2: int) -> Tensor:
+        """Scale the cross-output entries of ``K`` by ``rho``.
+
+        ``K`` is indexed by the interleaved flat index ``i * m + t``, so two
+        entries belong to the same output exactly when their indices agree mod
+        ``m``. Only entries with differing outputs are scaled.
+        """
+        m = self.num_outputs
+        outputs_1 = torch.arange(n1 * m, device=K.device) % m
+        outputs_2 = torch.arange(n2 * m, device=K.device) % m
+        same_output = outputs_1.unsqueeze(-1) == outputs_2.unsqueeze(-2)
+        rho = self.rho.to(K.dtype)
+        return torch.where(same_output, K, rho * K)
 
     @property
     def use_svd(self) -> bool:
@@ -264,13 +459,24 @@ class MultiOutputEmpiricalOneDimensionalKernel(Kernel):
 
         # Compute sample covariance
         # Always use original num_curves for normalization
-        K = compute_sample_covariance(
-            U1=Ux1,
-            U2=None if x2 is x1 else Ux2,
-            num_curves=self.num_curves,
-            diag=diag,
-            correction=self.correction,
-        )
+        if self.kronecker_factored:
+            K = self._kronecker_covariance(Ux1, Ux2, diag=diag)
+        else:
+            K = compute_sample_covariance(
+                U1=Ux1,
+                U2=None if x2 is x1 else Ux2,
+                num_curves=self.num_curves,
+                diag=diag,
+                correction=self.correction,
+            )
+
+        # The diag path only touches same-index (hence same-output) entries, so
+        # it is rho-invariant by construction and must not be rescaled.
+        if self.rho is not None and not diag:
+            K = self._apply_cross_output_shrinkage(K, x1.shape[-1], x2.shape[-1])
+
+        if self.ridge is not None:
+            K = self._apply_ridge(K, x1, x2, diag=diag)
 
         return K
 
@@ -412,6 +618,9 @@ class MultiOutputEmpiricalOneDimensionalGP(ExactGP, GPyTorchModel):
         covar_module: Kernel | None = None,
         base_covar_module: Kernel | None = None,
         ard: bool = False,
+        learn_cross_output_shrinkage: bool = False,
+        learn_covariance_ridge: bool = False,
+        kronecker_factored: bool = False,
     ) -> None:
         """Instantiates a multi-output empirical learning curve GP model.
 
@@ -443,6 +652,15 @@ class MultiOutputEmpiricalOneDimensionalGP(ExactGP, GPyTorchModel):
                 caller's ``requires_grad`` flags; None (default) uses the pure
                 empirical kernel.
             ard: Whether to use Automatic Relevance Determination on the basis.
+            learn_cross_output_shrinkage: If True, fit a scalar ``rho`` in
+                ``[0, 1]`` that scales the cross-output covariance blocks by
+                marginal likelihood. ``rho = 1`` (the initial value, and the
+                behavior when this is False) keeps the full joint covariance;
+                ``rho = 0`` decouples the outputs. Useful when the number of
+                historical curves is small relative to ``num_progression * m``,
+                where the empirical cross-output covariance is rank-limited and
+                the joint posterior becomes over-confident. Ignored -- and
+                required to agree -- if ``covar_module`` is supplied.
 
         Raises:
             ValueError: If historical_Y is not 3-dimensional.
@@ -492,6 +710,9 @@ class MultiOutputEmpiricalOneDimensionalGP(ExactGP, GPyTorchModel):
                 X_full=historical_X,
                 Y_full=historical_Y,
                 ard=ard,
+                learn_cross_output_shrinkage=learn_cross_output_shrinkage,
+                learn_covariance_ridge=learn_covariance_ridge,
+                kronecker_factored=kronecker_factored,
             )
         elif not isinstance(covar_module, MultiOutputEmpiricalOneDimensionalKernel):
             raise ValueError(
@@ -500,6 +721,21 @@ class MultiOutputEmpiricalOneDimensionalGP(ExactGP, GPyTorchModel):
             )
         elif ard != covar_module.ard:
             raise ValueError("`ard` argument must equal `covar_module.ard`.")
+        elif learn_cross_output_shrinkage != (covar_module.rho is not None):
+            raise ValueError(
+                "`learn_cross_output_shrinkage` argument must match whether "
+                "`covar_module` has a cross-output shrinkage parameter."
+            )
+        elif learn_covariance_ridge != (covar_module.raw_ridge is not None):
+            raise ValueError(
+                "`learn_covariance_ridge` argument must match whether "
+                "`covar_module` has a covariance ridge parameter."
+            )
+        elif kronecker_factored != covar_module.kronecker_factored:
+            raise ValueError(
+                "`kronecker_factored` argument must match "
+                "`covar_module.kronecker_factored`."
+            )
         else:
             base_kernel = covar_module
 

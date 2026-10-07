@@ -1,0 +1,192 @@
+{
+  "stage": "stage2iwnu_pd1_bo_armA",
+  "regime": "pd1_bo_armA",
+  "commit": "6f583e3e1590ee2c0c3a5d8e8744785c380fc6a8",
+  "generated_utc": "2026-08-22T16:00:22Z",
+  "regime_flags": "--benchmark pd1_loo --pd1-source full --pd1-group all --pd1-candidate-pool matched --pd1-pretrain-pool matched --n-iters 50 --n-seeds 1 --n-init 3 --per-task-standardize --output-warp neglog --meta-subsample 64 --meta-task-batch 5 --hyperbo-iters 25000",
+  "harness": "bo_experiment",
+  "cells": [
+    {
+      "name": "iwnu_manual_p0",
+      "flags": "--use-covar-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "iwnu_manual_p1",
+      "flags": "--use-covar-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "iwnu_manual_p2",
+      "flags": "--use-covar-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "iwnu_manual_p3",
+      "flags": "--use-covar-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "iwnu_manual_p4",
+      "flags": "--use-covar-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "iwnu_manual_p5",
+      "flags": "--use-covar-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "iwnu_manual_p6",
+      "flags": "--use-covar-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "iwnu_manual_p7",
+      "flags": "--use-covar-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "iwnu_manual_p8",
+      "flags": "--use-covar-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    },
+    {
+      "name": "iwnu_oas_p0",
+      "flags": "--use-covar-prior --iw-nu-mode oas --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "iwnu_oas_p1",
+      "flags": "--use-covar-prior --iw-nu-mode oas --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "iwnu_oas_p2",
+      "flags": "--use-covar-prior --iw-nu-mode oas --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "iwnu_oas_p3",
+      "flags": "--use-covar-prior --iw-nu-mode oas --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "iwnu_oas_p4",
+      "flags": "--use-covar-prior --iw-nu-mode oas --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "iwnu_oas_p5",
+      "flags": "--use-covar-prior --iw-nu-mode oas --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "iwnu_oas_p6",
+      "flags": "--use-covar-prior --iw-nu-mode oas --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "iwnu_oas_p7",
+      "flags": "--use-covar-prior --iw-nu-mode oas --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "iwnu_oas_p8",
+      "flags": "--use-covar-prior --iw-nu-mode oas --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    },
+    {
+      "name": "iwnu_ledoit_p0",
+      "flags": "--use-covar-prior --iw-nu-mode ledoit_wolf --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "iwnu_ledoit_p1",
+      "flags": "--use-covar-prior --iw-nu-mode ledoit_wolf --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "iwnu_ledoit_p2",
+      "flags": "--use-covar-prior --iw-nu-mode ledoit_wolf --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "iwnu_ledoit_p3",
+      "flags": "--use-covar-prior --iw-nu-mode ledoit_wolf --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "iwnu_ledoit_p4",
+      "flags": "--use-covar-prior --iw-nu-mode ledoit_wolf --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "iwnu_ledoit_p5",
+      "flags": "--use-covar-prior --iw-nu-mode ledoit_wolf --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "iwnu_ledoit_p6",
+      "flags": "--use-covar-prior --iw-nu-mode ledoit_wolf --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "iwnu_ledoit_p7",
+      "flags": "--use-covar-prior --iw-nu-mode ledoit_wolf --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "iwnu_ledoit_p8",
+      "flags": "--use-covar-prior --iw-nu-mode ledoit_wolf --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    },
+    {
+      "name": "iwnu_whiten005_p0",
+      "flags": "--use-covar-prior --iw-nu-mode oas_whitened --iw-target-ridge 0.05 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "iwnu_whiten005_p1",
+      "flags": "--use-covar-prior --iw-nu-mode oas_whitened --iw-target-ridge 0.05 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "iwnu_whiten005_p2",
+      "flags": "--use-covar-prior --iw-nu-mode oas_whitened --iw-target-ridge 0.05 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "iwnu_whiten005_p3",
+      "flags": "--use-covar-prior --iw-nu-mode oas_whitened --iw-target-ridge 0.05 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "iwnu_whiten005_p4",
+      "flags": "--use-covar-prior --iw-nu-mode oas_whitened --iw-target-ridge 0.05 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "iwnu_whiten005_p5",
+      "flags": "--use-covar-prior --iw-nu-mode oas_whitened --iw-target-ridge 0.05 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "iwnu_whiten005_p6",
+      "flags": "--use-covar-prior --iw-nu-mode oas_whitened --iw-target-ridge 0.05 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "iwnu_whiten005_p7",
+      "flags": "--use-covar-prior --iw-nu-mode oas_whitened --iw-target-ridge 0.05 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "iwnu_whiten005_p8",
+      "flags": "--use-covar-prior --iw-nu-mode oas_whitened --iw-target-ridge 0.05 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    },
+    {
+      "name": "iwnu_whiten020_p0",
+      "flags": "--use-covar-prior --iw-nu-mode oas_whitened --iw-target-ridge 0.20 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "iwnu_whiten020_p1",
+      "flags": "--use-covar-prior --iw-nu-mode oas_whitened --iw-target-ridge 0.20 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "iwnu_whiten020_p2",
+      "flags": "--use-covar-prior --iw-nu-mode oas_whitened --iw-target-ridge 0.20 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "iwnu_whiten020_p3",
+      "flags": "--use-covar-prior --iw-nu-mode oas_whitened --iw-target-ridge 0.20 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "iwnu_whiten020_p4",
+      "flags": "--use-covar-prior --iw-nu-mode oas_whitened --iw-target-ridge 0.20 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "iwnu_whiten020_p5",
+      "flags": "--use-covar-prior --iw-nu-mode oas_whitened --iw-target-ridge 0.20 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "iwnu_whiten020_p6",
+      "flags": "--use-covar-prior --iw-nu-mode oas_whitened --iw-target-ridge 0.20 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "iwnu_whiten020_p7",
+      "flags": "--use-covar-prior --iw-nu-mode oas_whitened --iw-target-ridge 0.20 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "iwnu_whiten020_p8",
+      "flags": "--use-covar-prior --iw-nu-mode oas_whitened --iw-target-ridge 0.20 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    }
+  ],
+  "note": "Everything under results/raw/v2/ was produced by the post-2026-08-17 binary. The S27.15 RNG-order change makes it incomparable with any result outside v2/. Do not mix them.",
+  "history": []
+}

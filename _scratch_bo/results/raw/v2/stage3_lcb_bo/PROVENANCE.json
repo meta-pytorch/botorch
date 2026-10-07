@@ -1,0 +1,120 @@
+{
+  "stage": "stage3_lcb_bo",
+  "regime": "lcb_bo",
+  "commit": "86273b4f3516af46c8b696a75ac19b1e64f12376",
+  "generated_utc": "2026-08-20T17:45:57Z",
+  "regime_flags": "--benchmark lcbench --n-configs 200 --n-iters 40 --n-seeds 1 --n-eval 6 --n-pretrain 25 --meta-iters 2000 --hyperbo-iters 25000 --ablr-iters 25000",
+  "harness": "bo_experiment",
+  "cells": [
+    {
+      "name": "shrink_0.1_p0",
+      "flags": "--em-shrinkage 0.1 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "shrink_0.1_p1",
+      "flags": "--em-shrinkage 0.1 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "shrink_0.1_p2",
+      "flags": "--em-shrinkage 0.1 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "shrink_0.1_p3",
+      "flags": "--em-shrinkage 0.1 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "shrink_0.1_p4",
+      "flags": "--em-shrinkage 0.1 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "shrink_0.1_p5",
+      "flags": "--em-shrinkage 0.1 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "shrink_0.1_p6",
+      "flags": "--em-shrinkage 0.1 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "shrink_0.1_p7",
+      "flags": "--em-shrinkage 0.1 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "shrink_0.1_p8",
+      "flags": "--em-shrinkage 0.1 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    },
+    {
+      "name": "mean_linear+meanxfer_p0",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "mean_linear+meanxfer_p1",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "mean_linear+meanxfer_p2",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "mean_linear+meanxfer_p3",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "mean_linear+meanxfer_p4",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "mean_linear+meanxfer_p5",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "mean_linear+meanxfer_p6",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "mean_linear+meanxfer_p7",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "mean_linear+meanxfer_p8",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    },
+    {
+      "name": "meanxfer_full_p0",
+      "flags": "--em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "meanxfer_full_p1",
+      "flags": "--em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "meanxfer_full_p2",
+      "flags": "--em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "meanxfer_full_p3",
+      "flags": "--em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "meanxfer_full_p4",
+      "flags": "--em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "meanxfer_full_p5",
+      "flags": "--em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "meanxfer_full_p6",
+      "flags": "--em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "meanxfer_full_p7",
+      "flags": "--em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "meanxfer_full_p8",
+      "flags": "--em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    }
+  ],
+  "note": "Everything under results/raw/v2/ was produced by the post-2026-08-17 binary. The S27.15 RNG-order change makes it incomparable with any result outside v2/. Do not mix them.",
+  "history": []
+}

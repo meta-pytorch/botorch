@@ -1,0 +1,516 @@
+{
+  "stage": "stage1_pd1_bo_armC",
+  "regime": "pd1_bo_armC",
+  "commit": "69b51a0eaf56649410d5f6223ff477daefc58a5b",
+  "generated_utc": "2026-08-19T13:13:07Z",
+  "regime_flags": "--benchmark pd1_loo --pd1-source full --pd1-group all --pd1-candidate-pool full --pd1-pretrain-pool full --n-iters 50 --n-seeds 1 --n-init 3 --per-task-standardize --output-warp neglog --meta-subsample 64 --meta-task-batch 5 --hyperbo-iters 25000",
+  "harness": "bo_experiment",
+  "cells": [
+    {
+      "name": "base_p0",
+      "flags": "--methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "base_p1",
+      "flags": "--methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "base_p2",
+      "flags": "--methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "base_p3",
+      "flags": "--methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "base_p4",
+      "flags": "--methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "base_p5",
+      "flags": "--methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "base_p6",
+      "flags": "--methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "base_p7",
+      "flags": "--methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "base_p8",
+      "flags": "--methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    },
+    {
+      "name": "canon_hyperbo_p0",
+      "flags": "--em-canonical hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "canon_hyperbo_p1",
+      "flags": "--em-canonical hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "canon_hyperbo_p2",
+      "flags": "--em-canonical hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "canon_hyperbo_p3",
+      "flags": "--em-canonical hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "canon_hyperbo_p4",
+      "flags": "--em-canonical hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "canon_hyperbo_p5",
+      "flags": "--em-canonical hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "canon_hyperbo_p6",
+      "flags": "--em-canonical hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "canon_hyperbo_p7",
+      "flags": "--em-canonical hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "canon_hyperbo_p8",
+      "flags": "--em-canonical hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    },
+    {
+      "name": "canon_deep_p0",
+      "flags": "--deep-kernel 32,32 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "canon_deep_p1",
+      "flags": "--deep-kernel 32,32 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "canon_deep_p2",
+      "flags": "--deep-kernel 32,32 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "canon_deep_p3",
+      "flags": "--deep-kernel 32,32 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "canon_deep_p4",
+      "flags": "--deep-kernel 32,32 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "canon_deep_p5",
+      "flags": "--deep-kernel 32,32 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "canon_deep_p6",
+      "flags": "--deep-kernel 32,32 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "canon_deep_p7",
+      "flags": "--deep-kernel 32,32 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "canon_deep_p8",
+      "flags": "--deep-kernel 32,32 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    },
+    {
+      "name": "mean_linear_p0",
+      "flags": "--em-base-mean linear --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "mean_linear_p1",
+      "flags": "--em-base-mean linear --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "mean_linear_p2",
+      "flags": "--em-base-mean linear --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "mean_linear_p3",
+      "flags": "--em-base-mean linear --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "mean_linear_p4",
+      "flags": "--em-base-mean linear --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "mean_linear_p5",
+      "flags": "--em-base-mean linear --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "mean_linear_p6",
+      "flags": "--em-base-mean linear --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "mean_linear_p7",
+      "flags": "--em-base-mean linear --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "mean_linear_p8",
+      "flags": "--em-base-mean linear --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    },
+    {
+      "name": "meanxfer_full_p0",
+      "flags": "--em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "meanxfer_full_p1",
+      "flags": "--em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "meanxfer_full_p2",
+      "flags": "--em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "meanxfer_full_p3",
+      "flags": "--em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "meanxfer_full_p4",
+      "flags": "--em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "meanxfer_full_p5",
+      "flags": "--em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "meanxfer_full_p6",
+      "flags": "--em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "meanxfer_full_p7",
+      "flags": "--em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "meanxfer_full_p8",
+      "flags": "--em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    },
+    {
+      "name": "meanxfer_blend_p0",
+      "flags": "--em-canonical hyperbo --em-mean blend --em-mean-weight 0.5 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "meanxfer_blend_p1",
+      "flags": "--em-canonical hyperbo --em-mean blend --em-mean-weight 0.5 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "meanxfer_blend_p2",
+      "flags": "--em-canonical hyperbo --em-mean blend --em-mean-weight 0.5 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "meanxfer_blend_p3",
+      "flags": "--em-canonical hyperbo --em-mean blend --em-mean-weight 0.5 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "meanxfer_blend_p4",
+      "flags": "--em-canonical hyperbo --em-mean blend --em-mean-weight 0.5 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "meanxfer_blend_p5",
+      "flags": "--em-canonical hyperbo --em-mean blend --em-mean-weight 0.5 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "meanxfer_blend_p6",
+      "flags": "--em-canonical hyperbo --em-mean blend --em-mean-weight 0.5 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "meanxfer_blend_p7",
+      "flags": "--em-canonical hyperbo --em-mean blend --em-mean-weight 0.5 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "meanxfer_blend_p8",
+      "flags": "--em-canonical hyperbo --em-mean blend --em-mean-weight 0.5 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    },
+    {
+      "name": "shrink_0.1_p0",
+      "flags": "--em-shrinkage 0.1 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "shrink_0.1_p1",
+      "flags": "--em-shrinkage 0.1 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "shrink_0.1_p2",
+      "flags": "--em-shrinkage 0.1 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "shrink_0.1_p3",
+      "flags": "--em-shrinkage 0.1 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "shrink_0.1_p4",
+      "flags": "--em-shrinkage 0.1 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "shrink_0.1_p5",
+      "flags": "--em-shrinkage 0.1 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "shrink_0.1_p6",
+      "flags": "--em-shrinkage 0.1 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "shrink_0.1_p7",
+      "flags": "--em-shrinkage 0.1 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "shrink_0.1_p8",
+      "flags": "--em-shrinkage 0.1 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    },
+    {
+      "name": "shrink_0.3_p0",
+      "flags": "--em-shrinkage 0.3 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "shrink_0.3_p1",
+      "flags": "--em-shrinkage 0.3 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "shrink_0.3_p2",
+      "flags": "--em-shrinkage 0.3 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "shrink_0.3_p3",
+      "flags": "--em-shrinkage 0.3 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "shrink_0.3_p4",
+      "flags": "--em-shrinkage 0.3 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "shrink_0.3_p5",
+      "flags": "--em-shrinkage 0.3 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "shrink_0.3_p6",
+      "flags": "--em-shrinkage 0.3 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "shrink_0.3_p7",
+      "flags": "--em-shrinkage 0.3 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "shrink_0.3_p8",
+      "flags": "--em-shrinkage 0.3 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    },
+    {
+      "name": "covprior_p0",
+      "flags": "--use-covar-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "covprior_p1",
+      "flags": "--use-covar-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "covprior_p2",
+      "flags": "--use-covar-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "covprior_p3",
+      "flags": "--use-covar-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "covprior_p4",
+      "flags": "--use-covar-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "covprior_p5",
+      "flags": "--use-covar-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "covprior_p6",
+      "flags": "--use-covar-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "covprior_p7",
+      "flags": "--use-covar-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "covprior_p8",
+      "flags": "--use-covar-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    },
+    {
+      "name": "covprior_nu_p0",
+      "flags": "--use-covar-prior --iw-nu 500 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "covprior_nu_p1",
+      "flags": "--use-covar-prior --iw-nu 500 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "covprior_nu_p2",
+      "flags": "--use-covar-prior --iw-nu 500 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "covprior_nu_p3",
+      "flags": "--use-covar-prior --iw-nu 500 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "covprior_nu_p4",
+      "flags": "--use-covar-prior --iw-nu 500 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "covprior_nu_p5",
+      "flags": "--use-covar-prior --iw-nu 500 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "covprior_nu_p6",
+      "flags": "--use-covar-prior --iw-nu 500 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "covprior_nu_p7",
+      "flags": "--use-covar-prior --iw-nu 500 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "covprior_nu_p8",
+      "flags": "--use-covar-prior --iw-nu 500 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    },
+    {
+      "name": "meanprior_p0",
+      "flags": "--use-mean-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "meanprior_p1",
+      "flags": "--use-mean-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "meanprior_p2",
+      "flags": "--use-mean-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "meanprior_p3",
+      "flags": "--use-mean-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "meanprior_p4",
+      "flags": "--use-mean-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "meanprior_p5",
+      "flags": "--use-mean-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "meanprior_p6",
+      "flags": "--use-mean-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "meanprior_p7",
+      "flags": "--use-mean-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "meanprior_p8",
+      "flags": "--use-mean-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    },
+    {
+      "name": "init_naive_p0",
+      "flags": "--em-init-mode naive --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "init_naive_p1",
+      "flags": "--em-init-mode naive --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "init_naive_p2",
+      "flags": "--em-init-mode naive --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "init_naive_p3",
+      "flags": "--em-init-mode naive --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "init_naive_p4",
+      "flags": "--em-init-mode naive --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "init_naive_p5",
+      "flags": "--em-init-mode naive --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "init_naive_p6",
+      "flags": "--em-init-mode naive --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "init_naive_p7",
+      "flags": "--em-init-mode naive --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "init_naive_p8",
+      "flags": "--em-init-mode naive --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    },
+    {
+      "name": "mean_linear+covprior_p0",
+      "flags": "--em-base-mean linear --use-covar-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "mean_linear+covprior_p1",
+      "flags": "--em-base-mean linear --use-covar-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "mean_linear+covprior_p2",
+      "flags": "--em-base-mean linear --use-covar-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "mean_linear+covprior_p3",
+      "flags": "--em-base-mean linear --use-covar-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "mean_linear+covprior_p4",
+      "flags": "--em-base-mean linear --use-covar-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "mean_linear+covprior_p5",
+      "flags": "--em-base-mean linear --use-covar-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "mean_linear+covprior_p6",
+      "flags": "--em-base-mean linear --use-covar-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "mean_linear+covprior_p7",
+      "flags": "--em-base-mean linear --use-covar-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "mean_linear+covprior_p8",
+      "flags": "--em-base-mean linear --use-covar-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    },
+    {
+      "name": "mean_linear+meanxfer_p0",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "mean_linear+meanxfer_p1",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "mean_linear+meanxfer_p2",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "mean_linear+meanxfer_p3",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "mean_linear+meanxfer_p4",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "mean_linear+meanxfer_p5",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "mean_linear+meanxfer_p6",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "mean_linear+meanxfer_p7",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "mean_linear+meanxfer_p8",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    }
+  ],
+  "note": "Everything under results/raw/v2/ was produced by the post-2026-08-17 binary. The S27.15 RNG-order change makes it incomparable with any result outside v2/. Do not mix them.",
+  "history": []
+}

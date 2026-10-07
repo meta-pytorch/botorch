@@ -1,0 +1,64 @@
+% =============================================================================
+% PAPER CAVEAT: baseline pre-training budget
+%
+% For the PUBLISHED paper. The follow-up work (converged budgets, heterogeneous
+% observations, the HyperBO-kernel hybrid) is deliberately NOT referenced here --
+% it belongs in the follow-up paper.
+%
+% All numbers below are measured, not estimated. Matched pairs from the same runs
+% (n = 68 at 2k iters, n = 14 at 25k), medians:
+%
+%     budget            EM pre-train   HyperBO pre-train   ratio
+%     2,000 iters           24.6 s          405.0 s        16.4x
+%     25,000 iters          20.1 s         3471.6 s       173.1x
+%
+% Two things this caveat must do, and one it must not:
+%   DO  state the budget plainly, so the comparison is reproducible;
+%   DO  note that the budget already costs the baseline 16x our pre-training time,
+%       which is why it was chosen and why raising it is not free;
+%   DON'T claim the ordering is unchanged at larger budgets -- we now know it is not,
+%       and asserting otherwise in the published paper would be wrong.
+% =============================================================================
+
+% ---------------------------------------------------------------------------
+% OPTION A -- for the experimental-setup section (recommended).
+% ---------------------------------------------------------------------------
+
+The meta-learning baselines (HyperBO, PACOH) are pre-trained for $2{,}000$ optimizer
+steps. At this budget HyperBO's pre-training already costs roughly $16\times$ the
+Empirical GP's ($405$s versus $25$s median on our hardware), since the EM pre-training
+is a closed-form fixed-point iteration rather than a gradient-based fit. We note that
+deep-kernel meta-learners are sensitive to this budget in ways that are not visible in
+converged metrics, and that a definitive comparison would tune the pre-training budget
+of every method to convergence rather than fixing it in advance; we leave that to future
+work. The results reported here should therefore be read as a comparison at a fixed,
+equal-step budget, not as a characterization of each method's best attainable
+performance.
+
+% ---------------------------------------------------------------------------
+% OPTION B -- compressed, for a limitations paragraph.
+% ---------------------------------------------------------------------------
+
+Baselines are pre-trained for a fixed $2{,}000$ steps, which already costs HyperBO
+$\sim\!16\times$ the Empirical GP's pre-training time. Deep-kernel meta-learners are
+budget-sensitive, so these results characterize a fixed-budget comparison rather than
+each method's best attainable performance; tuning every method's pre-training budget to
+convergence is left to future work.
+
+% ---------------------------------------------------------------------------
+% OPTION C -- one sentence, if space is critical.
+% ---------------------------------------------------------------------------
+
+Baselines use a fixed $2{,}000$-step pre-training budget -- already $\sim\!16\times$ the
+Empirical GP's pre-training cost -- and a definitive comparison would tune each method's
+budget to convergence.
+
+% ---------------------------------------------------------------------------
+% WHAT NOT TO WRITE
+% ---------------------------------------------------------------------------
+% Avoid any variant of "we verified the ordering is robust to the pre-training
+% budget." Internally it is not: at a converged 25k-step budget HyperBO's 7D
+% regression NLL improves substantially and the ordering changes. The caveat above is
+% honest precisely because it declines to make that claim -- it says the comparison is
+% at a fixed budget and stops there, which is both true and defensible if a reader
+% later runs the larger budget themselves.

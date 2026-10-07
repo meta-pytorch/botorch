@@ -1,0 +1,282 @@
+% =============================================================================
+% Copy-paste additions for _ICML_2026__Empirical_GPs -- APPENDIX-ONLY VERSION
+%
+% Everything below is written to live in the appendix, to avoid main-text space
+% pressure. Four subsections under one new appendix section:
+%
+%   B.1  Regularized M-step: covariance shrinkage + MAP-EM justification
+%   B.2  Base-augmented conditioning (inference-time adaptation)
+%   B.3  Multi-output Empirical GP
+%   B.4  Multi-task Empirical GP
+%
+% HOW TO INSERT
+%   1. Drop the whole \section{...} block below into the appendix, after the
+%      existing \section{Additional Empirical Evaluations}.
+%   2. Add the three one-line main-text pointers listed at the bottom of this
+%      file. They are the minimum needed for the appendix material to be
+%      discoverable and for Table~\ref{tab:hd_nll} to be reproducible; each is a
+%      single sentence and costs no meaningful space.
+%
+% Notation follows main.tex: K training functions, M reference locations Z,
+% \vmu^* / \Sigma^* the target GP mean and covariance.
+%
+% NUMBERS: every figure quoted in B.1 is from a committed run --
+%   effective rank / trace / eigenvalues -> results/raw/spectrum_a{0.0,0.3}.json
+%   coverage + NLL                       -> results/raw/rerun/shrink_a{0.0,0.3}.json
+% =============================================================================
+
+\section{Model Variants and Regularization}
+\label{apd:variants}
+
+% -----------------------------------------------------------------------------
+% B.1 -- Covariance shrinkage in the M-step
+% -----------------------------------------------------------------------------
+\subsection{Regularized M-step via Covariance Shrinkage}
+\label{apd:shrinkage}
+
+With $K$ training functions the maximum-likelihood M-step estimate
+\begin{equation}
+\label{eq:sigma_ml}
+    \boldsymbol{\Sigma}_{\text{ML}}
+    = \frac{1}{K}\sum_{k=1}^{K}\Big[
+        (\vm_k - \vmu)(\vm_k - \vmu)^\top + \mathbf{C}_k \Big]
+\end{equation}
+is rank-deficient whenever $K \le M$: the outer-product term contributes at most
+$K-1$ directions, and the posterior term $\mathbf{C}_k$ vanishes for completely
+observed functions. The estimator is therefore singular precisely in the regime
+the method targets --- many reference locations, few historical realizations.
+
+\paragraph{Trace-matched shrinkage.}
+We regularize the M-step by blending toward a structured target $\mathbf{B}$ (in
+practice the gram matrix of a base kernel on $\mathbf{Z}$),
+\begin{equation}
+\label{eq:shrinkage}
+    \boldsymbol{\Sigma}_\alpha
+    = (1-\alpha)\,\boldsymbol{\Sigma}_{\text{ML}}
+    + \alpha\, s\, \mathbf{B},
+    \qquad
+    s = \frac{\operatorname{tr}(\boldsymbol{\Sigma}_{\text{ML}})}{\operatorname{tr}(\mathbf{B})},
+    \qquad \alpha \in [0,1].
+\end{equation}
+Trace matching through $s$ makes the blend scale-free: only the \emph{correlation
+structure} of $\mathbf{B}$ is imposed, never its magnitude, so $\alpha$ carries
+the same meaning across datasets with different output scales.
+
+\paragraph{Justification as MAP-EM.}
+Equation~\eqref{eq:shrinkage} is not a heuristic. Placing an Inverse-Wishart
+prior $\boldsymbol{\Sigma}\sim\mathcal{IW}(\boldsymbol{\Psi},\nu)$ on the
+covariance, the M-step maximizer of the penalized expected complete-data
+log-likelihood is
+\begin{equation}
+    \boldsymbol{\Sigma}_{\text{MAP}}
+    = \frac{\boldsymbol{\Psi} + K\,\boldsymbol{\Sigma}_{\text{ML}}}{K + \nu + M + 1}.
+\end{equation}
+Choosing the prior scale $\boldsymbol{\Psi} = (\nu + M + 1)\, s\, \mathbf{B}$
+recovers \eqref{eq:shrinkage} exactly, with
+\begin{equation}
+\label{eq:alpha_iw}
+    \alpha = \frac{\nu + M + 1}{K + \nu + M + 1}.
+\end{equation}
+Thus $\alpha$ is an interpretable prior strength, and \eqref{eq:alpha_iw} shows
+the regularization decays as $O(1/K)$: the estimator is automatically less
+regularized as historical data accumulates, and $\alpha\to 0$ recovers plain
+maximum likelihood. Because $s$ is re-matched to the data at each iteration, the
+procedure is empirical-Bayes rather than fully Bayesian.
+
+\paragraph{Why a convex blend rather than an additive one.}
+An additive alternative $\boldsymbol{\Sigma}_{\text{ML}} + \alpha\mathbf{B}$ is
+equally natural but is \emph{not} trace-bounded: each M-step adds
+$\alpha\operatorname{tr}(\mathbf{B})$, so the iterates can grow without bound and
+the EM map need not admit a fixed point. The convex blend \eqref{eq:shrinkage}
+maps the compact convex set
+$\{\boldsymbol{\Sigma}\succeq 0 : \operatorname{tr}(\boldsymbol{\Sigma})\le T\}$
+into itself, so a fixed point exists by Brouwer's theorem. We therefore use the
+convex form during \emph{estimation}, and reserve additive augmentation for
+\emph{conditioning} (\Cref{apd:base_augmented}), where the target data --- not the
+EM recursion --- controls the added magnitude.
+
+\paragraph{Empirical behavior.}
+\Cref{tab:shrinkage_spectrum} reports the effect on the LCBench hyperparameter
+corpus ($M=200$ reference points, $K=25$ historical tasks). The unregularized
+estimator is severely rank-deficient: its effective rank --- the exponential of
+the spectral entropy --- is $2.89$, with $99.98\%$ of the trace carried by the
+leading $22$ directions and a median eigenvalue of $2.0\times10^{-4}$, below the
+conditioning noise floor. Shrinkage restores conditioning and repairs the
+resulting overconfidence, raising $95\%$ predictive coverage from $0.65$ to
+$0.98$ and reducing predictive NLL by roughly $8$ nats.
+
+\begin{table}[ht]
+\small
+\centering
+\caption{Effect of M-step shrinkage on the empirical covariance spectrum and on
+predictive calibration (LCBench, $M=200$, $K=25$). Coverage and NLL are measured
+at acquired points for the frozen-prior variant.}
+\label{tab:shrinkage_spectrum}
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{lcc}
+\toprule
+ & $\alpha = 0$ & $\alpha = 0.3$ \\
+\midrule
+Effective rank (of $M=200$)      & 2.89                 & 5.05 \\
+Trace in top 22 modes            & 0.9998               & 0.9624 \\
+Median eigenvalue                & $2.0\times10^{-4}$   & $1.6\times10^{-2}$ \\
+\midrule
+$95\%$ coverage                  & 0.65                 & \textbf{0.98} \\
+Predictive NLL                   & 8.30                 & \textbf{0.10} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Better calibration does not, however, imply better decision-making, and we
+report the distinction rather than eliding it. When the target task is drawn from
+the same distribution as the historical corpus, shrinkage \emph{degrades}
+downstream Bayesian-optimization regret even as it improves calibration, because
+the empirical covariance is already well matched and the blend only dilutes it.
+Under distribution shift --- evaluating on tasks from a held-out cluster --- the
+sign reverses and shrinkage helps. Shrinkage and target adaptation are therefore
+substitutes rather than complements, and $\alpha$ is best read as a
+transfer-distance dial: $\alpha=0$ in-distribution, $\alpha>0$ as the target moves
+away from the corpus.
+
+% -----------------------------------------------------------------------------
+% B.2 -- Base-augmented conditioning
+% -----------------------------------------------------------------------------
+\subsection{Base-Augmented Conditioning}
+\label{apd:base_augmented}
+
+At conditioning time we augment the empirical covariance with a parametric base
+kernel,
+\begin{equation}
+\label{eq:base_augmented}
+    k(\vx,\vx') = k_{\text{emp}}(\vx,\vx') + k_{\theta}(\vx,\vx'),
+\end{equation}
+and fit $\theta$ (and the likelihood noise) by maximizing the marginal likelihood
+of the \emph{target} task, holding the empirical mean and covariance fixed.
+Unlike a convex combination, each component retains its own magnitude. This
+yields graceful degradation: when the empirical prior is informative the fitted
+outputscale of $k_\theta$ stays small and the model behaves like the Empirical
+GP; when it is not, $k_\theta$ grows to explain the target data and the model
+reverts to a standard GP with that base kernel. The augmented model is therefore
+never asymptotically worse than its base kernel, a guarantee the raw empirical
+prior cannot provide at finite rank.
+
+Which parameters are free is a modeling choice with a clear reading. Fitting all
+of $\theta$ is appropriate for single-task surrogates; freezing the lengthscales
+of a pre-fit base kernel and fitting only its outputscale is appropriate for
+transfer, where learned cross-task structure should be reused rather than
+re-estimated from a handful of target points. We find that the plain additive
+form \eqref{eq:base_augmented} outperforms richer parameterizations that
+additionally free the empirical component's magnitude, which over-parameterize a
+small target design.
+
+\paragraph{Off-grid augmentation.}
+Care is required in the continuous-domain variant. Interpolating the empirical
+covariance to inputs $\mathbf{X}\notin\mathbf{Z}$ gives
+$\boldsymbol{\Sigma}(\mathbf{X}) = \boldsymbol{\Lambda}(\mathbf{X}) + \mathbf{W}\boldsymbol{\Sigma}_{\mathbf{Z}}\mathbf{W}^\top$
+with $\mathbf{W}=k_\theta(\mathbf{X},\mathbf{Z})k_\theta(\mathbf{Z},\mathbf{Z})^{-1}$
+and Nystr\"om residual
+$\boldsymbol{\Lambda}(\mathbf{X}) = k_\theta(\mathbf{X},\mathbf{X}) - \mathbf{W}k_\theta(\mathbf{Z},\mathbf{X})$.
+The augmentation must add the \emph{full} $k_\theta(\mathbf{X},\mathbf{X})$ at the
+query points, not the projection
+$\mathbf{W}k_\theta(\mathbf{Z},\mathbf{Z})\mathbf{W}^\top$ of the base kernel
+through the inducing set; the latter discards exactly the residual variance
+$\boldsymbol{\Lambda}$ that makes the augmentation useful away from the reference
+grid. On-grid ($\mathbf{X}\subseteq\mathbf{Z}$) the two coincide, which is why the
+distinction appears only in the continuous-domain setting.
+
+% -----------------------------------------------------------------------------
+% B.3 -- Multi-output
+% -----------------------------------------------------------------------------
+\subsection{Multi-Output Empirical Gaussian Processes}
+\label{apd:multioutput}
+
+The construction extends to vector-valued functions $\vf:\mathfrak{X}\to\R^{m}$
+without additional modeling assumptions, because the empirical estimator is
+indifferent to how the index set is structured. Given $K$ historical realizations
+observed on a shared grid of $n$ points for all $m$ outputs, we vectorize each
+realization, $\operatorname{vec}(\mathbf{Y}_k)\in\R^{nm}$, and form the empirical
+mean and covariance in the vectorized space. The resulting
+\begin{equation}
+    \boldsymbol{\Sigma}^{\text{MO}} \in \R^{nm\times nm},
+    \qquad
+    \big[\boldsymbol{\Sigma}^{\text{MO}}\big]_{(i,a),(j,b)}
+    = \widehat{\operatorname{Cov}}\!\left[f^{(a)}(x_i),\, f^{(b)}(x_j)\right]
+\end{equation}
+is a \emph{dense} cross-output covariance, capturing correlations between
+different outputs at different inputs directly from data rather than imposing a
+separable intrinsic-coregionalization structure
+$\boldsymbol{\Sigma}^{\text{MO}} = \mathbf{B}\otimes\mathbf{K}$. Separability is a
+strong assumption --- it forces every output to share a single input correlation
+pattern --- and the empirical construction does not require it. Predictions are
+returned as a multitask multivariate normal over the $nm$ latent values.
+
+Since $\boldsymbol{\Sigma}^{\text{MO}}$ has rank at most $K$, when $K < nm$ we
+factor the vectorized realizations by SVD and propagate the low-rank factors,
+reducing the conditioning cost from $O((nm)^3)$ to $O(K^2 nm)$ without
+approximation.
+
+% -----------------------------------------------------------------------------
+% B.4 -- Multi-task
+% -----------------------------------------------------------------------------
+\subsection{Multi-Task Empirical Gaussian Processes}
+\label{apd:multitask}
+
+The multi-output construction of \Cref{apd:multioutput} assumes every output is
+observed at every input. Many transfer settings violate this: tasks are observed
+at different locations, over different domains, and in different numbers. We
+therefore also provide a \emph{long-format} variant in which an input is a pair
+$(x, t)$ with $t\in\{1,\dots,T\}$ a task index, so each observation carries its
+own task label and no completeness assumption is needed.
+
+Historical data may be heterogeneous across tasks: task $t$ contributes curves on
+its own grid $\mathbf{X}^{(t)}\in\R^{n_t}$, with $n_t$ and the domain differing
+freely between tasks. The only requirement is that the $K$ realizations are
+\emph{paired} across tasks --- realization $k$ of task $t$ and realization $k$ of
+task $t'$ arise from the same underlying draw --- since this pairing is what
+identifies the cross-task covariance
+\begin{equation}
+    \widehat{\operatorname{Cov}}\!\left[f^{(t)}(x),\, f^{(t')}(x')\right]
+    = \frac{1}{K}\sum_{k=1}^{K}
+      \big(f^{(t)}_k(x) - \hat\mu^{(t)}(x)\big)
+      \big(f^{(t')}_k(x') - \hat\mu^{(t')}(x')\big),
+\end{equation}
+evaluated by interpolating each task's empirical basis to the queried locations.
+Within-task covariance is the one-dimensional empirical kernel of
+\Cref{sec:discrete_observations}; the cross-task blocks are estimated the same
+way, so a single estimator supplies the entire
+$\big(\sum_t n_t\big)$-dimensional joint covariance. This is the variant to use
+when historical tasks only partially overlap, which is the common case in
+learning-curve and hyperparameter-transfer corpora.
+
+
+% =============================================================================
+% MAIN-TEXT POINTERS -- three sentences, the minimum for discoverability and
+% reproducibility. Insert verbatim.
+% =============================================================================
+%
+% (1) Section 3, after the EM derivation:
+%
+% When $K \le M$ the maximum-likelihood covariance is rank-deficient; we
+% regularize the M-step by shrinking toward a structured target, which is exactly
+% MAP-EM under an Inverse-Wishart prior (\Cref{apd:shrinkage}).
+%
+% (2) Section 3 or 4.5, wherever conditioning is introduced:
+%
+% At conditioning time the empirical covariance may be augmented with a fitted
+% additive base kernel, which guarantees the model is never asymptotically worse
+% than that kernel (\Cref{apd:base_augmented}).
+%
+% (3) Section 5.5, in the sentence introducing Table~\ref{tab:hd_nll} -- REQUIRED,
+%     this is a reproducibility fix, since the reported numbers are produced with
+%     the additive base kernel and the manuscript does not currently say so:
+%
+% ... we evaluate our continuous-domain EM-EGP variant with a fitted additive base
+% kernel (\Cref{apd:base_augmented}) on a 7-dimensional hyperparameter
+% optimization task from LCBench.
+%
+% (4) OPTIONAL, Section 3 or Related Work, one sentence for the model family:
+%
+% The same estimator extends to vector-valued and partially-observed multi-task
+% settings (\Cref{apd:multioutput,apd:multitask}).
+%
+% =============================================================================

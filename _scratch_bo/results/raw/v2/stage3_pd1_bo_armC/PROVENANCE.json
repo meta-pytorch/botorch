@@ -1,0 +1,120 @@
+{
+  "stage": "stage3_pd1_bo_armC",
+  "regime": "pd1_bo_armC",
+  "commit": "d227d018ce15b43ba38918f95ae9d2b0a1ea3c21",
+  "generated_utc": "2026-08-20T18:10:39Z",
+  "regime_flags": "--benchmark pd1_loo --pd1-source full --pd1-group all --pd1-candidate-pool full --pd1-pretrain-pool full --n-iters 50 --n-seeds 1 --n-init 3 --per-task-standardize --output-warp neglog --meta-subsample 64 --meta-task-batch 5 --hyperbo-iters 25000",
+  "harness": "bo_experiment",
+  "cells": [
+    {
+      "name": "canon_deep_p0",
+      "flags": "--deep-kernel 32,32 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "canon_deep_p1",
+      "flags": "--deep-kernel 32,32 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "canon_deep_p2",
+      "flags": "--deep-kernel 32,32 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "canon_deep_p3",
+      "flags": "--deep-kernel 32,32 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "canon_deep_p4",
+      "flags": "--deep-kernel 32,32 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "canon_deep_p5",
+      "flags": "--deep-kernel 32,32 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "canon_deep_p6",
+      "flags": "--deep-kernel 32,32 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "canon_deep_p7",
+      "flags": "--deep-kernel 32,32 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "canon_deep_p8",
+      "flags": "--deep-kernel 32,32 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    },
+    {
+      "name": "canon_hyperbo_p0",
+      "flags": "--em-canonical hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "canon_hyperbo_p1",
+      "flags": "--em-canonical hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "canon_hyperbo_p2",
+      "flags": "--em-canonical hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "canon_hyperbo_p3",
+      "flags": "--em-canonical hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "canon_hyperbo_p4",
+      "flags": "--em-canonical hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "canon_hyperbo_p5",
+      "flags": "--em-canonical hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "canon_hyperbo_p6",
+      "flags": "--em-canonical hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "canon_hyperbo_p7",
+      "flags": "--em-canonical hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "canon_hyperbo_p8",
+      "flags": "--em-canonical hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    },
+    {
+      "name": "mean_linear+meanxfer_p0",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "mean_linear+meanxfer_p1",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "mean_linear+meanxfer_p2",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "mean_linear+meanxfer_p3",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "mean_linear+meanxfer_p4",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "mean_linear+meanxfer_p5",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "mean_linear+meanxfer_p6",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "mean_linear+meanxfer_p7",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "mean_linear+meanxfer_p8",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    }
+  ],
+  "note": "Everything under results/raw/v2/ was produced by the post-2026-08-17 binary. The S27.15 RNG-order change makes it incomparable with any result outside v2/. Do not mix them.",
+  "history": []
+}

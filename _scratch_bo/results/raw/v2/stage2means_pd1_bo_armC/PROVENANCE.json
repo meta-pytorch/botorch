@@ -1,0 +1,413 @@
+{
+  "stage": "stage2means_pd1_bo_armC",
+  "regime": "pd1_bo_armC",
+  "commit": "d636834cb2b025debcaaa0877c0ee2596805d67e",
+  "generated_utc": "2026-08-22T14:16:41Z",
+  "regime_flags": "--benchmark pd1_loo --pd1-source full --pd1-group all --pd1-candidate-pool full --pd1-pretrain-pool full --n-iters 50 --n-seeds 1 --n-init 3 --per-task-standardize --output-warp neglog --meta-subsample 64 --meta-task-batch 5 --hyperbo-iters 25000",
+  "harness": "bo_experiment",
+  "cells": [
+    {
+      "name": "mean_const_emp_p0",
+      "flags": "--em-base-mean constant --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "mean_const_emp_p1",
+      "flags": "--em-base-mean constant --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "mean_const_emp_p2",
+      "flags": "--em-base-mean constant --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "mean_const_emp_p3",
+      "flags": "--em-base-mean constant --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "mean_const_emp_p4",
+      "flags": "--em-base-mean constant --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "mean_const_emp_p5",
+      "flags": "--em-base-mean constant --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "mean_const_emp_p6",
+      "flags": "--em-base-mean constant --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "mean_const_emp_p7",
+      "flags": "--em-base-mean constant --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "mean_const_emp_p8",
+      "flags": "--em-base-mean constant --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    },
+    {
+      "name": "mean_lin_emp_p0",
+      "flags": "--em-base-mean linear --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "mean_lin_emp_p1",
+      "flags": "--em-base-mean linear --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "mean_lin_emp_p2",
+      "flags": "--em-base-mean linear --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "mean_lin_emp_p3",
+      "flags": "--em-base-mean linear --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "mean_lin_emp_p4",
+      "flags": "--em-base-mean linear --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "mean_lin_emp_p5",
+      "flags": "--em-base-mean linear --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "mean_lin_emp_p6",
+      "flags": "--em-base-mean linear --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "mean_lin_emp_p7",
+      "flags": "--em-base-mean linear --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "mean_lin_emp_p8",
+      "flags": "--em-base-mean linear --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    },
+    {
+      "name": "mean_const_hbk_p0",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "mean_const_hbk_p1",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "mean_const_hbk_p2",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "mean_const_hbk_p3",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "mean_const_hbk_p4",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "mean_const_hbk_p5",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "mean_const_hbk_p6",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "mean_const_hbk_p7",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "mean_const_hbk_p8",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    },
+    {
+      "name": "mean_const_hb_p0",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "mean_const_hb_p1",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "mean_const_hb_p2",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "mean_const_hb_p3",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "mean_const_hb_p4",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "mean_const_hb_p5",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "mean_const_hb_p6",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "mean_const_hb_p7",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "mean_const_hb_p8",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    },
+    {
+      "name": "mean_lin_hb_p0",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "mean_lin_hb_p1",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "mean_lin_hb_p2",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "mean_lin_hb_p3",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "mean_lin_hb_p4",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "mean_lin_hb_p5",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "mean_lin_hb_p6",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "mean_lin_hb_p7",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "mean_lin_hb_p8",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean hyperbo --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    },
+    {
+      "name": "mean_const_b25_p0",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --em-mean blend --em-mean-weight 0.25 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "mean_const_b25_p1",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --em-mean blend --em-mean-weight 0.25 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "mean_const_b25_p2",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --em-mean blend --em-mean-weight 0.25 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "mean_const_b25_p3",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --em-mean blend --em-mean-weight 0.25 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "mean_const_b25_p4",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --em-mean blend --em-mean-weight 0.25 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "mean_const_b25_p5",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --em-mean blend --em-mean-weight 0.25 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "mean_const_b25_p6",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --em-mean blend --em-mean-weight 0.25 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "mean_const_b25_p7",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --em-mean blend --em-mean-weight 0.25 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "mean_const_b25_p8",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --em-mean blend --em-mean-weight 0.25 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    },
+    {
+      "name": "mean_const_b50_p0",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --em-mean blend --em-mean-weight 0.5 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "mean_const_b50_p1",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --em-mean blend --em-mean-weight 0.5 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "mean_const_b50_p2",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --em-mean blend --em-mean-weight 0.5 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "mean_const_b50_p3",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --em-mean blend --em-mean-weight 0.5 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "mean_const_b50_p4",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --em-mean blend --em-mean-weight 0.5 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "mean_const_b50_p5",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --em-mean blend --em-mean-weight 0.5 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "mean_const_b50_p6",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --em-mean blend --em-mean-weight 0.5 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "mean_const_b50_p7",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --em-mean blend --em-mean-weight 0.5 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "mean_const_b50_p8",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --em-mean blend --em-mean-weight 0.5 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    },
+    {
+      "name": "mean_const_b75_p0",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --em-mean blend --em-mean-weight 0.75 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "mean_const_b75_p1",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --em-mean blend --em-mean-weight 0.75 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "mean_const_b75_p2",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --em-mean blend --em-mean-weight 0.75 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "mean_const_b75_p3",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --em-mean blend --em-mean-weight 0.75 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "mean_const_b75_p4",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --em-mean blend --em-mean-weight 0.75 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "mean_const_b75_p5",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --em-mean blend --em-mean-weight 0.75 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "mean_const_b75_p6",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --em-mean blend --em-mean-weight 0.75 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "mean_const_b75_p7",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --em-mean blend --em-mean-weight 0.75 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "mean_const_b75_p8",
+      "flags": "--em-base-mean constant --em-canonical hyperbo --em-mean blend --em-mean-weight 0.75 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    },
+    {
+      "name": "mean_lin_b50_p0",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean blend --em-mean-weight 0.5 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "mean_lin_b50_p1",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean blend --em-mean-weight 0.5 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "mean_lin_b50_p2",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean blend --em-mean-weight 0.5 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "mean_lin_b50_p3",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean blend --em-mean-weight 0.5 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "mean_lin_b50_p4",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean blend --em-mean-weight 0.5 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "mean_lin_b50_p5",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean blend --em-mean-weight 0.5 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "mean_lin_b50_p6",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean blend --em-mean-weight 0.5 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "mean_lin_b50_p7",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean blend --em-mean-weight 0.5 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "mean_lin_b50_p8",
+      "flags": "--em-base-mean linear --em-canonical hyperbo --em-mean blend --em-mean-weight 0.5 --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    },
+    {
+      "name": "mean_const_prior_p0",
+      "flags": "--em-base-mean constant --use-mean-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "mean_const_prior_p1",
+      "flags": "--em-base-mean constant --use-mean-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "mean_const_prior_p2",
+      "flags": "--em-base-mean constant --use-mean-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "mean_const_prior_p3",
+      "flags": "--em-base-mean constant --use-mean-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "mean_const_prior_p4",
+      "flags": "--em-base-mean constant --use-mean-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "mean_const_prior_p5",
+      "flags": "--em-base-mean constant --use-mean-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "mean_const_prior_p6",
+      "flags": "--em-base-mean constant --use-mean-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "mean_const_prior_p7",
+      "flags": "--em-base-mean constant --use-mean-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "mean_const_prior_p8",
+      "flags": "--em-base-mean constant --use-mean-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    },
+    {
+      "name": "mean_lin_prior_p0",
+      "flags": "--em-base-mean linear --use-mean-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 0"
+    },
+    {
+      "name": "mean_lin_prior_p1",
+      "flags": "--em-base-mean linear --use-mean-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 1"
+    },
+    {
+      "name": "mean_lin_prior_p2",
+      "flags": "--em-base-mean linear --use-mean-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 2"
+    },
+    {
+      "name": "mean_lin_prior_p3",
+      "flags": "--em-base-mean linear --use-mean-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 3"
+    },
+    {
+      "name": "mean_lin_prior_p4",
+      "flags": "--em-base-mean linear --use-mean-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 4"
+    },
+    {
+      "name": "mean_lin_prior_p5",
+      "flags": "--em-base-mean linear --use-mean-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 5"
+    },
+    {
+      "name": "mean_lin_prior_p6",
+      "flags": "--em-base-mean linear --use-mean-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 6"
+    },
+    {
+      "name": "mean_lin_prior_p7",
+      "flags": "--em-base-mean linear --use-mean-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 7"
+    },
+    {
+      "name": "mean_lin_prior_p8",
+      "flags": "--em-base-mean linear --use-mean-prior --methods em_frozen,em_additive_hyperbo,em_additive_hyperbo_frozen,hyperbo_frozen --pretrain-seed 8"
+    }
+  ],
+  "note": "Everything under results/raw/v2/ was produced by the post-2026-08-17 binary. The S27.15 RNG-order change makes it incomparable with any result outside v2/. Do not mix them.",
+  "history": [
+    {
+      "commit": "ab5f7f98abbf679d9ccda604b8da8e0267f01dfb",
+      "generated_utc": "2026-08-21T02:53:05Z"
+    }
+  ]
+}

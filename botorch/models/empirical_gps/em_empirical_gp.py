@@ -44,6 +44,7 @@ from botorch.models.empirical_gps.utils import (
 )
 from botorch.models.gpytorch import GPyTorchModel
 from botorch.models.model_list_gp_regression import ModelListGP
+from botorch.utils.types import DEFAULT
 from gpytorch.distributions import MultivariateNormal
 from gpytorch.kernels import Kernel
 from gpytorch.likelihoods import GaussianLikelihood, Likelihood
@@ -1151,14 +1152,24 @@ class EMEmpiricalGaussianProcess(ExactGP, GPyTorchModel):
             self._cached_delta_mu.requires_grad_(False)
 
     def _effective_Sigma_inducing(self) -> Tensor:
-        """EM covariance at the inducing points, plus an optional additive base."""
+        """EM covariance at the inducing points, plus an optional additive base.
+
+        ``_log_sigma_scale``, when set, rescales the empirical block before the base is
+        added, giving ``exp(s) * Sigma_emp + K_base``. That lets a caller learn the
+        empirical prior's magnitude jointly with the base instead of pinning it at the
+        EM-estimated scale. It is read on every call so autograd tracks it.
+        """
+        Sigma = self._Sigma_inducing
+        log_scale = getattr(self, "_log_sigma_scale", None)
+        if log_scale is not None:
+            Sigma = torch.exp(log_scale) * Sigma
         base = getattr(self, "_additive_base", None)
         if base is None:
-            return self._Sigma_inducing
+            return Sigma
         k_base = base(self._X_inducing, self._X_inducing)
         if hasattr(k_base, "to_dense"):
             k_base = k_base.to_dense()
-        return self._Sigma_inducing + k_base
+        return Sigma + k_base
 
     def _update_cache(self) -> None:
         """Update cached quantities for shift interpolation.
@@ -1215,7 +1226,11 @@ class EMEmpiricalGaussianProcess(ExactGP, GPyTorchModel):
             X_inducing=self._X_inducing,
             L_ZZ=self._cached_L_kernel_inducing,
             delta_mu=self._cached_delta_mu,
-            Sigma_inducing=self._Sigma_inducing,
+            Sigma_inducing=(
+                self._Sigma_inducing
+                if getattr(self, "_log_sigma_scale", None) is None
+                else torch.exp(self._log_sigma_scale) * self._Sigma_inducing
+            ),
             include_cross_covariance=False,
         )
         base = getattr(self, "_additive_base", None)
@@ -1681,12 +1696,17 @@ def build_shared_gp_model_list(
     mean_module: Mean,
     covar_module: Kernel,
     observation_noise: float | None = None,
+    outcome_transform=DEFAULT,
 ) -> tuple[ModelListGP, GPyTorchSumMarginalLogLikelihood]:
     """Build a ModelListGP with shared mean/kernel across all GPs.
 
     All GPs in the returned ModelList share the SAME mean_module and covar_module
     instances, so optimizing the ModelList's MLL optimizes a single set of
     hyperparameters using gradients from all K datasets.
+
+    ``outcome_transform`` defaults to BoTorch's DEFAULT (a per-task ``Standardize``).
+    Pass ``None`` when the datasets are already on a common scale; otherwise the shared
+    mean and outputscale are fitted in a different space from the one the caller uses.
 
     This uses BoTorch's ModelListGP which provides full compatibility with
     fit_gpytorch_mll, including transform_inputs and other BoTorch model methods.
@@ -1732,6 +1752,14 @@ def build_shared_gp_model_list(
             train_Y=dataset.Y,
             mean_module=mean_module,  # Shared across all GPs
             covar_module=covar_module,  # Shared across all GPs
+            # BoTorch's DEFAULT is Standardize(m=1), applied PER TASK. When the caller
+            # has already standardized globally -- as every empirical-GP workflow does,
+            # because the EM prior consumes one common scale -- that silently refits the
+            # shared mean against zero-mean targets and calibrates the outputscale to
+            # unit per-task variance. Callers that standardize upstream should pass
+            # outcome_transform=None so the shared hyperparameters live in the same
+            # space as the data the EM prior is estimated from.
+            outcome_transform=outcome_transform,
         )
 
         # Set observation noise if provided
