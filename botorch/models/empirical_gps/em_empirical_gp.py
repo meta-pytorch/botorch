@@ -31,7 +31,9 @@ using the EM algorithm with closed-form updates.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 import torch
 from botorch.models import SingleTaskGP
@@ -251,6 +253,9 @@ def _e_step(
     X_inducing: Tensor | None = None,
     mean_module: Mean | None = None,
     covar_module: Kernel | None = None,
+    inducing_interpolation: (
+        tuple[Tensor, Tensor, list[tuple[Tensor, Tensor, Tensor, Tensor]]] | None
+    ) = None,
 ) -> tuple[list[Tensor], list[Tensor]]:
     """E-step: compute conditional distributions for each dataset.
 
@@ -271,6 +276,9 @@ def _e_step(
         covar_module: Parametric covariance module for interpolation (required for both
             X_inducing, and if test points could be different from the set of historical
             inputs).
+        inducing_interpolation: Optional output of
+            ``_precompute_inducing_interpolation`` for the same datasets, inducing
+            points and modules (inducing point case), to reuse across EM iterations.
 
     Returns:
         cond_means: List of K tensors - E[θ | y_i].
@@ -281,9 +289,14 @@ def _e_step(
 
     # Precompute inducing point quantities if using shift interpolation
     if X_inducing is not None:
-        K_ZZ = covar_module(X_inducing, X_inducing).to_dense()
-        L_ZZ = psd_safe_cholesky(K_ZZ)
-        m_Z = _evaluate_mean(mean_module, X_inducing)
+        if inducing_interpolation is None:
+            inducing_interpolation = _precompute_inducing_interpolation(
+                datasets=datasets,
+                X_inducing=X_inducing,
+                mean_module=mean_module,
+                covar_module=covar_module,
+            )
+        L_ZZ, m_Z, bases = inducing_interpolation
         delta_mu = mu - m_Z
 
     for i, dataset in enumerate(datasets):
@@ -297,8 +310,8 @@ def _e_step(
         # if the base term (Λ_k + σ²I) is cheaply invertible, i.e. if Λ_k is
         # approximated by its diagonal (an FITC-style approximation). With the
         # exact dense residual used here for extrapolation, the O(n_k³)
-        # Cholesky is unavoidable. (When multiple datasets share X_k, W_k and
-        # Λ_k are identical and need only be computed once.)
+        # Cholesky is unavoidable. (W_k and Λ_k do not depend on (mu, Sigma),
+        # see ``_precompute_inducing_interpolation``.)
         # The target locations T are the full set of estimation points, so the
         # target moments are always the current (mu, Sigma); only the observed
         # block (mu_S, Sigma_SS) and cross-covariance Sigma_TS differ by case.
@@ -314,6 +327,7 @@ def _e_step(
                 delta_mu=delta_mu,
                 Sigma_inducing=Sigma,
                 include_cross_covariance=True,
+                basis=bases[i],
             )
         else:
             # Standard case: use indexing
@@ -486,7 +500,8 @@ def _run_em_algorithm(
         use_inducing_points: If True, use shift interpolation in E-step.
         num_em_iterations: Maximum number of EM iterations.
         Psi: IW prior scale matrix, or None for ML estimation.
-        K_mu: Kernel prior matrix for mean, or None for ML estimation.
+        K_mu: Kernel prior matrix for mean, or None for ML estimation. The prior
+            on the mean is centered at the parametric mean ``mean_module(X_inducing)``.
         iw_nu: IW degrees of freedom, or None.
         em_convergence_tol: Convergence tolerance for early stopping, or None.
         N_inducing: Number of inducing points (for M-step normalization).
@@ -506,6 +521,22 @@ def _run_em_algorithm(
     """
     mu, Sigma = mu_init.clone(), Sigma_init.clone()
 
+    # With the kernel prior on mu (K_mu), mu ~ N(m(Z), K_mu) is shrunk toward the
+    # parametric mean m(Z) of mean_module, rather than toward zero.
+    m_0 = _evaluate_mean(mean_module, X_inducing) if K_mu is not None else None
+
+    # The parts of the E-step shift interpolation that do not depend on (mu, Sigma)
+    # (kernel matrices, triangular solves, Nyström residuals, m(X_k)) are the same
+    # in every iteration, so compute them once.
+    inducing_interpolation = None
+    if use_inducing_points:
+        inducing_interpolation = _precompute_inducing_interpolation(
+            datasets=datasets,
+            X_inducing=X_inducing,
+            mean_module=mean_module,
+            covar_module=covar_module,
+        )
+
     for _ in range(num_em_iterations):
         mu_prev, Sigma_prev = mu, Sigma
 
@@ -518,6 +549,7 @@ def _run_em_algorithm(
             X_inducing=X_inducing if use_inducing_points else None,
             mean_module=mean_module if use_inducing_points else None,
             covar_module=covar_module if use_inducing_points else None,
+            inducing_interpolation=inducing_interpolation,
         )
 
         mu, Sigma = _m_step(
@@ -527,6 +559,7 @@ def _run_em_algorithm(
             nu=iw_nu,
             N_obs=N_inducing,
             K_mu=K_mu,
+            m_0=m_0,
             Sigma_current=Sigma,
             psd_stabilization=True,
             shrinkage=covariance_shrinkage,
@@ -593,7 +626,8 @@ def pretrain_em_prior(
         inducing_points: Optional (M, d) tensor of inducing point locations.
             If None, uses unique inputs from historical data.
         num_em_iterations: Maximum number of EM iterations (default: 16).
-        use_mean_prior: If True, use covar_module as kernel prior on μ.
+        use_mean_prior: If True, use covar_module as kernel prior on μ, centered
+            at the parametric mean (mean_module).
         use_covar_prior: If True, use Inverse-Wishart prior on Σ.
         iw_nu: Degrees of freedom for IW prior. If None and use_covar_prior=True,
             automatically set to M + 2 where M is the number of inducing points.
@@ -828,7 +862,8 @@ class EMEmpiricalGaussianProcess(ExactGP, GPyTorchModel):
         likelihood: A likelihood. If omitted, uses a GaussianLikelihood.
         num_em_iterations: Number of EM iterations (default: 16). Only used if
             em_prior is None.
-        use_mean_prior: If True, use covar_module as kernel prior on μ.
+        use_mean_prior: If True, use covar_module as kernel prior on μ, centered
+            at the parametric mean (mean_module).
         use_covar_prior: If True, use Inverse-Wishart prior on Σ.
         iw_nu: Degrees of freedom for Inverse-Wishart prior. Must be > M - 1
             where M is the number of inducing points. If None (default),
@@ -1030,13 +1065,21 @@ class EMEmpiricalGaussianProcess(ExactGP, GPyTorchModel):
         # were explicitly provided to pretrain_em_prior
         self._use_inducing_points = container.use_inducing_points
 
-        # Store EM results (these may be detached if from pretrained)
-        self._mu_inducing = container.mu_inducing
-        self._Sigma_inducing = container.Sigma_inducing
+        # EM estimates at the inducing points. These are registered as buffers so
+        # that they are part of the model state (``state_dict`` /
+        # ``load_state_dict``), follow dtype/device conversions and support
+        # ``deepcopy``. They always hold detached copies: an EM re-run during
+        # from-scratch fitting is differentiable, but its graph-attached result is
+        # only used for that evaluation (see ``forward`` and
+        # ``EMEmpiricalMarginalLogLikelihood``).
+        self.register_buffer("_mu_inducing", container.mu_inducing.detach().clone())
+        self.register_buffer(
+            "_Sigma_inducing", container.Sigma_inducing.detach().clone()
+        )
 
-        # Store cached interpolation quantities
-        self._cached_L_kernel_inducing = container.L_kernel_inducing
-        self._cached_delta_mu = container.delta_mu
+        # Eval-mode cache of the parametric prior at the inducing points, see
+        # ``_parametric_prior_at_inducing``. Cleared by ``_clear_cache``.
+        self._parametric_prior_cache: tuple[Tensor, Tensor] | None = None
 
         # Store flag to control EM re-running in forward()
         self._using_pretrained_prior = using_pretrained
@@ -1145,46 +1188,72 @@ class EMEmpiricalGaussianProcess(ExactGP, GPyTorchModel):
             self._mu_inducing.requires_grad_(False)
         if self._Sigma_inducing is not None:
             self._Sigma_inducing.requires_grad_(False)
-        if self._cached_L_kernel_inducing is not None:
-            self._cached_L_kernel_inducing.requires_grad_(False)
-        if self._cached_delta_mu is not None:
-            self._cached_delta_mu.requires_grad_(False)
 
-    def _effective_Sigma_inducing(self) -> Tensor:
-        """EM covariance at the inducing points, plus an optional additive base."""
+    def _set_em_state(self, mu_inducing: Tensor, Sigma_inducing: Tensor) -> None:
+        """Store (detached copies of) new EM estimates as the model's EM state."""
+        self._mu_inducing = mu_inducing.detach().clone()
+        self._Sigma_inducing = Sigma_inducing.detach().clone()
+
+    def _effective_Sigma_inducing(self, Sigma_inducing: Tensor | None = None) -> Tensor:
+        """EM covariance at the inducing points, plus an optional additive base.
+
+        Args:
+            Sigma_inducing: (M, M) EM covariance. Defaults to the model's EM state.
+        """
+        if Sigma_inducing is None:
+            Sigma_inducing = self._Sigma_inducing
         base = getattr(self, "_additive_base", None)
         if base is None:
-            return self._Sigma_inducing
+            return Sigma_inducing
         k_base = base(self._X_inducing, self._X_inducing)
         if hasattr(k_base, "to_dense"):
             k_base = k_base.to_dense()
-        return self._Sigma_inducing + k_base
+        return Sigma_inducing + k_base
 
-    def _update_cache(self) -> None:
-        """Update cached quantities for shift interpolation.
+    def _compute_parametric_prior_at_inducing(self) -> tuple[Tensor, Tensor]:
+        """Evaluate the parametric prior at the inducing points Z.
 
-        This method recomputes the cached Cholesky factor and mean shift
-        based on the current _mu_inducing and _Sigma_inducing values.
-        Should be called after EM is re-run with new hyperparameters.
-
-        The EM-learned prior is extended to new points via shift interpolation:
-            mu(X) = m(X) + W @ Delta_mu
-            Sigma(X) = Lambda(X) + W @ Sigma_inducing @ W^T
-        where Delta_mu = mu_inducing - m(X_inducing),
-        Lambda(X) = K(X,X) - K(X,Z) K(Z,Z)^{-1} K(Z,X) is the Nystrom residual,
-        and W = K(X, X_inducing) @ K_inducing^{-1}.
+        Returns:
+            L_ZZ: (M, M) Cholesky factor of K(Z, Z) under the current parameters.
+            m_Z: (M,) parametric mean m(Z) under the current parameters.
         """
-        K_kernel_inducing = self.initial_covar_module(
-            self._X_inducing, self._X_inducing
-        ).to_dense()
-        m_inducing = _evaluate_mean(self.initial_mean_module, self._X_inducing)
+        K_ZZ = self.initial_covar_module(self._X_inducing, self._X_inducing).to_dense()
+        m_Z = _evaluate_mean(self.initial_mean_module, self._X_inducing)
+        return psd_safe_cholesky(K_ZZ), m_Z
 
-        self._cached_L_kernel_inducing = psd_safe_cholesky(K_kernel_inducing)
+    def _parametric_prior_at_inducing(self) -> tuple[Tensor, Tensor]:
+        """Parametric prior ``(L_ZZ, m_Z)`` at the inducing points for interpolation.
 
-        # Mean shift: Delta_mu = mu_inducing - m(X_inducing)
-        self._cached_delta_mu = self._mu_inducing - m_inducing
+        Shift interpolation reproduces the EM prior at the inducing points only if
+        ``K(Z, Z)`` and ``m(Z)`` are evaluated with the same (current) kernel and
+        mean parameters as ``K(X, Z)``, ``K(X, X)`` and ``m(X)``. In training mode,
+        they are therefore recomputed on every call, keeping their gradients w.r.t.
+        the hyperparameters. In eval mode, where the hyperparameters are fixed, they
+        are cached without autograd history (the cache outlives the graph of the call
+        that populated it); the cache is cleared by ``_clear_cache``, i.e. on
+        train/eval mode switches and on ``load_state_dict``.
+        """
+        if self.training:
+            return self._compute_parametric_prior_at_inducing()
+        if self._parametric_prior_cache is None:
+            with torch.no_grad():
+                self._parametric_prior_cache = (
+                    self._compute_parametric_prior_at_inducing()
+                )
+        return self._parametric_prior_cache
 
-    def _interpolate_prior_to_X(self, X: Tensor) -> tuple[Tensor, Tensor]:
+    def _clear_cache(self) -> None:
+        """Clear the eval-mode caches (called by GPyTorch, see ``gpytorch.Module``)."""
+        super()._clear_cache()
+        self._parametric_prior_cache = None
+
+    def _interpolate_prior_to_X(
+        self,
+        X: Tensor,
+        mu_inducing: Tensor | None = None,
+        Sigma_inducing: Tensor | None = None,
+        parametric_prior: tuple[Tensor, Tensor] | None = None,
+    ) -> tuple[Tensor, Tensor]:
         """Interpolate the EM-learned prior to arbitrary locations X.
 
         Uses shift interpolation from inducing points Z to query locations X:
@@ -1203,19 +1272,33 @@ class EMEmpiricalGaussianProcess(ExactGP, GPyTorchModel):
 
         Args:
             X: (n, d) query locations.
+            mu_inducing: (M,) EM mean at the inducing points. Defaults to the
+                model's EM state.
+            Sigma_inducing: (M, M) EM covariance at the inducing points. Defaults
+                to the model's EM state.
+            parametric_prior: Optional ``(L_ZZ, m_Z)`` as returned by
+                ``_compute_parametric_prior_at_inducing``, to share one evaluation
+                across several calls. Defaults to ``_parametric_prior_at_inducing()``.
 
         Returns:
             mu: (n,) interpolated mean.
             Sigma: (n, n) interpolated covariance.
         """
+        if mu_inducing is None:
+            mu_inducing = self._mu_inducing
+        if Sigma_inducing is None:
+            Sigma_inducing = self._Sigma_inducing
+        if parametric_prior is None:
+            parametric_prior = self._parametric_prior_at_inducing()
+        L_ZZ, m_Z = parametric_prior
         mu, Sigma, _ = _interpolate_prior(
             X=X,
             mean_module=self.initial_mean_module,
             covar_module=self.initial_covar_module,
             X_inducing=self._X_inducing,
-            L_ZZ=self._cached_L_kernel_inducing,
-            delta_mu=self._cached_delta_mu,
-            Sigma_inducing=self._Sigma_inducing,
+            L_ZZ=L_ZZ,
+            delta_mu=mu_inducing - m_Z,
+            Sigma_inducing=Sigma_inducing,
             include_cross_covariance=False,
         )
         base = getattr(self, "_additive_base", None)
@@ -1226,22 +1309,33 @@ class EMEmpiricalGaussianProcess(ExactGP, GPyTorchModel):
             Sigma = Sigma + k_base
         return mu, Sigma
 
-    def _get_prior_at_indices(self, indices: Tensor) -> tuple[Tensor, Tensor]:
+    def _get_prior_at_indices(
+        self,
+        indices: Tensor,
+        mu_inducing: Tensor | None = None,
+        Sigma_inducing: Tensor | None = None,
+    ) -> tuple[Tensor, Tensor]:
         """Extract prior mean and covariance at the given indices.
 
         This is a fast O(n²) operation for when X is a known subset of
         the inducing points.
 
         Args:
-            indices: (n,) index tensor into _mu_inducing and _Sigma_inducing.
+            indices: (*batch, n) index tensor into _mu_inducing and _Sigma_inducing.
+            mu_inducing: (M,) EM mean at the inducing points. Defaults to the
+                model's EM state.
+            Sigma_inducing: (M, M) EM covariance at the inducing points. Defaults
+                to the model's EM state.
 
         Returns:
-            mu: (n,) mean at the indexed locations.
-            Sigma: (n, n) covariance at the indexed locations.
+            mu: (*batch, n) mean at the indexed locations.
+            Sigma: (*batch, n, n) covariance at the indexed locations.
         """
+        if mu_inducing is None:
+            mu_inducing = self._mu_inducing
         mu, Sigma, _ = _index_prior(
-            mu_full=self._mu_inducing,
-            Sigma_full=self._effective_Sigma_inducing(),
+            mu_full=mu_inducing,
+            Sigma_full=self._effective_Sigma_inducing(Sigma_inducing),
             indices=indices,
             include_cross_covariance=False,
         )
@@ -1396,19 +1490,25 @@ class EMEmpiricalGaussianProcess(ExactGP, GPyTorchModel):
         """
         # Only re-run EM if training AND not using pretrained prior
         if self.training and not self._using_pretrained_prior:
-            # Re-run EM for gradient flow through kernel hyperparameters
-            mu_em, Sigma_em = self._run_em()
-            self._mu_inducing = mu_em
-            self._Sigma_inducing = Sigma_em
-            self._update_cache()
+            # Re-run EM for gradient flow through kernel hyperparameters. The
+            # graph-attached estimates are used for this evaluation; the model's
+            # EM state only keeps detached copies.
+            mu_inducing, Sigma_inducing = self._run_em()
+            self._set_em_state(mu_inducing, Sigma_inducing)
+        else:
+            mu_inducing, Sigma_inducing = self._mu_inducing, self._Sigma_inducing
 
         if self.enable_interpolation or self._use_inducing_points:
             # Shift interpolation from inducing points to X
-            mean, covar = self._interpolate_prior_to_X(X)
+            mean, covar = self._interpolate_prior_to_X(
+                X, mu_inducing=mu_inducing, Sigma_inducing=Sigma_inducing
+            )
         else:
             # Direct indexing: X must be subset of historical observations
             indices = self._find_indices_in_historical(X)
-            mean, covar = self._get_prior_at_indices(indices)
+            mean, covar = self._get_prior_at_indices(
+                indices, mu_inducing=mu_inducing, Sigma_inducing=Sigma_inducing
+            )
 
         return MultivariateNormal(mean, to_linear_operator(covar))
 
@@ -1416,18 +1516,19 @@ class EMEmpiricalGaussianProcess(ExactGP, GPyTorchModel):
         """Find indices of X in historical observations.
 
         Args:
-            X: (n, d) query locations that must be a subset of _X_inducing.
+            X: (*batch, n, d) query locations that must be a subset of
+                _X_inducing.
 
         Returns:
-            indices: (n,) index tensor such that _X_inducing[indices] == X.
+            indices: (*batch, n) index tensor such that _X_inducing[indices] == X.
 
         Raises:
             ValueError: If any point in X is not found in historical observations.
         """
         # Compute pairwise distances to find matches
-        # X: (n, d), _X_inducing: (N, d)
-        dists = torch.cdist(X, self._X_inducing)  # (n, N)
-        min_dists, indices = dists.min(dim=1)
+        # X: (*batch, n, d), _X_inducing: (N, d)
+        dists = torch.cdist(X, self._X_inducing)  # (*batch, n, N)
+        min_dists, indices = dists.min(dim=-1)
 
         # Check that all points were found (within numerical tolerance)
         tol = 1e-6
@@ -1449,6 +1550,56 @@ class EMEmpiricalGaussianProcess(ExactGP, GPyTorchModel):
 # =============================================================================
 
 
+def _interpolation_basis(
+    X: Tensor,
+    mean_module: Mean,
+    covar_module: Kernel,
+    X_inducing: Tensor,
+    L_ZZ: Tensor,
+) -> tuple[Tensor, Tensor, Tensor, Tensor]:
+    """Compute the parts of the shift interpolation that do not depend on (μ, Σ).
+
+    These only depend on the query locations and the parametric prior, so they can
+    be computed once and reused across EM iterations (see ``_interpolate_prior``).
+
+    Args:
+        X: (n, d) query locations.
+        mean_module: Parametric mean module.
+        covar_module: Parametric covariance module.
+        X_inducing: (M, d) inducing point locations.
+        L_ZZ: (M, M) Cholesky factor of K(Z, Z).
+
+    Returns:
+        K_XZ: (n, M) cross-covariance K(X, Z).
+        alpha_ZX: (M, n) K(Z, Z)^{-1} K(Z, X), i.e. W^T.
+        Lambda: (n, n) Nyström residual K(X, X) - K(X, Z) K(Z, Z)^{-1} K(Z, X).
+        m_X: (n,) parametric mean m(X).
+    """
+    # Compute kernel matrices. Batch-aware: X may be ``(*batch, q, d)`` (e.g. the
+    # ``q=1`` t-batches that analytic acquisitions such as LogExpectedImprovement
+    # feed in), so use ``.mT`` and batched matmuls throughout. On 2D ``(n, d)``
+    # input these reduce exactly to the original operations.
+    K_XZ = covar_module(X, X_inducing).to_dense()  # (*b, q, M)
+    K_XX = covar_module(X, X).to_dense()  # (*b, q, q)
+    K_ZX = K_XZ.mT  # (*b, M, q)
+
+    # Compute V = L_ZZ^{-1} K_ZX and alpha_ZX = K_ZZ^{-1} K_ZX = L_ZZ^{-T} V
+    # via two triangular solves (L_ZZ broadcasts over any leading batch dims).
+    V = torch.linalg.solve_triangular(L_ZZ, K_ZX, upper=False)
+    alpha_ZX = torch.linalg.solve_triangular(L_ZZ.mT, V, upper=True)
+
+    m_X = mean_module(X)
+    # Drop a trailing singleton *output* dim if the mean module emits ``(..., n, 1)``,
+    # while preserving any t-batch/q structure so batched inputs stay ``(*b, q)``.
+    if m_X.dim() == K_XZ.dim() and m_X.shape[-1] == 1:
+        m_X = m_X.squeeze(-1)
+
+    # Λ(X) = K(X,X) - Vᵀ V is the Nyström residual (Schur complement of K(Z,Z) in
+    # the joint kernel — PSD in exact arithmetic).
+    Lambda = K_XX - V.mT @ V
+    return K_XZ, alpha_ZX, Lambda, m_X
+
+
 def _interpolate_prior(
     X: Tensor,
     mean_module: Mean,
@@ -1458,6 +1609,7 @@ def _interpolate_prior(
     delta_mu: Tensor,
     Sigma_inducing: Tensor,
     include_cross_covariance: bool = False,
+    basis: tuple[Tensor, Tensor, Tensor, Tensor] | None = None,
 ) -> tuple[Tensor, Tensor, Tensor | None]:
     """Interpolate the EM-learned prior from inducing points to query locations.
 
@@ -1484,43 +1636,35 @@ def _interpolate_prior(
         delta_mu: (M,) mean shift = μ_Z - m(Z).
         Sigma_inducing: (M, M) EM-estimated covariance at inducing points.
         include_cross_covariance: If True, also compute and return Σ(Z, X).
+        basis: Optional output of ``_interpolation_basis`` for the same arguments,
+            to reuse it across calls with different ``delta_mu``/``Sigma_inducing``.
 
     Returns:
         mu: (n,) interpolated mean at X.
         Sigma: (n, n) interpolated covariance at X.
         cross_covariance: (M, n) cross-covariance Σ(Z, X), or None if not requested.
     """
-    # Compute kernel matrices. Batch-aware: X may be ``(*batch, q, d)`` (e.g. the
-    # ``q=1`` t-batches that analytic acquisitions such as LogExpectedImprovement
-    # feed in), so use ``.mT`` and batched matmuls throughout. On 2D ``(n, d)``
-    # input these reduce exactly to the original operations.
-    K_XZ = covar_module(X, X_inducing).to_dense()  # (*b, q, M)
-    K_XX = covar_module(X, X).to_dense()  # (*b, q, q)
-    K_ZX = K_XZ.mT  # (*b, M, q)
-
-    # Compute V = L_ZZ^{-1} K_ZX and alpha_ZX = K_ZZ^{-1} K_ZX = L_ZZ^{-T} V
-    # via two triangular solves (L_ZZ broadcasts over any leading batch dims).
-    V = torch.linalg.solve_triangular(L_ZZ, K_ZX, upper=False)
-    alpha_ZX = torch.linalg.solve_triangular(L_ZZ.mT, V, upper=True)
+    if basis is None:
+        basis = _interpolation_basis(
+            X=X,
+            mean_module=mean_module,
+            covar_module=covar_module,
+            X_inducing=X_inducing,
+            L_ZZ=L_ZZ,
+        )
+    K_XZ, alpha_ZX, Lambda, m_X = basis
 
     # Interpolate mean: μ(X) = m(X) + K_XZ @ K_ZZ^{-1} @ Δμ
     alpha_mu = torch.cholesky_solve(delta_mu.unsqueeze(-1), L_ZZ)  # (M, 1)
     interp = (K_XZ @ alpha_mu).squeeze(-1)  # (*b, q)
-    m_X = mean_module(X)
-    # Drop a trailing singleton *output* dim if the mean module emits ``(..., n, 1)``,
-    # while preserving any t-batch/q structure so batched inputs stay ``(*b, q)``.
-    if m_X.dim() == interp.dim() + 1 and m_X.shape[-1] == 1:
-        m_X = m_X.squeeze(-1)
     mu = m_X + interp
 
     # Interpolate covariance using the numerically stable decomposition:
     #   Σ(X,X) = Λ(X) + W @ Σ_inducing @ W^T
-    # where Λ(X) = K(X,X) - Vᵀ V is the Nyström residual (Schur complement of
-    # K(Z,Z) in the joint kernel — PSD in exact arithmetic). Small floating-point
-    # errors are handled downstream by psd_safe_cholesky jitter (forward path) and
-    # the σ²I noise buffer (E-step path).
+    # where Λ(X) is the Nyström residual. Small floating-point errors are handled
+    # downstream by psd_safe_cholesky jitter (forward path) and the σ²I noise
+    # buffer (E-step path).
     W = alpha_ZX.mT  # (*b, q, M)
-    Lambda = K_XX - V.mT @ V
     Sigma = Lambda + W @ Sigma_inducing @ W.mT
 
     # Optionally compute cross-covariance: Σ(Z,X) = Σ_inducing @ K(Z,Z)^{-1} @ K(Z,X)
@@ -1529,6 +1673,48 @@ def _interpolate_prior(
         cross_covariance = Sigma_inducing @ alpha_ZX
 
     return mu, Sigma, cross_covariance
+
+
+def _precompute_inducing_interpolation(
+    datasets: list[ExperimentDataset],
+    X_inducing: Tensor,
+    mean_module: Mean,
+    covar_module: Kernel,
+) -> tuple[Tensor, Tensor, list[tuple[Tensor, Tensor, Tensor, Tensor]]]:
+    """Compute the E-step interpolation quantities that do not depend on (μ, Σ).
+
+    These only depend on the kernel and mean parameters and on the inputs, so they
+    can be computed once for all EM iterations. Datasets that share the same input
+    tensor share one interpolation basis.
+
+    Args:
+        datasets: K experiment datasets.
+        X_inducing: (M, d) inducing point locations.
+        mean_module: Parametric mean module.
+        covar_module: Parametric covariance module.
+
+    Returns:
+        L_ZZ: (M, M) Cholesky factor of K(Z, Z).
+        m_Z: (M,) parametric mean m(Z).
+        bases: K outputs of ``_interpolation_basis``, one for each dataset.
+    """
+    K_ZZ = covar_module(X_inducing, X_inducing).to_dense()
+    L_ZZ = psd_safe_cholesky(K_ZZ)
+    m_Z = _evaluate_mean(mean_module, X_inducing)
+    bases_by_input: dict[int, tuple[Tensor, Tensor, Tensor, Tensor]] = {}
+    bases = []
+    for dataset in datasets:
+        key = id(dataset.X)
+        if key not in bases_by_input:
+            bases_by_input[key] = _interpolation_basis(
+                X=dataset.X,
+                mean_module=mean_module,
+                covar_module=covar_module,
+                X_inducing=X_inducing,
+                L_ZZ=L_ZZ,
+            )
+        bases.append(bases_by_input[key])
+    return L_ZZ, m_Z, bases
 
 
 def _index_prior(
@@ -1545,16 +1731,17 @@ def _index_prior(
     Args:
         mu_full: (N,) full mean vector at all inducing points.
         Sigma_full: (N, N) full covariance matrix at all inducing points.
-        indices: (n,) index tensor into mu_full and Sigma_full.
+        indices: (*batch, n) index tensor into mu_full and Sigma_full (the
+            cross-covariance requires a 1-dim ``indices``).
         include_cross_covariance: If True, also return cross-covariance Σ(all, indices).
 
     Returns:
-        mu: (n,) mean at the indexed locations.
-        Sigma: (n, n) covariance at the indexed locations.
+        mu: (*batch, n) mean at the indexed locations.
+        Sigma: (*batch, n, n) covariance at the indexed locations.
         cross_covariance: (N, n) cross-covariance, or None if not requested.
     """
     mu = mu_full[indices]
-    Sigma = Sigma_full[indices][:, indices]
+    Sigma = Sigma_full[indices.unsqueeze(-1), indices.unsqueeze(-2)]
 
     cross_covariance = None
     if include_cross_covariance:
@@ -1600,6 +1787,21 @@ class EMEmpiricalMarginalLogLikelihood(MarginalLogLikelihood):
         output_dist = self.likelihood(prior_dist)
         return output_dist.log_prob(Y.squeeze(-1))
 
+    def compute_custom_loss(self, **kwargs: Any) -> Tensor:
+        """Loss (negative MLL) used by the ``fit_gpytorch_mll`` closures.
+
+        ``forward`` ignores the model output, so this skips the training-mode
+        forward pass of the model that the generic loss closure evaluates first
+        (which, for a model fit from scratch, re-runs EM a second time).
+
+        Args:
+            kwargs: Passed to ``forward``.
+
+        Returns:
+            The negative marginal log-likelihood.
+        """
+        return -self(None, None, **kwargs)
+
     def forward(
         self,
         function_dist: MultivariateNormal,
@@ -1623,41 +1825,48 @@ class EMEmpiricalMarginalLogLikelihood(MarginalLogLikelihood):
                 any hyperparameter prior terms) and normalized per observation
                 (divided by the total number of observations across datasets).
         """
-        # When using a pretrained prior, skip the expensive EM re-run.
-        # The EM-estimated mu and Sigma are already cached (and detached).
-        # We only re-evaluate the kernel at inducing points so that gradients
-        # flow through the kernel hyperparameters (for coordinate ascent).
-        if not self.model._using_pretrained_prior:
-            mu_em, Sigma_em = self.model._run_em()
-            self.model._mu_inducing = mu_em
-            self.model._Sigma_inducing = Sigma_em
-        # Always refresh the interpolation cache with current kernel params.
-        # This re-evaluates m_phi(Z) and K_phi(Z,Z), enabling gradient flow
-        # through the kernel to the observed-data MLL below, while the
-        # detached mu_em and Sigma_em block gradients through EM iterations.
-        self.model._update_cache()
+        model = self.model
+        if model._using_pretrained_prior:
+            # When using a pretrained prior, skip the expensive EM re-run: the
+            # EM-estimated mu and Sigma are fixed (detached), which blocks
+            # gradients through the EM iterations.
+            mu_inducing, Sigma_inducing = model._mu_inducing, model._Sigma_inducing
+        else:
+            mu_inducing, Sigma_inducing = model._run_em()
+            model._set_em_state(mu_inducing, Sigma_inducing)
+
+        experiment_indices = None
+        parametric_prior = None
+        if model._use_inducing_points:
+            # Evaluate m_phi(Z) and K_phi(Z, Z) once for all datasets, with the
+            # current kernel parameters (regardless of the train/eval mode), so
+            # that gradients flow through the kernel into the observed-data MLL.
+            parametric_prior = model._compute_parametric_prior_at_inducing()
+        else:
+            # Direct indexing into the EM prior at the historical inputs.
+            experiment_indices = model._unique_inputs_obs.experiment_indices
 
         # Compute sum of MLLs over all K datasets
         total_mll = torch.tensor(
-            0.0,
-            device=self.model._mu_inducing.device,
-            dtype=self.model._mu_inducing.dtype,
+            0.0, device=mu_inducing.device, dtype=mu_inducing.dtype
         )
         total_data_points = 0
 
-        # Get experiment indices for direct indexing case (if applicable)
-        experiment_indices = (
-            None
-            if self.model._use_inducing_points
-            else self.model._unique_inputs_obs.experiment_indices
-        )
-
-        for i, dataset in enumerate(self.model.datasets):
+        for i, dataset in enumerate(model.datasets):
             # Get prior at observation locations via interpolation or direct indexing
-            if self.model._use_inducing_points:
-                mu_S, Sigma_SS = self.model._interpolate_prior_to_X(dataset.X)
+            if model._use_inducing_points:
+                mu_S, Sigma_SS = model._interpolate_prior_to_X(
+                    dataset.X,
+                    mu_inducing=mu_inducing,
+                    Sigma_inducing=Sigma_inducing,
+                    parametric_prior=parametric_prior,
+                )
             else:
-                mu_S, Sigma_SS = self.model._get_prior_at_indices(experiment_indices[i])
+                mu_S, Sigma_SS = model._get_prior_at_indices(
+                    experiment_indices[i],
+                    mu_inducing=mu_inducing,
+                    Sigma_inducing=Sigma_inducing,
+                )
 
             total_mll = total_mll + self._dataset_mll(mu_S, Sigma_SS, dataset.Y)
             total_data_points += dataset.X.shape[0]
@@ -1676,6 +1885,49 @@ class EMEmpiricalMarginalLogLikelihood(MarginalLogLikelihood):
 # =============================================================================
 
 
+class _SharedHyperparameterModelListGP(ModelListGP):
+    """A ``ModelListGP`` whose models share their mean and kernel modules.
+
+    ``fit_gpytorch_mll`` fits the ``SumMarginalLogLikelihood`` of a ``ModelListGP``
+    one sub-model at a time, which assumes that the sub-models share no
+    parameters. With shared modules, this would fit the shared hyperparameters to
+    one dataset after the other, so that the result mostly reflects the last
+    dataset. ``custom_fit`` instead maximizes the summed MLL jointly.
+    """
+
+    def custom_fit(
+        self,
+        mll: MarginalLogLikelihood,
+        closure: Callable[[], tuple[Tensor, Sequence[Tensor | None]]] | None = None,
+        closure_kwargs: dict[str, Any] | None = None,
+        optimizer_kwargs: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> MarginalLogLikelihood:
+        """Fit ``mll`` jointly over all datasets; called by ``fit_gpytorch_mll``.
+
+        Args:
+            mll: The MLL to fit, typically the ``SumMarginalLogLikelihood`` returned
+                by ``build_shared_gp_model_list``.
+            closure: Optional forward-backward closure, see ``fit_gpytorch_mll``.
+            closure_kwargs: Keyword arguments passed to ``closure``.
+            optimizer_kwargs: Keyword arguments passed to the optimizer.
+            **kwargs: Passed to ``botorch.fit._fit_fallback``, e.g. ``optimizer``.
+
+        Returns:
+            The fitted ``mll``.
+        """
+        # Local import to avoid a botorch.fit <-> botorch.models circular import.
+        from botorch.fit import _fit_fallback
+
+        return _fit_fallback(
+            mll,
+            closure=closure,
+            closure_kwargs=closure_kwargs,
+            optimizer_kwargs=optimizer_kwargs,
+            **kwargs,
+        )
+
+
 def build_shared_gp_model_list(
     datasets: list[ExperimentDataset],
     mean_module: Mean,
@@ -1686,7 +1938,13 @@ def build_shared_gp_model_list(
 
     All GPs in the returned ModelList share the SAME mean_module and covar_module
     instances, so optimizing the ModelList's MLL optimizes a single set of
-    hyperparameters using gradients from all K datasets.
+    hyperparameters using gradients from all K datasets. ``fit_gpytorch_mll(mll)``
+    maximizes the summed MLL jointly over all datasets (rather than fitting one
+    sub-model at a time, as it does for other ``ModelListGP`` instances).
+
+    The GPs use no outcome transform, so the shared modules are fit on the scale
+    of the raw targets, which is the scale on which the EM routines (e.g.
+    ``pretrain_em_prior``) use them.
 
     This uses BoTorch's ModelListGP which provides full compatibility with
     fit_gpytorch_mll, including transform_inputs and other BoTorch model methods.
@@ -1732,6 +1990,9 @@ def build_shared_gp_model_list(
             train_Y=dataset.Y,
             mean_module=mean_module,  # Shared across all GPs
             covar_module=covar_module,  # Shared across all GPs
+            # No (per-dataset) standardization: the shared hyperparameters must
+            # describe the raw targets that the EM routines operate on.
+            outcome_transform=None,
         )
 
         # Set observation noise if provided
@@ -1742,7 +2003,8 @@ def build_shared_gp_model_list(
         models.append(gp)
 
     # Create ModelListGP (BoTorch wrapper with full fit_gpytorch_mll compatibility)
-    model_list = ModelListGP(*models)
+    # whose fit_gpytorch_mll fits the shared hyperparameters jointly.
+    model_list = _SharedHyperparameterModelListGP(*models)
 
     # Create SumMarginalLogLikelihood (GPyTorch's version for fit_gpytorch_mll)
     mll = GPyTorchSumMarginalLogLikelihood(model_list.likelihood, model_list)

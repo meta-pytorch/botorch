@@ -291,6 +291,21 @@ class TestEMCoordinateAscent(BotorchTestCase):
             "Kernel lengthscales should change after coordinate ascent",
         )
 
+    def test_coordinate_ascent_requires_inducing_points(self) -> None:
+        """Without inducing points there is nothing to optimize: raise clearly."""
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        datasets, mean_module, covar_module, _, _ = self._make_em_setup(
+            tkwargs, d=1, K=3, n_i=5
+        )
+        with self.assertRaisesRegex(ValueError, "requires `inducing_points`"):
+            coordinate_ascent_em(
+                datasets=datasets,
+                mean_module=mean_module,
+                covar_module=covar_module,
+                likelihood_noise=1e-2,
+                num_em_iterations=2,
+            )
+
     def test_coordinate_ascent_with_inducing_optimization(self) -> None:
         """optimize_inducing_points=True should change inducing locations."""
 
