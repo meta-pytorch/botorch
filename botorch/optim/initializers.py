@@ -584,6 +584,11 @@ def gen_one_shot_kg_initial_conditions(
         equality_constraints=equality_constraints,
     )
 
+    n_value = int((1 - frac_random) * (q_aug - q))  # number of non-random ICs
+    if n_value == 0:
+        # e.g., for a single fantasy, all fantasy points are chosen randomly
+        return ics
+
     # compute maximizer of the value function
     value_function = _get_value_function(
         model=acq_function.model,
@@ -607,7 +612,6 @@ def gen_one_shot_kg_initial_conditions(
     )
 
     # sampling from the optimizers
-    n_value = int((1 - frac_random) * (q_aug - q))  # number of non-random ICs
     idx = boltzmann_sample(
         function_values=fantasy_vals,
         num_samples=num_restarts * n_value,
