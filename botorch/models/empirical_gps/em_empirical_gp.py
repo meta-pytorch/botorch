@@ -486,7 +486,8 @@ def _run_em_algorithm(
         use_inducing_points: If True, use shift interpolation in E-step.
         num_em_iterations: Maximum number of EM iterations.
         Psi: IW prior scale matrix, or None for ML estimation.
-        K_mu: Kernel prior matrix for mean, or None for ML estimation.
+        K_mu: Kernel prior matrix for mean, or None for ML estimation. The prior
+            on the mean is centered at the parametric mean ``mean_module(X_inducing)``.
         iw_nu: IW degrees of freedom, or None.
         em_convergence_tol: Convergence tolerance for early stopping, or None.
         N_inducing: Number of inducing points (for M-step normalization).
@@ -505,6 +506,10 @@ def _run_em_algorithm(
         in place with one ``(mu, Sigma)`` per iteration (up to early stopping).
     """
     mu, Sigma = mu_init.clone(), Sigma_init.clone()
+
+    # With the kernel prior on mu (K_mu), mu ~ N(m(Z), K_mu) is shrunk toward the
+    # parametric mean m(Z) of mean_module, rather than toward zero.
+    m_0 = _evaluate_mean(mean_module, X_inducing) if K_mu is not None else None
 
     for _ in range(num_em_iterations):
         mu_prev, Sigma_prev = mu, Sigma
@@ -527,6 +532,7 @@ def _run_em_algorithm(
             nu=iw_nu,
             N_obs=N_inducing,
             K_mu=K_mu,
+            m_0=m_0,
             Sigma_current=Sigma,
             psd_stabilization=True,
             shrinkage=covariance_shrinkage,
@@ -593,7 +599,8 @@ def pretrain_em_prior(
         inducing_points: Optional (M, d) tensor of inducing point locations.
             If None, uses unique inputs from historical data.
         num_em_iterations: Maximum number of EM iterations (default: 16).
-        use_mean_prior: If True, use covar_module as kernel prior on μ.
+        use_mean_prior: If True, use covar_module as kernel prior on μ, centered
+            at the parametric mean (mean_module).
         use_covar_prior: If True, use Inverse-Wishart prior on Σ.
         iw_nu: Degrees of freedom for IW prior. If None and use_covar_prior=True,
             automatically set to M + 2 where M is the number of inducing points.
@@ -828,7 +835,8 @@ class EMEmpiricalGaussianProcess(ExactGP, GPyTorchModel):
         likelihood: A likelihood. If omitted, uses a GaussianLikelihood.
         num_em_iterations: Number of EM iterations (default: 16). Only used if
             em_prior is None.
-        use_mean_prior: If True, use covar_module as kernel prior on μ.
+        use_mean_prior: If True, use covar_module as kernel prior on μ, centered
+            at the parametric mean (mean_module).
         use_covar_prior: If True, use Inverse-Wishart prior on Σ.
         iw_nu: Degrees of freedom for Inverse-Wishart prior. Must be > M - 1
             where M is the number of inducing points. If None (default),
