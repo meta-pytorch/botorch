@@ -132,8 +132,10 @@ class AugmentedRosenbrock(SyntheticTestFunction):
     d-dimensional function (usually evaluated on ``[-5, 10]^(d-2) * [0, 1]^2``),
     where the last two dimensions are the fidelity parameters:
 
-        f(x) = sum_{i=1}^{d-1} (100 (x_{i+1} - x_i^2 + 0.1 * (1-x_{d-1}))^2 +
+        f(x) = sum_{i=1}^{d-3} (100 (x_{i+1} - x_i^2 + 0.1 * (1-x_{d-1}))^2 +
             (x_i - 1 + 0.1 * (1 - x_d)^2)^2)
+
+    The sum runs over the ``d - 2`` design parameters, so ``d >= 4`` is required.
 
     f has one minimizer for its global minimum at ``z_1 = (1, 1, ..., 1)`` with
     ``f(z_i) = 0.0``.
@@ -143,21 +145,24 @@ class AugmentedRosenbrock(SyntheticTestFunction):
 
     def __init__(
         self,
-        dim: int = 3,
+        dim: int = 4,
         noise_std: float | None = None,
         negate: bool = False,
         dtype: torch.dtype = torch.double,
     ) -> None:
         r"""
         Args:
-            dim: The (input) dimension. Must be at least 3.
+            dim: The (input) dimension, including the two fidelity parameters.
+                Must be at least 4.
             noise_std: Standard deviation of the observation noise.
             negate: If True, negate the function.
             dtype: The dtype that is used for the bounds of the function.
         """
-        if dim < 3:
+        if dim < 4:
+            # With fewer than two design parameters, the sum is empty and the
+            # function is identically zero.
             raise ValueError(
-                "AugmentedRosenbrock must be defined in at least 3 dimensions"
+                "AugmentedRosenbrock must be defined in at least 4 dimensions"
             )
         self.dim = dim
         self.continuous_inds = list(range(dim))

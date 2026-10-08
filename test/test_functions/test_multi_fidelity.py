@@ -54,8 +54,14 @@ class TestAugmentedRosenbrock(
     ]
 
     def test_min_dimension(self):
-        with self.assertRaises(ValueError):
-            AugmentedRosenbrock(dim=2)
+        # At least two design parameters are needed for a non-trivial function.
+        for dim in (2, 3):
+            with self.assertRaisesRegex(ValueError, "at least 4 dimensions"):
+                AugmentedRosenbrock(dim=dim)
+        f = AugmentedRosenbrock()
+        self.assertEqual(f.dim, 4)
+        X = torch.tensor([0.0, 0.0, 1.0, 1.0], device=self.device)
+        self.assertAllClose(f.to(self.device).evaluate_true(X), torch.ones_like(X[0]))
 
 
 class TestDiscreteMultiFidelity(
