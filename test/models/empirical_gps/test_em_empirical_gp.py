@@ -1355,6 +1355,55 @@ class TestBuildSharedGPModelList(BotorchTestCase):
         self.assertTrue(torch.isfinite(lengthscale_after).all())
         self.assertTrue(torch.isfinite(outputscale_after).all())
 
+    def test_fit_gpytorch_mll_fits_jointly_on_raw_targets(self) -> None:
+        """fit_gpytorch_mll maximizes the summed MLL of the raw targets jointly."""
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        torch.manual_seed(0)
+        # Datasets with two different lengthscales, so that fitting one dataset at
+        # a time would depend on their order, and targets with a non-zero mean.
+        datasets = []
+        with torch.no_grad():
+            for k in range(4):
+                kernel = ScaleKernel(RBFKernel()).to(**tkwargs)
+                kernel.outputscale = 4.0
+                kernel.base_kernel.lengthscale = 0.1 if k < 2 else 0.5
+                X = torch.rand(15, 1, **tkwargs)
+                C = kernel(X).to_dense() + 1e-2 * torch.eye(15, **tkwargs)
+                Y = 3.0 + torch.linalg.cholesky(C) @ torch.randn(15, **tkwargs)
+                datasets.append(ExperimentDataset(X=X, Y=Y.unsqueeze(-1)))
+
+        fitted = []
+        for dsets in (datasets, datasets[::-1]):
+            mean = ConstantMean().to(**tkwargs)
+            kernel = ScaleKernel(RBFKernel()).to(**tkwargs)
+            model_list, mll = build_shared_gp_model_list(
+                dsets, mean, kernel, observation_noise=1e-2
+            )
+            for gp in model_list.models:
+                self.assertIsNone(getattr(gp, "outcome_transform", None))
+            fit_gpytorch_mll(mll)
+            fitted.append((mean, kernel))
+
+        (mean, kernel), (mean_rev, kernel_rev) = fitted
+        # The result does not depend on the order of the datasets ...
+        self.assertAllClose(mean_rev.constant, mean.constant, rtol=1e-4)
+        self.assertAllClose(kernel_rev.outputscale, kernel.outputscale, rtol=1e-4)
+        self.assertAllClose(
+            kernel_rev.base_kernel.lengthscale,
+            kernel.base_kernel.lengthscale,
+            rtol=1e-4,
+        )
+        # ... and is a stationary point of the summed MLL of the raw targets.
+        total_mll = 0.0
+        for d in datasets:
+            n = d.X.shape[0]
+            C = kernel(d.X).to_dense() + 1e-2 * torch.eye(n, **tkwargs)
+            dist = torch.distributions.MultivariateNormal(mean(d.X), C)
+            total_mll = total_mll + dist.log_prob(d.Y.squeeze(-1)) / n
+        params = [*mean.parameters(), *kernel.parameters()]
+        for grad in torch.autograd.grad(total_mll, params):
+            self.assertLess(grad.abs().max().item(), 1e-3)
+
     def test_gradients_accumulate_from_all_datasets(self) -> None:
         """Test that gradients from all K datasets flow to shared parameters."""
         tkwargs = {"device": self.device, "dtype": torch.double}

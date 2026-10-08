@@ -31,7 +31,9 @@ using the EM algorithm with closed-form updates.
 
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 import torch
 from botorch.models import SingleTaskGP
@@ -1758,6 +1760,49 @@ class EMEmpiricalMarginalLogLikelihood(MarginalLogLikelihood):
 # =============================================================================
 
 
+class _SharedHyperparameterModelListGP(ModelListGP):
+    """A ``ModelListGP`` whose models share their mean and kernel modules.
+
+    ``fit_gpytorch_mll`` fits the ``SumMarginalLogLikelihood`` of a ``ModelListGP``
+    one sub-model at a time, which assumes that the sub-models share no
+    parameters. With shared modules, this would fit the shared hyperparameters to
+    one dataset after the other, so that the result mostly reflects the last
+    dataset. ``custom_fit`` instead maximizes the summed MLL jointly.
+    """
+
+    def custom_fit(
+        self,
+        mll: MarginalLogLikelihood,
+        closure: Callable[[], tuple[Tensor, Sequence[Tensor | None]]] | None = None,
+        closure_kwargs: dict[str, Any] | None = None,
+        optimizer_kwargs: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> MarginalLogLikelihood:
+        """Fit ``mll`` jointly over all datasets; called by ``fit_gpytorch_mll``.
+
+        Args:
+            mll: The MLL to fit, typically the ``SumMarginalLogLikelihood`` returned
+                by ``build_shared_gp_model_list``.
+            closure: Optional forward-backward closure, see ``fit_gpytorch_mll``.
+            closure_kwargs: Keyword arguments passed to ``closure``.
+            optimizer_kwargs: Keyword arguments passed to the optimizer.
+            **kwargs: Passed to ``botorch.fit._fit_fallback``, e.g. ``optimizer``.
+
+        Returns:
+            The fitted ``mll``.
+        """
+        # Local import to avoid a botorch.fit <-> botorch.models circular import.
+        from botorch.fit import _fit_fallback
+
+        return _fit_fallback(
+            mll,
+            closure=closure,
+            closure_kwargs=closure_kwargs,
+            optimizer_kwargs=optimizer_kwargs,
+            **kwargs,
+        )
+
+
 def build_shared_gp_model_list(
     datasets: list[ExperimentDataset],
     mean_module: Mean,
@@ -1768,7 +1813,13 @@ def build_shared_gp_model_list(
 
     All GPs in the returned ModelList share the SAME mean_module and covar_module
     instances, so optimizing the ModelList's MLL optimizes a single set of
-    hyperparameters using gradients from all K datasets.
+    hyperparameters using gradients from all K datasets. ``fit_gpytorch_mll(mll)``
+    maximizes the summed MLL jointly over all datasets (rather than fitting one
+    sub-model at a time, as it does for other ``ModelListGP`` instances).
+
+    The GPs use no outcome transform, so the shared modules are fit on the scale
+    of the raw targets, which is the scale on which the EM routines (e.g.
+    ``pretrain_em_prior``) use them.
 
     This uses BoTorch's ModelListGP which provides full compatibility with
     fit_gpytorch_mll, including transform_inputs and other BoTorch model methods.
@@ -1814,6 +1865,9 @@ def build_shared_gp_model_list(
             train_Y=dataset.Y,
             mean_module=mean_module,  # Shared across all GPs
             covar_module=covar_module,  # Shared across all GPs
+            # No (per-dataset) standardization: the shared hyperparameters must
+            # describe the raw targets that the EM routines operate on.
+            outcome_transform=None,
         )
 
         # Set observation noise if provided
@@ -1824,7 +1878,8 @@ def build_shared_gp_model_list(
         models.append(gp)
 
     # Create ModelListGP (BoTorch wrapper with full fit_gpytorch_mll compatibility)
-    model_list = ModelListGP(*models)
+    # whose fit_gpytorch_mll fits the shared hyperparameters jointly.
+    model_list = _SharedHyperparameterModelListGP(*models)
 
     # Create SumMarginalLogLikelihood (GPyTorch's version for fit_gpytorch_mll)
     mll = GPyTorchSumMarginalLogLikelihood(model_list.likelihood, model_list)
