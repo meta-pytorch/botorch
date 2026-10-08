@@ -851,6 +851,18 @@ class KroneckerMultiTaskGP(ExactGP, GPyTorchModel, FantasizeMixin):
                 "Posterior transforms currently not supported for "
                 f"{self.__class__.__name__}"
             )
+        if output_indices is not None and list(output_indices) != list(
+            range(self.num_outputs)
+        ):
+            raise NotImplementedError(
+                "Subsetting the outputs via `output_indices` is currently not "
+                f"supported for {self.__class__.__name__}."
+            )
+        if torch.is_tensor(observation_noise):
+            raise NotImplementedError(
+                "Passing a tensor of observation noise is currently not supported "
+                f"for {self.__class__.__name__}."
+            )
 
         X = self.transform_inputs(X)
         train_x = self.train_inputs[0]

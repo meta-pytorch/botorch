@@ -1227,6 +1227,17 @@ class TestKroneckerMultiTaskGP(BotorchTestCase):
             with self.assertRaises(NotImplementedError):
                 model.posterior(test_x, posterior_transform=post_tf)
 
+            # test that subsetting the outputs or passing a tensor of observation
+            # noise throws an error (rather than being silently ignored)
+            posterior_all = model.posterior(test_x, output_indices=[0, 1])
+            self.assertEqual(posterior_all.mean.shape, torch.Size([3, 2, 2]))
+            with self.assertRaisesRegex(NotImplementedError, "output_indices"):
+                model.posterior(test_x, output_indices=[1])
+            with self.assertRaisesRegex(NotImplementedError, "observation noise"):
+                model.posterior(
+                    test_x, observation_noise=torch.full((3, 2, 2), 0.1, **tkwargs)
+                )
+
     def test_KroneckerMultiTaskGP_custom(self) -> None:
         for batch_shape, dtype in itertools.product(
             (torch.Size(),),  # torch.Size([3])), TODO: Fix and test batch mode
