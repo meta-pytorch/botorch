@@ -71,8 +71,9 @@ class ModelListGP(IndependentModelList, ModelListGPyTorchModel, FantasizeMixin):
                 standard broadcasting semantics. If ``Y`` has fewer batch dimensions
                 than ``X``, it is assumed that the missing batch dimensions are
                 the same for all ``Y``.
-            kwargs: Keyword arguments passed to
-                ``IndependentModelList.get_fantasy_model``.
+            kwargs: Keyword arguments passed to the ``condition_on_observations``
+                methods of the sub-models. If ``noise`` is passed, it is assumed to
+                be in the original (not outcome-transformed) space.
 
         Returns:
             A ``ModelListGP`` representing the original model
@@ -103,29 +104,31 @@ class ModelListGP(IndependentModelList, ModelListGPyTorchModel, FantasizeMixin):
 
         else:
             noise = None
-        targets = []
-        inputs = []
-        noises = []
+        conditioned_models = []
         i = 0
         for model in self.models:
             j = i + model.num_outputs
-            y_i = torch.cat([Y[..., k] for k in range(i, j)], dim=-1)
+            # The observations of the outputs of multi-output (multi-task) models
+            # are stacked along the data dimension.
             X_i = torch.cat([X[k] for k in range(i, j)], dim=-2)
-            if noise is None:
-                noise_i = None
-            else:
-                noise_i = torch.cat([noise[..., k] for k in range(i, j)], dim=-1)
-            if hasattr(model, "outcome_transform"):
-                y_i, noise_i = model.outcome_transform(y_i, noise_i, X=X_i)
-                if noise_i is not None:
-                    noise_i = noise_i.squeeze(0)
-            targets.append(y_i)
-            inputs.append(X_i)
-            noises.append(noise_i)
-            i += model.num_outputs
-
-        kwargs_ = {**kwargs, "noise": noises} if noise is not None else kwargs
-        return super().get_fantasy_model(inputs, targets, **kwargs_)
+            Y_i = torch.cat([Y[..., k : k + 1] for k in range(i, j)], dim=-2)
+            kwargs_i = kwargs
+            if noise is not None:
+                noise_i = torch.cat(
+                    [noise[..., k : k + 1] for k in range(i, j)], dim=-2
+                )
+                if hasattr(model, "outcome_transform"):
+                    # The sub-models expect the noise in the transformed space.
+                    _, noise_i = model.outcome_transform(
+                        Y_i, noise_i, X=model.transform_inputs(X_i)
+                    )
+                kwargs_i = {**kwargs, "noise": noise_i}
+            # Conditioning the sub-models applies their input and outcome transforms.
+            conditioned_models.append(
+                model.condition_on_observations(X=X_i, Y=Y_i, **kwargs_i)
+            )
+            i = j
+        return self.__class__(*conditioned_models)
 
     def _set_transformed_inputs(self) -> None:
         r"""Update training inputs with transformed inputs."""
