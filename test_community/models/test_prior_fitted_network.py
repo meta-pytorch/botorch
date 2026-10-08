@@ -506,6 +506,38 @@ class TestMultivariatePFN(BotorchTestCase):
         self.assertTrue(torch.equal(res["style"], torch.zeros(6, 7)))
         self.assertNotIn("y_style", res)
 
+        # A raw ``style`` tensor gives styles of shape (b, 1, ns) or (b, nf, ns).
+        for style in (torch.rand(3, 1, 7), torch.rand(3, 5, 7)):
+            with patch(
+                "botorch_community.models.prior_fitted_network.MultivariatePFNModel."
+                "pfn_predict",
+                return_value=return_value,
+            ) as mock_pfn_predict:
+                self.pfn._compute_conditional_means(
+                    X=X,
+                    train_X=torch.zeros(3, 4, 5),
+                    train_Y=torch.zeros(3, 4, 1),
+                    styles={"style": style},
+                    marginals=marginals,
+                )
+            res = mock_pfn_predict.call_args[1]
+            self.assertTrue(
+                torch.equal(res["style"], style.repeat_interleave(2, dim=0))
+            )
+
+    def test_posterior_with_raw_style(self):
+        pfn = MultivariatePFNModel(
+            torch.rand(10, 3), torch.rand(10, 1), DummyPFN(), style=torch.rand(4)
+        )
+        with patch(
+            "botorch_community.models.prior_fitted_network.MultivariatePFNModel."
+            "_estimate_covariances",
+            return_value=torch.eye(3).expand(2, 3, 3),
+        ):
+            post = pfn.posterior(torch.rand(2, 3, 3))
+        self.assertIsInstance(post, MultivariateRiemannPosterior)
+        self.assertEqual(post.correlation_matrix.shape, torch.Size([2, 3, 3]))
+
     def test_estimate_correlations(self):
         probabilities = torch.ones(2, 3, 1000)
         probabilities = probabilities / probabilities.sum(dim=-1, keepdim=True)
