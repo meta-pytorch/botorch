@@ -278,6 +278,29 @@ class TestQBayesianQueryByComittee(BotorchTestCase):
                     # assess shape
                     self.assertTrue(acq_X.shape == test_Xs[j].shape[:-2])
 
+    def test_q_bayesian_query_by_comittee_values(self):
+        torch.manual_seed(1)
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        model = get_fully_bayesian_model(
+            train_X=torch.rand(6, 2, **tkwargs),
+            train_Y=torch.randn(6, 1, **tkwargs),
+            num_models=8,
+            **tkwargs,
+        )
+        acq = qBayesianQueryByComittee(model=model)
+        for q in (1, 3):
+            X = torch.rand(5, q, 2, **tkwargs)
+            # Determinant of the covariance of the posterior mean across models,
+            # i.e. the variance of the posterior mean for q = 1.
+            mean = model.posterior(X).mean.squeeze(-1)  # 5 x num_models x q
+            mean_diff = mean - mean.mean(dim=-2, keepdim=True)
+            covar_of_mean = (mean_diff.unsqueeze(-1) * mean_diff.unsqueeze(-2)).mean(
+                dim=-3
+            )
+            expected = torch.det(covar_of_mean)
+            self.assertTrue((expected > 0).all())
+            self.assertAllClose(acq(X), expected, rtol=1e-6, atol=0.0)
+
 
 class TestQBayesianVarianceReduction(BotorchTestCase):
     def test_q_bayesian_variance_reduction(self):
