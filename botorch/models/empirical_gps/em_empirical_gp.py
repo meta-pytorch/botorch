@@ -1677,6 +1677,21 @@ class EMEmpiricalMarginalLogLikelihood(MarginalLogLikelihood):
         output_dist = self.likelihood(prior_dist)
         return output_dist.log_prob(Y.squeeze(-1))
 
+    def compute_custom_loss(self, **kwargs: Any) -> Tensor:
+        """Loss (negative MLL) used by the ``fit_gpytorch_mll`` closures.
+
+        ``forward`` ignores the model output, so this skips the training-mode
+        forward pass of the model that the generic loss closure evaluates first
+        (which, for a model fit from scratch, re-runs EM a second time).
+
+        Args:
+            kwargs: Passed to ``forward``.
+
+        Returns:
+            The negative marginal log-likelihood.
+        """
+        return -self(None, None, **kwargs)
+
     def forward(
         self,
         function_dist: MultivariateNormal,
