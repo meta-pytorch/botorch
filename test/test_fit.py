@@ -19,17 +19,21 @@ from botorch import fit
 from botorch.exceptions.errors import ModelFittingError, UnsupportedError
 from botorch.exceptions.warnings import OptimizationWarning
 from botorch.fit import fit_gpytorch_mll
-from botorch.models import SingleTaskGP, SingleTaskVariationalGP
+from botorch.models import ModelListGP, SingleTaskGP, SingleTaskVariationalGP
 from botorch.models.transforms.input import Normalize
 from botorch.models.transforms.outcome import Standardize
 from botorch.optim.closures import get_loss_closure_with_grads
 from botorch.optim.core import OptimizationResult, OptimizationStatus
 from botorch.optim.fit import fit_gpytorch_mll_scipy, fit_gpytorch_mll_torch
-from botorch.optim.utils import get_data_loader
+from botorch.optim.utils import get_data_loader, get_parameters
 from botorch.utils.context_managers import module_rollback_ctx, TensorCheckpoint
 from botorch.utils.testing import BotorchTestCase
-from gpytorch.kernels import RBFKernel
-from gpytorch.mlls import ExactMarginalLogLikelihood, VariationalELBO
+from gpytorch.kernels import RBFKernel, ScaleKernel
+from gpytorch.mlls import (
+    ExactMarginalLogLikelihood,
+    SumMarginalLogLikelihood,
+    VariationalELBO,
+)
 from linear_operator.utils.errors import NotPSDError
 from scipy.optimize import OptimizeResult
 
@@ -478,6 +482,67 @@ class TestFitFallbackApproximate(BotorchTestCase):
                 closure=self.closure,
                 data_loader=self.data_loader,
             )
+
+
+class TestFitModelListGP(BotorchTestCase):
+    def _get_mll(
+        self, order: list[int], shared: bool
+    ) -> tuple[SumMarginalLogLikelihood, RBFKernel]:
+        with torch.random.fork_rng():
+            torch.manual_seed(0)
+            data = []
+            for i in range(3):
+                train_X = torch.rand(10, 1, dtype=torch.double)
+                train_Y = torch.sin((2 + 6 * i) * train_X)
+                data.append((train_X, train_Y + 0.05 * torch.randn_like(train_Y)))
+        base_kernel = RBFKernel().to(torch.double)
+        models = [
+            SingleTaskGP(
+                *data[i],
+                covar_module=ScaleKernel(
+                    base_kernel if shared else RBFKernel().to(torch.double)
+                ),
+            )
+            for i in order
+        ]
+        model = ModelListGP(*models)
+        return SumMarginalLogLikelihood(model.likelihood, model), base_kernel
+
+    def test_independent_sub_models(self):
+        # Sub-models without shared parameters are fit one after another.
+        mll, _ = self._get_mll(order=[0, 1, 2], shared=False)
+        self.assertFalse(fit._has_shared_parameters(mll.mlls))
+        with patch.object(fit, "_fit_fallback", side_effect=lambda mll, **_: mll) as m:
+            fit_gpytorch_mll(mll)
+        self.assertEqual([c.kwargs["mll"] for c in m.call_args_list], list(mll.mlls))
+
+    def test_shared_parameters(self):
+        # Sub-models with shared parameters must be fit jointly, so that the result
+        # does not depend on the order of the sub-models.
+        lengthscales = []
+        for order in ([0, 1, 2], [2, 1, 0]):
+            mll, base_kernel = self._get_mll(order=order, shared=True)
+            with catch_warnings(record=True):
+                fit_gpytorch_mll(mll)
+            lengthscales.append(base_kernel.lengthscale.detach().clone())
+        # Joint fit of the sum of the MLLs.
+        mll, base_kernel = self._get_mll(order=[0, 1, 2], shared=True)
+        mll.train()
+        fit_gpytorch_mll_scipy(
+            mll,
+            closure=get_loss_closure_with_grads(
+                mll, parameters=get_parameters(mll, requires_grad=True)
+            ),
+        )
+        self.assertAllClose(lengthscales[0], base_kernel.lengthscale)
+        self.assertAllClose(lengthscales[1], base_kernel.lengthscale, rtol=1e-3)
+        # The sum of the MLLs is passed to ``_fit_fallback``.
+        mll, _ = self._get_mll(order=[0, 1, 2], shared=True)
+        self.assertTrue(fit._has_shared_parameters(mll.mlls))
+        with patch.object(fit, "_fit_fallback", side_effect=lambda mll, **_: mll) as m:
+            fit_gpytorch_mll(mll)
+        m.assert_called_once()
+        self.assertIs(m.call_args.kwargs["mll"], mll)
 
 
 class TestFitIndependent(BotorchTestCase):

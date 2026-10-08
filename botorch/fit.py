@@ -8,7 +8,7 @@ r"""Model fitting routines."""
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from copy import deepcopy
 from functools import partial
 from itertools import filterfalse
@@ -117,7 +117,15 @@ def fit_gpytorch_mll(
             **kwargs,
         )
 
-    if isinstance(mll, SumMarginalLogLikelihood) and isinstance(mll.model, ModelListGP):
+    if (
+        isinstance(mll, SumMarginalLogLikelihood)
+        and isinstance(mll.model, ModelListGP)
+        # Fitting the sub-models one after another is only equivalent to fitting
+        # them jointly if they do not share any parameters. Otherwise, the result
+        # would depend on the order of the sub-models, and the sum of the MLLs is
+        # optimized jointly below.
+        and not _has_shared_parameters(mll.mlls)
+    ):
         mll.train()
         for sub_mll in mll.mlls:
             fit_gpytorch_mll(
@@ -145,6 +153,25 @@ def fit_gpytorch_mll(
         optimizer_kwargs=optimizer_kwargs,
         **kwargs,
     )
+
+
+def _has_shared_parameters(mlls: Iterable[MarginalLogLikelihood]) -> bool:
+    r"""Check whether any trainable parameter is shared between the given MLLs.
+
+    Args:
+        mlls: An iterable of MarginalLogLikelihoods, e.g., the ``mlls`` of a
+            ``SumMarginalLogLikelihood``.
+
+    Returns:
+        True if the same trainable parameter belongs to more than one of the MLLs.
+    """
+    seen_ids: set[int] = set()
+    for mll in mlls:
+        ids = {id(p) for p in mll.parameters() if p.requires_grad}
+        if not seen_ids.isdisjoint(ids):
+            return True
+        seen_ids |= ids
+    return False
 
 
 def _fit_fallback(
