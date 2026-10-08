@@ -1980,6 +1980,37 @@ class TestInputTransforms(BotorchTestCase):
                 self.assertAlmostEqual(X_tf[1, 0].item(), 0.4)
                 self.assertAlmostEqual(X_tf[2, 1].item(), 0.5)
 
+            with self.subTest("many_tasks_and_unknown_task_values", dtype=dtype):
+                fi = {2 * t + 1: torch.randperm(6)[: t % 6].tolist() for t in range(10)}
+                tf = LearnedFeatureImputation(feature_indices=fi, d=6, **tkwargs)
+                tf.raw_imputation_values.data.normal_()
+                X = torch.rand(2, 15, 7, **tkwargs)
+                # Includes task values that are not in ``feature_indices``.
+                X[..., -1] = torch.randint(-1, 22, X.shape[:-1]).to(X)
+                # Compare with a row-by-row reference.
+                expected = X.clone()
+                imputation_values = tf.imputation_values.detach()
+                for i, j in itertools.product(range(2), range(15)):
+                    task = int(X[i, j, -1].item())
+                    if task in fi:
+                        missing = [k for k in range(6) if k not in fi[task]]
+                        task_pos = sorted(fi).index(task)
+                        expected[i, j, missing] = imputation_values[task_pos, missing]
+                self.assertTrue(torch.equal(tf(X), expected))
+
+            with self.subTest("parameter_dtype_and_no_tasks", dtype=dtype):
+                other_dtype = torch.float if dtype == torch.double else torch.double
+                tf = LearnedFeatureImputation(
+                    feature_indices={0: [0]}, d=2, dtype=other_dtype, device=self.device
+                )
+                X = torch.tensor([[0.3, 0.6, 0.0]], **tkwargs)
+                X_tf = tf(X)
+                self.assertEqual(X_tf.dtype, dtype)
+                self.assertEqual(X_tf[0, 1].item(), 0.0)
+                self.assertTrue(torch.equal(X_tf[0, [0, 2]], X[0, [0, 2]]))
+                tf = LearnedFeatureImputation(feature_indices={}, d=2, **tkwargs)
+                self.assertTrue(torch.equal(tf(X), X))
+
             with self.subTest("non_contiguous_task_values", dtype=dtype):
                 tf = LearnedFeatureImputation(
                     feature_indices={5: [0, 1, 2], 12: [0, 1, 3]},

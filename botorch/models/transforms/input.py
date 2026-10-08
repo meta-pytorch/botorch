@@ -2159,27 +2159,15 @@ class LearnedFeatureImputation(InputTransform, GPyTorchModule):
                 f"{self.d + 1} (with task column), got {x_dim}."
             )
 
-        X_new = X.clone()
-
-        task_ids = X_new[..., -1].long()
-        imputation_vals = self.imputation_values
-
-        # For each task, replace unobserved feature columns with learned values.
-        # torch.where with task_mask ensures rows belonging to other tasks are
-        # left untouched, even if the same column is observed for those tasks.
-        for task_pos in range(self.num_tasks):
-            task_value = self._task_values[task_pos]
-            task_mask = task_ids == task_value
-            if not task_mask.any():
-                continue
-            missing_cols = (
-                self.missing_mask[task_pos].nonzero(as_tuple=False).squeeze(-1)
-            )
-            if missing_cols.numel() == 0:
-                continue
-            X_new[..., missing_cols] = torch.where(
-                task_mask.unsqueeze(-1),
-                imputation_vals[task_pos, missing_cols],
-                X_new[..., missing_cols],
-            )
-        return X_new
+        if self.num_tasks == 0:
+            return X.clone()
+        task_ids = X[..., -1].long()
+        # Map the task values of the rows to their positions in the (sorted)
+        # ``_task_values``. Rows with other task values are left untouched.
+        task_pos = torch.searchsorted(self._task_values, task_ids).clamp(
+            max=self.num_tasks - 1
+        )
+        is_known_task = self._task_values[task_pos] == task_ids
+        is_missing = self.missing_mask[task_pos] & is_known_task.unsqueeze(-1)
+        # Replace the unobserved features of each row with the learned values.
+        return torch.where(is_missing, self.imputation_values[task_pos].to(X), X)
