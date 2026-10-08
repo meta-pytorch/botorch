@@ -797,6 +797,28 @@ class TestSamplePerturbedSubsetDims(BotorchTestCase):
                 # check that at least one dimension is perturbed
                 self.assertTrue((20 - max_equal_dims >= 1).all())
 
+    def test_sample_perturbed_subset_dims_multiple_points(self):
+        # Each sample should be a perturbation of a single point in ``X``, rather than
+        # combining the coordinates of different points.
+        d = 30
+        for dtype, qmc in itertools.product((torch.float, torch.double), (True, False)):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            bounds = torch.zeros(2, d, **tkwargs)
+            bounds[1] = 1
+            X = torch.tensor([[0.1] * d, [0.9] * d], **tkwargs)
+            perturbed_X = sample_perturbed_subset_dims(
+                X=X,
+                bounds=bounds,
+                n_discrete_points=64,
+                sigma=1e-3,
+                qmc=qmc,
+                prob_perturb=0.3,
+            )
+            self.assertEqual(perturbed_X.shape, torch.Size([64, d]))
+            # with sigma = 1e-3, all coordinates are close to those of the base point
+            max_dist = (perturbed_X.unsqueeze(-2) - X).abs().amax(dim=-1)
+            self.assertTrue((max_dist.amin(dim=-1) < 1e-2).all())
+
 
 class TestBoltzmannSample(BotorchTestCase):
     def test_boltzmann_sample(self):
