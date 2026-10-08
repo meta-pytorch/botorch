@@ -432,7 +432,8 @@ class qHyperparameterInformedPredictiveExploration(
         self._tuning_factor = acq_evals.max().item()
         self._tuning_factor_q = q
 
-    @concatenate_pending_points
+    # NOTE: X_pending is not concatenated here, as this is done by the forward
+    # methods of the two acquisition functions that are combined below.
     @t_batch_mode_transform()
     def forward(self, X: Tensor) -> Tensor:
         """Evaluate the acquisition function at X.
