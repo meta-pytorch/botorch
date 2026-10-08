@@ -25,7 +25,7 @@ from botorch.acquisition.objective import PosteriorTransform
 from botorch.models.model import Model
 from botorch.models.transforms.input import InputTransform
 from botorch.posteriors import GPyTorchPosterior
-from gpytorch.distributions import MultivariateNormal
+from gpytorch.distributions import MultitaskMultivariateNormal, MultivariateNormal
 from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.likelihoods.likelihood import Likelihood
 from gpytorch.models.gp import GP
@@ -391,9 +391,7 @@ class NeuralProcessModel(Model, GP):
         r"""Computes the model's posterior for given input tensors.
 
         Args:
-            X: Input Tensor
-            covariance_multiplier: Float scaling the covariance.
-            observation_constant: Float representing the noise constant.
+            X: A ``batch_shape x n x d``-dim Tensor of input points.
             output_indices: Ignored (defined in parent Model, but not used here).
             observation_noise: Adds observation noise to the covariance if True,
             defaults to False.
@@ -404,21 +402,46 @@ class NeuralProcessModel(Model, GP):
             GPyTorchPosterior: The posterior utilizing MultivariateNormal.
         """
         X = self.transform_inputs(X)
-        X = X.to(self.device)
-        mean = self.decoder(
-            X.to(self.device), self.sample_z(self.z_mu_all, self.z_logvar_all)
+        posterior = GPyTorchPosterior(
+            self._predict(X=X, observation_noise=observation_noise)
         )
-        z_var = torch.exp(self.z_logvar_all)
-        covariance = torch.eye(X.size(0)).to(self.device) * z_var.mean()
-        if observation_noise:
-            covariance = covariance + self.likelihood.noise * torch.eye(
-                covariance.size(0)
-            ).to(self.device)
-        mvn = MultivariateNormal(mean, covariance)
-        posterior = GPyTorchPosterior(mvn)
         if posterior_transform is not None:
             posterior = posterior_transform(posterior=posterior, X=X)
         return posterior
+
+    def _predict(
+        self, X: torch.Tensor, observation_noise: bool = False
+    ) -> MultivariateNormal:
+        r"""Computes the predictive distribution at (already transformed) inputs.
+
+        Args:
+            X: A ``batch_shape x n x d``-dim Tensor of transformed input points.
+            observation_noise: Adds observation noise to the covariance if True.
+
+        Returns:
+            A ``batch_shape``-dim MultivariateNormal over the ``n`` points, or a
+            MultitaskMultivariateNormal if ``y_dim > 1``.
+        """
+        X = X.to(self.device)
+        batch_shape, n = X.shape[:-2], X.shape[-2]
+        # The decoder takes ``n x d`` inputs, so flatten the batch dimensions.
+        mean = self.decoder(
+            X.reshape(-1, X.shape[-1]), self.sample_z(self.z_mu_all, self.z_logvar_all)
+        )
+        mean = mean.view(*batch_shape, n, mean.shape[-1])
+        variance = torch.exp(self.z_logvar_all).mean()
+        if observation_noise:
+            variance = variance + self.likelihood.noise
+        covariance = variance * torch.eye(n, dtype=mean.dtype, device=mean.device)
+        covariance = covariance.expand(*batch_shape, n, n)
+        if mean.shape[-1] == 1:
+            return MultivariateNormal(mean.squeeze(-1), covariance)
+        return MultitaskMultivariateNormal.from_independent_mvns(
+            [
+                MultivariateNormal(mean[..., i], covariance)
+                for i in range(mean.shape[-1])
+            ]
+        )
 
     def transform_inputs(
         self,
@@ -459,6 +482,8 @@ class NeuralProcessModel(Model, GP):
         Returns:
             MultivariateNormal: Predicted target distribution.
         """
+        # Transform the inputs exactly once; all of the following operates on the
+        # transformed inputs.
         train_X = self.transform_inputs(train_X)
         x_c, y_c, x_t, y_t = self.random_split_context_target(
             train_X, train_Y, self.n_context, axis=axis
@@ -467,12 +492,9 @@ class NeuralProcessModel(Model, GP):
         x_c = x_c.to(self.device)
         y_c = y_c.to(self.device)
         y_t = y_t.to(self.device)
-        self.z_mu_all, self.z_logvar_all = self.data_to_z_params(
-            self.train_X, self.train_Y
-        )
+        self.z_mu_all, self.z_logvar_all = self.data_to_z_params(train_X, train_Y)
         self.z_mu_context, self.z_logvar_context = self.data_to_z_params(x_c, y_c)
-        x_t = self.transform_inputs(x_t)
-        return self.posterior(x_t).distribution
+        return self._predict(x_t)
 
     def random_split_context_target(
         self, x: torch.Tensor, y: torch.Tensor, n_context, axis: int = 0

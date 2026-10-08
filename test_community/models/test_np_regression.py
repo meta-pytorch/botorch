@@ -4,6 +4,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import unittest
+from unittest import mock
 
 import torch
 from botorch.models.transforms.input import Normalize
@@ -61,7 +62,7 @@ class TestNeuralProcessModel(unittest.TestCase):
 
         # Test that the model works with default dimensions
         output = model(model.train_X, model.train_Y)
-        self.assertEqual(output.loc.shape, (80, y_dim))
+        self.assertEqual(output.loc.shape, (80,))
 
     def test_r_encoder(self):
         self.initialize()
@@ -120,7 +121,36 @@ class TestNeuralProcessModel(unittest.TestCase):
     def test_forward(self):
         self.initialize()
         output = self.model(self.model.train_X, self.model.train_Y)
-        self.assertEqual(output.loc.shape, (80, self.y_dim))
+        # a distribution over the 80 target points
+        self.assertEqual(output.loc.shape, (80,))
+        self.assertEqual(output.covariance_matrix.shape, (80, 80))
+        # no target points if all points are used as context
+        model = NeuralProcessModel(torch.rand(10, 2), torch.rand(10, 1), n_context=20)
+        self.assertEqual(model(model.train_X, model.train_Y).loc.shape, (0,))
+
+    def test_forward_input_transform(self):
+        bounds = torch.tensor([[0.0, 0.0], [10.0, 10.0]])
+        train_X = 10 * torch.rand(30, 2)
+        train_Y = torch.rand(30, 1)
+        model = NeuralProcessModel(
+            train_X,
+            train_Y,
+            n_context=10,
+            input_transform=Normalize(d=2, bounds=bounds),
+        )
+        with mock.patch.object(
+            model.decoder, "forward", wraps=model.decoder.forward
+        ) as mock_decoder:
+            model(train_X, train_Y)
+        # The target inputs passed to the decoder are transformed exactly once.
+        x_pred = mock_decoder.call_args.args[0]
+        self.assertEqual(x_pred.shape, (20, 2))
+        diff = (x_pred.unsqueeze(-2) - train_X.to(x_pred) / 10).abs().amax(dim=-1)
+        self.assertTrue((diff.min(dim=-1).values < 1e-6).all())
+        # The latent parameters of all points use the transformed inputs, too.
+        z_mu_all, z_logvar_all = model.data_to_z_params(train_X / 10, train_Y)
+        self.assertTrue(torch.allclose(model.z_mu_all, z_mu_all))
+        self.assertTrue(torch.allclose(model.z_logvar_all, z_logvar_all))
 
     def test_random_split_context_target(self):
         self.initialize()
@@ -144,7 +174,22 @@ class TestNeuralProcessModel(unittest.TestCase):
         self.assertIsInstance(identity_posterior, GPyTorchPosterior)
         self.assertIsInstance(posterior, GPyTorchPosterior)
         mvn = posterior.mvn
-        self.assertEqual(mvn.covariance_matrix.size(), (100, 100, 100))
+        self.assertEqual(mvn.covariance_matrix.size(), (100, 100))
+        self.assertEqual(posterior.mean.shape, (100, 1))
+        self.assertEqual(posterior.variance.shape, (100, 1))
+        # batched inputs, as used by acquisition functions
+        posterior = self.model.posterior(torch.rand(5, 3, self.x_dim))
+        self.assertEqual(posterior.mean.shape, (5, 3, 1))
+        self.assertEqual(posterior.variance.shape, (5, 3, 1))
+        self.assertEqual(posterior.rsample(torch.Size([4])).shape, (4, 5, 3, 1))
+        # multiple outputs
+        model = NeuralProcessModel(
+            torch.rand(30, 2), torch.rand(30, 2), x_dim=2, y_dim=2, n_context=10
+        )
+        model(model.train_X, model.train_Y)
+        posterior = model.posterior(torch.rand(5, 3, 2))
+        self.assertEqual(posterior.mean.shape, (5, 3, 2))
+        self.assertEqual(posterior.variance.shape, (5, 3, 2))
 
     def test_transform_inputs(self):
         self.initialize()
