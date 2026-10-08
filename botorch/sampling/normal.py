@@ -81,7 +81,7 @@ class NormalMCSampler(MCSampler, ABC):
         if base_sampler.base_samples is not None:
             current_base_samples = base_sampler.base_samples.detach().clone()
             # This is the # of non-``sample_shape`` dimensions.
-            base_ndims = current_base_samples.dim() - 1
+            base_ndims = current_base_samples.dim() - len(self.sample_shape)
             # Unsqueeze as many dimensions as needed to match target_shape.
             target_shape = self._get_collapsed_shape(posterior=posterior)
             view_shape = (
