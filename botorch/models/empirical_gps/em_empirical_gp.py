@@ -253,6 +253,9 @@ def _e_step(
     X_inducing: Tensor | None = None,
     mean_module: Mean | None = None,
     covar_module: Kernel | None = None,
+    inducing_interpolation: (
+        tuple[Tensor, Tensor, list[tuple[Tensor, Tensor, Tensor, Tensor]]] | None
+    ) = None,
 ) -> tuple[list[Tensor], list[Tensor]]:
     """E-step: compute conditional distributions for each dataset.
 
@@ -273,6 +276,9 @@ def _e_step(
         covar_module: Parametric covariance module for interpolation (required for both
             X_inducing, and if test points could be different from the set of historical
             inputs).
+        inducing_interpolation: Optional output of
+            ``_precompute_inducing_interpolation`` for the same datasets, inducing
+            points and modules (inducing point case), to reuse across EM iterations.
 
     Returns:
         cond_means: List of K tensors - E[θ | y_i].
@@ -283,9 +289,14 @@ def _e_step(
 
     # Precompute inducing point quantities if using shift interpolation
     if X_inducing is not None:
-        K_ZZ = covar_module(X_inducing, X_inducing).to_dense()
-        L_ZZ = psd_safe_cholesky(K_ZZ)
-        m_Z = _evaluate_mean(mean_module, X_inducing)
+        if inducing_interpolation is None:
+            inducing_interpolation = _precompute_inducing_interpolation(
+                datasets=datasets,
+                X_inducing=X_inducing,
+                mean_module=mean_module,
+                covar_module=covar_module,
+            )
+        L_ZZ, m_Z, bases = inducing_interpolation
         delta_mu = mu - m_Z
 
     for i, dataset in enumerate(datasets):
@@ -299,8 +310,8 @@ def _e_step(
         # if the base term (Λ_k + σ²I) is cheaply invertible, i.e. if Λ_k is
         # approximated by its diagonal (an FITC-style approximation). With the
         # exact dense residual used here for extrapolation, the O(n_k³)
-        # Cholesky is unavoidable. (When multiple datasets share X_k, W_k and
-        # Λ_k are identical and need only be computed once.)
+        # Cholesky is unavoidable. (W_k and Λ_k do not depend on (mu, Sigma),
+        # see ``_precompute_inducing_interpolation``.)
         # The target locations T are the full set of estimation points, so the
         # target moments are always the current (mu, Sigma); only the observed
         # block (mu_S, Sigma_SS) and cross-covariance Sigma_TS differ by case.
@@ -316,6 +327,7 @@ def _e_step(
                 delta_mu=delta_mu,
                 Sigma_inducing=Sigma,
                 include_cross_covariance=True,
+                basis=bases[i],
             )
         else:
             # Standard case: use indexing
@@ -513,6 +525,18 @@ def _run_em_algorithm(
     # parametric mean m(Z) of mean_module, rather than toward zero.
     m_0 = _evaluate_mean(mean_module, X_inducing) if K_mu is not None else None
 
+    # The parts of the E-step shift interpolation that do not depend on (mu, Sigma)
+    # (kernel matrices, triangular solves, Nyström residuals, m(X_k)) are the same
+    # in every iteration, so compute them once.
+    inducing_interpolation = None
+    if use_inducing_points:
+        inducing_interpolation = _precompute_inducing_interpolation(
+            datasets=datasets,
+            X_inducing=X_inducing,
+            mean_module=mean_module,
+            covar_module=covar_module,
+        )
+
     for _ in range(num_em_iterations):
         mu_prev, Sigma_prev = mu, Sigma
 
@@ -525,6 +549,7 @@ def _run_em_algorithm(
             X_inducing=X_inducing if use_inducing_points else None,
             mean_module=mean_module if use_inducing_points else None,
             covar_module=covar_module if use_inducing_points else None,
+            inducing_interpolation=inducing_interpolation,
         )
 
         mu, Sigma = _m_step(
@@ -1525,6 +1550,56 @@ class EMEmpiricalGaussianProcess(ExactGP, GPyTorchModel):
 # =============================================================================
 
 
+def _interpolation_basis(
+    X: Tensor,
+    mean_module: Mean,
+    covar_module: Kernel,
+    X_inducing: Tensor,
+    L_ZZ: Tensor,
+) -> tuple[Tensor, Tensor, Tensor, Tensor]:
+    """Compute the parts of the shift interpolation that do not depend on (μ, Σ).
+
+    These only depend on the query locations and the parametric prior, so they can
+    be computed once and reused across EM iterations (see ``_interpolate_prior``).
+
+    Args:
+        X: (n, d) query locations.
+        mean_module: Parametric mean module.
+        covar_module: Parametric covariance module.
+        X_inducing: (M, d) inducing point locations.
+        L_ZZ: (M, M) Cholesky factor of K(Z, Z).
+
+    Returns:
+        K_XZ: (n, M) cross-covariance K(X, Z).
+        alpha_ZX: (M, n) K(Z, Z)^{-1} K(Z, X), i.e. W^T.
+        Lambda: (n, n) Nyström residual K(X, X) - K(X, Z) K(Z, Z)^{-1} K(Z, X).
+        m_X: (n,) parametric mean m(X).
+    """
+    # Compute kernel matrices. Batch-aware: X may be ``(*batch, q, d)`` (e.g. the
+    # ``q=1`` t-batches that analytic acquisitions such as LogExpectedImprovement
+    # feed in), so use ``.mT`` and batched matmuls throughout. On 2D ``(n, d)``
+    # input these reduce exactly to the original operations.
+    K_XZ = covar_module(X, X_inducing).to_dense()  # (*b, q, M)
+    K_XX = covar_module(X, X).to_dense()  # (*b, q, q)
+    K_ZX = K_XZ.mT  # (*b, M, q)
+
+    # Compute V = L_ZZ^{-1} K_ZX and alpha_ZX = K_ZZ^{-1} K_ZX = L_ZZ^{-T} V
+    # via two triangular solves (L_ZZ broadcasts over any leading batch dims).
+    V = torch.linalg.solve_triangular(L_ZZ, K_ZX, upper=False)
+    alpha_ZX = torch.linalg.solve_triangular(L_ZZ.mT, V, upper=True)
+
+    m_X = mean_module(X)
+    # Drop a trailing singleton *output* dim if the mean module emits ``(..., n, 1)``,
+    # while preserving any t-batch/q structure so batched inputs stay ``(*b, q)``.
+    if m_X.dim() == K_XZ.dim() and m_X.shape[-1] == 1:
+        m_X = m_X.squeeze(-1)
+
+    # Λ(X) = K(X,X) - Vᵀ V is the Nyström residual (Schur complement of K(Z,Z) in
+    # the joint kernel — PSD in exact arithmetic).
+    Lambda = K_XX - V.mT @ V
+    return K_XZ, alpha_ZX, Lambda, m_X
+
+
 def _interpolate_prior(
     X: Tensor,
     mean_module: Mean,
@@ -1534,6 +1609,7 @@ def _interpolate_prior(
     delta_mu: Tensor,
     Sigma_inducing: Tensor,
     include_cross_covariance: bool = False,
+    basis: tuple[Tensor, Tensor, Tensor, Tensor] | None = None,
 ) -> tuple[Tensor, Tensor, Tensor | None]:
     """Interpolate the EM-learned prior from inducing points to query locations.
 
@@ -1560,43 +1636,35 @@ def _interpolate_prior(
         delta_mu: (M,) mean shift = μ_Z - m(Z).
         Sigma_inducing: (M, M) EM-estimated covariance at inducing points.
         include_cross_covariance: If True, also compute and return Σ(Z, X).
+        basis: Optional output of ``_interpolation_basis`` for the same arguments,
+            to reuse it across calls with different ``delta_mu``/``Sigma_inducing``.
 
     Returns:
         mu: (n,) interpolated mean at X.
         Sigma: (n, n) interpolated covariance at X.
         cross_covariance: (M, n) cross-covariance Σ(Z, X), or None if not requested.
     """
-    # Compute kernel matrices. Batch-aware: X may be ``(*batch, q, d)`` (e.g. the
-    # ``q=1`` t-batches that analytic acquisitions such as LogExpectedImprovement
-    # feed in), so use ``.mT`` and batched matmuls throughout. On 2D ``(n, d)``
-    # input these reduce exactly to the original operations.
-    K_XZ = covar_module(X, X_inducing).to_dense()  # (*b, q, M)
-    K_XX = covar_module(X, X).to_dense()  # (*b, q, q)
-    K_ZX = K_XZ.mT  # (*b, M, q)
-
-    # Compute V = L_ZZ^{-1} K_ZX and alpha_ZX = K_ZZ^{-1} K_ZX = L_ZZ^{-T} V
-    # via two triangular solves (L_ZZ broadcasts over any leading batch dims).
-    V = torch.linalg.solve_triangular(L_ZZ, K_ZX, upper=False)
-    alpha_ZX = torch.linalg.solve_triangular(L_ZZ.mT, V, upper=True)
+    if basis is None:
+        basis = _interpolation_basis(
+            X=X,
+            mean_module=mean_module,
+            covar_module=covar_module,
+            X_inducing=X_inducing,
+            L_ZZ=L_ZZ,
+        )
+    K_XZ, alpha_ZX, Lambda, m_X = basis
 
     # Interpolate mean: μ(X) = m(X) + K_XZ @ K_ZZ^{-1} @ Δμ
     alpha_mu = torch.cholesky_solve(delta_mu.unsqueeze(-1), L_ZZ)  # (M, 1)
     interp = (K_XZ @ alpha_mu).squeeze(-1)  # (*b, q)
-    m_X = mean_module(X)
-    # Drop a trailing singleton *output* dim if the mean module emits ``(..., n, 1)``,
-    # while preserving any t-batch/q structure so batched inputs stay ``(*b, q)``.
-    if m_X.dim() == interp.dim() + 1 and m_X.shape[-1] == 1:
-        m_X = m_X.squeeze(-1)
     mu = m_X + interp
 
     # Interpolate covariance using the numerically stable decomposition:
     #   Σ(X,X) = Λ(X) + W @ Σ_inducing @ W^T
-    # where Λ(X) = K(X,X) - Vᵀ V is the Nyström residual (Schur complement of
-    # K(Z,Z) in the joint kernel — PSD in exact arithmetic). Small floating-point
-    # errors are handled downstream by psd_safe_cholesky jitter (forward path) and
-    # the σ²I noise buffer (E-step path).
+    # where Λ(X) is the Nyström residual. Small floating-point errors are handled
+    # downstream by psd_safe_cholesky jitter (forward path) and the σ²I noise
+    # buffer (E-step path).
     W = alpha_ZX.mT  # (*b, q, M)
-    Lambda = K_XX - V.mT @ V
     Sigma = Lambda + W @ Sigma_inducing @ W.mT
 
     # Optionally compute cross-covariance: Σ(Z,X) = Σ_inducing @ K(Z,Z)^{-1} @ K(Z,X)
@@ -1605,6 +1673,48 @@ def _interpolate_prior(
         cross_covariance = Sigma_inducing @ alpha_ZX
 
     return mu, Sigma, cross_covariance
+
+
+def _precompute_inducing_interpolation(
+    datasets: list[ExperimentDataset],
+    X_inducing: Tensor,
+    mean_module: Mean,
+    covar_module: Kernel,
+) -> tuple[Tensor, Tensor, list[tuple[Tensor, Tensor, Tensor, Tensor]]]:
+    """Compute the E-step interpolation quantities that do not depend on (μ, Σ).
+
+    These only depend on the kernel and mean parameters and on the inputs, so they
+    can be computed once for all EM iterations. Datasets that share the same input
+    tensor share one interpolation basis.
+
+    Args:
+        datasets: K experiment datasets.
+        X_inducing: (M, d) inducing point locations.
+        mean_module: Parametric mean module.
+        covar_module: Parametric covariance module.
+
+    Returns:
+        L_ZZ: (M, M) Cholesky factor of K(Z, Z).
+        m_Z: (M,) parametric mean m(Z).
+        bases: K outputs of ``_interpolation_basis``, one for each dataset.
+    """
+    K_ZZ = covar_module(X_inducing, X_inducing).to_dense()
+    L_ZZ = psd_safe_cholesky(K_ZZ)
+    m_Z = _evaluate_mean(mean_module, X_inducing)
+    bases_by_input: dict[int, tuple[Tensor, Tensor, Tensor, Tensor]] = {}
+    bases = []
+    for dataset in datasets:
+        key = id(dataset.X)
+        if key not in bases_by_input:
+            bases_by_input[key] = _interpolation_basis(
+                X=dataset.X,
+                mean_module=mean_module,
+                covar_module=covar_module,
+                X_inducing=X_inducing,
+                L_ZZ=L_ZZ,
+            )
+        bases.append(bases_by_input[key])
+    return L_ZZ, m_Z, bases
 
 
 def _index_prior(

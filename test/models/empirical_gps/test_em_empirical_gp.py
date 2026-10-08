@@ -311,6 +311,62 @@ class TestEMEmpiricalGaussianProcess(BotorchTestCase):
         self._test_em_iterations_deterministic()
         self._test_em_output_symmetry_and_psd()
 
+    def test_em_reuses_inducing_interpolation(self) -> None:
+        """The (mu, Sigma)-independent E-step quantities are computed only once."""
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        datasets = self._make_datasets(K=4, n_i=5, tkwargs=tkwargs)
+        # Two datasets observed at the same inputs share one interpolation basis.
+        datasets.append(ExperimentDataset(X=datasets[0].X, Y=datasets[1].Y))
+        Z = torch.linspace(0, 1, 6, **tkwargs).unsqueeze(-1)
+        mean_module = ConstantMean().to(**tkwargs)
+        covar_module = ScaleKernel(MaternKernel()).to(**tkwargs)
+        noise = torch.tensor(0.01, **tkwargs)
+        num_iterations = 3
+        with torch.no_grad():
+            mu_init = mean_module(Z)
+            Sigma_init = covar_module(Z).to_dense()
+            with mock.patch.object(
+                em_empirical_gp,
+                "_interpolation_basis",
+                wraps=em_empirical_gp._interpolation_basis,
+            ) as mock_basis:
+                mu, Sigma = em_empirical_gp._run_em_algorithm(
+                    datasets=datasets,
+                    mu_init=mu_init,
+                    Sigma_init=Sigma_init,
+                    X_inducing=Z,
+                    mean_module=mean_module,
+                    covar_module=covar_module,
+                    likelihood_noise=noise,
+                    experiment_indices=None,
+                    use_inducing_points=True,
+                    num_em_iterations=num_iterations,
+                    Psi=None,
+                    K_mu=None,
+                    iw_nu=None,
+                    em_convergence_tol=None,
+                    N_inducing=Z.shape[0],
+                )
+            self.assertEqual(mock_basis.call_count, len(datasets) - 1)
+
+            # Same result as recomputing everything in every E-step.
+            mu_ref, Sigma_ref = mu_init.clone(), Sigma_init.clone()
+            for _ in range(num_iterations):
+                cond_means, cond_covs = _e_step(
+                    datasets,
+                    mu_ref,
+                    Sigma_ref,
+                    likelihood_noise=noise,
+                    X_inducing=Z,
+                    mean_module=mean_module,
+                    covar_module=covar_module,
+                )
+                mu_ref, Sigma_ref = _m_step(
+                    cond_means, cond_covs, psd_stabilization=True
+                )
+        self.assertAllClose(mu, mu_ref, atol=1e-12, rtol=0)
+        self.assertAllClose(Sigma, Sigma_ref, atol=1e-12, rtol=0)
+
     # =========================================================================
     # Model Learning and Output Tests
     # =========================================================================
