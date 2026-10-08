@@ -226,6 +226,8 @@ class SingleTaskAugmentedGP(SingleTaskGP):
         Returns:
             The fitted Single Task GP and its Marginal Log Likelihood.
         """
+        # Copy all modules, so that each source's GP (and the AGP) fits its own
+        # parameters, including those of the (learnable) transforms.
         gp = SingleTaskGP(
             train_X,
             train_Y,
@@ -233,8 +235,8 @@ class SingleTaskAugmentedGP(SingleTaskGP):
             likelihood=deepcopy(likelihood),
             covar_module=deepcopy(covar_module),
             mean_module=deepcopy(mean_module),
-            outcome_transform=outcome_transform,
-            input_transform=input_transform,
+            outcome_transform=deepcopy(outcome_transform),
+            input_transform=deepcopy(input_transform),
         )
         mll = ExactMarginalLogLikelihood(gp.likelihood, gp)
         fit_gpytorch_mll(mll)
