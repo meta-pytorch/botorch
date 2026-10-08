@@ -578,7 +578,8 @@ class MultiOutputEmpiricalOneDimensionalGP(ExactGP, GPyTorchModel):
             X: `q x 1`-dim Tensor of input locations.
             output_indices: Not supported; must be None (raises otherwise).
             observation_noise: If a bool, whether to add the model's observation
-                noise to the posterior; requires either `train_Yvar` or a
+                noise to the posterior; requires either `train_Yvar` (whose
+                average over the training points is added for each output) or a
                 `GaussianLikelihood` (raises otherwise). If a Tensor, per-point
                 noise variances broadcastable to the trailing `(q, m)` grid --
                 e.g. a scalar, `(m,)` per-output, `(q, 1)` per-point, or a full
@@ -644,9 +645,16 @@ class MultiOutputEmpiricalOneDimensionalGP(ExactGP, GPyTorchModel):
             posterior_cov = posterior_cov + to_linear_operator(noise_cov)
         elif observation_noise:
             if self._train_Yvar_flat is not None:
-                avg_noise = self._train_Yvar_flat.mean().to(X)
+                # Average the observation noise of each output separately (as the
+                # batched multi-output models do), not across outputs. The flat
+                # noise is interleaved, so unflatten it to ``n x m`` first.
+                Yvar = self._train_Yvar_flat.to(X).unflatten(-1, (-1, m))
+                avg_noise = Yvar.mean(dim=-2, keepdim=True)
+                avg_noise = avg_noise.expand(*Yvar.shape[:-2], q, m).flatten(-2)
+                noise_eye = torch.diag_embed(avg_noise)
             elif isinstance(self.likelihood, GaussianLikelihood):
                 avg_noise = self.likelihood.noise.to(X)
+                noise_eye = avg_noise * torch.eye(q * m, dtype=X.dtype, device=X.device)
             else:
                 # Previously this fell through to ``avg_noise = 0.0``, silently
                 # returning a noiseless posterior for a caller that explicitly
@@ -661,7 +669,6 @@ class MultiOutputEmpiricalOneDimensionalGP(ExactGP, GPyTorchModel):
                     "`train_Yvar` at construction, or supply the noise explicitly "
                     "as a Tensor via `observation_noise`."
                 )
-            noise_eye = avg_noise * torch.eye(q * m, dtype=X.dtype, device=X.device)
             posterior_cov = posterior_cov + to_linear_operator(noise_eye)
 
         # Reshape mean from (q*m) to q x m
