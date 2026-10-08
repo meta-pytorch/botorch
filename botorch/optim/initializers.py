@@ -964,7 +964,10 @@ def initialize_q_batch(
     This heuristic selects points from ``X`` (without replacement) with probability
     proportional to ``exp(eta * Z)``, where
     ``Z = (acq_vals - mean(acq_vals)) / std(acq_vals)``
-    and ``eta`` is a temperature parameter.
+    and ``eta`` is a temperature parameter. Samples with non-finite acquisition
+    values (e.g., ``-inf``) are excluded, unless there are fewer than ``n`` samples
+    with finite acquisition values, in which case the initial conditions are
+    selected at random.
 
     When using an acquisition function that is non-negative and possibly zero
     over large areas of the feature space (e.g. qEI), you should use
@@ -1002,6 +1005,31 @@ def initialize_q_batch(
         )
     elif n == n_samples:
         return X, acq_vals
+
+    is_finite = torch.isfinite(acq_vals)
+    if not is_finite.all() and (is_finite.sum(dim=0) >= n).all():
+        # Select the initial conditions among the samples with finite acquisition
+        # values, e.g., excluding samples for which a log-acquisition function
+        # evaluates to -inf, rather than selecting all of them at random below.
+        if batch_shape == torch.Size():
+            return initialize_q_batch(
+                X=X[is_finite], acq_vals=acq_vals[is_finite], n=n, eta=eta
+            )
+        # The finite samples differ across batches, so select for each batch.
+        X_flat = X.reshape(n_samples, -1, *X.shape[-2:])
+        acq_vals_flat = acq_vals.reshape(n_samples, -1)
+        X_select, acq_select = zip(
+            *(
+                initialize_q_batch(
+                    X=X_flat[:, i], acq_vals=acq_vals_flat[:, i], n=n, eta=eta
+                )
+                for i in range(acq_vals_flat.shape[-1])
+            )
+        )
+        return (
+            torch.stack(X_select, dim=1).view(n, *X.shape[1:]),
+            torch.stack(acq_select, dim=1).view(n, *batch_shape),
+        )
 
     Ystd = acq_vals.std(dim=0)
     if torch.any(Ystd == 0) or not torch.isfinite(Ystd).all():
