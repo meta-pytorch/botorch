@@ -7,6 +7,10 @@
 from itertools import product
 
 import torch
+from botorch.acquisition.bayesian_active_learning import (
+    qBayesianActiveLearningByDisagreement,
+)
+from botorch.sampling.normal import SobolQMCNormalSampler
 from botorch.utils.sampling import draw_sobol_samples
 from botorch.utils.test_helpers import get_fully_bayesian_model
 from botorch.utils.testing import BotorchTestCase
@@ -224,6 +228,38 @@ class TestQHyperparameterInformedPredictiveExploration(BotorchTestCase):
                     mc_points=mc_points.unsqueeze(0),  # 3D tensor
                     bounds=bounds,
                 )
+
+    def test_q_hyperparameter_informed_predictive_exploration_pending(self):
+        torch.manual_seed(1)
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        input_dim = 2
+        model = get_fully_bayesian_model(
+            train_X=torch.rand(6, input_dim, **tkwargs),
+            train_Y=torch.randn(6, 1, **tkwargs),
+            num_models=4,
+            **tkwargs,
+        )
+        bounds = torch.tensor([[0.0] * input_dim, [1.0] * input_dim], **tkwargs)
+        mc_points = draw_sobol_samples(bounds=bounds, n=16, q=1).squeeze(-2)
+        sampler = SobolQMCNormalSampler(sample_shape=torch.Size([64]), seed=0)
+        X_pending = torch.rand(2, input_dim, **tkwargs)
+        acq = qHyperparameterInformedPredictiveExploration(
+            model=model,
+            mc_points=mc_points,
+            bounds=bounds,
+            sampler=sampler,
+            X_pending=X_pending,
+            beta_tuning_samples=4,
+        )
+        X = torch.rand(3, 1, input_dim, **tkwargs)
+        acq_X = acq(X)
+        # The tuning factor is computed for the q of the candidates.
+        self.assertEqual(acq._tuning_factor_q, 1)
+        # The pending points are appended to X exactly once.
+        X_full = torch.cat([X, X_pending.expand(3, 2, input_dim)], dim=-2)
+        bald = qBayesianActiveLearningByDisagreement(model=model, sampler=sampler)
+        epig = qExpectedPredictiveInformationGain(model=model, mc_points=mc_points)
+        self.assertAllClose(acq_X, acq._tuning_factor * bald(X_full) + epig(X_full))
 
 
 class TestQBayesianQueryByComittee(BotorchTestCase):
