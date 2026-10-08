@@ -305,6 +305,40 @@ class TestHomotopy(BotorchTestCase):
         self.assertIn(candidate[0, 0].item(), [0.0, 1.0])
         self.assertIn(candidate[0, 1].item(), [0.0, 1.0])
 
+    def test_optimize_acqf_homotopy_discrete_dims_with_fixed_features(self):
+        """Test that fixed_features are respected with few discrete combinations,
+        i.e. when using optimize_acqf_mixed."""
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        p = Parameter(torch.ones(1, **tkwargs))
+        hp = HomotopyParameter(
+            parameter=p,
+            schedule=LinearHomotopySchedule(start=1, end=0.5, num_steps=2),
+        )
+        # The optimum is at x = (0.9, 0.9, 0.9) for all values of p.
+        model = GenericDeterministicModel(
+            f=lambda x: -p * (x - 0.9).pow(2).sum(dim=-1, keepdims=True)
+        )
+        acqf = PosteriorMean(model=model)
+        discrete_dims = {2: [0.0, 0.5, 1.0]}
+        for fixed_features, expected in (
+            ({0: 0.2}, [0.2, 0.9, 1.0]),
+            ({0: 0.2, 2: 0.5}, [0.2, 0.9, 0.5]),
+            ({-1: 0.5}, [0.9, 0.9, 0.5]),
+        ):
+            candidate, _ = optimize_acqf_homotopy(
+                q=1,
+                acq_function=acqf,
+                bounds=torch.tensor([[0.0] * 3, [1.0] * 3], **tkwargs),
+                homotopy=Homotopy(homotopy_parameters=[hp]),
+                num_restarts=2,
+                raw_samples=16,
+                fixed_features=fixed_features,
+                discrete_dims=discrete_dims,
+            )
+            self.assertAllClose(
+                candidate, torch.tensor([expected], **tkwargs), atol=1e-4
+            )
+
     def test_optimize_acqf_homotopy_discrete_dims_many_combos(self):
         """Test with many discrete combinations (>10) -> uses mixed_alternating."""
         tkwargs = {"device": self.device, "dtype": torch.double}
