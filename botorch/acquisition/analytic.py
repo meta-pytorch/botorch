@@ -85,6 +85,17 @@ class AnalyticAcquisitionFunction(AcquisitionFunction, ABC):
             "Analytic acquisition functions do not account for X_pending yet."
         )
 
+    def _buffers_to(self, X: Tensor) -> None:
+        r"""Move the buffers of the acquisition function (e.g. ``best_f``) to the
+        device and (floating point) dtype of ``X``.
+
+        NOTE: Unlike ``self.to(X)``, this does not modify submodules such as the
+        model, which would convert the user's model in-place.
+        """
+        for name, buffer in self.named_buffers(recurse=False):
+            dtype = X.dtype if buffer.is_floating_point() else None
+            setattr(self, name, buffer.to(device=X.device, dtype=dtype))
+
     def _mean_and_sigma(
         self, X: Tensor, compute_sigma: bool = True, min_var: float = 1e-12
     ) -> tuple[Tensor, Tensor | None]:
@@ -102,7 +113,7 @@ class AnalyticAcquisitionFunction(AcquisitionFunction, ABC):
             second moments of the model posterior, where ``m`` is the number of outputs.
             Returns ``None`` instead of the second tensor if ``compute_sigma`` is False.
         """
-        self.to(X)  # ensures buffers / parameters are on the same device and dtype
+        self._buffers_to(X)  # ensures buffers are on the same device and dtype
         posterior = self.model.posterior(
             X=X, posterior_transform=self.posterior_transform
         )
@@ -1089,7 +1100,6 @@ class ScalarizedPosteriorMean(AnalyticAcquisitionFunction):
         """
         # ScalarizedPosteriorMean cannot use self._mean_and_sigma, since that squeezes
         # the q-dim.
-        self.to(X)  # Sync weights buffer to X's device/dtype
         posterior = self.model.posterior(
             X=X, posterior_transform=self.posterior_transform
         )
@@ -1097,7 +1107,7 @@ class ScalarizedPosteriorMean(AnalyticAcquisitionFunction):
         # squeeze(-1) removes m (should be 1), giving (b1 x ... x bk) x q
         mean = posterior.mean.squeeze(-1)
         # @ self.weights: (b1 x ... x bk) x q @ q -> (b1 x ... x bk)
-        return mean @ self.weights
+        return mean @ self.weights.to(mean)
 
 
 class PosteriorStandardDeviation(AnalyticAcquisitionFunction):
