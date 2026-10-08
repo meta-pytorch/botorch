@@ -285,6 +285,36 @@ class TestVBLLModel(BotorchTestCase):
                 "Expected early stopping log message not found.",
             )
 
+    def test_early_stopping_restores_best_model(self) -> None:
+        d = 4
+        X, y = _reg_data_singletask(d)
+        model = VBLLModel(
+            in_features=d,
+            hidden_features=4,
+            out_features=1,
+            num_layers=1,
+            device=self.device,
+        )
+        # Gradient ascent increases the training loss in every epoch. Hence, the
+        # first epoch is the best one and early stopping has to restore the
+        # parameters obtained after the first epoch.
+        optim_settings = {
+            "optimizer_class": torch.optim.SGD,
+            "optimizer_kwargs": {"maximize": True},
+            "lr": 1e-2,
+            "batch_size": len(X),
+            "patience": 1,
+        }
+        model_one_epoch = copy.deepcopy(model)
+        model_one_epoch.fit(
+            X, y, optimization_settings={**optim_settings, "num_epochs": 1}
+        )
+        model.fit(X, y, optimization_settings={**optim_settings, "num_epochs": 5})
+        for param, param_one_epoch in zip(
+            model.model.parameters(), model_one_epoch.model.parameters()
+        ):
+            self.assertAllClose(param, param_one_epoch)
+
     def test_initialization_of_model_parameters(self) -> None:
         d, num_hidden = 4, 4
         for covar_type in ("diagonal", "dense", "lowrank", "dense_precision"):
@@ -549,3 +579,29 @@ class TestVBLLModel(BotorchTestCase):
                     val_y=y_val,
                     optimization_settings=optim_settings,
                 )
+
+    def test_validation_loss_uses_validation_data(self) -> None:
+        d = 4
+        model = VBLLModel(
+            in_features=d,
+            hidden_features=4,
+            out_features=1,
+            num_layers=1,
+            device=self.device,
+        )
+        X_train, y_train = _reg_data_singletask(d)
+        # the validation set differs in size from the training batches
+        X_val = torch.rand(7, d, dtype=torch.float64, device=self.device)
+        y_val = torch.rand(7, 1, dtype=torch.float64, device=self.device)
+        with patch.object(
+            model.model, "forward", wraps=model.model.forward
+        ) as mock_forward:
+            model.fit(
+                X_train,
+                y_train,
+                val_X=X_val,
+                val_y=y_val,
+                optimization_settings={"num_epochs": 1},
+            )
+        # the validation loss is computed in the last forward pass of the epoch
+        self.assertTrue(torch.equal(mock_forward.call_args.args[0], X_val))
