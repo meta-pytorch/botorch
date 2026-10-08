@@ -24,6 +24,7 @@ from botorch.models.transforms.utils import (
     norm_to_lognorm_variance,
 )
 from botorch.posteriors import GPyTorchPosterior, TransformedPosterior
+from botorch.posteriors.ensemble import EnsemblePosterior
 from botorch.posteriors.fully_bayesian import GaussianMixturePosterior
 from botorch.utils.testing import BotorchTestCase
 from gpytorch.distributions import MultitaskMultivariateNormal, MultivariateNormal
@@ -564,6 +565,27 @@ class TestOutcomeTransforms(BotorchTestCase):
                 self.assertEqual(samples.shape, torch.Size([4]) + shape)
                 samples2 = p_utf.rsample(sample_shape=torch.Size([4, 2]))
                 self.assertEqual(samples2.shape, torch.Size([4, 2]) + shape)
+
+            # test untransform_posterior for other posteriors, which falls back
+            # to a TransformedPosterior using the per-input means and stdvs
+            values = torch.randn(*batch_shape, 3, n, 1, dtype=dtype, device=self.device)
+            posterior = EnsemblePosterior(values=values)
+            p_utf = strata_tf.untransform_posterior(posterior, X=X)
+            self.assertIsInstance(p_utf, TransformedPosterior)
+            expected_mean, expected_variance = strata_tf.untransform(
+                Y=posterior.mean, Yvar=posterior.variance, X=X
+            )
+            self.assertAllClose(p_utf.mean, expected_mean)
+            self.assertAllClose(p_utf.variance, expected_variance)
+            # samples from the first ensemble member
+            samples = p_utf.rsample_from_base_samples(
+                sample_shape=torch.Size([1]),
+                base_samples=torch.zeros(
+                    1, *batch_shape, dtype=torch.long, device=self.device
+                ),
+            )
+            expected_samples, _ = strata_tf.untransform(Y=values[..., 0, :, :], X=X)
+            self.assertAllClose(samples, expected_samples.unsqueeze(0))
 
         # test exception if X is None
         strata_tf = StratifiedStandardize(

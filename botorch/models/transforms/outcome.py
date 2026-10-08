@@ -469,11 +469,14 @@ class Standardize(OutcomeTransform):
         if type(posterior) not in (GPyTorchPosterior, GaussianMixturePosterior):
             # fall back to TransformedPosterior
             # this applies to subclasses of GPyTorchPosterior like MultitaskGPPosterior
+            means, stdvs, stdvs_sq = self._get_per_input_means_stdvs(
+                X=X, include_stdvs_sq=True
+            )
             return TransformedPosterior(
                 posterior=posterior,
-                sample_transform=lambda s: self.means + self.stdvs * s,
-                mean_transform=lambda m, v: self.means + self.stdvs * m,
-                variance_transform=lambda m, v: self._stdvs_sq * v,
+                sample_transform=lambda s: means + stdvs * s,
+                mean_transform=lambda m, v: means + stdvs * m,
+                variance_transform=lambda m, v: stdvs_sq * v,
             )
         # GPyTorchPosterior (TODO: Should we Lazy-evaluate the mean here as well?)
         mvn = posterior.distribution
