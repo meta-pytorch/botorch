@@ -384,6 +384,22 @@ class TestLowRankNormal(VBLLHelperTestCase):
         expected_trace = expected_trace_diag + expected_trace_lowrank
         self.assertAllClose(dist.trace_covariance, expected_trace)
 
+    def test_logdet_covariance_dtype_and_device(self):
+        # the identity used in the matrix determinant lemma must follow the dtype
+        # and device of the covariance factors
+        for dtype in (torch.float32, torch.float64):
+            tkwargs = {"dtype": dtype, "device": self.device}
+            loc = torch.zeros(2, 3, **tkwargs)
+            cov_factor = torch.randn(2, 3, 2, **tkwargs)
+            diag = torch.rand(2, 3, **tkwargs) + 0.5
+            dist = LowRankNormal(loc, cov_factor, diag)
+            logdet = dist.logdet_covariance
+            self.assertEqual(logdet.dtype, dtype)
+            self.assertEqual(logdet.device, loc.device)
+            self.assertAllClose(
+                logdet, torch.logdet(dist.covariance_matrix), rtol=1e-4, atol=1e-4
+            )
+
     def test_inner_products(self):
         loc = torch.tensor([0.0, 1.0, 2.0], **self.tkwargs)
         cov_factor = torch.randn(3, 2, **self.tkwargs)
