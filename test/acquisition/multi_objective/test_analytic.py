@@ -4,6 +4,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+from itertools import product
 
 import torch
 from botorch.acquisition.multi_objective.analytic import ExpectedHypervolumeImprovement
@@ -61,8 +62,45 @@ class TestExpectedHypervolumeImprovement(BotorchTestCase):
             # check bounds
             self.assertTrue(hasattr(acqf, "cell_lower_bounds"))
             self.assertTrue(hasattr(acqf, "cell_upper_bounds"))
-            # check cached indices
-            expected_indices = torch.tensor(
-                [[0, 0], [0, 1], [1, 0], [1, 1]], dtype=torch.long, device=self.device
+
+    def test_expected_hypervolume_improvement_matches_expansion(self):
+        # The EHVI of a hypercell is the product over the outcomes of
+        # ``psi_diff + nu``. Compare against the explicit expansion of this product
+        # into the sum over all 2^m products of ``psi_diff`` or ``nu`` per outcome.
+        for dtype, m in product((torch.float, torch.double), (2, 3, 4)):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            ref_point = torch.zeros(m, **tkwargs)
+            partitioning = NondominatedPartitioning(
+                ref_point=ref_point, Y=torch.rand(5, m, **tkwargs)
             )
-            self.assertTrue(torch.equal(acqf._cross_product_indices, expected_indices))
+            mean = torch.rand(3, 1, m, **tkwargs).requires_grad_(True)
+            variance = (0.1 * torch.rand(3, 1, m, **tkwargs)).requires_grad_(True)
+            acqf = ExpectedHypervolumeImprovement(
+                model=MockModel(MockPosterior(mean=mean, variance=variance)),
+                ref_point=ref_point.tolist(),
+                partitioning=partitioning,
+            )
+            res = acqf(torch.zeros(3, 1, 1, **tkwargs))
+
+            sigma = variance.clamp_min(1e-9).sqrt()
+            lower = acqf.cell_lower_bounds
+            upper = acqf.cell_upper_bounds.clamp_max(
+                1e10 if dtype == torch.double else 1e8
+            )
+            psi_diff = acqf.psi(lower, lower, mean, sigma) - acqf.psi(
+                lower, upper, mean, sigma
+            )
+            factors = torch.stack([psi_diff, acqf.nu(lower, upper, mean, sigma)])
+            expected = sum(
+                torch.stack([factors[s_k, ..., k] for k, s_k in enumerate(s)])
+                .prod(dim=0)
+                .sum(dim=-1)
+                for s in product((0, 1), repeat=m)
+            )
+            self.assertGreater(expected.min().item(), 0.0)
+            self.assertAllClose(res, expected)
+            for r, e in zip(
+                torch.autograd.grad(res.sum(), (mean, variance)),
+                torch.autograd.grad(expected.sum(), (mean, variance)),
+            ):
+                self.assertAllClose(r, e)
