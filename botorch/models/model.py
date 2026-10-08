@@ -484,11 +484,10 @@ class ModelList(Model):
         posteriors = []
         for i, idcs in group_indices.items():
             if isinstance(observation_noise, Tensor):
-                if idcs is None:
-                    start_idx = sum(m.num_outputs for m in self.models[:i])
-                    end_idx = start_idx + self.models[i].num_outputs
-                    idcs = list(range(start_idx, end_idx))
-                obs_noise = observation_noise[..., idcs]
+                # Select the noise of the respective outputs of the full model.
+                start_idx = sum(m.num_outputs for m in self.models[:i])
+                sub_idcs = range(self.models[i].num_outputs) if idcs is None else idcs
+                obs_noise = observation_noise[..., [start_idx + j for j in sub_idcs]]
             else:
                 obs_noise = observation_noise
             posteriors.append(
