@@ -543,6 +543,27 @@ class TestBatchedMultiOutputGPyTorchModel(BotorchTestCase):
         post = model.posterior(torch.rand(3, 2, **tkwargs), posterior_transform=post_tf)
         self.assertTrue(torch.equal(post.mean, torch.zeros(3, 1, **tkwargs)))
 
+    def test_posterior_output_indices(self) -> None:
+        # The posterior over a subset of the outputs must match the respective
+        # outputs of the full posterior, also with an outcome transform.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.rand(10, 2, **tkwargs)
+        train_Y = torch.rand(10, 3, **tkwargs) * torch.tensor([1, 10, 100], **tkwargs)
+        test_X = torch.rand(4, 2, **tkwargs)
+        for outcome_transform in (None, Standardize(m=3)):
+            model = SingleTaskGP(train_X, train_Y, outcome_transform=outcome_transform)
+            posterior = model.posterior(test_X, observation_noise=True)
+            for output_indices in ([1], [0, 2], [2, 0]):
+                posterior_subset = model.posterior(
+                    test_X, output_indices=output_indices, observation_noise=True
+                )
+                self.assertAllClose(
+                    posterior_subset.mean, posterior.mean[..., output_indices]
+                )
+                self.assertAllClose(
+                    posterior_subset.variance, posterior.variance[..., output_indices]
+                )
+
     def test_posterior_in_trace_mode(self):
         tkwargs = {"device": self.device, "dtype": torch.double}
         train_X = torch.rand(5, 1, **tkwargs)
