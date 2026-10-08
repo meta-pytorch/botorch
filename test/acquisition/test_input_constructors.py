@@ -446,13 +446,28 @@ class TestAnalyticAcquisitionFunctionInputConstructors(InputConstructorBaseTestC
                 kwargs = c(
                     model=mock_model, training_data=self.blockX_blockY, maximize=False
                 )
-                best_f_expected = self.blockX_blockY[0].Y.squeeze().max()
+                # The best observed value of a minimization problem is the minimum.
+                best_f_expected = self.blockX_blockY[0].Y.squeeze().min()
                 self.assertIs(kwargs["model"], mock_model)
                 self.assertIsNone(kwargs["posterior_transform"])
                 self.assertEqual(kwargs["best_f"], best_f_expected)
                 self.assertFalse(kwargs["maximize"])
                 acqf = acqf_cls(**kwargs)
                 self.assertIs(acqf.model, mock_model)
+
+                # With a posterior transform, the best value of the transformed
+                # objective is used.
+                pt = ScalarizedPosteriorTransform(weights=torch.tensor([-2.0]))
+                Y = self.blockX_blockY[0].Y.squeeze()
+                for maximize in (True, False):
+                    kwargs = c(
+                        model=mock_model,
+                        training_data=self.blockX_blockY,
+                        posterior_transform=pt,
+                        maximize=maximize,
+                    )
+                    best_f_expected = (-2 * Y).max() if maximize else (-2 * Y).min()
+                    self.assertAllClose(kwargs["best_f"], best_f_expected)
 
                 kwargs = c(
                     model=mock_model, training_data=self.blockX_blockY, best_f=0.1
@@ -527,26 +542,44 @@ class TestAnalyticAcquisitionFunctionInputConstructors(InputConstructorBaseTestC
         mock_model = self.mock_model
         constraints_tuple = [torch.tensor([[0.0, 1.0]]), torch.tensor([[2.0]])]
         constraints = {1: (None, 2.0)}
-        best_f_expected = self.blockX_blockY[0].Y.squeeze().max()
         objective_index = 0
-        # test that best_f is inferred from training data
+        # Outcome 0 is the objective, outcome 1 is constrained to be <= 2, so that
+        # only the last two observations are feasible.
+        X = torch.rand(3, 2)
+        training_data = {
+            0: SupervisedDataset(
+                X,
+                torch.tensor([[0.1], [0.5], [0.9]]),
+                feature_names=["X1", "X2"],
+                outcome_names=["Y1"],
+            ),
+            1: SupervisedDataset(
+                X,
+                torch.tensor([[3.0], [0.0], [1.0]]),
+                feature_names=["X1", "X2"],
+                outcome_names=["Y2"],
+            ),
+        }
+        # test that best_f is inferred from training data as the best feasible
+        # observed value of the objective
         # test constraint tuple
-        kwargs = c(
-            model=mock_model,
-            objective_index=objective_index,
-            training_data=self.blockX_blockY,
-            constraints_tuple=constraints_tuple,
-            maximize=False,
-        )
-        self.assertEqual(
-            set(kwargs.keys()),
-            {"model", "best_f", "objective_index", "constraints", "maximize"},
-        )
-        self.assertIs(kwargs["model"], mock_model)
-        self.assertEqual(kwargs["objective_index"], objective_index)
-        self.assertEqual(kwargs["constraints"], constraints)
-        self.assertEqual(kwargs["best_f"], best_f_expected)
-        self.assertFalse(kwargs["maximize"])
+        for maximize, best_f_expected in ((False, 0.5), (True, 0.9)):
+            kwargs = c(
+                model=mock_model,
+                objective_index=objective_index,
+                training_data=training_data,
+                constraints_tuple=constraints_tuple,
+                maximize=maximize,
+            )
+            self.assertEqual(
+                set(kwargs.keys()),
+                {"model", "best_f", "objective_index", "constraints", "maximize"},
+            )
+            self.assertIs(kwargs["model"], mock_model)
+            self.assertEqual(kwargs["objective_index"], objective_index)
+            self.assertEqual(kwargs["constraints"], constraints)
+            self.assertAllClose(kwargs["best_f"], torch.tensor(best_f_expected))
+            self.assertEqual(kwargs["maximize"], maximize)
         # test that best_f overrides default from training data
         # test that negative constraints work
         constraints_tuple = [torch.tensor([[0.0, -1.0]]), torch.tensor([[-2.0]])]
@@ -584,6 +617,7 @@ class TestAnalyticAcquisitionFunctionInputConstructors(InputConstructorBaseTestC
                 model=mock_model,
                 objective_index=1,
                 training_data=self.blockX_blockY,
+                best_f=0.1,
                 constraints_tuple=[torch.tensor([[0.0, -1.0]]), torch.tensor([[-2.0]])],
             )
             LogConstrainedExpectedImprovement(**kwargs)
