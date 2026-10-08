@@ -55,7 +55,8 @@ def _reshape_base_samples(
         posterior: The joint posterior is over (X_baseline, X).
 
     Returns:
-        Reshaped and expanded base samples.
+        Reshaped and expanded base samples, with the ``sample_shape`` dimensions
+        flattened into a single trailing dimension.
     """
     mvn = posterior.distribution
     loc = mvn.loc
@@ -77,7 +78,7 @@ def _reshape_base_samples(
         *peshape[:-2],
         peshape[-1],
         peshape[-2],
-        *sample_shape,
+        sample_shape.numel(),
     )
 
 
@@ -159,6 +160,8 @@ def sample_cached_cholesky(
         .permute(-1, *range(posterior.distribution.loc.dim() - 1), -2, -3)
         .contiguous()
     )
+    # unflatten the sample dimension into ``sample_shape``
+    res = res.view(sample_shape + res.shape[1:])
     contains_nans = torch.isnan(res).any()
     contains_infs = torch.isinf(res).any()
     if contains_nans or contains_infs:
