@@ -879,7 +879,7 @@ class TestOptimizeAcqf(BotorchTestCase):
             (1, 2, dim),
             (3, 1, dim),
             (num_restarts, q, dim),
-            (1, dim),
+            (1, 1, dim),  # a 2-dim IC is a single restart
             (num_restarts, q, dim),
         ]
 
@@ -931,6 +931,63 @@ class TestOptimizeAcqf(BotorchTestCase):
                         batch_initial_conditions=ics,
                     )
                 self.assertEqual(acq_value_list.shape, (expected_shape,))
+
+    def test_optimize_acqf_init_options_not_passed_to_gen_candidates(self):
+        # Options of the initial condition generators are not passed to
+        # ``gen_candidates`` (where they would e.g. prevent the use of the batched
+        # L-BFGS-B implementation in ``gen_candidates_scipy``).
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        gen_candidates = mock.MagicMock(wraps=gen_candidates_scipy)
+        init_options = {
+            "frac_random": 0.5,
+            "num_inner_restarts": 4,
+            "raw_inner_samples": 32,
+            "n_thinning": 2,
+            "sample_around_best_subset_sigma": 0.1,
+            "topn": True,
+            "sorted": True,
+            "largest": True,
+        }
+        optimize_acqf(
+            acq_function=NegSquaredDistanceAcquisitionFunction(
+                target=torch.tensor([0.3, 0.3], **tkwargs)
+            ),
+            bounds=torch.tensor([[0.0, 0.0], [1.0, 1.0]], **tkwargs),
+            q=1,
+            num_restarts=2,
+            raw_samples=8,
+            options={"maxiter": 5, **init_options},
+            gen_candidates=gen_candidates,
+        )
+        self.assertEqual(gen_candidates.call_args.kwargs["options"], {"maxiter": 5})
+
+    def test_optimize_acqf_2d_batch_initial_conditions(self):
+        # A ``q x d``-dim ``batch_initial_conditions`` is a single restart, whose
+        # q-batch must be optimized jointly (also with ``batch_limit < q``) and
+        # returned as a whole.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        target = torch.tensor([[0.1, 0.2], [0.7, 0.8]], **tkwargs)
+        acqf = NegSquaredDistanceAcquisitionFunction(target=target)
+        bounds = torch.tensor([[0.0, 0.0], [1.0, 1.0]], **tkwargs)
+        ic = torch.full((2, 2), 0.5, **tkwargs)
+        for options, return_best_only in product(
+            (None, {"batch_limit": 1}), (True, False)
+        ):
+            candidates, acq_value = optimize_acqf(
+                acq_function=acqf,
+                bounds=bounds,
+                q=2,
+                num_restarts=2,
+                options=options,
+                batch_initial_conditions=ic,
+                return_best_only=return_best_only,
+            )
+            if return_best_only:
+                self.assertAllClose(candidates, target, atol=1e-4)
+                self.assertEqual(acq_value.shape, torch.Size([]))
+            else:
+                self.assertAllClose(candidates, target.unsqueeze(0), atol=1e-4)
+                self.assertEqual(acq_value.shape, torch.Size([1]))
 
     def test_optimize_acqf_runs_given_batch_initial_conditions(self):
         num_restarts, raw_samples, dim = 1, 2, 3
@@ -2199,6 +2256,34 @@ class TestAllOptimizers(BotorchTestCase):
 
 
 class TestOptimizeAcqfCyclic(BotorchTestCase):
+    @mock.patch("botorch.optim.optimize._optimize_acqf")
+    def test_optimize_acqf_cyclic_stopping_criterion(self, mock_optimize_acqf):
+        # The acquisition values are maximized, so the cyclic optimization continues
+        # while they improve (here until ``maxiter``), and stops otherwise (here as
+        # soon as the moving average window of the stopping criterion is filled).
+        q, d = 2, 3
+        bounds = torch.stack([torch.zeros(d), torch.ones(d)])
+        for factor, expected_num_cycles in ((1.1, 7), (0.9, 2)):
+            calls = []
+
+            def optimize_side_effect(opt_inputs):
+                calls.append(opt_inputs)
+                value = factor ** len(calls)
+                if len(calls) == 1:  # initial sequential optimization
+                    return torch.rand(q, d), torch.full((q,), value)
+                return torch.rand(1, d), torch.tensor(value)
+
+            mock_optimize_acqf.side_effect = optimize_side_effect
+            optimize_acqf_cyclic(
+                acq_function=MockAcquisitionFunction(),
+                bounds=bounds,
+                q=q,
+                num_restarts=2,
+                raw_samples=4,
+                cyclic_options={"maxiter": 8, "n_window": 2},
+            )
+            self.assertEqual(len(calls), 1 + q * expected_num_cycles)
+
     @mock.patch("botorch.optim.optimize._optimize_acqf")  # noqa: C901
     # TODO: make sure this runs without mock
     def test_optimize_acqf_cyclic(self, mock_optimize_acqf):
@@ -2431,19 +2516,15 @@ class TestOptimizeAcqfList(BotorchTestCase):
                     # check that X_pending is set correctly in sequential optimization
                     if num_acqf > 1:
                         x_pending_call_args_list = mock_set_X_pending_2.call_args_list
-                        idxr = torch.ones(
-                            num_acqf, dtype=torch.bool, device=self.device
-                        )
-                        for i in range(len(x_pending_call_args_list) - 1):
-                            idxr[i] = 0
-                            self.assertTrue(
-                                torch.equal(
-                                    x_pending_call_args_list[i][0][0],
-                                    orig_candidates[idxr],
-                                )
+                        # The second acquisition function is conditioned on the
+                        # first candidate, and its X_pending is reset afterwards.
+                        self.assertEqual(len(x_pending_call_args_list), 2)
+                        self.assertTrue(
+                            torch.equal(
+                                x_pending_call_args_list[0][0][0], orig_candidates
                             )
-                            idxr[i] = 1
-                            orig_candidates[i] = candidate_rvs[i + 1]
+                        )
+                        self.assertIsNone(x_pending_call_args_list[1][0][0])
                     else:
                         mock_set_X_pending_1.assert_not_called()
                 # check final candidates
@@ -2524,6 +2605,40 @@ class TestOptimizeAcqfList(BotorchTestCase):
                 self.assertEqual(
                     mocked.call_args.kwargs["retry_on_optimization_warning"], retry
                 )
+
+    @mock.patch("botorch.optim.optimize.optimize_acqf")
+    def test_optimize_acqf_list_X_pending(self, mock_optimize_acqf):
+        # Each acquisition function is conditioned on its own pending points and the
+        # previous candidates, and its pending points are restored afterwards.
+        bounds = torch.stack([torch.zeros(3), torch.ones(3)])
+        acq_functions = [MockAcquisitionFunction() for _ in range(3)]
+        base_X_pendings = [None, torch.full((1, 3), 0.1), torch.full((2, 3), 0.2)]
+        for acq_function, base_X_pending in zip(acq_functions, base_X_pendings):
+            acq_function.set_X_pending(base_X_pending)
+        candidates = [torch.full((1, 3), 0.5 + i / 10) for i in range(3)]
+        X_pendings = []
+
+        def mock_optimize(acq_function, **kwargs):
+            X_pendings.append(acq_function.X_pending)
+            return candidates[len(X_pendings) - 1], torch.tensor(0.0)
+
+        mock_optimize_acqf.side_effect = mock_optimize
+        optimize_acqf_list(
+            acq_function_list=acq_functions,
+            bounds=bounds,
+            num_restarts=2,
+            raw_samples=10,
+        )
+        self.assertIsNone(X_pendings[0])
+        for i in (1, 2):
+            self.assertTrue(
+                torch.equal(
+                    X_pendings[i], torch.cat([base_X_pendings[i], *candidates[:i]])
+                )
+            )
+        self.assertIsNone(acq_functions[0].X_pending)
+        for acq_function, base_X_pending in zip(acq_functions[1:], base_X_pendings[1:]):
+            self.assertTrue(torch.equal(acq_function.X_pending, base_X_pending))
 
     def test_optimize_acqf_list_empty_list(self):
         with self.assertRaises(ValueError):
@@ -3313,6 +3428,25 @@ class TestOptimizeAcqfDiscrete(BotorchTestCase):
         self.assertIsNone(acq_value_no_acq)
         self.assertIsNotNone(candidates_no_acq)
         self.assertEqual(candidates_no_acq.shape, (q, 3))
+        # The original X_pending is restored for q > 1, also if return_acq_values
+        # is False.
+        for base_X_pending in (None, torch.zeros(1, 3, **tkwargs)):
+            mock_acq_function.set_X_pending(base_X_pending)
+            candidates_no_acq, _ = optimize_acqf_discrete_local_search(
+                acq_function=mock_acq_function,
+                q=2,
+                discrete_choices=discrete_choices,
+                raw_samples=1,
+                num_restarts=1,
+                return_acq_values=False,
+            )
+            self.assertEqual(candidates_no_acq.shape, (2, 3))
+            if base_X_pending is None:
+                self.assertIsNone(mock_acq_function.X_pending)
+            else:
+                self.assertTrue(
+                    torch.equal(mock_acq_function.X_pending, base_X_pending)
+                )
 
     def test_no_precision_loss_with_fixed_features(self) -> None:
         acqf = SquaredAcquisitionFunction()

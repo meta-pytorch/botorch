@@ -100,6 +100,33 @@ class TestMaxPosteriorSampling(BotorchTestCase):
                             )
                         )
 
+    def test_max_posterior_sampling_without_replacement(self):
+        # Each posterior sample selects its maximizer among the points that have not
+        # been selected by the previous samples.
+        for dtype in (torch.float, torch.double):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            X = torch.arange(8, **tkwargs).unsqueeze(-1)  # X[i] = i
+            MPS = MaxPosteriorSampling(MockModel(None), replacement=False)
+            # num_samples x N x m
+            samples = torch.zeros(3, 8, 1, **tkwargs)
+            # distinct maximizers 0, 1, 2
+            samples[0, 0] = 10.0
+            samples[1, 1] = 10.0
+            samples[2, [2, 5, 6]] = torch.tensor([[10.0], [9.0], [8.0]], **tkwargs)
+            s = MPS.maximize_samples(X, samples, num_samples=3)
+            self.assertEqual(s.squeeze(-1).tolist(), [0, 1, 2])
+            # the maximizer 3 of samples 1 and 2 has been selected by sample 0
+            samples_dup = torch.zeros(3, 8, 1, **tkwargs)
+            samples_dup[0, [3, 7]] = torch.tensor([[10.0], [9.0]], **tkwargs)
+            samples_dup[1, [3, 4]] = torch.tensor([[10.0], [9.0]], **tkwargs)
+            samples_dup[2, [3, 4, 6]] = torch.tensor([[10.0], [9.0], [8.0]], **tkwargs)
+            s = MPS.maximize_samples(X, samples_dup, num_samples=3)
+            self.assertEqual(s.squeeze(-1).tolist(), [3, 4, 6])
+            # with a batch dimension: num_samples x batch_shape x N x m
+            samples_batch = torch.stack([samples, samples_dup], dim=1)
+            s = MPS.maximize_samples(X.expand(2, 8, 1), samples_batch, num_samples=3)
+            self.assertEqual(s.squeeze(-1).tolist(), [[0, 1, 2], [3, 4, 6]])
+
 
 class TestBoltzmannSampling(BotorchTestCase):
     def test_init(self):
