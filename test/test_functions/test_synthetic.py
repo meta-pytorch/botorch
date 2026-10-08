@@ -575,6 +575,16 @@ class TestTensionCompressionString(
         ),
     ]
 
+    def test_optimal_value(self):
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        f = TensionCompressionString().to(**tkwargs)
+        # A feasible design whose value is within 1e-6 of the optimal value.
+        X = torch.tensor([0.05169, 0.35673, 11.289], **tkwargs)
+        self.assertTrue(f.is_feasible(X, noise=False).item())
+        f_X = f.evaluate_true(X).item()
+        self.assertGreaterEqual(f_X, f.optimal_value)
+        self.assertLess(f_X, f.optimal_value + 1e-6)
+
 
 class TestWeldedBeamSO(
     BotorchTestCase,

@@ -1524,7 +1524,9 @@ class TensionCompressionString(ConstrainedSyntheticTestFunction):
     continuous_inds = list(range(dim))
     num_constraints = 4
     _bounds = [(0.01, 1.0), (0.01, 1.0), (0.01, 20.0)]
-    _optimal_value = 0.012681  # from [CoelloCoello2002constraint]
+    # Best known solution, attained at x ~= (0.051689, 0.356718, 11.28897).
+    # Reproduced by 300 SLSQP restarts.
+    _optimal_value = 0.0126652
     _worst_feasible_value = 0.306081  # Computed from 100 SLSQP restarts
 
     def _evaluate_true(self, X: Tensor) -> Tensor:
