@@ -9,6 +9,9 @@ from itertools import product
 import torch
 from botorch.acquisition.objective import ScalarizedPosteriorTransform
 from botorch.models.fully_bayesian import SaasFullyBayesianSingleTaskGP
+from botorch.models.gp_regression import SingleTaskGP
+from botorch.models.model_list_gp_regression import ModelListGP
+from botorch.models.transforms.input import Normalize
 from botorch.sampling.normal import SobolQMCNormalSampler
 from botorch.utils.test_helpers import get_model
 from botorch.utils.testing import BotorchTestCase
@@ -172,3 +175,32 @@ class TestQAlphaEntropySearch(BotorchTestCase):
         )
         with self.assertRaises(AssertionError):
             acq(torch.rand(4, 1, input_dim, **tkwargs))
+
+    def test_conditioning_with_input_transform(self):
+        # ``condition_on_observations`` applies the input transform, so the
+        # optimal inputs must not be transformed beforehand.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        torch.manual_seed(0)
+        train_X = 10 * torch.rand(8, 1, **tkwargs)
+        bounds = torch.tensor([[0.0], [10.0]], **tkwargs)
+        model = SingleTaskGP(
+            train_X, torch.sin(train_X), input_transform=Normalize(d=1, bounds=bounds)
+        )
+        model.eval()
+        optimal_inputs = torch.tensor([[2.0], [5.0]], **tkwargs)
+        optimal_outputs = torch.tensor([[1.5], [3.0]], **tkwargs)
+        for condition_noiseless, use_model_list in product(
+            (True, False), (True, False)
+        ):
+            acq = qAlphaEntropySearch(
+                model=ModelListGP(model) if use_model_list else model,
+                optimal_inputs=optimal_inputs,
+                optimal_outputs=optimal_outputs,
+                condition_noiseless=condition_noiseless,
+            )
+            conditional_model = acq.conditional_model
+            if use_model_list:
+                conditional_model = conditional_model.models[0]
+            self.assertAllClose(
+                conditional_model.train_inputs[0][..., -1, :], optimal_inputs / 10
+            )

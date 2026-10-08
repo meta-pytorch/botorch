@@ -327,9 +327,15 @@ class qLowerBoundMultiObjectiveJointEntropySearch(
                 _ = self.initial_model.posterior(
                     self.pareto_sets, observation_noise=False
                 )
-            # Condition with observation noise.
+            # Condition with observation noise. NOTE: ``condition_on_observations``
+            # applies the input transform. ``ModelListGP`` expects a list of inputs
+            # (one per output).
             self.conditional_model = self.initial_model.condition_on_observations(
-                X=self.initial_model.transform_inputs(self.pareto_sets),
+                X=(
+                    [self.pareto_sets] * self.initial_model.num_outputs
+                    if isinstance(self.initial_model, ModelListGP)
+                    else self.pareto_sets
+                ),
                 Y=self.pareto_fronts,
             )
 

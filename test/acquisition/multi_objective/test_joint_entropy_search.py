@@ -15,6 +15,7 @@ from botorch.acquisition.multi_objective.utils import compute_sample_box_decompo
 from botorch.exceptions import UnsupportedError
 from botorch.models.gp_regression import SingleTaskGP
 from botorch.models.model_list_gp_regression import ModelListGP
+from botorch.models.transforms.input import Normalize
 from botorch.sampling.normal import SobolQMCNormalSampler
 from botorch.utils.test_helpers import get_model
 from botorch.utils.testing import BotorchTestCase
@@ -248,3 +249,27 @@ class TestQLowerBoundMultiObjectiveJointEntropySearch(BotorchTestCase):
 
     def test_lb_moo_joint_entropy_search_MC(self):
         self._base_test_lb_moo_joint_entropy_search(estimation_type="MC")
+
+    def test_conditioning_with_input_transform(self):
+        # ``condition_on_observations`` applies the input transform, so the
+        # Pareto sets must not be transformed beforehand.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = 10 * torch.rand(6, 1, **tkwargs)
+        train_Y = torch.cat([torch.sin(train_X), torch.cos(train_X)], dim=-1)
+        bounds = torch.tensor([[0.0], [10.0]], **tkwargs)
+        model = SingleTaskGP(
+            train_X, train_Y, input_transform=Normalize(d=1, bounds=bounds)
+        )
+        model.eval()
+        pareto_sets = torch.tensor([[[5.0]]], **tkwargs)
+        pareto_fronts = torch.tensor([[[1.0, 1.0]]], **tkwargs)
+        acq = qLowerBoundMultiObjectiveJointEntropySearch(
+            model=model,
+            pareto_sets=pareto_sets,
+            pareto_fronts=pareto_fronts,
+            hypercell_bounds=compute_sample_box_decomposition(pareto_fronts),
+        )
+        self.assertAllClose(
+            acq.conditional_model.train_inputs[0][..., -1, :],
+            torch.full((1, 2, 1), 0.5, **tkwargs),
+        )
