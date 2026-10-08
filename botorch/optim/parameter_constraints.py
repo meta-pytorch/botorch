@@ -499,7 +499,15 @@ def _generate_unfixed_lin_constraints(
 
         # all indices were fixed, so the constraint is gone.
         if len(new_indices) == 0:
-            if (eq and new_rhs != 0) or (not eq and new_rhs > 0):
+            # Allow for floating point errors, as in ``evaluate_feasibility``.
+            tolerance = get_constraint_tolerance(
+                dtype=(
+                    coefficients.dtype
+                    if coefficients.is_floating_point()
+                    else torch.double
+                )
+            )
+            if (eq and abs(new_rhs) >= tolerance) or (not eq and new_rhs > tolerance):
                 prefix = "Eq" if eq else "Ineq"
                 raise CandidateGenerationError(
                     f"{prefix}uality constraint {constraint_id} not met "

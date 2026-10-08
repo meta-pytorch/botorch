@@ -680,6 +680,38 @@ class TestParameterConstraints(BotorchTestCase):
                     dimension=dimension,
                     eq=eq,
                 )
+        # Case 3c: the fixed features satisfy the constraint up to floating point
+        # errors, e.g. x0 + x1 = 1 with 1.0 - 0.7 - 0.3 = 5.55e-17.
+        for eq, dtype in product(
+            [False, True], [torch.float, torch.double, torch.long]
+        ):
+            new_constraints = _generate_unfixed_lin_constraints(
+                constraints=[
+                    (
+                        torch.tensor([0, 1], device=self.device),
+                        torch.tensor([1, 1], device=self.device, dtype=dtype),
+                        1.0,
+                    )
+                ],
+                fixed_features={0: 0.7, 1: 0.3},
+                dimension=3,
+                eq=eq,
+            )
+            self.assertEqual(new_constraints, [])
+            # Actual violations still raise an error.
+            with self.assertRaises(CandidateGenerationError):
+                _generate_unfixed_lin_constraints(
+                    constraints=[
+                        (
+                            torch.tensor([0, 1], device=self.device),
+                            torch.tensor([1, 1], device=self.device, dtype=dtype),
+                            1.0,
+                        )
+                    ],
+                    fixed_features={0: 0.7, 1: 0.29},
+                    dimension=3,
+                    eq=eq,
+                )
 
     def test_evaluate_feasibility(self) -> None:
         # Check that the feasibility is evaluated correctly.
