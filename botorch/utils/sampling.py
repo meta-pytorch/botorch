@@ -838,8 +838,9 @@ class DelaunayPolytopeSampler(PolytopeSampler):
             simplex_rvs = sample_simplex(
                 d=self.dim + 1, n=n, seed=seed, device=self.A.device, dtype=self.A.dtype
             )
-            transformed_samples = torch.stack(
-                [rv @ self._polytopes[idx] for rv, idx in zip(simplex_rvs, index_rvs)]
+            # convex combinations of the vertices of the sampled simplices
+            transformed_samples = torch.einsum(
+                "nk,nkd->nd", simplex_rvs, self._polytopes[index_rvs]
             )
         init_shift = self.x0.transpose(-1, -2)
         samples = init_shift + transformed_samples @ self.nullC.transpose(-1, -2)
