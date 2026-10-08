@@ -1140,13 +1140,41 @@ def sample_truncated_normal_perturbations(
     Returns:
         A ``n_discrete_points x d``-dim tensor containing the sampled points.
     """
-    X = normalize(X, bounds=bounds)
-    d = X.shape[1]
-    # sample points from N(X_center, sigma^2 I), truncated to be within
-    # [0, 1]^d.
     if X.shape[0] > 1:
         rand_indices = torch.randint(X.shape[0], (n_discrete_points,), device=X.device)
         X = X[rand_indices]
+    return _perturb_truncated_normal(
+        X=X, n_discrete_points=n_discrete_points, sigma=sigma, bounds=bounds, qmc=qmc
+    )
+
+
+def _perturb_truncated_normal(
+    X: Tensor,
+    n_discrete_points: int,
+    sigma: float,
+    bounds: Tensor,
+    qmc: bool,
+) -> Tensor:
+    r"""Perturb the points ``X`` with truncated normal noise.
+
+    In contrast to ``sample_truncated_normal_perturbations``, this does not resample
+    the points, i.e. the ``i``-th output is a perturbation of ``X[i]``.
+
+    Args:
+        X: A ``n_discrete_points x d``-dim tensor of points to perturb, or a
+            ``1 x d``-dim tensor if all points are perturbations of a single point.
+        n_discrete_points: The number of points to sample.
+        sigma: The standard deviation of the additive gaussian noise for
+            perturbing the points.
+        bounds: A ``2 x d``-dim tensor containing the bounds.
+        qmc: A boolean indicating whether to use qmc.
+
+    Returns:
+        A ``n_discrete_points x d``-dim tensor containing the perturbed points.
+    """
+    X = normalize(X, bounds=bounds)
+    d = X.shape[1]
+    # sample points from N(X, sigma^2 I), truncated to be within [0, 1]^d.
     if qmc:
         std_bounds = torch.zeros(2, d, dtype=X.dtype, device=X.device)
         std_bounds[1] = 1
@@ -1212,7 +1240,9 @@ def sample_perturbed_subset_dims(
     else:
         rand_indices = torch.randint(X.shape[0], (n_discrete_points,), device=X.device)
         X_cand = X[rand_indices]
-    pert = sample_truncated_normal_perturbations(
+    # NOTE: The perturbations must not resample the rows of ``X_cand``, so that
+    # ``pert[i]`` is a perturbation of ``X_cand[i]``.
+    pert = _perturb_truncated_normal(
         X=X_cand,
         n_discrete_points=n_discrete_points,
         sigma=sigma,
