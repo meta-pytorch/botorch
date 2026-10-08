@@ -556,6 +556,43 @@ class TestMultiTaskGP(BotorchTestCase):
         self.assertEqual(model._observed_task_indices.tolist(), [0, 1])
         self.assertEqual(model._unobserved_task_indices.tolist(), [2, 3])
 
+    def test_inferred_task_noise_with_non_contiguous_task_values(self) -> None:
+        # The default likelihood must look up the per-task noise levels using the
+        # task indices rather than the raw task values, so that a model with
+        # non-contiguous task values is equivalent to one with task values 0, 1.
+        tkwargs: dict[str, Any] = {"device": self.device, "dtype": torch.double}
+        X = torch.rand(8, 1, **tkwargs)
+        train_Y = torch.cat([torch.sin(6 * X), torch.cos(6 * X)])
+        test_X = torch.rand(3, 1, **tkwargs)
+        task_noise = torch.tensor([0.1, 0.2], **tkwargs)
+        results = {}
+        for task_values in ([0, 1], [0, 2], [3, 7]):
+            task_column = torch.tensor(task_values, **tkwargs).repeat_interleave(8)
+            train_X = torch.cat([X.repeat(2, 1), task_column.unsqueeze(-1)], dim=-1)
+            torch.manual_seed(0)  # Same initialization for all models.
+            model = MultiTaskGP(train_X, train_Y, task_feature=-1)
+            self.assertIsInstance(model.likelihood, HadamardGaussianLikelihood)
+            model.likelihood.noise = task_noise
+            prior = model(train_X)
+            noise = model.likelihood(prior, train_X).variance - prior.variance
+            self.assertAllClose(noise, task_noise.repeat_interleave(8))
+            mll = ExactMarginalLogLikelihood(model.likelihood, model)
+            mll_value = mll(prior, model.train_targets, train_X)
+            model.eval()
+            posterior = model.posterior(test_X, observation_noise=True)
+            results[tuple(task_values)] = (
+                mll_value,
+                posterior.mean,
+                posterior.variance,
+                set(model.likelihood.state_dict()),
+            )
+        expected = results.pop((0, 1))
+        for task_values, result in results.items():
+            with self.subTest(task_values=task_values):
+                for value, expected_value in zip(result[:3], expected[:3]):
+                    self.assertAllClose(value, expected_value)
+                self.assertEqual(result[3], expected[3])
+
     def test_MultiTaskGP_construct_inputs(self) -> None:
         for dtype, fixed_noise, skip_task_features_in_datasets in zip(
             (torch.float, torch.double), (True, False), (True, False), strict=True
