@@ -1036,6 +1036,76 @@ class TestQNoisyExpectedHypervolumeImprovement(BotorchTestCase):
                 fresh_value.sum().backward()
                 self.assertAllClose(transitioned_X.grad, fresh_X.grad)
 
+    def test_nonincremental_nehvi_pending_common_random_numbers(self) -> None:
+        # The decompositions over the baseline and the cached pending points must
+        # use the same base samples for the observed baseline as ``_baseline_hvs``.
+        # Otherwise, ``_prev_nehvi`` compares HVs under independent posterior samples.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        torch.manual_seed(0)
+        X_baseline = torch.rand(6, 2, **tkwargs)
+        model = SingleTaskGP(X_baseline, torch.randn(6, 2, **tkwargs))
+        ref_point = torch.tensor([-1.0, -1.0], **tkwargs)
+        pending = torch.rand(3, 2, **tkwargs)
+        n = X_baseline.shape[0]
+
+        def hv(Y: Tensor) -> Tensor:
+            return DominatedPartitioning(ref_point=ref_point, Y=Y).compute_hypervolume()
+
+        for acqf_class, cache_root in product(
+            (
+                qNoisyExpectedHypervolumeImprovement,
+                qLogNoisyExpectedHypervolumeImprovement,
+            ),
+            (False, True),
+        ):
+            with (
+                self.subTest(acqf_class=acqf_class.__name__, cache_root=cache_root),
+                catch_warnings(),
+            ):
+                simplefilter("ignore", category=NumericsWarning)
+                kwargs = {
+                    "model": model,
+                    "ref_point": ref_point,
+                    "X_baseline": X_baseline,
+                    "cache_pending": True,
+                    "max_iep": 0,
+                    "incremental_nehvi": False,
+                    "cache_root": cache_root,
+                }
+                baseline_base_samples = acqf_class(
+                    sampler=SobolQMCNormalSampler(torch.Size([16]), seed=1234),
+                    **kwargs,
+                ).base_sampler.base_samples
+                acqf = acqf_class(
+                    sampler=SobolQMCNormalSampler(torch.Size([16]), seed=1234),
+                    X_pending=pending[:1],
+                    **kwargs,
+                )
+                # Append, replace, shrink, append, and clear the pending points.
+                for X_pending in (
+                    pending[:1],
+                    pending[:2],
+                    pending[1:],
+                    pending[:1],
+                    pending,
+                    None,
+                ):
+                    acqf.set_X_pending(X_pending)
+                    self.assertTrue(
+                        torch.equal(
+                            acqf.base_sampler.base_samples[..., :n, :],
+                            baseline_base_samples,
+                        )
+                    )
+                    with torch.no_grad():
+                        samples = acqf.base_sampler(model.posterior(acqf.X_baseline))
+                    baseline_hvs = torch.stack([hv(Y[:n]) for Y in samples])
+                    self.assertAllClose(acqf._baseline_hvs, baseline_hvs)
+                    expected_prev_nehvi = (
+                        torch.stack([hv(Y) for Y in samples]) - baseline_hvs
+                    ).mean()
+                    self.assertAllClose(acqf._prev_nehvi, expected_prev_nehvi)
+
     def _test_q_noisy_expected_hypervolume_improvement_m1(
         self, acqf_class: type[AcquisitionFunction], dtype: torch.dtype
     ):
