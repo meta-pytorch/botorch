@@ -350,7 +350,14 @@ def fatmax(
     """
 
     def max_fun(x: Tensor, dim: int | tuple[int, ...], keepdim: bool = False) -> Tensor:
-        return tau * _pareto(-x / tau, alpha=alpha).sum(dim=dim, keepdim=keepdim).log()
+        # Entries with ``-x / tau = inf``, e.g. ``x = -inf``, contribute zero to the
+        # sum. We mask them out explicitly since the backward pass of ``_pareto`` at
+        # ``inf`` is NaN, which would otherwise propagate to the whole slice.
+        z = -x / tau
+        is_inf = z.isinf()
+        pareto_z = _pareto(z.masked_fill(is_inf, 0.0), alpha=alpha)
+        pareto_z = pareto_z.masked_fill(is_inf, 0.0)
+        return tau * pareto_z.sum(dim=dim, keepdim=keepdim).log()
 
     return _inf_max_helper(max_fun=max_fun, x=x, dim=dim, keepdim=keepdim)
 
