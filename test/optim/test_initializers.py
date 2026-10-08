@@ -1212,6 +1212,33 @@ class TestGenOneShotKGInitialConditions(BotorchTestCase):
                         )
                         self.assertTrue(torch.all(ics[..., -n_value:, :] == 1))
 
+            # With a single fantasy, int((1 - frac_random) * 1) = 0 fantasy points are
+            # initialized using the maximizers of the value function.
+            mock_kg_1 = qKnowledgeGradient(model=mm, num_fantasies=1)
+            mock_random_ics = torch.rand(num_restarts, q + 1, 2)
+            with ExitStack() as es:
+                es.enter_context(
+                    mock.patch(
+                        "botorch.optim.initializers.gen_batch_initial_conditions",
+                        return_value=mock_random_ics,
+                    )
+                )
+                mock_optacqf = es.enter_context(
+                    mock.patch(
+                        "botorch.optim.optimize.optimize_acqf",
+                        return_value=(mock_fantasy_cands, mock_fantasy_vals),
+                    )
+                )
+                ics = gen_one_shot_kg_initial_conditions(
+                    acq_function=mock_kg_1,
+                    bounds=bounds,
+                    q=q,
+                    num_restarts=num_restarts,
+                    raw_samples=raw_samples,
+                )
+            mock_optacqf.assert_not_called()
+            self.assertTrue(torch.equal(ics, mock_random_ics))
+
 
 class TestGenOneShotHVKGInitialConditions(BotorchTestCase):
     def test_gen_one_shot_hvkg_initial_conditions(self):

@@ -49,14 +49,22 @@ INIT_OPTION_KEYS = {
     "alpha",
     "batch_limit",
     "eta",
+    "frac_random",
     "init_batch_limit",
+    "largest",
     "nonnegative",
+    "num_inner_restarts",
     "n_burnin",
+    "n_thinning",
+    "raw_inner_samples",
     "sample_around_best",
     "sample_around_best_sigma",
+    "sample_around_best_subset_sigma",
     "sample_around_best_prob_perturb",
     "seed",
+    "sorted",
     "thinning",
+    "topn",
 }
 
 

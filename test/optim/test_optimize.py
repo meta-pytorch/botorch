@@ -932,6 +932,35 @@ class TestOptimizeAcqf(BotorchTestCase):
                     )
                 self.assertEqual(acq_value_list.shape, (expected_shape,))
 
+    def test_optimize_acqf_init_options_not_passed_to_gen_candidates(self):
+        # Options of the initial condition generators are not passed to
+        # ``gen_candidates`` (where they would e.g. prevent the use of the batched
+        # L-BFGS-B implementation in ``gen_candidates_scipy``).
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        gen_candidates = mock.MagicMock(wraps=gen_candidates_scipy)
+        init_options = {
+            "frac_random": 0.5,
+            "num_inner_restarts": 4,
+            "raw_inner_samples": 32,
+            "n_thinning": 2,
+            "sample_around_best_subset_sigma": 0.1,
+            "topn": True,
+            "sorted": True,
+            "largest": True,
+        }
+        optimize_acqf(
+            acq_function=NegSquaredDistanceAcquisitionFunction(
+                target=torch.tensor([0.3, 0.3], **tkwargs)
+            ),
+            bounds=torch.tensor([[0.0, 0.0], [1.0, 1.0]], **tkwargs),
+            q=1,
+            num_restarts=2,
+            raw_samples=8,
+            options={"maxiter": 5, **init_options},
+            gen_candidates=gen_candidates,
+        )
+        self.assertEqual(gen_candidates.call_args.kwargs["options"], {"maxiter": 5})
+
     def test_optimize_acqf_2d_batch_initial_conditions(self):
         # A ``q x d``-dim ``batch_initial_conditions`` is a single restart, whose
         # q-batch must be optimized jointly (also with ``batch_limit < q``) and
