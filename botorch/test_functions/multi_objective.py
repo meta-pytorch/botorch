@@ -638,41 +638,54 @@ class GMM(MultiObjectiveTestProblem):
             self._ref_point.append(-0.1866)
         self.num_objectives = num_objectives
         super().__init__(noise_std=noise_std, negate=negate, dtype=dtype)
+        tkwargs = {"dtype": dtype}
         gmm_pos = torch.tensor(
             [
                 [[0.2, 0.2], [0.8, 0.2], [0.5, 0.7]],
                 [[0.07, 0.2], [0.4, 0.8], [0.85, 0.1]],
-            ]
+            ],
+            **tkwargs,
         )
-        gmm_var = torch.tensor([[0.20, 0.10, 0.10], [0.2, 0.1, 0.05]]).pow(2)
-        gmm_norm = 2 * pi * gmm_var * torch.tensor([0.5, 0.7, 0.7])
+        gmm_var = torch.tensor([[0.20, 0.10, 0.10], [0.2, 0.1, 0.05]], **tkwargs).pow(2)
+        gmm_norm = 2 * pi * gmm_var * torch.tensor([0.5, 0.7, 0.7], **tkwargs)
         if num_objectives > 2:
             gmm_pos = torch.cat(
-                [gmm_pos, torch.tensor([[[0.08, 0.21], [0.45, 0.75], [0.86, 0.11]]])],
+                [
+                    gmm_pos,
+                    torch.tensor(
+                        [[[0.08, 0.21], [0.45, 0.75], [0.86, 0.11]]], **tkwargs
+                    ),
+                ],
                 dim=0,
             )
             gmm_var = torch.cat(
-                [gmm_var, torch.tensor([[0.2, 0.1, 0.07]]).pow(2)], dim=0
+                [gmm_var, torch.tensor([[0.2, 0.1, 0.07]], **tkwargs).pow(2)], dim=0
             )
             gmm_norm = torch.cat(
                 [
                     gmm_norm,
-                    2 * pi * gmm_var[2] * torch.tensor([[0.5, 0.7, 0.9]]),
+                    2 * pi * gmm_var[2] * torch.tensor([[0.5, 0.7, 0.9]], **tkwargs),
                 ],
                 dim=0,
             )
         if num_objectives > 3:
             gmm_pos = torch.cat(
-                [gmm_pos, torch.tensor([[[0.09, 0.19], [0.44, 0.72], [0.89, 0.13]]])],
+                [
+                    gmm_pos,
+                    torch.tensor(
+                        [[[0.09, 0.19], [0.44, 0.72], [0.89, 0.13]]], **tkwargs
+                    ),
+                ],
                 dim=0,
             )
             gmm_var = torch.cat(
-                [gmm_var, torch.tensor([[0.15, 0.07, 0.09]]).pow(2)], dim=0
+                [gmm_var, torch.tensor([[0.15, 0.07, 0.09]], **tkwargs).pow(2)],
+                dim=0,
             )
             gmm_norm = torch.cat(
                 [
                     gmm_norm,
-                    2 * pi * gmm_var[3] * torch.tensor([[0.5, 0.7, 0.9]]),
+                    2 * pi * gmm_var[3] * torch.tensor([[0.5, 0.7, 0.9]], **tkwargs),
                 ],
                 dim=0,
             )
@@ -687,7 +700,9 @@ class GMM(MultiObjectiveTestProblem):
         r"""Evaluate the GMMs."""
         # This needs to be reinstantiated because MVN apparently does not
         # have a ``to`` method to make it device/dtype agnostic.
-        mvn = MultivariateNormal(loc=self.gmm_pos, covariance_matrix=self.gmm_covar)
+        mvn = MultivariateNormal(
+            loc=self.gmm_pos.to(X), covariance_matrix=self.gmm_covar.to(X)
+        )
         view_shape = (
             X.shape[:-1]
             + torch.Size([1] * (self.gmm_pos.ndim - 1))
@@ -696,7 +711,7 @@ class GMM(MultiObjectiveTestProblem):
         expand_shape = X.shape[:-1] + self.gmm_pos.shape
         pdf_X = mvn.log_prob(X.view(view_shape).expand(expand_shape)).exp()
         # Multiply by -1 to make this a minimization problem by default
-        return -(self.gmm_norm * pdf_X).sum(dim=-1)
+        return -(self.gmm_norm.to(X) * pdf_X).sum(dim=-1)
 
 
 class Penicillin(MultiObjectiveTestProblem):

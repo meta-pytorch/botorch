@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import math
+from itertools import product
 
 import torch
 from botorch.exceptions.errors import InputDataError, UnsupportedError
@@ -270,6 +271,14 @@ class TestGMM(
             self.assertTrue(
                 torch.allclose(f_x, expected_f_x.to(dtype=dtype), rtol=1e-4, atol=1e-4)
             )
+
+    def test_dtype(self):
+        # The output dtype follows the input dtype, even without calling ``to``.
+        for dtype, X_dtype in product((torch.float, torch.double), repeat=2):
+            f = GMM(num_objectives=4, dtype=dtype).to(device=self.device)
+            self.assertEqual(f.gmm_pos.dtype, dtype)
+            X = torch.rand(3, 2, device=self.device, dtype=X_dtype)
+            self.assertEqual(f(X).dtype, X_dtype)
 
 
 class TestMW7(
