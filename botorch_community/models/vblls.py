@@ -19,6 +19,8 @@ Contributor: brunzema
 
 from __future__ import annotations
 
+import copy
+
 import torch
 import torch.nn as nn
 from botorch.logging import logger
@@ -440,8 +442,8 @@ class VBLLModel(AbstractBLLModel):
             if val_X is not None and val_y is not None:
                 self.model.eval()  # Set model to evaluation mode
                 with torch.no_grad():
-                    out = self.model(x)
-                    val_loss = out.val_loss_fn(val_y)
+                    out = self.model(val_X.to(device))
+                    val_loss = out.val_loss_fn(val_y.to(device))
 
                 self.model.train()  # Set model back to training mode
 
@@ -454,7 +456,8 @@ class VBLLModel(AbstractBLLModel):
             # Early stopping logic
             if current_loss < best_loss:
                 best_loss = current_loss
-                best_model_state = self.model.state_dict()
+                # copy, as the state dict shares memory with the trained parameters
+                best_model_state = copy.deepcopy(self.model.state_dict())
                 epochs_no_improve = 0
             else:
                 epochs_no_improve += 1
