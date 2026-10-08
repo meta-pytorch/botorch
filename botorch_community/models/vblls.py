@@ -61,18 +61,20 @@ class SampleModel(nn.Module):
         """Forward pass through the sample network.
 
         Args:
-            x: Input as ``batch_size x d``-dim Tensor.
+            x: Input as ``(batch_shape) x batch_size x d``-dim Tensor.
 
         Returns:
-            Output as ``(sample_shape), batch_size, output_dim``-dim Tensor.
+            Output as ``(sample_shape) x (batch_shape) x batch_size x output_dim``-dim
+            Tensor.
         """
         x = self.backbone(x)
-
-        if self.sampled_params.dim() == 2:
-            return (self.sampled_params @ x[..., None]).squeeze(-1)
-
-        x_expanded = x.unsqueeze(0).expand(self.sampled_params.shape[0], -1, -1)
-        return x_expanded @ self.sampled_params.transpose(-1, -2)
+        # The sampled parameters are ``(sample_shape) x output_dim x hidden``. Insert
+        # singleton dimensions for the batch shape of ``x`` to broadcast them.
+        params = self.sampled_params
+        params = params.reshape(
+            *params.shape[:-2], *([1] * (x.dim() - 2)), *params.shape[-2:]
+        )
+        return x @ params.transpose(-1, -2)
 
 
 class VBLLNetwork(nn.Module):
@@ -273,8 +275,9 @@ class VBLLModel(AbstractBLLModel):
                 If None, a single sample is drawn. Defaults to None.
 
         Returns:
-            A nn.Module that takes an input as ``batch_size x num_inputs``-dim Tensor
-            and returns a ``(sample_shape), batch_size, output_dim``-dim Tensor.
+            A nn.Module that takes an input as ``(batch_shape) x batch_size x
+            num_inputs``-dim Tensor and returns a ``(sample_shape) x (batch_shape) x
+            batch_size x output_dim``-dim Tensor.
         """
         return self.model.sample_posterior_function(sample_shape)
 
@@ -494,11 +497,12 @@ class VBLLModel(AbstractBLLModel):
         if not batched:
             N, D = X.shape
             B = 1
+            X_flat = X
         else:
             B, N, D = X.shape
-            X = X.reshape(B * N, D)
+            X_flat = X.reshape(B * N, D)
 
-        posterior = self.model(X).predictive
+        posterior = self.model(X_flat).predictive
 
         # Extract mean and variance
         mean = posterior.mean.squeeze(dim=-1)
