@@ -606,6 +606,31 @@ class TestDelaunayPolytopeSampler(PolytopeSamplerTestBase, BotorchTestCase):
     sampler_class = DelaunayPolytopeSampler
     draw_seed_kwarg = {"seed": 33125612}
 
+    def test_draw_convex_combinations(self):
+        # The samples are convex combinations of the vertices of the sampled simplices
+        for dtype, n in itertools.product((torch.float, torch.double), (1, 64)):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            bounds, A, b, _ = _get_constraints(**tkwargs)
+            sampler = self.sampler_class(inequality_constraints=(A, b), bounds=bounds)
+            seed = 1234
+            samples = sampler.draw(n=n, seed=seed)
+            # reproduce the random draws of ``draw`` to compute the expected samples
+            generator = torch.Generator(device=self.device)
+            generator.manual_seed(seed)
+            index_rvs = torch.multinomial(
+                sampler._p, num_samples=n, replacement=True, generator=generator
+            )
+            simplex_rvs = sample_simplex(d=sampler.dim + 1, n=n, seed=seed, **tkwargs)
+            expected = torch.stack(
+                [
+                    rv @ sampler._polytopes[idx]
+                    for rv, idx in zip(simplex_rvs, index_rvs)
+                ]
+            )
+            expected = sampler.x0.transpose(-1, -2) + expected @ sampler.nullC.T
+            self.assertEqual(samples.shape, torch.Size([n, 3]))
+            self.assertAllClose(samples, expected)
+
     def test_sample_polytope_unbounded(self):
         A = torch.tensor(
             [[-1.0, 0.0, 0.0], [0.0, -1.0, 0.0], [0.0, 0.0, -1.0], [0.0, 4.0, 1.0]],
