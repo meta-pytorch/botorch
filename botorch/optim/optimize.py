@@ -1339,9 +1339,10 @@ def optimize_acqf_mixed(
                 stacklevel=3,
             )
 
-        ff_acq_values = torch.stack(ff_acq_value_list)
-        max_res = torch.max(ff_acq_values, dim=-1)
-        best_batch_idx = torch.argmax(max_res.values)
+        # The number of restarts can differ between the entries of
+        # ``fixed_features_list``, e.g., if an entry fixes all features.
+        max_res = [acq_values.max(dim=-1) for acq_values in ff_acq_value_list]
+        best_batch_idx = torch.argmax(torch.stack([res.values for res in max_res]))
         best_batch_candidates = ff_candidate_list[best_batch_idx]
         best_acq_values = ff_acq_value_list[best_batch_idx]
         if not return_best_only:
@@ -1349,7 +1350,7 @@ def optimize_acqf_mixed(
                 return best_batch_candidates, None
             return best_batch_candidates, best_acq_values
 
-        best_idx = max_res.indices[best_batch_idx]
+        best_idx = max_res[best_batch_idx].indices
         if not return_acq_values:
             return best_batch_candidates[best_idx], None
         return best_batch_candidates[best_idx], best_acq_values[best_idx]

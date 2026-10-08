@@ -3055,6 +3055,39 @@ class TestOptimizeAcqfMixed(BotorchTestCase):
                 inequality_constraints=ineq_constraints,
             )
 
+    def test_optimize_acqf_mixed_all_features_fixed(self):
+        # An entry of ``fixed_features_list`` that fixes all features yields a
+        # single restart, while the other entries yield ``num_restarts`` restarts.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        acqf = NegSquaredDistanceAcquisitionFunction(
+            target=torch.tensor([0.3, 0.3], **tkwargs)
+        )
+        bounds = torch.tensor([[0.0, 0.0], [1.0, 1.0]], **tkwargs)
+        for fixed_features_list, expected in (
+            ([{0: 0.0, 1: 0.5}, {0: 1.0}], [0.0, 0.5]),
+            ([{0: 1.0, 1: 0.5}, {0: 0.0}], [0.0, 0.3]),
+        ):
+            for return_best_only in (True, False):
+                candidates, acq_values = optimize_acqf_mixed(
+                    acq_function=acqf,
+                    bounds=bounds,
+                    q=1,
+                    num_restarts=4,
+                    raw_samples=16,
+                    fixed_features_list=fixed_features_list,
+                    return_best_only=return_best_only,
+                )
+                if return_best_only:
+                    self.assertAllClose(
+                        candidates, torch.tensor([expected], **tkwargs), atol=1e-4
+                    )
+                    self.assertEqual(acq_values.shape, torch.Size([]))
+                else:
+                    best = candidates[acq_values.argmax()]
+                    self.assertAllClose(
+                        best, torch.tensor([expected], **tkwargs), atol=1e-4
+                    )
+
 
 class TestOptimizeAcqfDiscrete(BotorchTestCase):
     def test_optimize_acqf_discrete(self):
