@@ -222,7 +222,10 @@ class PFNModel(Model):
             A ``BoundedRiemannPosterior``, representing a batch of b? x q?`
             distributions.
         """
-        self.pfn.eval()
+        # Put the whole model (not only the PFN) in eval mode, so that input
+        # transforms are applied with their fitted parameters instead of being
+        # re-fit to the test points.
+        self.eval()
         if output_indices is not None:
             raise UnsupportedError(
                 "output_indices is not None. PFNModel should not "
@@ -369,7 +372,7 @@ class PFNModelWithPendingPoints(PFNModel):
             A ``BoundedRiemannPosterior``, representing a batch of b? x q?`
             distributions.
         """
-        self.pfn.eval()
+        self.eval()  # see ``PFNModel.posterior``
         if output_indices is not None:
             raise UnsupportedError(
                 "output_indices is not None. PFNModel should not "
