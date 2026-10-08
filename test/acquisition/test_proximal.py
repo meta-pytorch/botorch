@@ -164,6 +164,14 @@ class TestProximalAcquisitionFunction(BotorchTestCase):
                     )
                     self.assertEqual(qei_prox.shape, torch.Size([4]))
 
+                    # test multi-dimensional t-batch
+                    test_X = torch.rand(2, 3, 1, 3, device=self.device, dtype=dtype)
+                    ei_prox = EI_prox(test_X)
+                    self.assertEqual(ei_prox.shape, torch.Size([2, 3]))
+                    self.assertAllClose(
+                        ei_prox, torch.stack([EI_prox(X_i) for X_i in test_X])
+                    )
+
                     # test acquisition function with
                     # negative values w/o SoftPlus transform specified
                     negative_acqf = NegativeAcquisitionFunction(model)

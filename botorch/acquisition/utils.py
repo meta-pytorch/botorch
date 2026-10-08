@@ -432,7 +432,8 @@ def prune_inferior_points(
 
     if len(idcs) > max_points:
         counts, order_idcs = torch.sort(counts, stable=True, descending=True)
-        idcs = order_idcs[:max_points]
+        # ``order_idcs`` are positions in ``idcs``, not indices of ``X``.
+        idcs = idcs[order_idcs[:max_points]]
 
     return X[idcs]
 

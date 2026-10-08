@@ -47,7 +47,6 @@ from botorch.sampling.base import MCSampler
 from botorch.sampling.normal import SobolQMCNormalSampler
 from botorch.utils.transforms import (
     average_over_ensemble_models,
-    concatenate_pending_points,
     match_batch_shape,
     t_batch_mode_transform,
 )
@@ -209,7 +208,6 @@ class qKnowledgeGradient(MCAcquisitionFunction, OneShotAcquisitionFunction):
         # return average over the fantasy samples
         return values.mean(dim=0)
 
-    @concatenate_pending_points
     @t_batch_mode_transform()
     @average_over_ensemble_models
     def evaluate(self, X: Tensor, bounds: Tensor, **kwargs: Any) -> Tensor:
@@ -234,6 +232,11 @@ class qKnowledgeGradient(MCAcquisitionFunction, OneShotAcquisitionFunction):
                 NOTE: If ``current_value`` is not provided, then this is not the
                 true KG value of ``X[b]``.
         """
+        X_actual = X
+        # We only concatenate X_pending for fantasizing, as in ``forward``.
+        if self.X_pending is not None:
+            X = torch.cat([X, match_batch_shape(self.X_pending, X)], dim=-2)
+
         if hasattr(self, "expand"):
             X = self.expand(X)
 
@@ -250,6 +253,8 @@ class qKnowledgeGradient(MCAcquisitionFunction, OneShotAcquisitionFunction):
             posterior_transform=self.posterior_transform,
             sampler=self.inner_sampler,
             project=getattr(self, "project", None),
+            valfunc_cls=getattr(self, "valfunc_cls", None),
+            valfunc_argfac=getattr(self, "valfunc_argfac", None),
         )
 
         from botorch.generation.gen import gen_candidates_scipy
@@ -281,8 +286,9 @@ class qKnowledgeGradient(MCAcquisitionFunction, OneShotAcquisitionFunction):
             values = values - self.current_value
         # NOTE: using getattr to cover both no-attribute with qKG and None with qMFKG
         if getattr(self, "cost_aware_utility", None) is not None:
+            # As in ``forward``, the cost is that of the candidates ``X_actual``.
             values = self.cost_aware_utility(
-                X=X, deltas=values, sampler=self.cost_sampler
+                X=X_actual, deltas=values, sampler=self.cost_sampler
             )
         # return average over the fantasy samples
         return values.mean(dim=0)

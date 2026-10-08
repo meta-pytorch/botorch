@@ -399,11 +399,12 @@ class qLogNoisyExpectedImprovement(
         objective: MCAcquisitionObjective | None = None,
         posterior_transform: PosteriorTransform | None = None,
         cache_root: bool | None = None,
+        prune: bool = True,
     ) -> None:
         CachedCholeskyMCSamplerMixin.__init__(
             self, model=model, cache_root=cache_root, sampler=sampler
         )
-        if self.prune_baseline:
+        if self.prune_baseline and prune:
             X_baseline = prune_inferior_points(
                 model=model,
                 X=X_baseline,
@@ -489,6 +490,8 @@ class qLogNoisyExpectedImprovement(
             objective=self.objective,
             posterior_transform=self.posterior_transform,
             cache_root=self._cache_root,
+            # ``self._X_baseline`` has already been pruned.
+            prune=False,
         )
 
     def compute_best_f(self, obj: Tensor) -> Tensor:
