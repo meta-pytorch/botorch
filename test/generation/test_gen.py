@@ -23,8 +23,11 @@ from botorch.generation.gen import (
     gen_candidates_scipy,
     gen_candidates_torch,
     get_best_candidates,
+    get_reasons_against_fast_path,
 )
 from botorch.models import SingleTaskGP
+from botorch.optim.batched_lbfgs_b import fmin_l_bfgs_b_batched
+from botorch.optim.utils import minimize_with_timeout
 from botorch.utils.testing import BotorchTestCase, MockAcquisitionFunction
 from gpytorch import settings as gpt_settings
 from gpytorch.mlls.exact_marginal_log_likelihood import ExactMarginalLogLikelihood
@@ -286,6 +289,49 @@ class TestGenCandidates(TestBaseCandidateGeneration):
                 expected[i] = value
             self.assertAllClose(candidates, expected.expand(2, 1, 3), atol=1e-2)
             self.assertAllClose(acq_values, acqf(candidates))
+
+    def test_gen_candidates_scipy_fast_path_options(self):
+        # L-BFGS-B options that are supported by ``fmin_l_bfgs_b_batched`` use the
+        # batched implementation; other options are passed to scipy.optimize.minimize.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+
+        def acqf(X):
+            return -(X - 0.3).pow(2).sum(dim=(-1, -2))
+
+        fast_path_available = not get_reasons_against_fast_path(
+            method="L-BFGS-B", with_grad=True, minimize_options={}, timeout_sec=None
+        )
+        ics = torch.rand(2, 1, 3, **tkwargs)
+        for options, use_fast_path in (
+            ({"ftol": 1e-6}, True),
+            ({"ftol": 1e-6, "factr": 1e7}, True),
+            ({"maxcor": 5}, True),
+            ({"max_cor": 5}, False),
+            ({"iprint": -1}, False),
+        ):
+            with (
+                mock.patch(
+                    "botorch.generation.gen.fmin_l_bfgs_b_batched",
+                    wraps=fmin_l_bfgs_b_batched,
+                ) as mock_fast,
+                mock.patch(
+                    "botorch.generation.gen.minimize_with_timeout",
+                    wraps=minimize_with_timeout,
+                ) as mock_slow,
+                warnings.catch_warnings(),
+            ):
+                warnings.simplefilter("ignore")
+                candidates, _ = gen_candidates_scipy(
+                    initial_conditions=ics,
+                    acquisition_function=acqf,
+                    lower_bounds=0.0,
+                    upper_bounds=1.0,
+                    options=options,
+                )
+            use_fast_path = use_fast_path and fast_path_available
+            self.assertEqual(mock_fast.called, use_fast_path)
+            self.assertEqual(mock_slow.called, not use_fast_path)
+            self.assertAllClose(candidates, torch.full_like(ics, 0.3), atol=1e-4)
 
     def test_gen_candidates_scipy_with_fixed_features_inequality_constraints(self):
         options = {"maxiter": 5}
