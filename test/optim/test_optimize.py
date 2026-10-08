@@ -2294,6 +2294,34 @@ class TestAllOptimizers(BotorchTestCase):
 
 
 class TestOptimizeAcqfCyclic(BotorchTestCase):
+    @mock.patch("botorch.optim.optimize._optimize_acqf")
+    def test_optimize_acqf_cyclic_stopping_criterion(self, mock_optimize_acqf):
+        # The acquisition values are maximized, so the cyclic optimization continues
+        # while they improve (here until ``maxiter``), and stops otherwise (here as
+        # soon as the moving average window of the stopping criterion is filled).
+        q, d = 2, 3
+        bounds = torch.stack([torch.zeros(d), torch.ones(d)])
+        for factor, expected_num_cycles in ((1.1, 7), (0.9, 2)):
+            calls = []
+
+            def optimize_side_effect(opt_inputs):
+                calls.append(opt_inputs)
+                value = factor ** len(calls)
+                if len(calls) == 1:  # initial sequential optimization
+                    return torch.rand(q, d), torch.full((q,), value)
+                return torch.rand(1, d), torch.tensor(value)
+
+            mock_optimize_acqf.side_effect = optimize_side_effect
+            optimize_acqf_cyclic(
+                acq_function=MockAcquisitionFunction(),
+                bounds=bounds,
+                q=q,
+                num_restarts=2,
+                raw_samples=4,
+                cyclic_options={"maxiter": 8, "n_window": 2},
+            )
+            self.assertEqual(len(calls), 1 + q * expected_num_cycles)
+
     @mock.patch("botorch.optim.optimize._optimize_acqf")  # noqa: C901
     # TODO: make sure this runs without mock
     def test_optimize_acqf_cyclic(self, mock_optimize_acqf):
