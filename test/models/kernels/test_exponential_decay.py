@@ -7,6 +7,7 @@
 import torch
 from botorch.models.kernels.exponential_decay import ExponentialDecayKernel
 from botorch.utils.testing import BotorchTestCase
+from gpytorch.constraints import Interval, Positive
 from gpytorch.priors.torch_priors import GammaPrior, NormalPrior
 from gpytorch.test.base_kernel_test_case import BaseKernelTestCase
 
@@ -147,3 +148,18 @@ class TestExponentialDecayKernel(BotorchTestCase, BaseKernelTestCase):
         self.assertTrue(isinstance(kernel.offset_prior, NormalPrior))
         kernel2 = ExponentialDecayKernel(offset_prior=GammaPrior(1, 1))
         self.assertTrue(isinstance(kernel2.offset_prior, GammaPrior))
+
+    def test_constraints(self):
+        power_constraint = Interval(2.0, 3.0)
+        offset_constraint = Interval(0.0, 0.1)
+        kernel = ExponentialDecayKernel(
+            power_constraint=power_constraint, offset_constraint=offset_constraint
+        )
+        self.assertIs(kernel.raw_power_constraint, power_constraint)
+        self.assertIs(kernel.raw_offset_constraint, offset_constraint)
+        self.assertTrue(2.0 <= kernel.power.item() <= 3.0)
+        self.assertTrue(0.0 <= kernel.offset.item() <= 0.1)
+        # The defaults are positivity constraints.
+        kernel = ExponentialDecayKernel()
+        self.assertIsInstance(kernel.raw_power_constraint, Positive)
+        self.assertIsInstance(kernel.raw_offset_constraint, Positive)
