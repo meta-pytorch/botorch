@@ -605,6 +605,20 @@ class TestInputTransforms(BotorchTestCase):
                 stdz8 = InputStandardize(d=3, batch_shape=batch_shape, indices=[0, 2])
                 self.assertFalse(stdz7.equals(stdz8))
 
+    def test_standardize_single_observation(self) -> None:
+        # The standard deviation of a single observation is undefined (NaN). As for
+        # standard deviations below ``min_std``, the inputs are not standardized.
+        for batch_shape in (torch.Size(), torch.Size([3])):
+            X = torch.rand(*batch_shape, 1, 2, device=self.device)
+            stdz = InputStandardize(d=2, batch_shape=batch_shape)
+            with warnings.catch_warnings():
+                # torch warns about the degrees of freedom of the std estimate.
+                warnings.simplefilter("ignore", category=UserWarning)
+                X_stdz = stdz(X)
+            self.assertAllClose(X_stdz, X)
+            self.assertAllClose(stdz.stds, torch.ones_like(stdz.stds))
+            self.assertAllClose(stdz.means, torch.zeros_like(stdz.means))
+
     def test_chained_input_transform(self) -> None:
         ds = (1, 2)
         batch_shapes = (torch.Size(), torch.Size([2]))
