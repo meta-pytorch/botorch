@@ -172,6 +172,30 @@ class TestInitializeQBatch(BotorchTestCase):
                 ics, _ = initialize_q_batch(X=X, acq_vals=acq_vals, n=2)
             self.assertEqual(ics.shape, torch.Size([2, *batch_shape, 3, 4]))
 
+            # Samples with non-finite acquisition values are not selected if there
+            # are enough samples with finite values.
+            acq_vals = torch.rand(10, *batch_shape, device=self.device, dtype=dtype)
+            acq_vals[:5] = -torch.inf
+            X = torch.rand(10, *batch_shape, 3, 4, device=self.device, dtype=dtype)
+            for n in (2, 5):
+                with warnings.catch_warnings(record=True) as ws:
+                    ics_X, ics_acq_vals = initialize_q_batch(
+                        X=X, acq_vals=acq_vals, n=n
+                    )
+                self.assertFalse(
+                    any(issubclass(w.category, BadInitialCandidatesWarning) for w in ws)
+                )
+                self.assertEqual(ics_X.shape, torch.Size([n, *batch_shape, 3, 4]))
+                self.assertEqual(ics_acq_vals.shape, torch.Size([n, *batch_shape]))
+                self.assertTrue(ics_acq_vals.isfinite().all())
+                self.assertTrue(
+                    (ics_acq_vals == acq_vals.max(dim=0).values).any(dim=0).all()
+                )
+                # The returned acquisition values belong to the returned samples.
+                idcs = (ics_X.unsqueeze(0) == X.unsqueeze(1)).all(-1).all(-1)
+                idcs = idcs.long().argmax(dim=0)
+                self.assertTrue(torch.equal(ics_acq_vals, acq_vals.gather(0, idcs)))
+
     def test_initialize_q_batch_topn(self):
         for dtype in (torch.float, torch.double):
             # basic test
@@ -459,6 +483,40 @@ class TestGenBatchInitialCandidates(BotorchTestCase):
                     torch.zeros(2, 1, 2, device=self.device, dtype=dtype),
                 )
             )
+
+    def test_gen_batch_initial_conditions_non_finite_acq_vals(self) -> None:
+        # Raw samples with non-finite acquisition values (e.g., -inf values of a
+        # log-acquisition function) must not result in initial conditions being
+        # selected at random after resampling with more raw samples.
+        class InfAcquisitionFunction(MockAcquisitionFunction):
+            def __call__(self, X):
+                super().__call__(X)
+                acq_vals = -(X - 0.7).pow(2).sum(dim=(-1, -2))
+                return acq_vals.masked_fill(X[..., 0, 0] < 0.1, -torch.inf)
+
+        for dtype in (torch.float, torch.double):
+            bounds = torch.tensor([[0, 0], [1, 1]], device=self.device, dtype=dtype)
+            acqf = InfAcquisitionFunction()
+            with warnings.catch_warnings(record=True) as ws:
+                ics = gen_batch_initial_conditions(
+                    acq_function=acqf,
+                    bounds=bounds,
+                    q=1,
+                    num_restarts=4,
+                    raw_samples=64,
+                    options={"seed": 0},
+                )
+            self.assertFalse(
+                any(issubclass(w.category, BadInitialCandidatesWarning) for w in ws)
+            )
+            X_rnd = torch.cat(acqf._call_args["__call__"])
+            self.assertEqual(X_rnd.shape[0], 64)
+            acq_vals = acqf(X_rnd)
+            self.assertFalse(acq_vals.isfinite().all())
+            self.assertTrue(acqf(ics).isfinite().all())
+            # The best raw sample is one of the initial conditions.
+            best_X = X_rnd[acq_vals.argmax()]
+            self.assertTrue((ics == best_X).all(dim=-1).all(dim=-1).any())
 
     def test_gen_batch_initial_conditions_transform_intra_point_constraint(self):
         for dtype in (torch.float, torch.double):
