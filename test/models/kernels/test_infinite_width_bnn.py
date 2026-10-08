@@ -169,3 +169,20 @@ class TestInfiniteWidthBNNKernel(BotorchTestCase, BaseKernelTestCase):
             ).to(**tkwargs)
             res = kernel(x1, x2).to_dense()
             self.assertAllClose(res, expected, 0.0001, 0.0001)
+
+    def test_forward_diag(self):
+        # The diagonal must be computed for the pairs of rows of x1 and x2.
+        for dtype, depth in ((torch.float, 0), (torch.double, 1), (torch.double, 3)):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            kernel = InfiniteWidthBNNKernel(depth, device=self.device).to(**tkwargs)
+            kernel.eval()
+            x1 = torch.rand(2, 4, 3, **tkwargs)
+            x2 = torch.rand(2, 4, 3, **tkwargs)
+            with torch.no_grad():
+                res = kernel(x1, x2, diag=True)
+                expected = kernel(x1, x2).to_dense().diagonal(dim1=-2, dim2=-1)
+                self.assertAllClose(res, expected)
+                # identical inputs
+                res = kernel(x1, x1, diag=True)
+                expected = kernel(x1, x1).to_dense().diagonal(dim1=-2, dim2=-1)
+                self.assertAllClose(res, expected, atol=1e-6, rtol=1e-6)
