@@ -1974,12 +1974,15 @@ def construct_inputs_qJES(
     num_samples: int = 64,
 ):
     dtype = model.train_targets.dtype
+    # ``qJointEntropySearch`` conditions the model on the optimal outputs and
+    # applies ``posterior_transform`` to them itself, so we need the outputs in
+    # the (untransformed) model output space.
     optimal_inputs, optimal_outputs = get_optimal_samples(
         model=model,
         bounds=torch.as_tensor(bounds, dtype=dtype).T,
         num_optima=num_optima,
         posterior_transform=posterior_transform,
-        return_transformed=True,
+        return_transformed=False,
     )
 
     inputs = {
