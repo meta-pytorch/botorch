@@ -2497,19 +2497,15 @@ class TestOptimizeAcqfList(BotorchTestCase):
                     # check that X_pending is set correctly in sequential optimization
                     if num_acqf > 1:
                         x_pending_call_args_list = mock_set_X_pending_2.call_args_list
-                        idxr = torch.ones(
-                            num_acqf, dtype=torch.bool, device=self.device
-                        )
-                        for i in range(len(x_pending_call_args_list) - 1):
-                            idxr[i] = 0
-                            self.assertTrue(
-                                torch.equal(
-                                    x_pending_call_args_list[i][0][0],
-                                    orig_candidates[idxr],
-                                )
+                        # The second acquisition function is conditioned on the
+                        # first candidate, and its X_pending is reset afterwards.
+                        self.assertEqual(len(x_pending_call_args_list), 2)
+                        self.assertTrue(
+                            torch.equal(
+                                x_pending_call_args_list[0][0][0], orig_candidates
                             )
-                            idxr[i] = 1
-                            orig_candidates[i] = candidate_rvs[i + 1]
+                        )
+                        self.assertIsNone(x_pending_call_args_list[1][0][0])
                     else:
                         mock_set_X_pending_1.assert_not_called()
                 # check final candidates
@@ -2590,6 +2586,40 @@ class TestOptimizeAcqfList(BotorchTestCase):
                 self.assertEqual(
                     mocked.call_args.kwargs["retry_on_optimization_warning"], retry
                 )
+
+    @mock.patch("botorch.optim.optimize.optimize_acqf")
+    def test_optimize_acqf_list_X_pending(self, mock_optimize_acqf):
+        # Each acquisition function is conditioned on its own pending points and the
+        # previous candidates, and its pending points are restored afterwards.
+        bounds = torch.stack([torch.zeros(3), torch.ones(3)])
+        acq_functions = [MockAcquisitionFunction() for _ in range(3)]
+        base_X_pendings = [None, torch.full((1, 3), 0.1), torch.full((2, 3), 0.2)]
+        for acq_function, base_X_pending in zip(acq_functions, base_X_pendings):
+            acq_function.set_X_pending(base_X_pending)
+        candidates = [torch.full((1, 3), 0.5 + i / 10) for i in range(3)]
+        X_pendings = []
+
+        def mock_optimize(acq_function, **kwargs):
+            X_pendings.append(acq_function.X_pending)
+            return candidates[len(X_pendings) - 1], torch.tensor(0.0)
+
+        mock_optimize_acqf.side_effect = mock_optimize
+        optimize_acqf_list(
+            acq_function_list=acq_functions,
+            bounds=bounds,
+            num_restarts=2,
+            raw_samples=10,
+        )
+        self.assertIsNone(X_pendings[0])
+        for i in (1, 2):
+            self.assertTrue(
+                torch.equal(
+                    X_pendings[i], torch.cat([base_X_pendings[i], *candidates[:i]])
+                )
+            )
+        self.assertIsNone(acq_functions[0].X_pending)
+        for acq_function, base_X_pending in zip(acq_functions[1:], base_X_pendings[1:]):
+            self.assertTrue(torch.equal(acq_function.X_pending, base_X_pending))
 
     def test_optimize_acqf_list_empty_list(self):
         with self.assertRaises(ValueError):
@@ -3412,6 +3442,25 @@ class TestOptimizeAcqfDiscrete(BotorchTestCase):
         self.assertIsNone(acq_value_no_acq)
         self.assertIsNotNone(candidates_no_acq)
         self.assertEqual(candidates_no_acq.shape, (q, 3))
+        # The original X_pending is restored for q > 1, also if return_acq_values
+        # is False.
+        for base_X_pending in (None, torch.zeros(1, 3, **tkwargs)):
+            mock_acq_function.set_X_pending(base_X_pending)
+            candidates_no_acq, _ = optimize_acqf_discrete_local_search(
+                acq_function=mock_acq_function,
+                q=2,
+                discrete_choices=discrete_choices,
+                raw_samples=1,
+                num_restarts=1,
+                return_acq_values=False,
+            )
+            self.assertEqual(candidates_no_acq.shape, (2, 3))
+            if base_X_pending is None:
+                self.assertIsNone(mock_acq_function.X_pending)
+            else:
+                self.assertTrue(
+                    torch.equal(mock_acq_function.X_pending, base_X_pending)
+                )
 
     def test_no_precision_loss_with_fixed_features(self) -> None:
         acqf = SquaredAcquisitionFunction()
