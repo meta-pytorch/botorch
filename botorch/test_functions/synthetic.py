@@ -399,6 +399,13 @@ class Hartmann(SyntheticTestFunction):
     with ``H(z) = -3.32237``.
     """
 
+    # optimizers and optimal values for dim=4 not implemented
+    _optimal_value_lookup: dict[int, float] = {3: -3.86278, 6: -3.32237}
+    _optimizers_lookup: dict[int, list[tuple[float, ...]]] = {
+        3: [(0.114614, 0.555649, 0.852547)],
+        6: [(0.20169, 0.150011, 0.476874, 0.275332, 0.311652, 0.6573)],
+    }
+
     def __init__(
         self,
         dim=6,
@@ -421,14 +428,8 @@ class Hartmann(SyntheticTestFunction):
         self.continuous_inds = list(range(dim))
         if bounds is None:
             bounds = [(0.0, 1.0) for _ in range(self.dim)]
-        # optimizers and optimal values for dim=4 not implemented
-        optvals = {3: -3.86278, 6: -3.32237}
-        optimizers = {
-            3: [(0.114614, 0.555649, 0.852547)],
-            6: [(0.20169, 0.150011, 0.476874, 0.275332, 0.311652, 0.6573)],
-        }
-        self._optimal_value = optvals.get(self.dim)
-        self._optimizers = optimizers.get(self.dim)
+        self._optimal_value = self._optimal_value_lookup.get(self.dim)
+        self._optimizers = self._optimizers_lookup.get(self.dim)
         super().__init__(noise_std=noise_std, negate=negate, bounds=bounds, dtype=dtype)
         self.register_buffer("ALPHA", torch.tensor([1.0, 1.2, 3.0, 3.2]))
         if dim == 3:
@@ -1296,9 +1297,18 @@ class ConstrainedHartmann(Hartmann, ConstrainedSyntheticTestFunction):
 
     This is a constrained version of the standard Hartmann test function that
     uses ``||x||_2 <= 1`` as the constraint. This problem comes from [Letham2019]_.
+
+    For ``dim=3``, the optimizer of the unconstrained Hartmann function violates the
+    constraint and the constrained optimum lies on the boundary ``||x||_2 = 1``.
     """
 
     num_constraints = 1
+    # For dim=3, computed from 2000 SLSQP restarts.
+    _optimal_value_lookup = {**Hartmann._optimal_value_lookup, 3: -3.838521}
+    _optimizers_lookup = {
+        **Hartmann._optimizers_lookup,
+        3: [(0.04273, 0.537385, 0.842253)],
+    }
 
     def __init__(
         self,
@@ -1345,9 +1355,13 @@ class ConstrainedHartmannSmooth(Hartmann, ConstrainedSyntheticTestFunction):
 
     This is a constrained version of the standard Hartmann test function that
     uses ``||x||_2^2 <= 1`` as the constraint to obtain smoother constraint slack.
+    The feasible set and hence the optimum are the same as for
+    ``ConstrainedHartmann``.
     """
 
     num_constraints = 1
+    _optimal_value_lookup = ConstrainedHartmann._optimal_value_lookup
+    _optimizers_lookup = ConstrainedHartmann._optimizers_lookup
 
     def __init__(
         self,

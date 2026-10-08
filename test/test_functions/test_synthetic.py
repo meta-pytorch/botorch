@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import math
+from itertools import product
 
 import torch
 from botorch.exceptions.errors import InputDataError
@@ -459,14 +460,33 @@ class TestConstrainedHartmann(
     SyntheticTestFunctionTestCaseMixin,
     ConstrainedTestProblemTestCaseMixin,
 ):
-    for dim in [3, 6]:
-        functions = [
+    functions = [
+        f
+        for dim in [3, 6]
+        for f in [
             ConstrainedHartmann(dim=dim, negate=True),
             ConstrainedHartmann(noise_std=0.1, dim=dim, negate=True),
             ConstrainedHartmann(
                 noise_std=0.1, constraint_noise_std=0.2, dim=dim, negate=True
             ),
         ]
+    ]
+
+    def test_optimizer_is_feasible(self):
+        for dim, dtype in product((3, 6), (torch.float, torch.double)):
+            f = ConstrainedHartmann(dim=dim).to(device=self.device, dtype=dtype)
+            self.assertTrue(f.is_feasible(f.optimizers, noise=False).all())
+            self.assertAllClose(
+                f.evaluate_true(f.optimizers),
+                torch.full((1,), f.optimal_value, device=self.device, dtype=dtype),
+                atol=1e-5,
+                rtol=0,
+            )
+        # In 3 dimensions, the unconstrained optimizer violates the constraint.
+        f = ConstrainedHartmann(dim=3)
+        x_unc = Hartmann(dim=3).optimizers
+        self.assertFalse(f.is_feasible(x_unc, noise=False).item())
+        self.assertLess(Hartmann(dim=3).optimal_value, f.optimal_value)
 
 
 class TestConstrainedHartmannSmooth(
@@ -475,13 +495,24 @@ class TestConstrainedHartmannSmooth(
     SyntheticTestFunctionTestCaseMixin,
     ConstrainedTestProblemTestCaseMixin,
 ):
-    for dim in [3, 6]:
-        functions = [
+    functions = [
+        f
+        for dim in [3, 6]
+        for f in [
             ConstrainedHartmannSmooth(dim=dim, negate=True),
             ConstrainedHartmannSmooth(
                 dim=dim, noise_std=0.1, constraint_noise_std=0.2, negate=True
             ),
         ]
+    ]
+
+    def test_optimizer_is_feasible(self):
+        for dim, dtype in product((3, 6), (torch.float, torch.double)):
+            f = ConstrainedHartmannSmooth(dim=dim).to(device=self.device, dtype=dtype)
+            self.assertTrue(f.is_feasible(f.optimizers, noise=False).all())
+            self.assertEqual(
+                f.optimal_value, ConstrainedHartmann(dim=dim).optimal_value
+            )
 
 
 class TestPressureVessel(
