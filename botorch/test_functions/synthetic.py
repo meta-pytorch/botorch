@@ -1441,7 +1441,9 @@ class WeldedBeamSO(ConstrainedSyntheticTestFunction):
     continuous_inds = list(range(dim))
     num_constraints = 6
     _bounds = [(0.125, 10.0), (0.1, 10.0), (0.1, 10.0), (0.1, 10.0)]
-    _optimal_value = 1.728226  # from [CoelloCoello2002constraint]
+    # Best known solution (rounded to 6 decimals), reproduced by 100 SLSQP restarts.
+    _optimal_value = 1.724852
+    _optimizers = [(0.20573, 3.470489, 9.036624, 0.20573)]
     _worst_feasible_value = 19.01859  # Computed from 100 SLSQP restarts
 
     def _evaluate_true(self, X: Tensor) -> Tensor:
@@ -1461,12 +1463,13 @@ class WeldedBeamSO(ConstrainedSyntheticTestFunction):
         M = P * (L + x2 / 2)
         R = torch.sqrt(0.25 * (x2.pow(2) + (x1 + x3).pow(2)))
         J = 2 * math.sqrt(2) * x1 * x2 * (x2.pow(2) / 12 + 0.25 * (x1 + x3).pow(2))
+        # P_c = 4.013 * E * sqrt(x3^2 * x4^6 / 36) / L^2 * (1 - x3 / (2L) sqrt(E / 4G))
         P_c = (
             4.013
             * E
             * x3
             * x4.pow(3)
-            * 6
+            / 6
             / (L**2)
             * (1 - 0.25 * x3 * math.sqrt(E / G) / L)
         )

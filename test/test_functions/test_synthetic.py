@@ -4,6 +4,8 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+import math
+
 import torch
 from botorch.exceptions.errors import InputDataError
 from botorch.test_functions.synthetic import (
@@ -525,11 +527,41 @@ class TestWeldedBeamSO(
     BotorchTestCase,
     BaseTestProblemTestCaseMixIn,
     ConstrainedTestProblemTestCaseMixin,
+    SyntheticTestFunctionTestCaseMixin,
 ):
     functions = [
         WeldedBeamSO(),
         WeldedBeamSO(noise_std=0.1, constraint_noise_std=[0.2] * 6),
     ]
+
+    def test_buckling_constraint(self):
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        f = WeldedBeamSO().to(**tkwargs)
+        P, L, E, G = 6000.0, 14.0, 30e6, 12e6
+        X = torch.tensor([[0.2, 3.5, 9.0, 0.21], [1.0, 2.0, 3.0, 4.0]], **tkwargs)
+        x3, x4 = X[:, 2], X[:, 3]
+        # P_c = 4.013 E sqrt(x3^2 x4^6 / 36) / L^2 (1 - x3 / (2L) sqrt(E / (4G)))
+        P_c = (
+            4.013
+            * E
+            * (x3.pow(2) * x4.pow(6) / 36).sqrt()
+            / L**2
+            * (1 - x3 / (2 * L) * math.sqrt(E / (4 * G)))
+        )
+        self.assertAllClose(f.evaluate_slack_true(X)[:, -1], P_c - P)
+        # This design satisfies all constraints except for the buckling constraint.
+        X = torch.tensor([0.168, 4.1, 10.0, 0.1681], **tkwargs)
+        self.assertLess(f.evaluate_true(X).item(), f.optimal_value)
+        self.assertTrue((f.evaluate_slack_true(X)[:-1] >= 0).all())
+        self.assertFalse(f.is_feasible(X, noise=False).item())
+        # The best known design is feasible.
+        self.assertTrue(f.is_feasible(f.optimizers, noise=False).all())
+        self.assertAllClose(
+            f.evaluate_true(f.optimizers),
+            torch.full((1,), f.optimal_value, **tkwargs),
+            atol=1e-5,
+            rtol=0,
+        )
 
 
 class TestKeaneBumpFunction(
