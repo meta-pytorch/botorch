@@ -6,6 +6,7 @@
 
 import math
 import re
+from copy import deepcopy
 from unittest.mock import MagicMock, patch
 from warnings import catch_warnings
 
@@ -13,9 +14,12 @@ import numpy as np
 import torch
 from botorch.exceptions.warnings import OptimizationWarning
 from botorch.models import SingleTaskGP
-from botorch.models.transforms.input import Normalize
+from botorch.models.transforms.input import Normalize, Warp
 from botorch.optim import core, fit
+from botorch.optim.batched_lbfgs_b import fmin_l_bfgs_b_batched
+from botorch.optim.closures import get_loss_closure, get_loss_closure_with_grads
 from botorch.optim.core import OptimizationResult, OptimizationStatus
+from botorch.optim.utils import get_parameters
 from botorch.utils.context_managers import module_rollback_ctx, TensorCheckpoint
 from botorch.utils.testing import BotorchTestCase
 from gpytorch.mlls.exact_marginal_log_likelihood import ExactMarginalLogLikelihood
@@ -412,7 +416,55 @@ class TestFitGPyTorchMLLScipyIndependent(BotorchTestCase):
         posterior = model.posterior(test_X)
         self.assertEqual(posterior.mean.shape, torch.Size([3, 4, 1]))
 
-    def test_timeout_sec_warning(self):
+    def test_shared_parameters_use_joint_fitting(self):
+        # The parameters of a learnable input transform are shared across outputs,
+        # so the outputs' hyperparameters cannot be optimized independently. This
+        # must also hold if the parameter shape happens to match the batch shape.
+        for d in (2, 3):
+            with torch.random.fork_rng():
+                torch.manual_seed(0)
+                train_X = torch.rand(15, d, dtype=torch.double)
+                train_Y = torch.rand(15, 2, dtype=torch.double)
+            model = SingleTaskGP(
+                train_X, train_Y, input_transform=Warp(d=d, indices=list(range(d)))
+            )
+            mll = ExactMarginalLogLikelihood(model.likelihood, model)
+            mll.train()
+            parameters = get_parameters(mll, requires_grad=True)
+            self.assertFalse(fit._is_batch_independent(model, parameters))
+            self.assertTrue(
+                fit._is_batch_independent(
+                    model,
+                    {
+                        n: p
+                        for n, p in parameters.items()
+                        if not n.startswith("model.input_transform")
+                    },
+                )
+            )
+            # Fitting gives the same result as explicitly using the joint closure.
+            state_dict = deepcopy(mll.state_dict())
+            with patch.object(
+                fit,
+                "_fit_gpytorch_mll_scipy_independent",
+                wraps=fit._fit_gpytorch_mll_scipy_independent,
+            ) as mock_independent:
+                result = fit.fit_gpytorch_mll_scipy(mll, options={"maxiter": 10})
+            mock_independent.assert_not_called()
+            loss = get_loss_closure(mll)().sum().item()
+            mll.load_state_dict(state_dict)
+            result_joint = fit.fit_gpytorch_mll_scipy(
+                mll,
+                closure=get_loss_closure_with_grads(mll, parameters=parameters),
+                options={"maxiter": 10},
+            )
+            loss_joint = get_loss_closure(mll)().sum().item()
+            self.assertEqual(result.fval, result_joint.fval)
+            self.assertEqual(loss, loss_joint)
+
+    def test_unsupported_arguments_use_joint_fitting(self):
+        # Arguments that are not supported by ``fmin_l_bfgs_b_batched`` must not be
+        # ignored, so the joint optimizer is used for them.
         with torch.random.fork_rng():
             torch.manual_seed(0)
             train_X = torch.rand(5, 2, dtype=torch.double)
@@ -420,12 +472,100 @@ class TestFitGPyTorchMLLScipyIndependent(BotorchTestCase):
         model = SingleTaskGP(train_X, train_Y)
         mll = ExactMarginalLogLikelihood(model.likelihood, model)
         mll.train()
-        with self.assertWarns(OptimizationWarning):
-            fit.fit_gpytorch_mll_scipy(
+        for kwargs in (
+            {"timeout_sec": 60.0},
+            {"options": {"maxiter": 1, "disp": False}},
+            {"options": {"maxfun": 5}},
+            {"method": "SLSQP"},
+            {"callback": lambda parameters, result: None},
+            {"closure_kwargs": {}},
+        ):
+            with (
+                patch.object(
+                    fit, "_fit_gpytorch_mll_scipy_independent"
+                ) as mock_independent,
+                patch.object(
+                    fit,
+                    "scipy_minimize",
+                    return_value=OptimizationResult(
+                        fval=0.0, step=1, status=OptimizationStatus.SUCCESS
+                    ),
+                ) as mock_joint,
+            ):
+                fit.fit_gpytorch_mll_scipy(mll, **kwargs)
+            mock_independent.assert_not_called()
+            mock_joint.assert_called_once()
+            for key in ("timeout_sec", "options", "method", "callback"):
+                if key in kwargs:
+                    self.assertEqual(mock_joint.call_args.kwargs[key], kwargs[key])
+
+    def test_timeout_sec(self):
+        # ``timeout_sec`` is respected by using the joint optimizer, rather than
+        # being ignored with an ``OptimizationWarning`` (which ``fit_gpytorch_mll``
+        # would consider a failed fitting attempt).
+        with torch.random.fork_rng():
+            torch.manual_seed(0)
+            train_X = torch.rand(5, 2, dtype=torch.double)
+            train_Y = torch.rand(5, 2, dtype=torch.double)
+        model = SingleTaskGP(train_X, train_Y)
+        mll = ExactMarginalLogLikelihood(model.likelihood, model)
+        mll.train()
+        with catch_warnings(record=True) as ws:
+            result = fit.fit_gpytorch_mll_scipy(
                 mll,
                 timeout_sec=60.0,
                 options={"maxiter": 1},
             )
+        self.assertFalse(any(issubclass(w.category, OptimizationWarning) for w in ws))
+        self.assertEqual(result.status, OptimizationStatus.STOPPED)
+
+    def test_callback(self):
+        # The callback is called as ``callback(parameters, result)``, as documented.
+        with torch.random.fork_rng():
+            torch.manual_seed(0)
+            train_X = torch.rand(5, 2, dtype=torch.double)
+            train_Y = torch.rand(5, 2, dtype=torch.double)
+        model = SingleTaskGP(train_X, train_Y)
+        mll = ExactMarginalLogLikelihood(model.likelihood, model)
+        mll.train()
+        calls = []
+
+        def callback(parameters, result):
+            calls.append((parameters, result))
+
+        fit.fit_gpytorch_mll_scipy(mll, callback=callback, options={"maxiter": 2})
+        self.assertGreater(len(calls), 0)
+        for parameters, result in calls:
+            self.assertEqual(
+                set(parameters), set(get_parameters(mll, requires_grad=True))
+            )
+            self.assertIsInstance(result, OptimizationResult)
+
+    def test_ftol_option(self):
+        # ``fmin_l_bfgs_b_batched`` does not accept ``ftol`` together with ``factr``.
+        with torch.random.fork_rng():
+            torch.manual_seed(0)
+            train_X = torch.rand(10, 2, dtype=torch.double)
+            train_Y = torch.rand(10, 2, dtype=torch.double)
+        model = SingleTaskGP(train_X, train_Y)
+        mll = ExactMarginalLogLikelihood(model.likelihood, model)
+        mll.train()
+        with patch(
+            "botorch.optim.batched_lbfgs_b.fmin_l_bfgs_b_batched",
+            wraps=fmin_l_bfgs_b_batched,
+        ) as mock_fmin:
+            result = fit.fit_gpytorch_mll_scipy(
+                mll, options={"ftol": 1e-6, "gtol": 1e-3, "maxiter": 5}
+            )
+        mock_fmin.assert_called_once()
+        call_kwargs = mock_fmin.call_args.kwargs
+        self.assertEqual(call_kwargs["ftol"], 1e-6)
+        self.assertIsNone(call_kwargs["factr"])
+        self.assertEqual(call_kwargs["pgtol"], 1e-3)
+        self.assertEqual(call_kwargs["maxiter"], 5)
+        self.assertIn(
+            result.status, (OptimizationStatus.SUCCESS, OptimizationStatus.STOPPED)
+        )
 
     def test_gtol_option_mapping(self):
         with torch.random.fork_rng():
@@ -442,22 +582,54 @@ class TestFitGPyTorchMLLScipyIndependent(BotorchTestCase):
         )
         self.assertIsInstance(result, OptimizationResult)
 
-    def test_unrecognized_options_warning(self):
+    def _test_status(
+        self, statuses: list[int], expected_status: OptimizationStatus
+    ) -> None:
         with torch.random.fork_rng():
             torch.manual_seed(0)
-            train_X = torch.rand(5, 2, dtype=torch.double)
-            train_Y = torch.rand(5, 2, dtype=torch.double)
+            train_X = torch.rand(10, 2, dtype=torch.double)
+            train_Y = torch.rand(10, 2, dtype=torch.double)
         model = SingleTaskGP(train_X, train_Y)
         mll = ExactMarginalLogLikelihood(model.likelihood, model)
         mll.train()
-        with self.assertWarns(OptimizationWarning):
-            fit.fit_gpytorch_mll_scipy(
-                mll,
-                options={"maxiter": 1, "disp": True, "unknown_opt": 42},
+
+        def mock_fmin(func, x0, bounds, **kwargs):
+            # ``fmin_l_bfgs_b_batched`` returns ``OptimizeResult``s with a ``status``
+            # of 0 (converged), 1 (iteration limit reached) or 2 (other).
+            return (
+                x0,
+                np.zeros(x0.shape[0]),
+                [
+                    OptimizeResult(success=status == 0, nit=1, status=status)
+                    for status in statuses
+                ],
             )
+
+        with (
+            patch(
+                "botorch.optim.batched_lbfgs_b.fmin_l_bfgs_b_batched",
+                side_effect=mock_fmin,
+            ),
+            catch_warnings(record=True) as ws,
+        ):
+            result = fit.fit_gpytorch_mll_scipy(mll)
+
+        self.assertEqual(result.status, expected_status)
+        # As for joint fitting, failures result in an ``OptimizationWarning``, which
+        # makes ``fit_gpytorch_mll`` retry the fit.
+        self.assertEqual(
+            any(issubclass(w.category, OptimizationWarning) for w in ws),
+            expected_status == OptimizationStatus.FAILURE,
+        )
+
+    def test_success_status(self):
+        self._test_status([0, 0], OptimizationStatus.SUCCESS)
 
     def test_stopped_status(self):
-        """Test STOPPED status when some outputs hit maxiter (warnflag=1)."""
+        """Test STOPPED status when some outputs hit maxiter."""
+        self._test_status([1, 1], OptimizationStatus.STOPPED)
+        self._test_status([0, 1], OptimizationStatus.STOPPED)
+        # Reaching ``maxiter`` without mocks.
         with torch.random.fork_rng():
             torch.manual_seed(0)
             train_X = torch.rand(10, 2, dtype=torch.double)
@@ -465,49 +637,13 @@ class TestFitGPyTorchMLLScipyIndependent(BotorchTestCase):
         model = SingleTaskGP(train_X, train_Y)
         mll = ExactMarginalLogLikelihood(model.likelihood, model)
         mll.train()
-
-        def mock_fmin(func, x0, bounds, **kwargs):
-            return (
-                x0,
-                np.zeros(x0.shape[0]),
-                [
-                    {"success": False, "nit": 1, "warnflag": 1}
-                    for _ in range(x0.shape[0])
-                ],
-            )
-
-        with patch(
-            "botorch.optim.batched_lbfgs_b.fmin_l_bfgs_b_batched",
-            side_effect=mock_fmin,
-        ):
-            result = fit.fit_gpytorch_mll_scipy(mll)
-
+        with catch_warnings(record=True) as ws:
+            result = fit.fit_gpytorch_mll_scipy(mll, options={"maxiter": 1})
         self.assertEqual(result.status, OptimizationStatus.STOPPED)
+        self.assertFalse(any(issubclass(w.category, OptimizationWarning) for w in ws))
 
     def test_failure_status(self):
-        """Test FAILURE status when outputs fail without hitting maxiter."""
-        with torch.random.fork_rng():
-            torch.manual_seed(0)
-            train_X = torch.rand(10, 2, dtype=torch.double)
-            train_Y = torch.rand(10, 2, dtype=torch.double)
-        model = SingleTaskGP(train_X, train_Y)
-        mll = ExactMarginalLogLikelihood(model.likelihood, model)
-        mll.train()
-
-        def mock_fmin(func, x0, bounds, **kwargs):
-            return (
-                x0,
-                np.zeros(x0.shape[0]),
-                [
-                    {"success": False, "nit": 1, "warnflag": 2}
-                    for _ in range(x0.shape[0])
-                ],
-            )
-
-        with patch(
-            "botorch.optim.batched_lbfgs_b.fmin_l_bfgs_b_batched",
-            side_effect=mock_fmin,
-        ):
-            result = fit.fit_gpytorch_mll_scipy(mll)
-
-        self.assertEqual(result.status, OptimizationStatus.FAILURE)
+        """Test FAILURE status when any output fails without hitting maxiter."""
+        self._test_status([2, 2], OptimizationStatus.FAILURE)
+        self._test_status([0, 2], OptimizationStatus.FAILURE)
+        self._test_status([1, 2], OptimizationStatus.FAILURE)
