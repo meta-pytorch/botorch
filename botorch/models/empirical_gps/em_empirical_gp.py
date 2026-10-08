@@ -1030,13 +1030,21 @@ class EMEmpiricalGaussianProcess(ExactGP, GPyTorchModel):
         # were explicitly provided to pretrain_em_prior
         self._use_inducing_points = container.use_inducing_points
 
-        # Store EM results (these may be detached if from pretrained)
-        self._mu_inducing = container.mu_inducing
-        self._Sigma_inducing = container.Sigma_inducing
+        # EM estimates at the inducing points. These are registered as buffers so
+        # that they are part of the model state (``state_dict`` /
+        # ``load_state_dict``), follow dtype/device conversions and support
+        # ``deepcopy``. They always hold detached copies: an EM re-run during
+        # from-scratch fitting is differentiable, but its graph-attached result is
+        # only used for that evaluation (see ``forward`` and
+        # ``EMEmpiricalMarginalLogLikelihood``).
+        self.register_buffer("_mu_inducing", container.mu_inducing.detach().clone())
+        self.register_buffer(
+            "_Sigma_inducing", container.Sigma_inducing.detach().clone()
+        )
 
-        # Store cached interpolation quantities
-        self._cached_L_kernel_inducing = container.L_kernel_inducing
-        self._cached_delta_mu = container.delta_mu
+        # Eval-mode cache of the parametric prior at the inducing points, see
+        # ``_parametric_prior_at_inducing``. Cleared by ``_clear_cache``.
+        self._parametric_prior_cache: tuple[Tensor, Tensor] | None = None
 
         # Store flag to control EM re-running in forward()
         self._using_pretrained_prior = using_pretrained
@@ -1145,46 +1153,72 @@ class EMEmpiricalGaussianProcess(ExactGP, GPyTorchModel):
             self._mu_inducing.requires_grad_(False)
         if self._Sigma_inducing is not None:
             self._Sigma_inducing.requires_grad_(False)
-        if self._cached_L_kernel_inducing is not None:
-            self._cached_L_kernel_inducing.requires_grad_(False)
-        if self._cached_delta_mu is not None:
-            self._cached_delta_mu.requires_grad_(False)
 
-    def _effective_Sigma_inducing(self) -> Tensor:
-        """EM covariance at the inducing points, plus an optional additive base."""
+    def _set_em_state(self, mu_inducing: Tensor, Sigma_inducing: Tensor) -> None:
+        """Store (detached copies of) new EM estimates as the model's EM state."""
+        self._mu_inducing = mu_inducing.detach().clone()
+        self._Sigma_inducing = Sigma_inducing.detach().clone()
+
+    def _effective_Sigma_inducing(self, Sigma_inducing: Tensor | None = None) -> Tensor:
+        """EM covariance at the inducing points, plus an optional additive base.
+
+        Args:
+            Sigma_inducing: (M, M) EM covariance. Defaults to the model's EM state.
+        """
+        if Sigma_inducing is None:
+            Sigma_inducing = self._Sigma_inducing
         base = getattr(self, "_additive_base", None)
         if base is None:
-            return self._Sigma_inducing
+            return Sigma_inducing
         k_base = base(self._X_inducing, self._X_inducing)
         if hasattr(k_base, "to_dense"):
             k_base = k_base.to_dense()
-        return self._Sigma_inducing + k_base
+        return Sigma_inducing + k_base
 
-    def _update_cache(self) -> None:
-        """Update cached quantities for shift interpolation.
+    def _compute_parametric_prior_at_inducing(self) -> tuple[Tensor, Tensor]:
+        """Evaluate the parametric prior at the inducing points Z.
 
-        This method recomputes the cached Cholesky factor and mean shift
-        based on the current _mu_inducing and _Sigma_inducing values.
-        Should be called after EM is re-run with new hyperparameters.
-
-        The EM-learned prior is extended to new points via shift interpolation:
-            mu(X) = m(X) + W @ Delta_mu
-            Sigma(X) = Lambda(X) + W @ Sigma_inducing @ W^T
-        where Delta_mu = mu_inducing - m(X_inducing),
-        Lambda(X) = K(X,X) - K(X,Z) K(Z,Z)^{-1} K(Z,X) is the Nystrom residual,
-        and W = K(X, X_inducing) @ K_inducing^{-1}.
+        Returns:
+            L_ZZ: (M, M) Cholesky factor of K(Z, Z) under the current parameters.
+            m_Z: (M,) parametric mean m(Z) under the current parameters.
         """
-        K_kernel_inducing = self.initial_covar_module(
-            self._X_inducing, self._X_inducing
-        ).to_dense()
-        m_inducing = _evaluate_mean(self.initial_mean_module, self._X_inducing)
+        K_ZZ = self.initial_covar_module(self._X_inducing, self._X_inducing).to_dense()
+        m_Z = _evaluate_mean(self.initial_mean_module, self._X_inducing)
+        return psd_safe_cholesky(K_ZZ), m_Z
 
-        self._cached_L_kernel_inducing = psd_safe_cholesky(K_kernel_inducing)
+    def _parametric_prior_at_inducing(self) -> tuple[Tensor, Tensor]:
+        """Parametric prior ``(L_ZZ, m_Z)`` at the inducing points for interpolation.
 
-        # Mean shift: Delta_mu = mu_inducing - m(X_inducing)
-        self._cached_delta_mu = self._mu_inducing - m_inducing
+        Shift interpolation reproduces the EM prior at the inducing points only if
+        ``K(Z, Z)`` and ``m(Z)`` are evaluated with the same (current) kernel and
+        mean parameters as ``K(X, Z)``, ``K(X, X)`` and ``m(X)``. In training mode,
+        they are therefore recomputed on every call, keeping their gradients w.r.t.
+        the hyperparameters. In eval mode, where the hyperparameters are fixed, they
+        are cached without autograd history (the cache outlives the graph of the call
+        that populated it); the cache is cleared by ``_clear_cache``, i.e. on
+        train/eval mode switches and on ``load_state_dict``.
+        """
+        if self.training:
+            return self._compute_parametric_prior_at_inducing()
+        if self._parametric_prior_cache is None:
+            with torch.no_grad():
+                self._parametric_prior_cache = (
+                    self._compute_parametric_prior_at_inducing()
+                )
+        return self._parametric_prior_cache
 
-    def _interpolate_prior_to_X(self, X: Tensor) -> tuple[Tensor, Tensor]:
+    def _clear_cache(self) -> None:
+        """Clear the eval-mode caches (called by GPyTorch, see ``gpytorch.Module``)."""
+        super()._clear_cache()
+        self._parametric_prior_cache = None
+
+    def _interpolate_prior_to_X(
+        self,
+        X: Tensor,
+        mu_inducing: Tensor | None = None,
+        Sigma_inducing: Tensor | None = None,
+        parametric_prior: tuple[Tensor, Tensor] | None = None,
+    ) -> tuple[Tensor, Tensor]:
         """Interpolate the EM-learned prior to arbitrary locations X.
 
         Uses shift interpolation from inducing points Z to query locations X:
@@ -1203,19 +1237,33 @@ class EMEmpiricalGaussianProcess(ExactGP, GPyTorchModel):
 
         Args:
             X: (n, d) query locations.
+            mu_inducing: (M,) EM mean at the inducing points. Defaults to the
+                model's EM state.
+            Sigma_inducing: (M, M) EM covariance at the inducing points. Defaults
+                to the model's EM state.
+            parametric_prior: Optional ``(L_ZZ, m_Z)`` as returned by
+                ``_compute_parametric_prior_at_inducing``, to share one evaluation
+                across several calls. Defaults to ``_parametric_prior_at_inducing()``.
 
         Returns:
             mu: (n,) interpolated mean.
             Sigma: (n, n) interpolated covariance.
         """
+        if mu_inducing is None:
+            mu_inducing = self._mu_inducing
+        if Sigma_inducing is None:
+            Sigma_inducing = self._Sigma_inducing
+        if parametric_prior is None:
+            parametric_prior = self._parametric_prior_at_inducing()
+        L_ZZ, m_Z = parametric_prior
         mu, Sigma, _ = _interpolate_prior(
             X=X,
             mean_module=self.initial_mean_module,
             covar_module=self.initial_covar_module,
             X_inducing=self._X_inducing,
-            L_ZZ=self._cached_L_kernel_inducing,
-            delta_mu=self._cached_delta_mu,
-            Sigma_inducing=self._Sigma_inducing,
+            L_ZZ=L_ZZ,
+            delta_mu=mu_inducing - m_Z,
+            Sigma_inducing=Sigma_inducing,
             include_cross_covariance=False,
         )
         base = getattr(self, "_additive_base", None)
@@ -1226,7 +1274,12 @@ class EMEmpiricalGaussianProcess(ExactGP, GPyTorchModel):
             Sigma = Sigma + k_base
         return mu, Sigma
 
-    def _get_prior_at_indices(self, indices: Tensor) -> tuple[Tensor, Tensor]:
+    def _get_prior_at_indices(
+        self,
+        indices: Tensor,
+        mu_inducing: Tensor | None = None,
+        Sigma_inducing: Tensor | None = None,
+    ) -> tuple[Tensor, Tensor]:
         """Extract prior mean and covariance at the given indices.
 
         This is a fast O(n²) operation for when X is a known subset of
@@ -1234,14 +1287,20 @@ class EMEmpiricalGaussianProcess(ExactGP, GPyTorchModel):
 
         Args:
             indices: (n,) index tensor into _mu_inducing and _Sigma_inducing.
+            mu_inducing: (M,) EM mean at the inducing points. Defaults to the
+                model's EM state.
+            Sigma_inducing: (M, M) EM covariance at the inducing points. Defaults
+                to the model's EM state.
 
         Returns:
             mu: (n,) mean at the indexed locations.
             Sigma: (n, n) covariance at the indexed locations.
         """
+        if mu_inducing is None:
+            mu_inducing = self._mu_inducing
         mu, Sigma, _ = _index_prior(
-            mu_full=self._mu_inducing,
-            Sigma_full=self._effective_Sigma_inducing(),
+            mu_full=mu_inducing,
+            Sigma_full=self._effective_Sigma_inducing(Sigma_inducing),
             indices=indices,
             include_cross_covariance=False,
         )
@@ -1396,19 +1455,25 @@ class EMEmpiricalGaussianProcess(ExactGP, GPyTorchModel):
         """
         # Only re-run EM if training AND not using pretrained prior
         if self.training and not self._using_pretrained_prior:
-            # Re-run EM for gradient flow through kernel hyperparameters
-            mu_em, Sigma_em = self._run_em()
-            self._mu_inducing = mu_em
-            self._Sigma_inducing = Sigma_em
-            self._update_cache()
+            # Re-run EM for gradient flow through kernel hyperparameters. The
+            # graph-attached estimates are used for this evaluation; the model's
+            # EM state only keeps detached copies.
+            mu_inducing, Sigma_inducing = self._run_em()
+            self._set_em_state(mu_inducing, Sigma_inducing)
+        else:
+            mu_inducing, Sigma_inducing = self._mu_inducing, self._Sigma_inducing
 
         if self.enable_interpolation or self._use_inducing_points:
             # Shift interpolation from inducing points to X
-            mean, covar = self._interpolate_prior_to_X(X)
+            mean, covar = self._interpolate_prior_to_X(
+                X, mu_inducing=mu_inducing, Sigma_inducing=Sigma_inducing
+            )
         else:
             # Direct indexing: X must be subset of historical observations
             indices = self._find_indices_in_historical(X)
-            mean, covar = self._get_prior_at_indices(indices)
+            mean, covar = self._get_prior_at_indices(
+                indices, mu_inducing=mu_inducing, Sigma_inducing=Sigma_inducing
+            )
 
         return MultivariateNormal(mean, to_linear_operator(covar))
 
@@ -1623,41 +1688,48 @@ class EMEmpiricalMarginalLogLikelihood(MarginalLogLikelihood):
                 any hyperparameter prior terms) and normalized per observation
                 (divided by the total number of observations across datasets).
         """
-        # When using a pretrained prior, skip the expensive EM re-run.
-        # The EM-estimated mu and Sigma are already cached (and detached).
-        # We only re-evaluate the kernel at inducing points so that gradients
-        # flow through the kernel hyperparameters (for coordinate ascent).
-        if not self.model._using_pretrained_prior:
-            mu_em, Sigma_em = self.model._run_em()
-            self.model._mu_inducing = mu_em
-            self.model._Sigma_inducing = Sigma_em
-        # Always refresh the interpolation cache with current kernel params.
-        # This re-evaluates m_phi(Z) and K_phi(Z,Z), enabling gradient flow
-        # through the kernel to the observed-data MLL below, while the
-        # detached mu_em and Sigma_em block gradients through EM iterations.
-        self.model._update_cache()
+        model = self.model
+        if model._using_pretrained_prior:
+            # When using a pretrained prior, skip the expensive EM re-run: the
+            # EM-estimated mu and Sigma are fixed (detached), which blocks
+            # gradients through the EM iterations.
+            mu_inducing, Sigma_inducing = model._mu_inducing, model._Sigma_inducing
+        else:
+            mu_inducing, Sigma_inducing = model._run_em()
+            model._set_em_state(mu_inducing, Sigma_inducing)
+
+        experiment_indices = None
+        parametric_prior = None
+        if model._use_inducing_points:
+            # Evaluate m_phi(Z) and K_phi(Z, Z) once for all datasets, with the
+            # current kernel parameters (regardless of the train/eval mode), so
+            # that gradients flow through the kernel into the observed-data MLL.
+            parametric_prior = model._compute_parametric_prior_at_inducing()
+        else:
+            # Direct indexing into the EM prior at the historical inputs.
+            experiment_indices = model._unique_inputs_obs.experiment_indices
 
         # Compute sum of MLLs over all K datasets
         total_mll = torch.tensor(
-            0.0,
-            device=self.model._mu_inducing.device,
-            dtype=self.model._mu_inducing.dtype,
+            0.0, device=mu_inducing.device, dtype=mu_inducing.dtype
         )
         total_data_points = 0
 
-        # Get experiment indices for direct indexing case (if applicable)
-        experiment_indices = (
-            None
-            if self.model._use_inducing_points
-            else self.model._unique_inputs_obs.experiment_indices
-        )
-
-        for i, dataset in enumerate(self.model.datasets):
+        for i, dataset in enumerate(model.datasets):
             # Get prior at observation locations via interpolation or direct indexing
-            if self.model._use_inducing_points:
-                mu_S, Sigma_SS = self.model._interpolate_prior_to_X(dataset.X)
+            if model._use_inducing_points:
+                mu_S, Sigma_SS = model._interpolate_prior_to_X(
+                    dataset.X,
+                    mu_inducing=mu_inducing,
+                    Sigma_inducing=Sigma_inducing,
+                    parametric_prior=parametric_prior,
+                )
             else:
-                mu_S, Sigma_SS = self.model._get_prior_at_indices(experiment_indices[i])
+                mu_S, Sigma_SS = model._get_prior_at_indices(
+                    experiment_indices[i],
+                    mu_inducing=mu_inducing,
+                    Sigma_inducing=Sigma_inducing,
+                )
 
             total_mll = total_mll + self._dataset_mll(mu_S, Sigma_SS, dataset.Y)
             total_data_points += dataset.X.shape[0]

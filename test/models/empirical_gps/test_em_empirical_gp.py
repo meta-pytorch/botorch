@@ -4,6 +4,8 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+import copy
+
 import torch
 from botorch.fit import fit_gpytorch_mll
 from botorch.models.empirical_gps.em_empirical_gp import (  # noqa: E501
@@ -21,6 +23,7 @@ from gpytorch.constraints import GreaterThan
 from gpytorch.kernels import MaternKernel, RBFKernel, ScaleKernel
 from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.means import ConstantMean
+from gpytorch.mlls import ExactMarginalLogLikelihood
 
 
 class TestEMEmpiricalGaussianProcess(BotorchTestCase):
@@ -620,11 +623,11 @@ class TestEMEmpiricalGaussianProcess(BotorchTestCase):
         """Test the inducing point approximation produces valid outputs.
 
         This test verifies:
-            1. Cached Cholesky factor is lower triangular
-            2. Cached delta_mu contains finite values
-            3. Eval mode produces PSD, symmetric covariance matrices
-            4. Training mode still works (re-runs EM with gradient flow)
-            5. Interpolation at inducing points exactly recovers EM mean
+            1. Eval mode caches a lower-triangular Cholesky factor of K(Z, Z) and
+               a finite m(Z), without autograd history
+            2. Eval mode produces PSD, symmetric covariance matrices
+            3. Training mode still works (re-runs EM with gradient flow)
+            4. Interpolation at inducing points exactly recovers EM mean
         """
         tkwargs = {"device": self.device, "dtype": torch.double}
         K, n_i = 5, 4
@@ -641,15 +644,17 @@ class TestEMEmpiricalGaussianProcess(BotorchTestCase):
             use_covar_prior=True,
         )
 
-        # Verify cached quantities
-        L = model._cached_L_kernel_inducing
-        self.assertLess(torch.triu(L, diagonal=1).abs().max().item(), 1e-10)
-        self.assertTrue(torch.isfinite(model._cached_delta_mu).all())
-
         # Eval mode produces valid output
         model.eval()
         test_X = torch.rand(5, 1, **tkwargs)
         output = model(test_X)
+
+        # Verify the eval-mode cache of the parametric prior at the inducing points
+        L, m_Z = model._parametric_prior_cache
+        self.assertLess(torch.triu(L, diagonal=1).abs().max().item(), 1e-10)
+        self.assertTrue(torch.isfinite(m_Z).all())
+        self.assertIsNone(L.grad_fn)
+        self.assertIsNone(m_Z.grad_fn)
 
         self.assertTrue(torch.isfinite(output.mean).all())
         covar = output.covariance_matrix
@@ -1796,7 +1801,7 @@ class TestEMCoverage(BotorchTestCase):
         # `dim() > 1` squeeze branches during pre-training.
         pretrain_em_prior(datasets, mean, covar, inducing_points=Z, num_em_iterations=2)
         # Cold-start training forward exercises _get_em_initialization and
-        # _update_cache squeeze branches.
+        # _compute_parametric_prior_at_inducing squeeze branches.
         model = EMEmpiricalGaussianProcess(
             train_X=torch.rand(3, 1, **tkwargs),
             train_Y=torch.randn(3, 1, **tkwargs),
@@ -1806,7 +1811,7 @@ class TestEMCoverage(BotorchTestCase):
             inducing_points=Z,
             num_em_iterations=2,
         )
-        # Drive the cold-start EM re-run + cache update + interpolation via MLL.
+        # Drive the cold-start EM re-run + interpolation via MLL.
         mll = EMEmpiricalMarginalLogLikelihood(model.likelihood, model)
         out = mll(None, None)
         self.assertTrue(torch.isfinite(out).all())
@@ -2083,3 +2088,151 @@ class TestEMCovarianceShrinkage(BotorchTestCase):
             Z = model_base._X_inducing
             k_base = base(Z, Z).to_dense()[indices][:, indices]
         self.assertAllClose(Sigma_base - Sigma_no_base, k_base, atol=1e-6)
+
+
+class TestEMModelState(BotorchTestCase):
+    """The EM state and the interpolation caches must follow the model state."""
+
+    def _data(self, tkwargs: dict) -> tuple[list[ExperimentDataset], torch.Tensor]:
+        torch.manual_seed(0)
+        X = torch.linspace(0, 1, 10, **tkwargs).unsqueeze(-1)
+        datasets = []
+        for _ in range(8):
+            a = 1.0 + 0.3 * torch.randn(1, **tkwargs)
+            b = 0.5 * torch.randn(1, **tkwargs)
+            datasets.append(ExperimentDataset(X=X, Y=a * torch.sin(6 * X + b)))
+        Z = torch.linspace(0, 1, 6, **tkwargs).unsqueeze(-1)
+        return datasets, Z
+
+    def _model(self, tkwargs: dict) -> EMEmpiricalGaussianProcess:
+        datasets, Z = self._data(tkwargs)
+        train_X = datasets[0].X[[1, 4, 7]]
+        return EMEmpiricalGaussianProcess(
+            train_X=train_X,
+            train_Y=torch.sin(6 * train_X),
+            datasets=datasets,
+            mean_module=ConstantMean().to(**tkwargs),
+            covar_module=ScaleKernel(RBFKernel()).to(**tkwargs),
+            inducing_points=Z,
+            num_em_iterations=3,
+        )
+
+    def test_state_dict_round_trip(self) -> None:
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        model = self._model(tkwargs)
+        # Change the hyperparameters and re-run EM through the MLL (as happens
+        # during fitting), so the EM state differs from that of a fresh model.
+        with torch.no_grad():
+            model.initial_covar_module.base_kernel.lengthscale = 0.5
+            model.initial_covar_module.outputscale = 0.9
+        EMEmpiricalMarginalLogLikelihood(model.likelihood, model)(None, None)
+
+        new_model = self._model(tkwargs)
+        test_X = torch.rand(5, 1, **tkwargs)
+        # Populate the eval-mode caches before loading, which must clear them.
+        new_model.posterior(test_X)
+        new_model.load_state_dict(model.state_dict())
+        with torch.no_grad():
+            post = model.posterior(test_X)
+            new_post = new_model.posterior(test_X)
+        self.assertAllClose(new_post.mean, post.mean)
+        self.assertAllClose(new_post.variance, post.variance)
+        self.assertIn("_mu_inducing", model.state_dict())
+        self.assertIn("_Sigma_inducing", model.state_dict())
+        self.assertTrue(torch.equal(new_model._mu_inducing, model._mu_inducing))
+        self.assertTrue(torch.equal(new_model._Sigma_inducing, model._Sigma_inducing))
+
+    def test_dtype_conversion(self) -> None:
+        model = self._model({"device": self.device, "dtype": torch.float})
+        model = model.double()
+        test_X = torch.rand(5, 1, device=self.device, dtype=torch.double)
+        with torch.no_grad():
+            post = model.posterior(test_X)
+        self.assertEqual(post.mean.dtype, torch.double)
+        self.assertTrue(torch.isfinite(post.variance).all())
+        self.assertEqual(model._mu_inducing.dtype, torch.double)
+        self.assertEqual(model._Sigma_inducing.dtype, torch.double)
+
+    def test_interpolation_follows_hyperparameters(self) -> None:
+        # Fine-tuning a pretrained model changes the kernel/mean hyperparameters,
+        # but the interpolated prior must still reproduce the (fixed) EM prior at
+        # the inducing points, in both training and eval mode.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        datasets, Z = self._data(tkwargs)
+        covar_module = ScaleKernel(RBFKernel()).to(**tkwargs)
+        covar_module.base_kernel.lengthscale = 0.3
+        prior = pretrain_em_prior(
+            datasets=datasets,
+            mean_module=ConstantMean().to(**tkwargs),
+            covar_module=covar_module,
+            likelihood_noise=0.01,
+            inducing_points=Z,
+        )
+        train_X = datasets[0].X[[1, 4, 7]]
+        model = EMEmpiricalGaussianProcess.from_pretrained(
+            prior, train_X, torch.sin(6 * train_X), freeze_pretrained=False
+        )
+        model.eval()
+        model.forward(Z)  # populate the eval-mode cache
+        model.train()
+        with torch.no_grad():
+            model.initial_covar_module.base_kernel.lengthscale = 0.15
+            model.initial_mean_module.constant.fill_(-1.0)
+        for training in (True, False):
+            model.train(training)
+            with torch.no_grad():
+                prior_at_Z = model.forward(Z)
+            self.assertAllClose(prior_at_Z.mean, prior.mu_inducing, atol=1e-6)
+            self.assertAllClose(
+                prior_at_Z.covariance_matrix, prior.Sigma_inducing, atol=1e-6
+            )
+
+        # Fitting the hyperparameters with the exact MLL of the target data works.
+        model.train()
+        fit_gpytorch_mll(
+            ExactMarginalLogLikelihood(model.likelihood, model),
+            optimizer_kwargs={"options": {"maxiter": 30}},
+        )
+        self.assertFalse(model.training)
+        with torch.no_grad():
+            prior_at_Z = model.forward(Z)
+        self.assertAllClose(prior_at_Z.mean, prior.mu_inducing, atol=1e-6)
+        self.assertAllClose(
+            prior_at_Z.covariance_matrix, prior.Sigma_inducing, atol=1e-6
+        )
+
+    def test_backward_and_deepcopy_after_fitting_step(self) -> None:
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        model = self._model(tkwargs)
+        mll = EMEmpiricalMarginalLogLikelihood(model.likelihood, model)
+        # A from-scratch MLL evaluation re-runs EM with gradients; its backward
+        # pass frees that graph.
+        loss = -mll(None, None)
+        loss.backward()
+
+        model.eval()
+        # Repeated backward passes w.r.t. the inputs, each through its own graph.
+        for _ in range(2):
+            X = torch.rand(3, 1, **tkwargs, requires_grad=True)
+            model.posterior(X).mean.sum().backward()
+            self.assertTrue(torch.isfinite(X.grad).all())
+
+        test_X = torch.rand(4, 1, **tkwargs)
+        model_copy = copy.deepcopy(model)
+        with torch.no_grad():
+            self.assertAllClose(
+                model_copy.posterior(test_X).mean, model.posterior(test_X).mean
+            )
+        new_X = torch.rand(2, 1, **tkwargs)
+        conditioned = model.condition_on_observations(new_X, torch.sin(6 * new_X))
+        self.assertEqual(conditioned.posterior(test_X).mean.shape, (4, 1))
+
+        # Neither the EM state nor the eval-mode cache holds an autograd graph.
+        self.assertIsNone(model._mu_inducing.grad_fn)
+        self.assertIsNone(model._Sigma_inducing.grad_fn)
+        L_ZZ, m_Z = model._parametric_prior_cache
+        self.assertIsNone(L_ZZ.grad_fn)
+        self.assertIsNone(m_Z.grad_fn)
+        # Switching modes clears the eval-mode cache.
+        model.train()
+        self.assertIsNone(model._parametric_prior_cache)
