@@ -31,7 +31,8 @@ class PairwiseMCSampler(MCSampler):
         Args:
             max_num_comparisons: Max number of comparisons drawn within samples.
                 If None, use all possible pairwise comparisons
-            seed: The seed for np.random.seed. If omitted, use a random seed.
+            seed: The seed for the NumPy generator used to select comparisons.
+                If omitted, use a random seed.
                 May be overwritten by sibling classes or subclasses.
         """
         self.max_num_comparisons = max_num_comparisons
@@ -45,10 +46,13 @@ class PairwiseMCSampler(MCSampler):
                 The returned samples are expected to have output dimension of 1.
 
         Returns:
-            Posterior sample pairwise comparisons.
+            Posterior sample pairwise comparisons. Following the ``PairwiseGP``
+            convention, each comparison ``(i, j)`` means that ``i`` is preferred
+            over ``j``, i.e., that the sampled utility of ``i`` is larger.
         """
         samples = super().forward(posterior)
-        np.random.seed(self.seed)
+        # Use a local generator so as not to reseed NumPy's global RNG.
+        rng = np.random.default_rng(self.seed)
 
         s_n = samples.shape[-2]  # candidate number per batch
         if s_n < 2:
@@ -61,18 +65,17 @@ class PairwiseMCSampler(MCSampler):
         else:
             comp_n = min(self.max_num_comparisons, len(all_pairs))
 
-        comp_pairs = all_pairs[
-            np.random.choice(range(len(all_pairs)), comp_n, replace=False)
-        ]
+        comp_pairs = torch.from_numpy(
+            all_pairs[rng.choice(len(all_pairs), comp_n, replace=False)]
+        ).to(device=samples.device)
         s_comps_size = torch.Size((*samples.shape[:-2], comp_n, 2))
         s_v = samples.view(-1, s_n)
 
         idx1, idx2 = comp_pairs[:, 0], comp_pairs[:, 1]
-        prefs = (s_v[:, idx1] > s_v[:, idx2]).long().cpu()
-        cpt = comp_pairs.T
-        c1 = np.choose(prefs, cpt)
-        c2 = np.choose(1 - prefs, cpt)
-        s_comps = torch.stack([c1, c2], dim=-1).reshape(s_comps_size)
+        prefs = s_v[:, idx1] > s_v[:, idx2]
+        winners = torch.where(prefs, idx1, idx2)
+        losers = torch.where(prefs, idx2, idx1)
+        s_comps = torch.stack([winners, losers], dim=-1).reshape(s_comps_size)
 
         return s_comps
 
