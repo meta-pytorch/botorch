@@ -180,6 +180,20 @@ class TestVBLLModel(BotorchTestCase):
         with self.assertRaises(ValueError):
             _ = VBLLModel(backbone=test_backbone, hidden_features=num_hidden)
 
+    def test_backbone_on_model_device(self) -> None:
+        # A provided backbone must be stored on the same device as the VBLL head.
+        # The meta device allows checking this without a GPU.
+        test_backbone = torch.nn.Sequential(
+            torch.nn.Linear(2, 3),
+            torch.nn.ReLU(),
+            torch.nn.Linear(3, 3),
+        ).to(dtype=torch.float64)
+        device = torch.device("meta")
+        model = VBLLModel(backbone=test_backbone, hidden_features=3, device=device)
+        self.assertEqual(model.device, device)
+        for name, param in model.model.named_parameters():
+            self.assertEqual(param.device, device, f"{name} is on {param.device}.")
+
     def test_training(self) -> None:
         d, num_hidden = 4, 4
         # test for all parameterizations of the VBLL head

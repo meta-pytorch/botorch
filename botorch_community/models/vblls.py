@@ -154,7 +154,8 @@ class VBLLNetwork(nn.Module):
             self.num_inputs = in_features
 
         else:
-            self.backbone = backbone
+            # store the provided backbone on the same device as the VBLL head
+            self.backbone = backbone.to(device=self.device)
 
             # Try to infer input size if backbone is a Sequential and starts with Linear
             if isinstance(backbone, nn.Sequential) and isinstance(
