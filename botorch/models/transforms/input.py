@@ -860,7 +860,8 @@ class InputStandardize(AffineInputTransform):
             values.unsqueeze(-2)
             for values in torch.std_mean(X, dim=reduce_dims, unbiased=True)
         )
-        almost_zero = coefficient < self.min_std
+        # The std is NaN for a single observation, which is treated as zero spread.
+        almost_zero = ~(coefficient >= self.min_std)
         self._coefficient = torch.where(almost_zero, 1.0, coefficient)
         self._offset = torch.where(almost_zero, 0.0, offset)
 
