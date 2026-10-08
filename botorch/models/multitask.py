@@ -78,6 +78,7 @@ from linear_operator.operators import (
     DiagLinearOperator,
     KroneckerProductDiagLinearOperator,
     KroneckerProductLinearOperator,
+    LinearOperator,
     RootLinearOperator,
     to_linear_operator,
 )
@@ -122,6 +123,37 @@ def _compute_multitask_mean(
         # mean_x has shape ``batch_shape x n`` regardless
         mean_x = mean_module(x_mean)
     return mean_x
+
+
+class _TaskMappedHadamardGaussianLikelihood(HadamardGaussianLikelihood):
+    r"""A ``HadamardGaussianLikelihood`` for task values that are not task indices.
+
+    ``MultiTaskGP`` maps raw task values (e.g. ``[0, 2]``) to contiguous task
+    indices (``[0, 1]``) in its forward pass. The likelihood is evaluated on the
+    raw inputs, so the same mapping has to be applied before looking up the
+    per-task noise levels.
+    """
+
+    def __init__(self, task_mapper: Tensor, **kwargs: Any) -> None:
+        r"""
+        Args:
+            task_mapper: A tensor mapping raw task values to task indices, as
+                returned by ``get_task_value_remapping``.
+            kwargs: Passed to ``HadamardGaussianLikelihood``.
+        """
+        super().__init__(**kwargs)
+        # Not persistent, to keep the state dict the same as that of the base class.
+        self.register_buffer("_task_mapper", task_mapper, persistent=False)
+
+    def _shaped_noise_covar(
+        self, base_shape: torch.Size, *params: Any, **kwargs: Any
+    ) -> LinearOperator:
+        if len(params) > 0 and len(params[0]) > 0:
+            task_values = params[0] if torch.is_tensor(params[0]) else params[0][0]
+            if task_values.shape[-1] > 1:
+                task_values = task_values[..., [self.task_feature_index]]
+            params = (self._task_mapper[task_values.long()], *params[1:])
+        return super()._shaped_noise_covar(base_shape, *params, **kwargs)
 
 
 class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
@@ -286,21 +318,35 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
                 raise RuntimeError("All output tasks must be present in input data.")
         self._output_tasks = output_tasks
         self._num_outputs = len(output_tasks)
+        task_mapper = get_task_value_remapping(
+            all_task_values=torch.tensor(
+                sorted(all_tasks), dtype=torch.long, device=train_X.device
+            ),
+            dtype=train_X.dtype,
+        )
 
         if likelihood is None:
             if train_Yvar is None:
                 noise_prior = LogNormalPrior(loc=-4.0, scale=1.0)
-                likelihood = HadamardGaussianLikelihood(
-                    num_tasks=self.num_tasks,
-                    batch_shape=torch.Size(),
-                    noise_prior=noise_prior,
-                    noise_constraint=GreaterThan(
+                likelihood_kwargs = {
+                    "num_tasks": self.num_tasks,
+                    "batch_shape": torch.Size(),
+                    "noise_prior": noise_prior,
+                    "noise_constraint": GreaterThan(
                         MIN_INFERRED_NOISE_LEVEL,
                         transform=None,
                         initial_value=noise_prior.mode,
                     ),
-                    task_feature_index=task_feature,
-                )
+                    "task_feature_index": task_feature,
+                }
+                if task_mapper is None:
+                    likelihood = HadamardGaussianLikelihood(**likelihood_kwargs)
+                else:
+                    # The likelihood looks up the per-task noise levels using the
+                    # raw task values, which need to be mapped to task indices.
+                    likelihood = _TaskMappedHadamardGaussianLikelihood(
+                        task_mapper=task_mapper, **likelihood_kwargs
+                    )
             else:
                 likelihood = FixedNoiseGaussianLikelihood(noise=train_Yvar.squeeze(-1))
 
@@ -342,12 +388,6 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
         )
 
         self.covar_module = data_covar_module * task_covar_module
-        task_mapper = get_task_value_remapping(
-            all_task_values=torch.tensor(
-                sorted(all_tasks), dtype=torch.long, device=train_X.device
-            ),
-            dtype=train_X.dtype,
-        )
         self.register_buffer("_task_mapper", task_mapper)
         self._expected_task_values = set(all_tasks)
         if input_transform is not None:
