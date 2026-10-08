@@ -75,6 +75,7 @@ from gpytorch.utils.memoize import cached, pop_from_cache
 from linear_operator.operators import (
     BatchRepeatLinearOperator,
     CatLinearOperator,
+    ConstantDiagLinearOperator,
     DiagLinearOperator,
     KroneckerProductDiagLinearOperator,
     KroneckerProductLinearOperator,
@@ -123,6 +124,19 @@ def _compute_multitask_mean(
         # mean_x has shape ``batch_shape x n`` regardless
         mean_x = mean_module(x_mean)
     return mean_x
+
+
+def _inverse_root(covar: LinearOperator) -> LinearOperator:
+    r"""Compute an inverse root ``R`` of a covariance matrix, s.t. ``R R^T = covar^-1``.
+
+    Unlike ``covar.root_inv_decomposition()``, which returns ``R R^T`` (as a
+    ``RootLinearOperator``), this returns the root ``R`` itself. For diagonal
+    covariances, ``R`` is computed exactly; otherwise via a dense eigendecomposition.
+    """
+    if isinstance(covar, DiagLinearOperator):
+        return DiagLinearOperator(covar.diagonal().rsqrt())
+    evals, evecs = torch.linalg.eigh(covar.to_dense())
+    return to_linear_operator(evecs * evals.clamp_min(1e-7).rsqrt().unsqueeze(-2))
 
 
 class _TaskMappedHadamardGaussianLikelihood(HadamardGaussianLikelihood):
@@ -921,7 +935,12 @@ class KroneckerMultiTaskGP(ExactGP, GPyTorchModel, FantasizeMixin):
         test_mean = self.mean_module(X)
 
         train_noise = self.likelihood._shaped_noise_covar(train_x.shape)
-        diagonal_noise = isinstance(train_noise, DiagLinearOperator)
+        # The closed form below is only valid for homoskedastic noise. Kronecker
+        # structured noise (e.g. with different noise levels for different tasks)
+        # is handled by whitening.
+        diagonal_noise = isinstance(train_noise, DiagLinearOperator) and not isinstance(
+            train_noise, KroneckerProductLinearOperator
+        )
         if detach_test_caches.on():
             train_noise = train_noise.detach()
         test_noise = (
@@ -960,12 +979,8 @@ class KroneckerMultiTaskGP(ExactGP, GPyTorchModel, FantasizeMixin):
             # TODO: enforce the diagonalization to return a KPLT for all shapes in
             # gpytorch or dense linear algebra for small shapes
             data_noise, task_noise = train_noise.linear_ops
-            data_noise_root = data_noise.root_inv_decomposition(
-                method="diagonalization"
-            )
-            task_noise_root = task_noise.root_inv_decomposition(
-                method="diagonalization"
-            )
+            data_noise_root = _inverse_root(data_noise)
+            task_noise_root = _inverse_root(task_noise)
 
             # ultimately we need to compute the diagonal of
             # (K_{x* X} \kron K_T)(K_{XX} \kron K_T + \Sigma_X \kron \Sigma_T)^{-1}
@@ -976,12 +991,18 @@ class KroneckerMultiTaskGP(ExactGP, GPyTorchModel, FantasizeMixin):
             #                   \Sigma_T^{-1/2T}K_{T}\Sigma_T^{-1/2})
             # first we construct the components of R's eigen-decomposition
             # TODO: make this be the default KPMatmulLT diagonal method in gpytorch
-            whitened_data_covar = (
-                data_noise_root.transpose(-1, -2)
-                .matmul(data_data_covar)
-                .matmul(data_noise_root)
-            )
-            w_data_evals, w_data_evecs = whitened_data_covar.diagonalization()
+            if isinstance(data_noise, ConstantDiagLinearOperator):
+                # For \Sigma_X = c I (as for MultitaskGaussianLikelihood), the whitened
+                # data covariance K_{XX} / c has the same eigenvectors as K_{XX}.
+                w_data_evals = data_data_evals * data_noise_root.diagonal() ** 2
+                w_data_evecs = data_data_evecs
+            else:
+                whitened_data_covar = (
+                    data_noise_root.transpose(-1, -2)
+                    .matmul(data_data_covar)
+                    .matmul(data_noise_root)
+                )
+                w_data_evals, w_data_evecs = whitened_data_covar.diagonalization()
             whitened_task_covar = (
                 task_noise_root.transpose(-1, -2)
                 .matmul(self._task_covar_matrix)

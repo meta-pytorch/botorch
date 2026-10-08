@@ -46,6 +46,7 @@ from gpytorch.mlls.exact_marginal_log_likelihood import ExactMarginalLogLikeliho
 from gpytorch.priors import GammaPrior, LogNormalPrior, SmoothedBoxPrior
 from gpytorch.priors.lkj_prior import LKJCovariancePrior
 from gpytorch.settings import max_cholesky_size, max_root_decomposition_size
+from linear_operator.operators import DiagLinearOperator, KroneckerProductLinearOperator
 
 
 def _gen_model_and_data(
@@ -1315,6 +1316,78 @@ class TestKroneckerMultiTaskGP(BotorchTestCase):
             self.assertIsInstance(posterior_f.distribution, MultitaskMultivariateNormal)
             self.assertEqual(posterior_f.mean.shape, torch.Size([3, 2, 2]))
             self.assertEqual(posterior_f.variance.shape, torch.Size([3, 2, 2]))
+
+    def test_KroneckerMultiTaskGP_posterior_with_task_noise(self) -> None:
+        # Compare the posterior against the exact GP posterior, computed densely,
+        # for equal and different noise levels per task, correlated task noise, and
+        # noise that also differs across data points.
+        tkwargs: dict[str, Any] = {"device": self.device, "dtype": torch.double}
+        train_X, train_Y = _gen_random_kronecker_mt_data(**tkwargs)
+        test_X = torch.rand(3, 2, **tkwargs)
+        n, m = train_Y.shape
+
+        class DataNoiseLikelihood(MultitaskGaussianLikelihood):
+            def _shaped_noise_covar(self, shape, *args, **kwargs):
+                noise = super()._shaped_noise_covar(shape, *args, **kwargs)
+                data_noise = torch.linspace(0.5, 2.0, shape[-2], **tkwargs)
+                return KroneckerProductLinearOperator(
+                    DiagLinearOperator(data_noise), noise.linear_ops[1]
+                )
+
+        for likelihood_rank, task_noises, likelihood in (
+            (0, [0.05, 0.05], None),
+            (0, [0.01, 0.5], None),
+            (1, None, None),
+            (0, [0.01, 0.5], DataNoiseLikelihood(num_tasks=2)),
+        ):
+            model = KroneckerMultiTaskGP(
+                train_X,
+                train_Y,
+                likelihood=likelihood,
+                likelihood_rank=likelihood_rank,
+            )
+            with torch.no_grad():
+                if task_noises is None:
+                    model.likelihood.task_noise_covar_factor.copy_(
+                        torch.tensor([[0.1], [0.6]], **tkwargs)
+                    )
+                else:
+                    model.likelihood.task_noises = torch.tensor(task_noises, **tkwargs)
+                model.covar_module.task_covar_module.covar_factor.copy_(
+                    torch.tensor([[1.0, 0.0], [0.9, 0.3]], **tkwargs)
+                )
+            model.eval()
+            # The covariance matrices are interleaved, i.e. ordered by data point.
+            prior = model.forward(torch.cat([train_X, test_X]))
+            covar = prior.lazy_covariance_matrix.to_dense()
+            train_noise = model.likelihood._shaped_noise_covar(train_X.shape)
+            train_covar = covar[: n * m, : n * m] + train_noise.to_dense()
+            cross_covar = covar[n * m :, : n * m]
+            residual = (train_Y - prior.mean[:n]).reshape(-1)
+            expected_mean = prior.mean[n:] + (
+                cross_covar @ torch.linalg.solve(train_covar, residual)
+            ).view(-1, m)
+            expected_covar = covar[n * m :, n * m :] - cross_covar @ torch.linalg.solve(
+                train_covar, cross_covar.T
+            )
+            test_noise = model.likelihood._shaped_noise_covar(test_X.shape).to_dense()
+            for observation_noise in (False, True):
+                with self.subTest(
+                    likelihood_rank=likelihood_rank,
+                    task_noises=task_noises,
+                    likelihood=likelihood,
+                    observation_noise=observation_noise,
+                ):
+                    posterior = model.posterior(
+                        test_X, observation_noise=observation_noise
+                    )
+                    expected_var = (
+                        expected_covar + test_noise
+                        if observation_noise
+                        else expected_covar
+                    ).diagonal()
+                    self.assertAllClose(posterior.mean, expected_mean)
+                    self.assertAllClose(posterior.variance, expected_var.view(-1, m))
 
 
 class TestMultiTaskUtils(BotorchTestCase):
