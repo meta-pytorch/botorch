@@ -10,7 +10,7 @@ import warnings
 
 import torch
 from botorch import fit_gpytorch_mll
-from botorch.exceptions import InputDataError, OptimizationWarning
+from botorch.exceptions import InputDataError, OptimizationWarning, UnsupportedError
 from botorch.models import SingleTaskGP
 from botorch.models.transforms import Normalize, Standardize
 from botorch.models.utils.gpytorch_modules import (
@@ -101,6 +101,11 @@ class TestAugmentedSingleTaskGP(BotorchTestCase):
             train_X, train_Y = _get_random_data_with_source(
                 batch_shape=batch_shape, n=n, d=d, n_source=n_source
             )
+            if len(batch_shape) > 0:
+                # Batched training data would be merged when splitting by source.
+                with self.assertRaisesRegex(UnsupportedError, "batched training"):
+                    SingleTaskAugmentedGP(train_X, train_Y)
+                continue
             if n_source == 1:
                 self.assertRaises(
                     InputDataError, SingleTaskAugmentedGP, train_X, train_Y
@@ -114,6 +119,16 @@ class TestAugmentedSingleTaskGP(BotorchTestCase):
             self.assertRaises(
                 InputDataError, SingleTaskAugmentedGP, train_X, train_Y, m=0
             )
+
+    def test_source_labels(self):
+        # The sources index the per-source models, so they must be 0, ..., S - 1.
+        x = torch.linspace(0, 1, 6).unsqueeze(-1)
+        for sources in ((0, 2), (1, 2), (0.0, 0.5)):
+            train_X = torch.cat(
+                [torch.cat([x, torch.full_like(x, s)], dim=-1) for s in sources]
+            )
+            with self.assertRaisesRegex(InputDataError, "must be labeled 0, ..., S"):
+                SingleTaskAugmentedGP(train_X, torch.sin(6 * train_X[:, :1]))
 
     def test_transforms_not_shared(self):
         # Each source's GP must fit its own copy of the transforms; the cheap
@@ -179,7 +194,7 @@ class TestAugmentedSingleTaskGP(BotorchTestCase):
         d = 5
         bounds = torch.stack((torch.full((d - 1,), -1), torch.ones(d - 1)))
         for batch_shape, dtype, use_octf, use_intf, train_Yvar in itertools.product(
-            (torch.Size(), torch.Size([2])),
+            (torch.Size(),),  # batched training data is not supported
             (torch.float, torch.double),
             (False, True),
             (False, True),
@@ -334,7 +349,7 @@ class TestAugmentedSingleTaskGP(BotorchTestCase):
 
     def test_fixed_noise_likelihood(self):
         for batch_shape, dtype in itertools.product(
-            (torch.Size(), torch.Size([2])), (torch.float, torch.double)
+            (torch.Size(),), (torch.float, torch.double)
         ):
             tkwargs = {"device": self.device, "dtype": dtype}
             model, model_kwargs = self._get_model_and_data(
@@ -357,7 +372,7 @@ class TestAugmentedSingleTaskGP(BotorchTestCase):
 
     def test_fantasized_noise(self):
         for batch_shape, dtype, use_octf in itertools.product(
-            (torch.Size(), torch.Size([2])),
+            (torch.Size(),),
             (torch.float, torch.double),
             (False, True),
         ):
