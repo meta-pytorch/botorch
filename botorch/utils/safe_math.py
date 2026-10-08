@@ -74,10 +74,12 @@ def log1mexp(x: Tensor) -> Tensor:
     """
     log2 = get_constants_like(values=_log2, ref=x)
     is_small = -log2 < x  # x < 0
+    # Masking the inputs of each branch avoids NaN gradients due to the branch that is
+    # not selected by ``torch.where``, e.g. of ``log1p(-exp(x))`` for ``x`` close to 0.
     return torch.where(
         is_small,
-        (-x.expm1()).log(),
-        (-x.exp()).log1p(),
+        (-x.masked_fill(~is_small, -_log2).expm1()).log(),
+        (-x.masked_fill(is_small, -_log2).exp()).log1p(),
     )
 
 

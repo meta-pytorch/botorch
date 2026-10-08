@@ -284,6 +284,30 @@ class TestLogMeanExp(BotorchTestCase):
             )
 
 
+class TestLog1mExp(BotorchTestCase):
+    def test_log1mexp(self):
+        for dtype in (torch.float32, torch.float64):
+            tkwargs = {"dtype": dtype, "device": self.device}
+            # inputs on both sides of the branching point at -log(2), including inputs
+            # close to zero, for which log1p(-exp(x)) has an infinite derivative
+            x = (-torch.logspace(-30, 2, 33, **tkwargs)).requires_grad_(True)
+            y = safe_math.log1mexp(x)
+            x_double = x.detach().double()
+            self.assertAllClose(y, (-x_double.expm1()).log().to(dtype))
+            # d/dx log(1 - exp(x)) = -1 / expm1(-x)
+            y.sum().backward()
+            self.assertTrue(x.grad.isfinite().all())
+            expected_grad = -1 / (-x_double).expm1()
+            self.assertAllClose(x.grad, expected_grad.to(dtype))
+
+            # logdiffexp with nearly equal inputs
+            log_a = torch.tensor(-1e-20, **tkwargs, requires_grad=True)
+            log_b = torch.tensor(0.0, **tkwargs, requires_grad=True)
+            logdiffexp(log_a=log_a, log_b=log_b).backward()
+            self.assertAllClose(log_a.grad, torch.tensor(-1e20, **tkwargs))
+            self.assertAllClose(log_b.grad, torch.tensor(1e20, **tkwargs))
+
+
 class TestEmptyReductionDims(BotorchTestCase):
     def test_empty_reduction_dims(self):
         # The maximum over an empty set is -inf. logsumexp and the fat maximum
