@@ -124,7 +124,9 @@ class BraninCurrin(MultiObjectiveTestProblem):
     num_objectives = 2
     _bounds = [(0.0, 1.0), (0.0, 1.0)]
     _ref_point = [18.0, 6.0]
-    _max_hv = 59.36011874867746  # this is approximated using NSGA-II
+    # Computed from a 32000 x 32000 grid and dense samples of the boundary of the
+    # domain, on which part of the Pareto front lies (these points attain 59.40645).
+    _max_hv = 59.4066
 
     def __init__(
         self,
@@ -1299,7 +1301,10 @@ class ConstrainedBraninCurrin(BraninCurrin, ConstrainedBaseTestProblem):
     _bounds = [(0.0, 1.0), (0.0, 1.0)]
     _con_bounds = [(-5.0, 10.0), (0.0, 15.0)]
     _ref_point = [80.0, 12.0]
-    _max_hv = 608.4004237022673  # from NSGA-II with 90k evaluations
+    # Computed from a 32000 x 32000 grid and dense samples of the constraint
+    # boundary, on which part of the Pareto front lies (these points attain
+    # 609.4036).
+    _max_hv = 609.4038
 
     def __init__(
         self,

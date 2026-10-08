@@ -107,6 +107,24 @@ class TestBraninCurrin(
             self.assertEqual(f.num_objectives, 2)
             self.assertEqual(f.dim, 2)
 
+    def test_max_hv(self):
+        super().test_max_hv()
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        f = BraninCurrin().to(**tkwargs)
+        # Part of the Pareto front lies on the boundary of the domain.
+        t = torch.linspace(0, 1, 1000, **tkwargs)
+        X = torch.stack(torch.meshgrid(t, t, indexing="ij"), dim=-1).reshape(-1, 2)
+        s = torch.linspace(0, 1, 10**6, **tkwargs)
+        X_edge = torch.cat(
+            [
+                torch.stack([s, torch.ones_like(s)], dim=-1),
+                torch.stack([torch.zeros_like(s), s], dim=-1),
+            ]
+        )
+        hv = _hypervolume_2d(f.evaluate_true(torch.cat([X, X_edge])), f.ref_point)
+        self.assertLessEqual(hv, f.max_hv)
+        self.assertGreater(hv, f.max_hv - 0.02)
+
 
 class TestDH(
     BotorchTestCase,
@@ -561,6 +579,23 @@ class TestConstrainedBraninCurrin(
             ConstrainedBraninCurrin(noise_std=[0.1, 0.2]),
             ConstrainedBraninCurrin(constraint_noise_std=0.1),
         ]
+
+    def test_max_hv(self):
+        super().test_max_hv()
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        f = ConstrainedBraninCurrin().to(**tkwargs)
+        # Part of the Pareto front lies on the boundary of the feasible disk with
+        # radius sqrt(50) / 15 around (0.5, 0.5).
+        t = torch.linspace(0, 1, 1000, **tkwargs)
+        X = torch.stack(torch.meshgrid(t, t, indexing="ij"), dim=-1).reshape(-1, 2)
+        phi = torch.linspace(0, 2 * math.pi, 10**6, **tkwargs)
+        r = math.sqrt(50) / 15 * (1 - 1e-12)
+        X_bd = 0.5 + r * torch.stack([phi.cos(), phi.sin()], dim=-1)
+        X = torch.cat([X, X_bd])
+        X = X[f.is_feasible(X, noise=False)]
+        hv = _hypervolume_2d(f.evaluate_true(X), f.ref_point)
+        self.assertLessEqual(hv, f.max_hv)
+        self.assertGreater(hv, f.max_hv - 0.005)
 
 
 class TestC2DTLZ2(
