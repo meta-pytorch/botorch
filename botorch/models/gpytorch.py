@@ -959,9 +959,10 @@ class MultiTaskGPyTorchModel(GPyTorchModel, ABC):
         the average noise per task is computed, and a diagonal noise
         matrix is added to the posterior covariance matrix, where
         the noise per input is the average noise for its respective
-        task. If the likelihood is a Gaussian likelihood, then
-        currently there is a shared inferred noise level for all
-        tasks.
+        task. For tasks without any training data, the average noise
+        across all training data is used. If the likelihood is a Gaussian
+        likelihood, then currently there is a shared inferred noise level
+        for all tasks.
 
         TODO: implement support for task-specific inferred noise levels.
 
@@ -995,11 +996,12 @@ class MultiTaskGPyTorchModel(GPyTorchModel, ABC):
             noise_by_task = torch.zeros(
                 *self.batch_shape, self.num_tasks, dtype=X.dtype, device=X.device
             )
+            noise = self.likelihood.noise
             for task_feature in unique_test_task_features:
                 mask = train_task_features == task_feature
-                noise_by_task[..., task_feature] = self.likelihood.noise[
-                    ..., mask
-                ].mean(dim=-1)
+                # Use the average noise across all tasks for unobserved tasks.
+                task_noise = noise[..., mask] if mask.any() else noise
+                noise_by_task[..., task_feature] = task_noise.mean(dim=-1)
             # noise_shape is ``broadcast(test_batch_shape, model.batch_shape) x q``
             noise_shape = (
                 broadcast_shapes(X.shape[:-2], self.batch_shape) + X.shape[-2:-1]
