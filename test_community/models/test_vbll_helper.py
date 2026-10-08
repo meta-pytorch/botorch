@@ -4,6 +4,8 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+import itertools
+
 import torch
 from botorch.utils.testing import BotorchTestCase
 from botorch_community.models.vbll_helper import (
@@ -12,6 +14,7 @@ from botorch_community.models.vbll_helper import (
     get_parameterization,
     LowRankNormal,
     Normal,
+    Regression,
     tp,
 )
 
@@ -581,6 +584,45 @@ class TestDenseNormalPrec(VBLLHelperTestCase):
         # Check values
         self.assertTrue(torch.all(result.loc == loc.squeeze(0)))
         self.assertTrue(torch.all(result.tril == L.squeeze(0)))
+
+
+class TestRegression(VBLLHelperTestCase):
+    def test_train_loss_expected_log_likelihood(self):
+        # Without regularization, the training loss is the negative expected
+        # log-likelihood under the variational distribution of the last layer,
+        # whose rows w_k ~ N(m_k, S_k) are independent (averaged over the data
+        # points and outputs).
+        in_features, n = 4, 5
+        for out_features, parameterization in itertools.product(
+            (1, 3), ("dense", "diagonal", "lowrank", "dense_precision")
+        ):
+            head = Regression(
+                in_features,
+                out_features,
+                regularization_weight=0.0,
+                parameterization=parameterization,
+                cov_rank=2 if parameterization == "lowrank" else None,
+                clamp_noise_init=False,
+            ).to(**self.tkwargs)
+            with torch.no_grad():
+                # different noise levels for the outputs
+                head.noise_logdiag.copy_(torch.linspace(0.5, -1.0, out_features))
+            x = torch.randn(n, in_features, **self.tkwargs)
+            y = torch.randn(n, out_features, **self.tkwargs)
+            with torch.no_grad():
+                loss = head(x).train_loss_fn(y)
+                W = head.W()
+                if parameterization == "diagonal":
+                    W_cov = W.covariance
+                else:
+                    W_cov = W.covariance_matrix
+                noise_var = head.noise().var
+                log_lik = torch.distributions.Normal(
+                    x @ W.mean.T, noise_var.sqrt()
+                ).log_prob(y)
+                quad_form = torch.einsum("ni,kij,nj->nk", x, W_cov, x)
+                expected_log_lik = log_lik - 0.5 * quad_form / noise_var
+            self.assertAllClose(loss, -expected_log_lik.mean())
 
 
 class TestGetParameterization(BotorchTestCase):

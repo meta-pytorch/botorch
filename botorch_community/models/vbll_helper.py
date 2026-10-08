@@ -513,9 +513,10 @@ class Regression(nn.Module):
             pred_density = Normal((W.mean @ x[..., None]).squeeze(-1), noise.scale)
             pred_likelihood = pred_density.log_prob(y)
 
+            # The rows w_k ~ N(m_k, S_k) of W are independent. Hence, the expected
+            # log-likelihood of output k includes -0.5 * x^T S_k x / sigma_k^2.
             trace_term = 0.5 * (
-                (W.covariance_weighted_inner_prod(x.unsqueeze(-2)[..., None]))
-                * noise.trace_precision
+                W.covariance_weighted_inner_prod(x.unsqueeze(-2)[..., None]) / noise.var
             )
 
             kl_term = gaussian_kl(W, self.prior_scale)
