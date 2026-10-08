@@ -51,8 +51,14 @@ class TestMorris(BotorchTestCase):
         f = Morris()
         X = torch.stack((torch.zeros(20), torch.ones(20)))
         Z = f.evaluate_true(X)
-        Ztrue = torch.tensor([5163.0, -8137.0])
+        Ztrue = torch.tensor([-327.0, -127.0])
         self.assertAllClose(Z, Ztrue, atol=1e-3)
+        # Inputs for which w_i = 0, except for w_i = 1 at the given indices.
+        X = torch.full((3, 20), 0.5)
+        X[:, [2, 4, 6]] = 1 / 12
+        X[1, [0, 6]] = 1.0  # 20 + 20 + beta_{1,7} with beta_{1,7} = +1
+        X[2, [0, 1, 5]] = 1.0  # 3 * 20 - 3 * 15 with beta_{1,2,6} = 0
+        self.assertAllClose(f.evaluate_true(X), torch.tensor([0.0, 41.0, 15.0]))
         self.assertIsNone(f._optimizers)
         with self.assertRaises(NotImplementedError):
             f.optimal_value

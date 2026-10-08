@@ -212,7 +212,18 @@ class Morris(SyntheticTestFunction):
         f(x) = sum_{i=1}\^20 beta_i w_i + sum_{i<j}\^20 beta_ij w_i w_j
         + sum_{i<j<l}\^20 beta_ijl w_i w_j w_l + 5w_1 w_2 w_3 w_4
 
+    where ``w_i = 2 (x_i - 0.5)``, except for ``i = 3, 5, 7``, where
+    ``w_i = 2 (1.1 x_i / (x_i + 0.1) - 0.5)``. As in [Morris1991]_, ``beta_i = 20``
+    for ``i <= 10``, ``beta_ij = -15`` for ``i, j <= 6`` and ``beta_ijl = -10`` for
+    ``i, j, l <= 5``. The remaining third-order coefficients are zero, and the
+    remaining first- and second-order coefficients, which are drawn from a standard
+    normal distribution in [Morris1991]_, are set to ``+/- 1``.
+
     Proposed to test sensitivity analysis methods
+
+    .. [Morris1991]
+        M. D. Morris. Factorial sampling plans for preliminary computational
+        experiments. Technometrics, 33(2):161-174, 1991.
     """
 
     def __init__(
@@ -278,13 +289,15 @@ class Morris(SyntheticTestFunction):
             t1 = t1 + betai * wi
         for i in range(self.dim):
             for j in range(i + 1, self.dim):
-                if i < 6 or j < 6:
+                # beta_ij = -15 if both i and j are among the first 6 inputs
+                if j < 6:
                     beta_ij = -15
                 else:
                     beta_ij = (-1) ** (i + j + 2)
                 t2 = t2 + beta_ij * W[i] * W[j]
                 for k in range(j + 1, self.dim):
-                    if i < 5 or j < 5 or k < 5:
+                    # beta_ijk = -10 if i, j and k are among the first 5 inputs
+                    if k < 5:
                         beta_ijk = -10
                     else:
                         beta_ijk = 0
