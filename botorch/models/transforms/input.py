@@ -38,7 +38,7 @@ from gpytorch import Module as GPyTorchModule
 from gpytorch.constraints import GreaterThan, Interval
 from gpytorch.priors import Prior
 from torch import LongTensor, nn, Tensor
-from torch.nn import Module, ModuleDict
+from torch.nn import Module, ModuleDict, ModuleList
 from torch.nn.functional import one_hot
 
 
@@ -193,7 +193,9 @@ class BatchBroadcastedInputTransform(InputTransform, ModuleDict):
         self.transform_on_train = False
         self.transform_on_eval = False
         self.transform_on_fantasize = False
-        self.transforms = transforms
+        # Register the transforms as submodules, so that e.g. ``eval``, ``to`` and
+        # ``state_dict`` are applied to them.
+        self.transforms = ModuleList(transforms)
         if broadcast_index in (-2, -1):
             raise ValueError(
                 "The broadcast index cannot be -2 and -1, as these indices are reserved"

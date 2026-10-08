@@ -802,6 +802,34 @@ class TestInputTransforms(BotorchTestCase):
                 transforms=[tf1, tf2], broadcast_index=-2
             )
 
+    def test_batch_broadcasted_input_transform_submodules(self) -> None:
+        # The transforms must be registered as submodules, so that they are put
+        # into eval mode, moved by ``to`` and included in the state dict.
+        tf1, tf2 = Normalize(d=2), InputStandardize(d=2)
+        tf = BatchBroadcastedInputTransform(transforms=[tf1, tf2])
+        self.assertEqual(
+            set(tf.state_dict()),
+            {
+                f"transforms.{i}.{k}"
+                for i in (0, 1)
+                for k in ("_coefficient", "_offset")
+            },
+        )
+        X = torch.rand(2, 4, 2, device=self.device)
+        tf(X)
+        tf.eval()
+        self.assertFalse(tf1.training)
+        self.assertFalse(tf2.training)
+        # In eval mode, the learned coefficients are used rather than re-learned.
+        X_new = 2 * X + 1
+        expected = torch.stack(
+            [(X_new[i] - t.offset) / t.coefficient for i, t in enumerate((tf1, tf2))]
+        )
+        self.assertAllClose(tf(X_new), expected)
+        tf.to(dtype=torch.double)
+        self.assertEqual(tf1._coefficient.dtype, torch.double)
+        self.assertEqual(tf2._coefficient.dtype, torch.double)
+
     def test_round_transform_init(self) -> None:
         # basic init
         int_idcs = [0, 4]
