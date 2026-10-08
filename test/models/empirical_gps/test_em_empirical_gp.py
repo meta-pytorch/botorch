@@ -5,9 +5,11 @@
 # LICENSE file in the root directory of this source tree.
 
 import copy
+from unittest import mock
 
 import torch
 from botorch.fit import fit_gpytorch_mll
+from botorch.models.empirical_gps import em_empirical_gp
 from botorch.models.empirical_gps.em_empirical_gp import (  # noqa: E501
     _e_step,
     _m_step,
@@ -18,6 +20,7 @@ from botorch.models.empirical_gps.em_empirical_gp import (  # noqa: E501
     pretrain_em_prior,
 )
 from botorch.models.empirical_gps.utils import build_unique_inputs, ExperimentDataset
+from botorch.optim.closures import get_loss_closure_with_grads
 from botorch.utils.testing import BotorchTestCase
 from gpytorch.constraints import GreaterThan
 from gpytorch.kernels import MaternKernel, RBFKernel, ScaleKernel
@@ -1869,6 +1872,37 @@ class TestEMCoverage(BotorchTestCase):
         self.assertTrue(torch.isfinite(out).all())
         self.assertTrue(torch.isfinite(model._mu_inducing).all())
         self.assertTrue(torch.isfinite(model._Sigma_inducing).all())
+
+    def test_loss_closure_runs_em_once(self) -> None:
+        """The fitting closure of a from-scratch model re-runs EM only once."""
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        model = EMEmpiricalGaussianProcess(
+            train_X=torch.rand(3, 1, **tkwargs),
+            train_Y=torch.randn(3, 1, **tkwargs),
+            datasets=self._datasets(tkwargs),
+            mean_module=ConstantMean().to(**tkwargs),
+            covar_module=ScaleKernel(MaternKernel()).to(**tkwargs),
+            inducing_points=torch.linspace(0, 1, 5, **tkwargs).unsqueeze(-1),
+            num_em_iterations=2,
+        )
+        mll = EMEmpiricalMarginalLogLikelihood(model.likelihood, model)
+        mll.train()
+        params = {n: p for n, p in mll.named_parameters() if p.requires_grad}
+        closure = get_loss_closure_with_grads(mll, parameters=params)
+        with mock.patch.object(
+            em_empirical_gp,
+            "_run_em_algorithm",
+            wraps=em_empirical_gp._run_em_algorithm,
+        ) as mock_run_em:
+            loss, grads = closure()
+            grads = [grad.clone() for grad in grads]
+        self.assertEqual(mock_run_em.call_count, 1)
+        # Same loss and gradients as evaluating the MLL on the training output.
+        expected_loss = -mll(model(*model.train_inputs), model.train_targets)
+        expected_grads = torch.autograd.grad(expected_loss, list(params.values()))
+        self.assertAllClose(loss, expected_loss)
+        for grad, expected_grad in zip(grads, expected_grads, strict=True):
+            self.assertAllClose(grad, expected_grad)
 
     def test_named_priors_in_mll(self) -> None:
         from gpytorch.priors import GammaPrior
