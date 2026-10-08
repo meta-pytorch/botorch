@@ -4,6 +4,9 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+from unittest import mock
+
+import numpy as np
 import torch
 from botorch.acquisition.objective import ScalarizedPosteriorTransform
 from botorch.models.fully_bayesian import SaasFullyBayesianSingleTaskGP
@@ -11,6 +14,7 @@ from botorch.models.transforms.input import Normalize
 from botorch.utils.test_helpers import _get_mcmc_samples, get_fully_bayesian_model
 from botorch.utils.testing import BotorchTestCase
 from botorch_community.acquisition.scorebo import qSelfCorrectingBayesianOptimization
+from scipy.stats import truncnorm
 
 
 class TestQSelfCorrectingBayesianOptimization(BotorchTestCase):
@@ -135,3 +139,39 @@ class TestQSelfCorrectingBayesianOptimization(BotorchTestCase):
             optimal_inputs[0, 0].view(1, 1, d), observation_noise=False
         )
         self.assertTrue((posterior.variance < 1e-3).all())
+
+    def test_truncated_moments(self):
+        # The moments of the posterior truncated at the max-value must be accurate,
+        # also far in the tail (where the normal cdf underflows).
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        num_models, d = 3, 2
+        train_X = torch.rand(8, d, **tkwargs)
+        model = get_fully_bayesian_model(
+            train_X=train_X,
+            train_Y=torch.sin(6 * train_X.sum(dim=-1, keepdim=True)),
+            num_models=num_models,
+            **tkwargs,
+        )
+        X = torch.rand(1, 1, d, **tkwargs)
+        with torch.no_grad():
+            posterior = model.posterior(X, observation_noise=False)
+            noise = model.posterior(X, observation_noise=True).variance.view(-1)
+        mean = posterior.mean.view(-1)
+        std = posterior.variance.sqrt().view(-1)
+        noise = noise - std.square()
+        for beta in (-2.0, -5.0, -10.0):
+            acq = qSelfCorrectingBayesianOptimization(
+                model=model, optimal_outputs=(mean + beta * std).view(1, -1, 1)
+            )
+            with mock.patch.object(acq, "distance", wraps=acq.distance) as distance:
+                acq(X)
+            trunc_mean, _, trunc_covar, _ = distance.call_args.args
+            loc, scale = mean.cpu().numpy(), std.cpu().numpy()
+            ref_mean = torch.as_tensor(
+                truncnorm.mean(-np.inf, beta, loc=loc, scale=scale)
+            )
+            ref_var = torch.as_tensor(
+                truncnorm.var(-np.inf, beta, loc=loc, scale=scale)
+            )
+            self.assertAllClose(trunc_mean.view(-1), ref_mean.to(X))
+            self.assertAllClose(trunc_covar.view(-1), ref_var.to(X) + noise)
