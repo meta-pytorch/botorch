@@ -26,6 +26,7 @@ from botorch.acquisition.multi_objective.monte_carlo import (
 )
 from botorch.acquisition.multi_objective.multi_output_risk_measures import (
     MultiOutputRiskMeasureMCObjective,
+    MVaR,
 )
 from botorch.acquisition.multi_objective.objective import (
     GenericMCMultiOutputObjective,
@@ -1035,6 +1036,131 @@ class TestQNoisyExpectedHypervolumeImprovement(BotorchTestCase):
                 transitioned_value.sum().backward()
                 fresh_value.sum().backward()
                 self.assertAllClose(transitioned_X.grad, fresh_X.grad)
+
+    def test_nonincremental_nehvi_pending_common_random_numbers(self) -> None:
+        # The decompositions over the baseline and the cached pending points must
+        # use the same base samples for the observed baseline as ``_baseline_hvs``.
+        # Otherwise, ``_prev_nehvi`` compares HVs under independent posterior samples.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        torch.manual_seed(0)
+        X_baseline = torch.rand(6, 2, **tkwargs)
+        model = SingleTaskGP(X_baseline, torch.randn(6, 2, **tkwargs))
+        ref_point = torch.tensor([-1.0, -1.0], **tkwargs)
+        pending = torch.rand(3, 2, **tkwargs)
+        n = X_baseline.shape[0]
+
+        def hv(Y: Tensor) -> Tensor:
+            return DominatedPartitioning(ref_point=ref_point, Y=Y).compute_hypervolume()
+
+        for acqf_class, cache_root in product(
+            (
+                qNoisyExpectedHypervolumeImprovement,
+                qLogNoisyExpectedHypervolumeImprovement,
+            ),
+            (False, True),
+        ):
+            with (
+                self.subTest(acqf_class=acqf_class.__name__, cache_root=cache_root),
+                catch_warnings(),
+            ):
+                simplefilter("ignore", category=NumericsWarning)
+                kwargs = {
+                    "model": model,
+                    "ref_point": ref_point,
+                    "X_baseline": X_baseline,
+                    "cache_pending": True,
+                    "max_iep": 0,
+                    "incremental_nehvi": False,
+                    "cache_root": cache_root,
+                }
+                baseline_base_samples = acqf_class(
+                    sampler=SobolQMCNormalSampler(torch.Size([16]), seed=1234),
+                    **kwargs,
+                ).base_sampler.base_samples
+                acqf = acqf_class(
+                    sampler=SobolQMCNormalSampler(torch.Size([16]), seed=1234),
+                    X_pending=pending[:1],
+                    **kwargs,
+                )
+                # Append, replace, shrink, append, and clear the pending points.
+                for X_pending in (
+                    pending[:1],
+                    pending[:2],
+                    pending[1:],
+                    pending[:1],
+                    pending,
+                    None,
+                ):
+                    acqf.set_X_pending(X_pending)
+                    self.assertTrue(
+                        torch.equal(
+                            acqf.base_sampler.base_samples[..., :n, :],
+                            baseline_base_samples,
+                        )
+                    )
+                    with torch.no_grad():
+                        samples = acqf.base_sampler(model.posterior(acqf.X_baseline))
+                    baseline_hvs = torch.stack([hv(Y[:n]) for Y in samples])
+                    self.assertAllClose(acqf._baseline_hvs, baseline_hvs)
+                    expected_prev_nehvi = (
+                        torch.stack([hv(Y) for Y in samples]) - baseline_hvs
+                    ).mean()
+                    self.assertAllClose(acqf._prev_nehvi, expected_prev_nehvi)
+
+    def test_nonincremental_nehvi_with_mvar(self) -> None:
+        # MVaR maps the ``n_w`` perturbations of each point to a set of MVaR
+        # points, so the objective has more rows than ``X_baseline``.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        torch.manual_seed(0)
+        n_w = 3
+        X_baseline = torch.rand(4, 2, **tkwargs)
+        model = SingleTaskGP(
+            X_baseline,
+            torch.randn(4, 2, **tkwargs),
+            input_transform=InputPerturbation(
+                perturbation_set=0.1 * torch.randn(n_w, 2, **tkwargs)
+            ),
+        )
+        mvar = MVaR(n_w=n_w, alpha=0.5)
+        ref_point = torch.tensor([-2.0, -2.0], **tkwargs)
+        n = X_baseline.shape[0] * n_w
+
+        def hv(Y: Tensor) -> Tensor:
+            return DominatedPartitioning(ref_point=ref_point, Y=Y).compute_hypervolume()
+
+        for acqf_class, cache_root in product(
+            (
+                qNoisyExpectedHypervolumeImprovement,
+                qLogNoisyExpectedHypervolumeImprovement,
+            ),
+            (False, True),
+        ):
+            with (
+                self.subTest(acqf_class=acqf_class.__name__, cache_root=cache_root),
+                catch_warnings(),
+            ):
+                simplefilter("ignore", category=NumericsWarning)
+                acqf = acqf_class(
+                    model=model,
+                    ref_point=ref_point,
+                    X_baseline=X_baseline,
+                    sampler=SobolQMCNormalSampler(torch.Size([8]), seed=0),
+                    objective=mvar,
+                    X_pending=torch.rand(1, 2, **tkwargs),
+                    incremental_nehvi=False,
+                    cache_root=cache_root,
+                )
+                with torch.no_grad():
+                    samples = acqf.base_sampler(model.posterior(acqf.X_baseline))
+                baseline_hvs = torch.stack([hv(Y) for Y in mvar(samples[..., :n, :])])
+                self.assertAllClose(acqf._baseline_hvs, baseline_hvs)
+                expected_prev_nehvi = (
+                    torch.stack([hv(Y) for Y in mvar(samples)]) - baseline_hvs
+                ).mean()
+                self.assertAllClose(acqf._prev_nehvi, expected_prev_nehvi)
+                self.assertEqual(
+                    acqf(torch.rand(2, 1, 2, **tkwargs)).shape, torch.Size([2])
+                )
 
     def _test_q_noisy_expected_hypervolume_improvement_m1(
         self, acqf_class: type[AcquisitionFunction], dtype: torch.dtype

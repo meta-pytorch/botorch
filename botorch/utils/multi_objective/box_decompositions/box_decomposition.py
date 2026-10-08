@@ -286,6 +286,10 @@ class FastPartitioning(BoxDecomposition, ABC):
                 # only include points that are better than the reference point
                 better_than_ref = (Y > self.ref_point).all(dim=-1)
                 Y = Y[better_than_ref]
+                if Y.shape[-2] == 0:
+                    # The Pareto frontier and the decomposition do not change.
+                    # Note that ``pareto_mask[-0:]`` below would select all points.
+                    return
                 Y_all = torch.cat([self._neg_pareto_Y, -Y], dim=-2)
                 pareto_mask = is_non_dominated(-Y_all)
                 # determine the number of points in Y that are Pareto optimal
