@@ -474,6 +474,27 @@ class PolytopeSamplerTestBase(ABC):
                         **self.sampler_kwargs,
                     )
 
+    def test_sample_polytope_with_redundant_eq_constraints(self):
+        for dtype in (torch.float, torch.double):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            bounds = torch.zeros(2, 3, **tkwargs)
+            bounds[1] = 1.0
+            # x_0 + x_1 = 1, stated twice with different scalings, so that C has rank 1
+            # and the feasible set is a two-dimensional polytope
+            C = torch.tensor([[1.0, 1.0, 0.0], [2.0, 2.0, 0.0]], **tkwargs)
+            d = torch.tensor([[1.0], [2.0]], **tkwargs)
+            sampler = self.sampler_class(
+                equality_constraints=(C, d), bounds=bounds, **self.sampler_kwargs
+            )
+            self.assertEqual(sampler.nullC.shape, torch.Size([3, 2]))
+            samples = sampler.draw(n=16)
+            self.assertLessEqual((C @ samples.t() - d).abs().max().item(), 1e-5)
+            self.assertTrue((samples <= bounds[1]).all())
+            self.assertTrue((samples >= bounds[0]).all())
+            # both dimensions of the null space are explored
+            self.assertGreater(samples[:, 0].std().item(), 1e-2)
+            self.assertGreater(samples[:, 2].std().item(), 1e-2)
+
     def test_sample_polytope_1d(self):
         for dtype in (torch.float, torch.double):
             A = torch.tensor(

@@ -509,7 +509,9 @@ class PolytopeSampler(ABC):
         if equality_constraints is not None:
             self.C, self.d = equality_constraints
             U, S, Vh = torch.linalg.svd(self.C)
-            r = torch.nonzero(S).size(0)  # rank of matrix C
+            # rank of matrix C, using a tolerance to discard singular values that
+            # are non-zero only due to round-off errors (e.g. for redundant rows)
+            r = torch.linalg.matrix_rank(self.C).item()
             self.nullC = Vh[r:, :].transpose(-1, -2)  # orthonormal null space of C,
             # satisfying # C @ nullC = 0 and nullC.T @ nullC = I
             # using the change of variables x=x0+nullC*y,
