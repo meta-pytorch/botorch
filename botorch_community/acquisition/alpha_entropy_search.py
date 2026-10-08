@@ -23,6 +23,7 @@ from botorch.acquisition.acquisition import AcquisitionFunction, MCSamplerMixin
 from botorch.acquisition.objective import PosteriorTransform
 from botorch.models.fully_bayesian import FullyBayesianSingleTaskGP
 from botorch.models.model import Model
+from botorch.models.model_list_gp_regression import ModelListGP
 from botorch.models.utils import check_no_nans, fantasize as fantasize_flag
 from botorch.models.utils.gpytorch_modules import MIN_INFERRED_NOISE_LEVEL
 from botorch.sampling.normal import SobolQMCNormalSampler
@@ -143,6 +144,14 @@ class qAlphaEntropySearch(AcquisitionFunction, MCSamplerMixin):
                         self.optimal_inputs[:1], observation_noise=False
                     )
 
+                # NOTE: ``condition_on_observations`` applies the input transform,
+                # except for ``ModelListGP``, which expects a list of transformed
+                # inputs (one per output).
+                X_opt = (
+                    self.initial_model.transform_inputs(self.optimal_inputs)
+                    if isinstance(self.initial_model, ModelListGP)
+                    else self.optimal_inputs
+                )
                 # This equates to the JES version proposed by Hvarfner et. al.
                 if self.condition_noiseless:
                     opt_noise = torch.full_like(
@@ -152,7 +161,7 @@ class qAlphaEntropySearch(AcquisitionFunction, MCSamplerMixin):
                     # x num_optima_per_model
                     self.conditional_model = (
                         self.initial_model.condition_on_observations(
-                            X=self.initial_model.transform_inputs(self.optimal_inputs),
+                            X=X_opt,
                             Y=self.optimal_outputs,
                             noise=opt_noise,
                         )
@@ -160,7 +169,7 @@ class qAlphaEntropySearch(AcquisitionFunction, MCSamplerMixin):
                 else:
                     self.conditional_model = (
                         self.initial_model.condition_on_observations(
-                            X=self.initial_model.transform_inputs(self.optimal_inputs),
+                            X=X_opt,
                             Y=self.optimal_outputs,
                         )
                     )
