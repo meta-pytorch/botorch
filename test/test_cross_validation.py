@@ -22,14 +22,15 @@ from botorch.cross_validation import (
 from botorch.exceptions.errors import UnsupportedError
 from botorch.exceptions.warnings import OptimizationWarning
 from botorch.fit import fit_gpytorch_mll
+from botorch.models.fully_bayesian import SaasFullyBayesianSingleTaskGP
 from botorch.models.gp_regression import SingleTaskGP
-from botorch.models.multitask import MultiTaskGP
+from botorch.models.multitask import KroneckerMultiTaskGP, MultiTaskGP
 from botorch.models.transforms.input import (
     ChainedInputTransform,
     InputTransform,
     Normalize,
 )
-from botorch.models.transforms.outcome import Log, Standardize
+from botorch.models.transforms.outcome import ChainedOutcomeTransform, Log, Standardize
 from botorch.posteriors.fully_bayesian import GaussianMixturePosterior
 from botorch.posteriors.gpytorch import GPyTorchPosterior
 from botorch.posteriors.transformed import TransformedPosterior
@@ -126,6 +127,50 @@ class TestFitBatchCrossValidation(BotorchTestCase):
                     cv_results.posterior.mean.device.type, self.device.type
                 )
                 self.assertIs(cv_results.posterior.mean.dtype, dtype)
+
+    def test_observation_noise_with_observed_noise(self) -> None:
+        """The held-out points' observed noise is added to the predictive variance.
+
+        Also checks that the caller's ``model_init_kwargs`` are not modified.
+        """
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        n = 6
+        train_X, train_Y = get_random_data(
+            batch_shape=torch.Size(), m=1, n=n, **tkwargs
+        )
+        # Heteroskedastic noise, so that the held-out noise differs from the mean
+        # noise of the training points of its fold.
+        train_Yvar = torch.full_like(train_Y, 1e-3)
+        train_Yvar[-1] = 0.5
+        cv_folds = gen_loo_cv_folds(
+            train_X=train_X, train_Y=train_Y, train_Yvar=train_Yvar
+        )
+        model_init_kwargs = {
+            "input_transform": Normalize(
+                d=train_X.shape[-1], batch_shape=cv_folds.train_X.shape[:-2]
+            )
+        }
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=OptimizationWarning)
+            cv_results = batch_cross_validation(
+                model_cls=SingleTaskGP,
+                mll_cls=ExactMarginalLogLikelihood,
+                cv_folds=cv_folds,
+                fit_args={"optimizer_kwargs": {"options": {"maxiter": 1}}},
+                observation_noise=True,
+                model_init_kwargs=model_init_kwargs,
+            )
+        self.assertEqual(list(model_init_kwargs), ["input_transform"])
+        # The model uses the default outcome transform, so the noise must be
+        # added in the transformed space to recover `test_Yvar` after untransform.
+        self.assertIsInstance(cv_results.model.outcome_transform, Standardize)
+        with torch.no_grad():
+            latent_posterior = cv_results.model.posterior(cv_folds.test_X)
+        self.assertAllClose(cv_results.posterior.mean, latent_posterior.mean)
+        self.assertAllClose(
+            cv_results.posterior.variance,
+            latent_posterior.variance + cv_folds.test_Yvar,
+        )
 
     def test_mtgp(self):
         train_X, train_Y = get_random_data(
@@ -326,6 +371,23 @@ class TestEfficientLOOCV(BotorchTestCase):
         ):
             efficient_loo_cv(model)
 
+        # Test 5: Multi-task models
+        task_X = torch.cat(
+            [train_X[:, :1], (torch.arange(10, device=self.device) % 2).unsqueeze(-1)],
+            dim=-1,
+        )
+        multi_task_models = [
+            MultiTaskGP(task_X, train_Y, task_feature=-1),
+            KroneckerMultiTaskGP(train_X, torch.rand(10, 2, device=self.device)),
+        ]
+        for mt_model in multi_task_models:
+            with self.subTest(model=type(mt_model).__name__):
+                mt_model.eval()
+                with self.assertRaisesRegex(
+                    UnsupportedError, "not supported for multi-task models"
+                ):
+                    loo_cv(mt_model)
+
     def test_untransform(self) -> None:
         """Test that untransform correctly maps results to original space.
 
@@ -485,6 +547,58 @@ class TestEfficientLOOCV(BotorchTestCase):
         self.assertFalse(
             torch.allclose(results.observed_Yvar, results_tf.observed_Yvar)
         )
+
+    def test_untransform_batched(self) -> None:
+        """Test untransform with outcome transforms batched like the model.
+
+        The statistics of ``Standardize(batch_shape=batch_shape)`` must be applied
+        per batch, not per fold, both for the case where the batch size differs from
+        the number of folds and for the case where they coincide.
+        """
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        n, d = 4, 2
+        for b, m, use_log in itertools.product((2, n), (1, 2), (False, True)):
+            with self.subTest(b=b, m=m, use_log=use_log):
+                batch_shape = torch.Size([b])
+                train_X = torch.rand(b, n, d, **tkwargs)
+                # Positive outcomes with distinct statistics in each batch.
+                scale = torch.arange(1, b + 1, **tkwargs).view(b, 1, 1)
+                train_Y = scale * (1 + torch.rand(b, n, m, **tkwargs))
+                standardize = Standardize(m=m, batch_shape=batch_shape)
+                outcome_transform = (
+                    ChainedOutcomeTransform(log=Log(), standardize=standardize)
+                    if use_log
+                    else standardize
+                )
+                model = SingleTaskGP(
+                    train_X, train_Y, outcome_transform=outcome_transform
+                )
+                model.eval()
+
+                results = efficient_loo_cv(model)
+                results_tf = efficient_loo_cv(model, untransform=False)
+
+                # Un-standardize with the batch statistics: batch_shape x 1 x 1 x m.
+                stdvs = standardize.stdvs.unsqueeze(-3)
+                means = standardize.means.unsqueeze(-3)
+                expected_mean = results_tf.posterior.mean * stdvs + means
+                expected_var = results_tf.posterior.variance * stdvs**2
+                if use_log:
+                    self.assertIsInstance(results.posterior, TransformedPosterior)
+                    expected_mean, expected_var = (
+                        torch.exp(expected_mean + 0.5 * expected_var),
+                        torch.special.expm1(expected_var)
+                        * torch.exp(2 * expected_mean + expected_var),
+                    )
+                else:
+                    self.assertIsInstance(results.posterior, GPyTorchPosterior)
+                expected_shape = torch.Size([b, n, 1, m])
+                self.assertEqual(results.posterior.mean.shape, expected_shape)
+                self.assertAllClose(results.posterior.mean, expected_mean)
+                self.assertAllClose(results.posterior.variance, expected_var)
+                samples = results.posterior.rsample(torch.Size([3]))
+                self.assertEqual(samples.shape, torch.Size([3]) + expected_shape)
+                self.assertAllClose(results.observed_Y.squeeze(-2), train_Y)
 
     def test_chained_input_transform(self) -> None:
         """Test efficient_loo_cv with dimension-changing ChainedInputTransform.
@@ -923,6 +1037,76 @@ class TestEnsembleLOOCV(BotorchTestCase):
                     )
                 else:
                     self.assertIsNone(loo_results.observed_Yvar)
+
+    def test_fully_bayesian_model(self) -> None:
+        """Test ensemble LOO CV with a fully Bayesian model.
+
+        Unlike the batched models above, ``SaasFullyBayesianSingleTaskGP`` only
+        batches its hyperparameters over the MCMC samples, so its ``train_targets``
+        have no ensemble dimension. The LOO predictions are compared with the
+        posteriors of models trained on the other ``n - 1`` points, using the same
+        MCMC samples.
+        """
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        n, d, num_samples = 6, 2, 3
+        train_X = torch.rand(n, d, **tkwargs)
+        train_Y = torch.randn(n, 1, **tkwargs)
+        per_member_shape = torch.Size([n, num_samples, 1, 1])
+        for infer_noise in (True, False):
+            with self.subTest(infer_noise=infer_noise):
+                train_Yvar = (
+                    None if infer_noise else 0.01 + 0.1 * torch.rand_like(train_Y)
+                )
+                mcmc_samples = {
+                    "lengthscale": 0.5 + torch.rand(num_samples, 1, d, **tkwargs),
+                    "outputscale": 0.5 + torch.rand(num_samples, **tkwargs),
+                    "mean": torch.randn(num_samples, **tkwargs),
+                }
+                if infer_noise:
+                    mcmc_samples["noise"] = 0.01 + 0.1 * torch.rand(
+                        num_samples, 1, **tkwargs
+                    )
+
+                def fully_bayesian_model(
+                    mask: torch.Tensor,
+                ) -> SaasFullyBayesianSingleTaskGP:
+                    model = SaasFullyBayesianSingleTaskGP(
+                        train_X=train_X[mask],
+                        train_Y=train_Y[mask],
+                        train_Yvar=None if train_Yvar is None else train_Yvar[mask],
+                    )
+                    model.load_mcmc_samples(mcmc_samples)
+                    return model.eval()
+
+                model = fully_bayesian_model(
+                    torch.ones(n, dtype=torch.bool, device=self.device)
+                )
+                self.assertEqual(model.train_targets.shape, torch.Size([n]))
+                # Dispatches to ensemble_loo_cv.
+                loo_results = loo_cv(model, observation_noise=infer_noise)
+                self.assertIsInstance(loo_results.posterior, GaussianMixturePosterior)
+                self.assertEqual(loo_results.posterior.mean.shape, per_member_shape)
+                for i in range(n):
+                    held_out = torch.arange(n, device=self.device) == i
+                    # num_samples x 1 x 1
+                    posterior = fully_bayesian_model(~held_out).posterior(
+                        train_X[held_out], observation_noise=infer_noise
+                    )
+                    self.assertAllClose(loo_results.posterior.mean[i], posterior.mean)
+                    self.assertAllClose(
+                        loo_results.posterior.variance[i], posterior.variance
+                    )
+                self.assertAllClose(
+                    loo_results.observed_Y,
+                    train_Y.view(n, 1, 1, 1).expand(per_member_shape),
+                )
+                if infer_noise:
+                    self.assertIsNone(loo_results.observed_Yvar)
+                else:
+                    self.assertAllClose(
+                        loo_results.observed_Yvar,
+                        train_Yvar.view(n, 1, 1, 1).expand(per_member_shape),
+                    )
 
     def test_fixed_noise_1d_edge_case(self) -> None:
         """Test observed_Yvar when noise has 1D shape (edge case).
