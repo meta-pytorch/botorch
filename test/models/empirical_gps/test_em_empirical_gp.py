@@ -984,6 +984,35 @@ class TestEMEmpiricalGaussianProcess(BotorchTestCase):
         model = self._make_model(datasets, tkwargs, enable_interpolation=False)
         self.assertFalse(model.enable_interpolation)
 
+    def test_direct_indexing_batched_inputs(self) -> None:
+        """Direct indexing supports t-batched ``(b, q, d)`` query points."""
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        datasets = self._make_datasets(K=5, n_i=4, tkwargs=tkwargs)
+        X_hist = build_unique_inputs(datasets, None).X_all
+        model = self._make_model(
+            datasets,
+            tkwargs,
+            train_X=X_hist[:3],
+            train_Y=torch.randn(3, 1, **tkwargs),
+            enable_interpolation=False,
+        )
+        model.eval()
+        X_batch = X_hist[3:9].reshape(3, 2, 1)
+        with torch.no_grad():
+            prior = model.forward(X_batch)
+            post = model.posterior(X_batch)
+            self.assertEqual(prior.mean.shape, (3, 2))
+            self.assertEqual(post.mean.shape, (3, 2, 1))
+            for i in range(3):
+                prior_i = model.forward(X_batch[i])
+                post_i = model.posterior(X_batch[i])
+                self.assertAllClose(prior.mean[i], prior_i.mean)
+                self.assertAllClose(
+                    prior.covariance_matrix[i], prior_i.covariance_matrix
+                )
+                self.assertAllClose(post.mean[i], post_i.mean)
+                self.assertAllClose(post.variance[i], post_i.variance)
+
     # =========================================================================
     # Pre-training Workflow Tests
     # =========================================================================

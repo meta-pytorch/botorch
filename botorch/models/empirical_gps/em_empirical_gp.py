@@ -1286,15 +1286,15 @@ class EMEmpiricalGaussianProcess(ExactGP, GPyTorchModel):
         the inducing points.
 
         Args:
-            indices: (n,) index tensor into _mu_inducing and _Sigma_inducing.
+            indices: (*batch, n) index tensor into _mu_inducing and _Sigma_inducing.
             mu_inducing: (M,) EM mean at the inducing points. Defaults to the
                 model's EM state.
             Sigma_inducing: (M, M) EM covariance at the inducing points. Defaults
                 to the model's EM state.
 
         Returns:
-            mu: (n,) mean at the indexed locations.
-            Sigma: (n, n) covariance at the indexed locations.
+            mu: (*batch, n) mean at the indexed locations.
+            Sigma: (*batch, n, n) covariance at the indexed locations.
         """
         if mu_inducing is None:
             mu_inducing = self._mu_inducing
@@ -1481,18 +1481,19 @@ class EMEmpiricalGaussianProcess(ExactGP, GPyTorchModel):
         """Find indices of X in historical observations.
 
         Args:
-            X: (n, d) query locations that must be a subset of _X_inducing.
+            X: (*batch, n, d) query locations that must be a subset of
+                _X_inducing.
 
         Returns:
-            indices: (n,) index tensor such that _X_inducing[indices] == X.
+            indices: (*batch, n) index tensor such that _X_inducing[indices] == X.
 
         Raises:
             ValueError: If any point in X is not found in historical observations.
         """
         # Compute pairwise distances to find matches
-        # X: (n, d), _X_inducing: (N, d)
-        dists = torch.cdist(X, self._X_inducing)  # (n, N)
-        min_dists, indices = dists.min(dim=1)
+        # X: (*batch, n, d), _X_inducing: (N, d)
+        dists = torch.cdist(X, self._X_inducing)  # (*batch, n, N)
+        min_dists, indices = dists.min(dim=-1)
 
         # Check that all points were found (within numerical tolerance)
         tol = 1e-6
@@ -1610,16 +1611,17 @@ def _index_prior(
     Args:
         mu_full: (N,) full mean vector at all inducing points.
         Sigma_full: (N, N) full covariance matrix at all inducing points.
-        indices: (n,) index tensor into mu_full and Sigma_full.
+        indices: (*batch, n) index tensor into mu_full and Sigma_full (the
+            cross-covariance requires a 1-dim ``indices``).
         include_cross_covariance: If True, also return cross-covariance Σ(all, indices).
 
     Returns:
-        mu: (n,) mean at the indexed locations.
-        Sigma: (n, n) covariance at the indexed locations.
+        mu: (*batch, n) mean at the indexed locations.
+        Sigma: (*batch, n, n) covariance at the indexed locations.
         cross_covariance: (N, n) cross-covariance, or None if not requested.
     """
     mu = mu_full[indices]
-    Sigma = Sigma_full[indices][:, indices]
+    Sigma = Sigma_full[indices.unsqueeze(-1), indices.unsqueeze(-2)]
 
     cross_covariance = None
     if include_cross_covariance:
