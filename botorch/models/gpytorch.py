@@ -651,11 +651,27 @@ class BatchedMultiOutputGPyTorchModel(GPyTorchModel):
                         )
                         for t in output_indices
                     ]
-                    mvn = MultitaskMultivariateNormal.from_independent_mvns(mvns=mvns)
+                    mvn = (
+                        mvns[0]
+                        if len(mvns) == 1
+                        else MultitaskMultivariateNormal.from_independent_mvns(
+                            mvns=mvns
+                        )
+                    )
 
         posterior = GPyTorchPosterior(distribution=mvn)
         if hasattr(self, "outcome_transform"):
-            posterior = self.outcome_transform.untransform_posterior(posterior, X=X)
+            outcome_transform = self.outcome_transform
+            if (
+                self._num_outputs > 1
+                and output_indices is not None
+                and list(output_indices) != list(range(self._num_outputs))
+            ):
+                # The posterior is only over the selected outputs.
+                outcome_transform = outcome_transform.subset_output(
+                    idcs=list(output_indices)
+                )
+            posterior = outcome_transform.untransform_posterior(posterior, X=X)
         if posterior_transform is not None:
             return posterior_transform(posterior=posterior, X=X)
         return posterior
