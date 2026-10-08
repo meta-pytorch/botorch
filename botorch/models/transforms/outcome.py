@@ -376,7 +376,8 @@ class Standardize(OutcomeTransform):
         nlzd_idcs = normalize_indices(idcs, d=self._m)
         new_outputs = None
         if self._outputs is not None:
-            new_outputs = [i for i in self._outputs if i in nlzd_idcs]
+            # The positions of the transformed outputs in the subset.
+            new_outputs = [j for j, i in enumerate(nlzd_idcs) if i in self._outputs]
         new_tf = self.__class__(
             m=new_m,
             outputs=new_outputs,
@@ -469,11 +470,14 @@ class Standardize(OutcomeTransform):
         if type(posterior) not in (GPyTorchPosterior, GaussianMixturePosterior):
             # fall back to TransformedPosterior
             # this applies to subclasses of GPyTorchPosterior like MultitaskGPPosterior
+            means, stdvs, stdvs_sq = self._get_per_input_means_stdvs(
+                X=X, include_stdvs_sq=True
+            )
             return TransformedPosterior(
                 posterior=posterior,
-                sample_transform=lambda s: self.means + self.stdvs * s,
-                mean_transform=lambda m, v: self.means + self.stdvs * m,
-                variance_transform=lambda m, v: self._stdvs_sq * v,
+                sample_transform=lambda s: means + stdvs * s,
+                mean_transform=lambda m, v: means + stdvs * m,
+                variance_transform=lambda m, v: stdvs_sq * v,
             )
         # GPyTorchPosterior (TODO: Should we Lazy-evaluate the mean here as well?)
         mvn = posterior.distribution
@@ -771,7 +775,8 @@ class Log(OutcomeTransform):
                     f"Negative indexing not supported for {self.__class__.__name__} "
                     "when subsetting outputs and only transforming some outputs."
                 )
-            new_outputs = [i for i in self._outputs if i in idcs]
+            # The positions of the transformed outputs in the subset.
+            new_outputs = [j for j, i in enumerate(idcs) if i in self._outputs]
         new_tf = self.__class__(outputs=new_outputs)
         if not self.training:
             new_tf.eval()
@@ -930,7 +935,8 @@ class Power(OutcomeTransform):
                     f"Negative indexing not supported for {self.__class__.__name__} "
                     "when subsetting outputs and only transforming some outputs."
                 )
-            new_outputs = [i for i in self._outputs if i in idcs]
+            # The positions of the transformed outputs in the subset.
+            new_outputs = [j for j, i in enumerate(idcs) if i in self._outputs]
         new_tf = self.__class__(power=self.power, outputs=new_outputs)
         if not self.training:
             new_tf.eval()
@@ -1063,7 +1069,8 @@ class Bilog(OutcomeTransform):
                     f"Negative indexing not supported for {self.__class__.__name__} "
                     "when subsetting outputs and only transforming some outputs."
                 )
-            new_outputs = [i for i in self._outputs if i in idcs]
+            # The positions of the transformed outputs in the subset.
+            new_outputs = [j for j, i in enumerate(idcs) if i in self._outputs]
         new_tf = self.__class__(outputs=new_outputs)
         if not self.training:
             new_tf.eval()

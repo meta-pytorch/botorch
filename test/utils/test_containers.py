@@ -88,7 +88,12 @@ class TestContainers(BotorchTestCase):
             self.assertTrue(X().equal(values))
 
             # Test ``clone``
-            self.assertEqual(X.clone(), X)
+            X_clone = X.clone()
+            self.assertEqual(X_clone, X)
+            self.assertEqual(X_clone.event_shape, X.event_shape)
+            # The clone does not share memory with the original.
+            X_clone.values.add_(1)
+            self.assertNotEqual(X_clone, X)
 
     def test_slice(self):
         for arity in (2, 4):
