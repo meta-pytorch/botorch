@@ -123,12 +123,14 @@ class DecoupledAcquisitionFunction(AcquisitionFunction, ABC):
                         f"`{X_pending.shape[0]} x {self.num_outputs}`, but "
                         f"got {shape_to_str(X_pending_evaluation_mask.shape)}."
                     )
-                self.X_pending_evaluation_mask = X_pending_evaluation_mask
             elif self.X_evaluation_mask is not None:
                 raise ValueError(
                     "If `self.X_evaluation_mask` is not None, then "
                     "`X_pending_evaluation_mask` must be provided."
                 )
+            # ``None`` means that ``X_pending`` is evaluated on all outcomes; this
+            # must not keep the mask of previously set pending points.
+            self.X_pending_evaluation_mask = X_pending_evaluation_mask
 
         else:
             self.X_pending = X_pending
