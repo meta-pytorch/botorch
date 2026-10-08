@@ -539,10 +539,46 @@ class TestC2DTLZ2(
             C2DTLZ2(dim=3, num_objectives=2, noise_std=[0.1, 0.2]),
         ]
 
-    def test_batch_exception(self):
-        f = C2DTLZ2(dim=3, num_objectives=2)
+    def test_batch_shapes(self):
+        f = C2DTLZ2(dim=3, num_objectives=2).to(device=self.device)
+        X = torch.rand(2, 4, 3, device=self.device, dtype=torch.double)
+        slack = f.evaluate_slack_true(X)
+        self.assertEqual(slack.shape, torch.Size([2, 4, 1]))
+        self.assertAllClose(slack[1, 2], f.evaluate_slack_true(X[1, 2]))
+        self.assertEqual(f.evaluate_slack_true(X[0, 0]).shape, torch.Size([1]))
+
+    def test_constraint(self):
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        for M, r in ((2, 0.2), (3, 0.4), (4, 0.5)):
+            f = C2DTLZ2(dim=M + 2, num_objectives=M).to(**tkwargs)
+            self.assertEqual(f._r, r)
+            X = torch.rand(100, M + 2, **tkwargs)
+            F = f.evaluate_true(X)
+            # feasible iff F is within distance r of e_i or of (1, ..., 1) / sqrt(M)
+            centers = torch.cat(
+                [torch.eye(M, **tkwargs), torch.full((1, M), M**-0.5, **tkwargs)]
+            )
+            min_dist = torch.cdist(F, centers).min(dim=-1).values
+            self.assertAllClose(
+                f.evaluate_slack_true(X).squeeze(-1), r**2 - min_dist.pow(2)
+            )
+        # A point on the Pareto front at distance ~0.25 > r from the center.
+        f = C2DTLZ2(dim=3, num_objectives=2).to(**tkwargs)
+        X = torch.tensor([0.5 + 0.5 / math.pi, 0.5, 0.5], **tkwargs)
+        self.assertFalse(f.is_feasible(X, noise=False).item())
+
+    def test_max_hv(self):
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        f = C2DTLZ2(dim=3, num_objectives=2).to(**tkwargs)
+        # feasible part of the Pareto front (x_1 = x_2 = 0.5)
+        x_0 = torch.linspace(0, 1, 100001, **tkwargs)
+        X = torch.cat([x_0.unsqueeze(-1), torch.full((100001, 2), 0.5, **tkwargs)], -1)
+        X = X[f.is_feasible(X, noise=False)]
+        hv = _hypervolume_2d(f.evaluate_true(X), f.ref_point)
+        self.assertLessEqual(hv, f.max_hv)
+        self.assertGreater(hv, f.max_hv - 1e-5)
         with self.assertRaises(NotImplementedError):
-            f.evaluate_slack_true(torch.rand(1, 1, 3))
+            C2DTLZ2(dim=4, num_objectives=3).max_hv
 
 
 class TestDiscBrake(

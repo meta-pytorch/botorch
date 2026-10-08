@@ -51,6 +51,12 @@ References
     Test Suite Construction and Performance Comparisons. IEEE Transactions
     on Evolutionary Computation, 23(6):972–986, December 2019.
 
+.. [Jain2014]
+    H. Jain and K. Deb. An Evolutionary Many-Objective Optimization Algorithm
+    Using Reference-Point Based Nondominated Sorting Approach, Part II: Handling
+    Constraints and Extending to an Adaptive Approach. IEEE Transactions on
+    Evolutionary Computation, 18(4):602–622, 2014.
+
 .. [Oszycka1995]
     A. Osyczka and S. Kundu. A new method to solve generalized
     multicriteria optimization problems using the simple genetic algorithm.
@@ -1314,28 +1320,62 @@ class ConstrainedBraninCurrin(BraninCurrin, ConstrainedBaseTestProblem):
 
 
 class C2DTLZ2(DTLZ2, ConstrainedBaseTestProblem):
+    r"""C2-DTLZ2 test problem from [Jain2014]_.
+
+    This is DTLZ2 with the constraint
+
+        c(x) = -min(
+            min_i [(f_i(x) - 1)^2 + \sum_{j != i} f_j(x)^2 - r^2],
+            \sum_i (f_i(x) - 1 / sqrt(M))^2 - r^2
+        ) >= 0,
+
+    which only leaves the regions of the objective space within distance ``r`` of
+    the ``M`` points ``e_i`` and of the point ``(1, ..., 1) / sqrt(M)`` feasible.
+    As in [Jain2014]_, ``r = 0.4`` for ``M = 3`` and ``r = 0.5`` for ``M > 3``. For
+    ``M = 2``, ``r = 0.2`` is used.
+    """
+
     num_constraints = 1
-    _r = 0.2
-    # approximate from nsga-ii, TODO: replace with analytic
-    _max_hv = 0.3996406303723544
+
+    @property
+    def _r(self) -> float:
+        if self.num_objectives == 2:
+            return 0.2
+        return 0.4 if self.num_objectives == 3 else 0.5
+
+    @property
+    def _max_hv(self) -> float | None:
+        if self.num_objectives != 2:
+            return None
+        # The feasible Pareto front consists of the arcs of the unit circle with
+        # angles in [0, a], [pi / 4 - a, pi / 4 + a] and [pi / 2 - a, pi / 2],
+        # where a = 2 * arcsin(r / 2). The hypervolume dominated by the full quarter
+        # circle is reduced by the area between the circle and the two "corners"
+        # of the dominated region that bridge the gaps between these arcs.
+        a = 2 * math.asin(self._r / 2)
+
+        def _area_under_circle(lo: float, hi: float) -> float:
+            # integral of sqrt(1 - t^2) from lo to hi
+            def F(t: float) -> float:
+                return 0.5 * (t * math.sqrt(1 - t * t) + math.asin(t))
+
+            return F(hi) - F(lo)
+
+        lo, hi = a, pi / 4 - a  # the second gap is the mirror image of the first
+        gap = (math.cos(lo) - math.cos(hi)) * (math.sin(hi) - math.sin(lo)) - (
+            _area_under_circle(math.cos(hi), math.cos(lo))
+            - math.sin(lo) * (math.cos(lo) - math.cos(hi))
+        )
+        return self._ref_val**2 - pi / 4 - 2 * gap
 
     def _evaluate_slack_true(self, X: Tensor) -> Tensor:
-        if X.ndim > 2:
-            raise NotImplementedError("Batch X is not supported.")
         f_X = self.evaluate_true(X=X)
-        term1 = (f_X - 1).pow(2)
-        mask = ~(torch.eye(f_X.shape[-1], device=f_X.device).bool())
-        indices = torch.arange(f_X.shape[1], device=f_X.device).repeat(f_X.shape[1], 1)
-        indexer = indices[mask].view(f_X.shape[1], f_X.shape[-1] - 1)
-        term2_inner = (
-            f_X.unsqueeze(1)
-            .expand(f_X.shape[0], f_X.shape[-1], f_X.shape[-1])
-            .gather(dim=-1, index=indexer.repeat(f_X.shape[0], 1, 1))
-        )
-        term2 = (term2_inner.pow(2) - self._r**2).sum(dim=-1)
-        min1 = (term1 + term2).min(dim=-1).values
-        min2 = ((f_X - 1 / math.sqrt(f_X.shape[-1])).pow(2) - self._r**2).sum(dim=-1)
-        return -torch.min(min1, min2).unsqueeze(-1)
+        f_X_sq = f_X.pow(2)
+        # (f_i - 1)^2 + \sum_{j != i} f_j^2 for each i
+        dist_to_e_i = (f_X - 1).pow(2) + f_X_sq.sum(dim=-1, keepdim=True) - f_X_sq
+        dist_to_center = (f_X - 1 / math.sqrt(self.num_objectives)).pow(2).sum(dim=-1)
+        min_dist = torch.minimum(dist_to_e_i.min(dim=-1).values, dist_to_center)
+        return -(min_dist - self._r**2).unsqueeze(-1)
 
 
 class DiscBrake(MultiObjectiveTestProblem, ConstrainedBaseTestProblem):
