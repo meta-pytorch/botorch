@@ -126,15 +126,16 @@ class InputTransform(Module, ABC):
         Returns:
             A boolean indicating if the other transform is equivalent.
         """
+        state_dict = self.state_dict()
         other_state_dict = other.state_dict()
         return (
             type(self) is type(other)
             and (self.transform_on_train == other.transform_on_train)
             and (self.transform_on_eval == other.transform_on_eval)
             and (self.transform_on_fantasize == other.transform_on_fantasize)
+            and state_dict.keys() == other_state_dict.keys()
             and all(
-                _allclose(v, other_state_dict[k].to(v))
-                for k, v in self.state_dict().items()
+                _allclose(v, other_state_dict[k].to(v)) for k, v in state_dict.items()
             )
         )
 
@@ -775,7 +776,8 @@ class Normalize(AffineInputTransform):
         return {
             "d": self._d,
             "indices": getattr(self, "indices", None),
-            "bounds": self.bounds,
+            # ``self.bounds`` is shifted by ``(0.5 - center) * coefficient``.
+            "bounds": self.bounds - (0.5 - self.center) * self.coefficient,
             "batch_shape": self.batch_shape,
             "transform_on_train": self.transform_on_train,
             "transform_on_eval": self.transform_on_eval,
@@ -783,6 +785,7 @@ class Normalize(AffineInputTransform):
             "reverse": self.reverse,
             "min_range": self.min_range,
             "learn_bounds": self.learn_bounds,
+            "center": self.center,
         }
 
 
@@ -1247,6 +1250,21 @@ class Warp(ReversibleInputTransform, GPyTorchModule):
             X=X, c0=self.concentration0, c1=self.concentration1, eps=self._eps
         )
 
+    def equals(self, other: InputTransform) -> bool:
+        r"""Check if another input transform is equivalent.
+
+        Args:
+            other: Another input transform.
+
+        Returns:
+            A boolean indicating if the other transform is equivalent.
+        """
+        return (
+            super().equals(other=other)
+            and self._eps == other._eps
+            and self._normalize.equals(other._normalize)
+        )
+
 
 class AppendFeatures(InputTransform):
     r"""A transform that appends the input with a given set of features either
@@ -1641,6 +1659,36 @@ class InputPerturbation(InputTransform):
         else:
             p = p(X) if self.indices is None else p(X[..., self.indices])
         return p.transpose(-3, -2)  # p is batch_shape x n_p x n x d
+
+    def equals(self, other: InputTransform) -> bool:
+        r"""Check if another input transform is equivalent.
+
+        The perturbations cached by ``transform``, which depend on the inputs that
+        the transform was last applied to, are not compared.
+
+        Args:
+            other: Another input transform.
+
+        Returns:
+            A boolean indicating if the other transform is equivalent.
+        """
+        if not (
+            type(self) is type(other)
+            and (self.transform_on_train == other.transform_on_train)
+            and (self.transform_on_eval == other.transform_on_eval)
+            and (self.transform_on_fantasize == other.transform_on_fantasize)
+            and self.indices == other.indices
+            and self.multiplicative == other.multiplicative
+        ):
+            return False
+        for name in ("perturbation_set", "bounds"):
+            value, other_value = getattr(self, name), getattr(other, name)
+            if isinstance(value, Tensor) and isinstance(other_value, Tensor):
+                if not _allclose(value, other_value.to(value)):
+                    return False
+            elif value is not other_value:  # callables or None
+                return False
+        return True
 
 
 class NumericToCategoricalEncoding(InputTransform):
