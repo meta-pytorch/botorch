@@ -19,14 +19,18 @@ Contributor: brunzema
 
 from __future__ import annotations
 
+import copy
+
 import torch
 import torch.nn as nn
+from botorch.acquisition.objective import PosteriorTransform
 from botorch.logging import logger
 from botorch.posteriors import Posterior
 from botorch_community.models.blls import AbstractBLLModel
 from botorch_community.models.vbll_helper import DenseNormal, Normal, Regression
 from botorch_community.posteriors.bll_posterior import BLLPosterior
-from gpytorch.distributions import MultivariateNormal
+from gpytorch.distributions import MultitaskMultivariateNormal, MultivariateNormal
+from linear_operator.operators import DenseLinearOperator
 from torch import Tensor
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
@@ -59,18 +63,20 @@ class SampleModel(nn.Module):
         """Forward pass through the sample network.
 
         Args:
-            x: Input as ``batch_size x d``-dim Tensor.
+            x: Input as ``(batch_shape) x batch_size x d``-dim Tensor.
 
         Returns:
-            Output as ``(sample_shape), batch_size, output_dim``-dim Tensor.
+            Output as ``(sample_shape) x (batch_shape) x batch_size x output_dim``-dim
+            Tensor.
         """
         x = self.backbone(x)
-
-        if self.sampled_params.dim() == 2:
-            return (self.sampled_params @ x[..., None]).squeeze(-1)
-
-        x_expanded = x.unsqueeze(0).expand(self.sampled_params.shape[0], -1, -1)
-        return x_expanded @ self.sampled_params.transpose(-1, -2)
+        # The sampled parameters are ``(sample_shape) x output_dim x hidden``. Insert
+        # singleton dimensions for the batch shape of ``x`` to broadcast them.
+        params = self.sampled_params
+        params = params.reshape(
+            *params.shape[:-2], *([1] * (x.dim() - 2)), *params.shape[-2:]
+        )
+        return x @ params.transpose(-1, -2)
 
 
 class VBLLNetwork(nn.Module):
@@ -154,7 +160,8 @@ class VBLLNetwork(nn.Module):
             self.num_inputs = in_features
 
         else:
-            self.backbone = backbone
+            # store the provided backbone on the same device as the VBLL head
+            self.backbone = backbone.to(device=self.device)
 
             # Try to infer input size if backbone is a Sequential and starts with Linear
             if isinstance(backbone, nn.Sequential) and isinstance(
@@ -270,8 +277,9 @@ class VBLLModel(AbstractBLLModel):
                 If None, a single sample is drawn. Defaults to None.
 
         Returns:
-            A nn.Module that takes an input as ``batch_size x num_inputs``-dim Tensor
-            and returns a ``(sample_shape), batch_size, output_dim``-dim Tensor.
+            A nn.Module that takes an input as ``(batch_shape) x batch_size x
+            num_inputs``-dim Tensor and returns a ``(sample_shape) x (batch_shape) x
+            batch_size x output_dim``-dim Tensor.
         """
         return self.model.sample_posterior_function(sample_shape)
 
@@ -402,6 +410,11 @@ class VBLLModel(AbstractBLLModel):
             lr=optimization_settings["lr"],
             **optimizer_kwargs,
         )
+        # Only clip the gradients of the optimized parameters. A frozen backbone
+        # still receives (and accumulates) gradients, which must not be included.
+        optimized_params = [
+            p for group in optimizer.param_groups for p in group["params"]
+        ]
 
         best_loss = float("inf")
         epochs_no_improve = 0
@@ -426,7 +439,7 @@ class VBLLModel(AbstractBLLModel):
 
                 if optimization_settings["clip_val"] is not None:
                     torch.nn.utils.clip_grad_norm_(
-                        self.model.parameters(), optimization_settings["clip_val"]
+                        optimized_params, optimization_settings["clip_val"]
                     )
 
                 optimizer.step()
@@ -439,8 +452,8 @@ class VBLLModel(AbstractBLLModel):
             if val_X is not None and val_y is not None:
                 self.model.eval()  # Set model to evaluation mode
                 with torch.no_grad():
-                    out = self.model(x)
-                    val_loss = out.val_loss_fn(val_y)
+                    out = self.model(val_X.to(device))
+                    val_loss = out.val_loss_fn(val_y.to(device))
 
                 self.model.train()  # Set model back to training mode
 
@@ -453,7 +466,8 @@ class VBLLModel(AbstractBLLModel):
             # Early stopping logic
             if current_loss < best_loss:
                 best_loss = current_loss
-                best_model_state = self.model.state_dict()
+                # copy, as the state dict shares memory with the trained parameters
+                best_model_state = copy.deepcopy(self.model.state_dict())
                 epochs_no_improve = 0
             else:
                 epochs_no_improve += 1
@@ -472,48 +486,78 @@ class VBLLModel(AbstractBLLModel):
     def posterior(
         self,
         X: Tensor,
-        output_indices=None,
-        observation_noise=None,
-        posterior_transform=None,
+        output_indices: list[int] | None = None,
+        observation_noise: bool | Tensor = False,
+        posterior_transform: PosteriorTransform | None = None,
     ) -> Posterior:
+        r"""Computes the posterior over model outputs at the provided points.
+
+        The rows ``w_k ~ N(m_k, S_k)`` of the last-layer weights are independent
+        under the variational distribution. Hence, the outputs are independent and
+        the joint posterior of output ``k`` at ``X`` with backbone features ``Phi``
+        is ``N(Phi m_k, Phi S_k Phi^T)``.
+
+        Args:
+            X: A ``(batch_shape) x q x d``-dim Tensor with at most one batch
+                dimension.
+            output_indices: Not supported, the posterior is computed over all
+                outputs.
+            observation_noise: If True, add the observation noise of the VBLL head
+                to the posterior. If a Tensor, use it directly as the observation
+                noise (must be of shape ``(batch_shape) x q x m``).
+            posterior_transform: An optional PosteriorTransform.
+
+        Returns:
+            A ``BLLPosterior`` (or its transformation by ``posterior_transform``)
+            representing ``batch_shape`` joint distributions over ``q`` points and
+            ``m`` outputs each.
+        """
         if X.dim() > 3:
             raise ValueError(f"Input must have at most 3 dimensions, got {X.dim()}.")
 
-        # Determine if the input is batched
-        batched = X.dim() == 3
+        features = self.backbone(X)  # (batch_shape) x q x hidden
+        W = self.head.W()
+        # covariance matrices of the rows of the last-layer weights: m x hidden x hidden
+        W_cov = W.covariance if isinstance(W, Normal) else W.covariance_matrix
+        mean = features @ W.mean.transpose(-1, -2)  # (batch_shape) x q x m
+        features = features.unsqueeze(-3)  # (batch_shape) x 1 x q x hidden
+        covar = features @ W_cov @ features.transpose(-1, -2)  # (b_shape) x m x q x q
 
-        if not batched:
-            N, D = X.shape
-            B = 1
+        if isinstance(observation_noise, Tensor):
+            noise = observation_noise.expand(mean.shape)
+        elif observation_noise:
+            noise = self.head.noise().var.expand(mean.shape)
         else:
-            B, N, D = X.shape
-            X = X.reshape(B * N, D)
+            noise = None
+        if noise is not None:
+            covar = covar + torch.diag_embed(noise.transpose(-1, -2))
 
-        posterior = self.model(X).predictive
-
-        # Extract mean and variance
-        mean = posterior.mean.squeeze(dim=-1)
-        variance = posterior.variance.squeeze(dim=-1)
-        cov = torch.diag_embed(variance)
-
-        K = self.num_outputs
-        mean = mean.reshape(B, N * K)
-
-        # Cov must be ``(B, N*K, N*K)``
-        cov = cov.reshape(B, N, K, B, N, K)
-        cov = torch.einsum("bnkbrl->bnkrl", cov)  # (B, N, K, N, K)
-        cov = cov.reshape(B, N * K, N * K)
-
-        # Remove fake batch dimension if not batched
-        if not batched:
-            mean = mean.squeeze(0)
-            cov = cov.squeeze(0)
-
-        # pass as MultivariateNormal to BLLPosterior
-        distribution = MultivariateNormal(mean, cov)
-        return BLLPosterior(
-            model=self, distribution=distribution, X=X, output_dim=self.num_outputs
+        # The covariance is passed as a LinearOperator, as it is rank deficient if q
+        # exceeds the number of features (or for repeated points). This avoids
+        # the eager (jitter-free) Cholesky decomposition of dense covariances.
+        if self.num_outputs == 1:
+            distribution = MultivariateNormal(
+                mean.squeeze(-1), DenseLinearOperator(covar.squeeze(-3))
+            )
+        else:
+            distribution = MultitaskMultivariateNormal.from_independent_mvns(
+                [
+                    MultivariateNormal(
+                        mean[..., k], DenseLinearOperator(covar[..., k, :, :])
+                    )
+                    for k in range(self.num_outputs)
+                ]
+            )
+        posterior = BLLPosterior(
+            model=self,
+            distribution=distribution,
+            X=X,
+            output_dim=self.num_outputs,
+            observation_noise=noise,
         )
+        if posterior_transform is not None:
+            return posterior_transform(posterior=posterior, X=X)
+        return posterior
 
     def __str__(self) -> str:
         return self.model.__str__()
