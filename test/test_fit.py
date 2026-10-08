@@ -13,6 +13,7 @@ from itertools import filterfalse, product
 from unittest.mock import MagicMock, patch
 from warnings import catch_warnings, warn, WarningMessage
 
+import numpy as np
 import torch
 from botorch import fit
 from botorch.exceptions.errors import ModelFittingError, UnsupportedError
@@ -30,6 +31,7 @@ from botorch.utils.testing import BotorchTestCase
 from gpytorch.kernels import RBFKernel
 from gpytorch.mlls import ExactMarginalLogLikelihood, VariationalELBO
 from linear_operator.utils.errors import NotPSDError
+from scipy.optimize import OptimizeResult
 
 MAX_ITER_MSG_REGEX = re.compile(
     # Note that the message changed with scipy 1.15, hence the different matching here.
@@ -588,3 +590,53 @@ class TestFitIndependent(BotorchTestCase):
         test_X = torch.rand(5, 3, dtype=torch.double)
         posterior = model.posterior(test_X)
         self.assertEqual(posterior.mean.shape, torch.Size([3, 5, 1]))
+
+    def test_optimizer_kwargs(self):
+        """Optimizer kwargs that are not supported by batched fitting must not
+        make all fitting attempts fail."""
+        with torch.random.fork_rng():
+            torch.manual_seed(0)
+            train_X = torch.rand(10, 2, dtype=torch.double)
+            train_Y = torch.rand(10, 2, dtype=torch.double)
+        for optimizer_kwargs in (
+            {"timeout_sec": 60.0},
+            {"options": {"maxiter": 200, "disp": False}},
+            {"options": {"ftol": 1e-8}},
+        ):
+            model = SingleTaskGP(train_X=train_X, train_Y=train_Y)
+            mll = ExactMarginalLogLikelihood(model.likelihood, model)
+            with catch_warnings(record=True):
+                fit_gpytorch_mll(mll, optimizer_kwargs=optimizer_kwargs)
+            self.assertFalse(model.training)
+
+    def test_retry_on_failure(self):
+        """Abnormal terminations of batched fitting trigger a retry."""
+        with torch.random.fork_rng():
+            torch.manual_seed(0)
+            train_X = torch.rand(10, 2, dtype=torch.double)
+            train_Y = torch.rand(10, 2, dtype=torch.double)
+        model = SingleTaskGP(train_X=train_X, train_Y=train_Y)
+        mll = ExactMarginalLogLikelihood(model.likelihood, model)
+        statuses = iter([2, 0])
+
+        def mock_fmin(func, x0, bounds, **kwargs):
+            status = next(statuses)
+            return (
+                x0,
+                np.zeros(x0.shape[0]),
+                [
+                    OptimizeResult(success=status == 0, nit=1, status=status)
+                    for _ in range(x0.shape[0])
+                ],
+            )
+
+        with (
+            patch(
+                "botorch.optim.batched_lbfgs_b.fmin_l_bfgs_b_batched",
+                side_effect=mock_fmin,
+            ) as mock_fmin_batched,
+            catch_warnings(record=True),
+        ):
+            fit_gpytorch_mll(mll)
+        self.assertEqual(mock_fmin_batched.call_count, 2)
+        self.assertFalse(model.training)
