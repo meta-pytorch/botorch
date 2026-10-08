@@ -619,6 +619,36 @@ class TestInputTransforms(BotorchTestCase):
             self.assertAllClose(stdz.stds, torch.ones_like(stdz.stds))
             self.assertAllClose(stdz.means, torch.zeros_like(stdz.means))
 
+    def test_equals_with_different_state(self) -> None:
+        # ``equals`` returns False rather than raising if the state dict keys differ.
+        bounds = torch.tensor([[0.0, 0.0], [1.0, 1.0]], device=self.device)
+        tf1 = ChainedInputTransform(a=Normalize(d=2, bounds=bounds))
+        tf2 = ChainedInputTransform(
+            a=Normalize(d=2, bounds=bounds), b=Round(integer_indices=[0])
+        )
+        self.assertFalse(tf1.equals(tf2))
+        self.assertFalse(tf2.equals(tf1))
+        # Warp compares ``eps`` and the normalization of the inputs.
+        warp_tf = Warp(d=2, indices=[0, 1])
+        self.assertTrue(warp_tf.equals(Warp(d=2, indices=[0, 1])))
+        self.assertFalse(warp_tf.equals(Warp(d=2, indices=[0, 1], eps=1e-3)))
+        self.assertFalse(warp_tf.equals(Warp(d=2, indices=[0, 1], bounds=bounds)))
+
+    def test_normalize_get_init_args_with_center(self) -> None:
+        X = torch.tensor([[0.0], [2.0], [4.0]], device=self.device)
+        bounds = torch.tensor([[0.0], [4.0]], device=self.device)
+        for nlz in (
+            Normalize(d=1, center=0.0),
+            Normalize(d=1, bounds=bounds, center=0.0),
+        ):
+            X_nlzd = nlz(X)
+            nlz_copy = Normalize(**nlz.get_init_args())
+            self.assertEqual(nlz_copy.center, 0.0)
+            self.assertAllClose(nlz_copy.bounds, nlz.bounds)
+            self.assertTrue(nlz.equals(nlz_copy))
+            # The copy also behaves the same when re-learning the bounds.
+            self.assertAllClose(nlz_copy(X), X_nlzd)
+
     def test_chained_input_transform(self) -> None:
         ds = (1, 2)
         batch_shapes = (torch.Size(), torch.Size([2]))
@@ -2652,3 +2682,33 @@ class TestInputPerturbation(BotorchTestCase):
             sec_expected = X.unsqueeze(-2).expand(*X.shape[:-1], num_pert, -1)
             sec_expected = sec_expected.flatten(-3, -2)
             self.assertAllClose(subset_transformed[..., 2:], sec_expected)
+
+    def test_input_perturbation_equals(self) -> None:
+        p = torch.rand(3, 2, device=self.device)
+        tf = InputPerturbation(perturbation_set=p)
+        self.assertTrue(tf.equals(InputPerturbation(perturbation_set=p.clone())))
+        for kwargs in (
+            {"multiplicative": True},
+            {"indices": [1, 2]},
+            {"bounds": torch.zeros(2, 2, device=self.device)},
+        ):
+            other = InputPerturbation(perturbation_set=p, **kwargs)
+            self.assertFalse(tf.equals(other))
+            self.assertFalse(other.equals(tf))
+        # The perturbations cached by ``transform`` are not compared.
+        used_tf = InputPerturbation(perturbation_set=p).eval()
+        used_tf(torch.rand(4, 2, device=self.device))
+        self.assertTrue(tf.equals(used_tf))
+        self.assertTrue(used_tf.equals(tf))
+
+        # Callable perturbation sets are compared by identity.
+        def perturbation_generator(X: Tensor) -> Tensor:
+            return torch.stack([X * 0.1, X * 0.2], dim=-2)
+
+        tf = InputPerturbation(perturbation_set=perturbation_generator)
+        self.assertTrue(
+            tf.equals(InputPerturbation(perturbation_set=perturbation_generator))
+        )
+        self.assertFalse(
+            tf.equals(InputPerturbation(perturbation_set=lambda X: 2 * X.unsqueeze(-2)))
+        )
