@@ -115,6 +115,42 @@ class TestAugmentedSingleTaskGP(BotorchTestCase):
                 InputDataError, SingleTaskAugmentedGP, train_X, train_Y, m=0
             )
 
+    def test_transforms_not_shared(self):
+        # Each source's GP must fit its own copy of the transforms; the cheap
+        # source lives on a different input range and is offset by +10.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        x = torch.linspace(0, 1, 6, **tkwargs).unsqueeze(-1)
+        train_X = torch.cat(
+            [
+                torch.cat([10 * x, torch.zeros_like(x)], dim=-1),
+                torch.cat([x, torch.ones_like(x)], dim=-1),
+            ]
+        )
+        train_Y = torch.cat([torch.sin(6 * x) + 10, torch.sin(6 * x)])
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", category=OptimizationWarning)
+            model = SingleTaskAugmentedGP(
+                train_X,
+                train_Y,
+                outcome_transform=Standardize(m=1),
+                input_transform=Normalize(d=1),
+            )
+        for s, gp in enumerate(model.models):
+            self.assertIsNot(gp.outcome_transform, model.outcome_transform)
+            self.assertIsNot(gp.input_transform, model.input_transform)
+            X_s = train_X[train_X[:, -1] == s, :-1]
+            Y_s = train_Y[train_X[:, -1] == s]
+            self.assertAllClose(
+                gp.outcome_transform.means, Y_s.mean(dim=0, keepdim=True)
+            )
+            self.assertAllClose(
+                gp.input_transform.bounds,
+                torch.stack([X_s.min(dim=0).values, X_s.max(dim=0).values]),
+            )
+            # each GP fits the data of its own source
+            pred = gp.posterior(X_s).mean
+            self.assertLess((pred - Y_s).abs().max().item(), 0.5)
+
     def test_get_reliable_observation(self):
         x = torch.linspace(0, 5, 15).reshape(-1, 1)
         true_y = torch.sin(x).reshape(-1, 1)
