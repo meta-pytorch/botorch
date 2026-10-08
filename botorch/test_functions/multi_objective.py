@@ -56,6 +56,10 @@ References
     multicriteria optimization problems using the simple genetic algorithm.
     In Structural Optimization 10. 94–99, 1995.
 
+.. [Srinivas1994]
+    N. Srinivas and K. Deb. Multiobjective Optimization Using Nondominated
+    Sorting in Genetic Algorithms. Evolutionary Computation, 2(3):221–248, 1994.
+
 .. [Tanabe2020]
     Ryoji Tanabe and Hisao Ishibuchi. An easy-to-use real-world multi-objective
     optimization problem suite, Applied Soft Computing,Volume 89, 2020.
@@ -1476,7 +1480,14 @@ class OSY(MultiObjectiveTestProblem, ConstrainedBaseTestProblem):
 
 
 class SRN(MultiObjectiveTestProblem, ConstrainedBaseTestProblem):
-    r"""The constrained SRN problem.
+    r"""The constrained SRN problem from [Srinivas1994]_.
+
+    Two-dimensional problem evaluated on ``[-20, 20]^2``:
+
+        f_0(x) = 2 + (x_0 - 2)^2 + (x_1 - 1)^2
+        f_1(x) = 9 * x_0 - (x_1 - 1)^2
+        c_0(x) = 225 - x_0^2 - x_1^2 >= 0
+        c_1(x) = 3 * x_1 - x_0 - 10 >= 0
 
     See [GarridoMerchan2020]_ for more details on this problem. Note that this is a
     minimization problem.
@@ -1490,12 +1501,12 @@ class SRN(MultiObjectiveTestProblem, ConstrainedBaseTestProblem):
     _ref_point = [0.0, 0.0]  # TODO: Determine proper reference point
 
     def _evaluate_true(self, X: Tensor) -> Tensor:
-        obj1 = 2.0 + (X - 2.0).pow(2).sum(dim=-1)
+        obj1 = 2.0 + (X[..., 0] - 2.0).pow(2) + (X[..., 1] - 1.0).pow(2)
         obj2 = 9.0 * X[..., 0] - (X[..., 1] - 1.0).pow(2)
         return torch.stack([obj1, obj2], dim=-1)
 
     def _evaluate_slack_true(self, X: Tensor) -> Tensor:
-        c1 = 225.0 - (X.pow(2)).pow(2).sum(dim=-1)
+        c1 = 225.0 - X.pow(2).sum(dim=-1)
         c2 = -10.0 - X[..., 0] + 3 * X[..., 1]
         return torch.stack([c1, c2], dim=-1)
 

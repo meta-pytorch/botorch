@@ -436,6 +436,29 @@ class TestSRN(
     def functions(self) -> list[BaseTestProblem]:
         return [SRN(), SRN(noise_std=[0.1, 0.2])]
 
+    def test_function_values(self):
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        f = SRN().to(**tkwargs)
+        # f_0 = 2 + (x_0 - 2)^2 + (x_1 - 1)^2, f_1 = 9 x_0 - (x_1 - 1)^2
+        X = torch.tensor([1.0, 3.0], **tkwargs)
+        self.assertAllClose(f.evaluate_true(X), torch.tensor([7.0, 5.0], **tkwargs))
+        # c_0 = 225 - x_0^2 - x_1^2, c_1 = 3 x_1 - x_0 - 10
+        X = torch.tensor([-2.5, 10.0], **tkwargs)
+        self.assertAllClose(
+            f.evaluate_slack_true(X), torch.tensor([118.75, 22.5], **tkwargs)
+        )
+        # The Pareto set is x_0 = -2.5, x_1 in [2.5, 14.79].
+        X = torch.stack(
+            [
+                torch.full((11,), -2.5, **tkwargs),
+                torch.linspace(2.5, 14.79, 11, **tkwargs),
+            ],
+            dim=-1,
+        )
+        self.assertTrue(f.is_feasible(X, noise=False).all())
+        X = torch.tensor([-2.5, 15.0], **tkwargs)
+        self.assertFalse(f.is_feasible(X, noise=False).item())
+
 
 class TestCONSTR(
     BotorchTestCase,
