@@ -20,9 +20,11 @@ from botorch.models.likelihoods.sparse_outlier_noise import (
     SparseOutlierGaussianLikelihood,
 )
 from botorch.models.multitask import MultiTaskGP
+from botorch.models.transforms.outcome import OutcomeTransform
 from botorch.posteriors.fully_bayesian import GaussianMixturePosterior
 from botorch.posteriors.gpytorch import GPyTorchPosterior
 from botorch.posteriors.posterior import Posterior
+from botorch.posteriors.transformed import TransformedPosterior
 from gpytorch.distributions import MultitaskMultivariateNormal, MultivariateNormal
 from gpytorch.likelihoods import FixedNoiseGaussianLikelihood
 from gpytorch.mlls.marginal_log_likelihood import MarginalLogLikelihood
@@ -161,6 +163,10 @@ def batch_cross_validation(
             has shape ``n x 1 x d``. This batch structure enables fitting n
             independent GPs simultaneously.
         fit_args: Arguments passed along to fit_gpytorch_mll.
+        observation_noise: If True, return the posterior predictive distribution
+            (including observation noise) at the held-out points. If the folds
+            contain observed noise levels (``cv_folds.test_Yvar``), these are
+            used as the observation noise of the held-out points.
         model_init_kwargs: Keyword arguments passed to the model constructor.
 
     Returns:
@@ -188,7 +194,10 @@ def batch_cross_validation(
         >>> train_X = torch.rand(10, 1)
         >>> train_Y = torch.rand_like(train_X)
         >>> cv_folds = gen_loo_cv_folds(train_X, train_Y)
-        >>> input_transform = Normalize(d=train_X.shape[-1])
+        >>> # Learn the normalization bounds of each fold from its training points.
+        >>> input_transform = Normalize(
+        ...     d=train_X.shape[-1], batch_shape=cv_folds.train_X.shape[:-2]
+        ... )
         >>>
         >>> cv_results = batch_cross_validation(
         ...    model_cls=SingleTaskGP,
@@ -203,7 +212,8 @@ def batch_cross_validation(
         raise UnsupportedError(
             "Multi-task GPs are not currently supported by `batch_cross_validation`."
         )
-    model_init_kws = model_init_kwargs if model_init_kwargs is not None else {}
+    # Copy to avoid adding `train_Yvar` to the caller's dict.
+    model_init_kws = dict(model_init_kwargs or {})
     if cv_folds.train_Yvar is not None:
         model_init_kws["train_Yvar"] = cv_folds.train_Yvar
     model_cv = model_cls(
@@ -218,7 +228,19 @@ def batch_cross_validation(
     mll_cv = fit_gpytorch_mll(mll_cv, **fit_args)
 
     # Evaluate on the hold-out set in batch mode
+    model_cv.eval()
     with torch.no_grad():
+        if observation_noise and cv_folds.test_Yvar is not None:
+            # Use the observed noise of the held-out points, rather than the mean
+            # training noise that `posterior` adds for fixed-noise likelihoods.
+            # Observation noise is added in the model's outcome space.
+            observation_noise = cv_folds.test_Yvar
+            if hasattr(model_cv, "outcome_transform"):
+                _, observation_noise = model_cv.outcome_transform(
+                    Y=cv_folds.test_Y,
+                    Yvar=observation_noise,
+                    X=model_cv.transform_inputs(cv_folds.test_X),
+                )
         posterior = model_cv.posterior(
             cv_folds.test_X, observation_noise=observation_noise
         )
@@ -454,7 +476,9 @@ def _untransform_loo_results(
     Args:
         model: The GP model with an ``outcome_transform`` attribute.
         posterior: The LOO posterior in the model's internal (transformed) space.
-            Shape: ``n x 1 x m`` or ``batch_shape x n x 1 x m``.
+            Shape: ``n x 1 x m`` or ``batch_shape x n x 1 x m``, or
+            ``batch_shape x n x num_models x 1 x m`` for a
+            ``GaussianMixturePosterior`` of an ensemble model.
         observed_Y: The observed Y values in transformed space with shape
             ``n x 1 x m`` or ``batch_shape x n x 1 x m``.
         observed_Yvar: The observed noise variances in transformed space (if
@@ -476,7 +500,15 @@ def _untransform_loo_results(
             f"got shape {observed_Y.shape}."
         )
 
-    posterior = outcome_transform.untransform_posterior(posterior)
+    if isinstance(posterior, GaussianMixturePosterior):
+        # Ensemble LOO posteriors have the ensemble dimension at MCMC_DIM=-3, so
+        # the statistics of transforms batched over the ensemble members (of
+        # shape ``num_models x 1 x m``) broadcast against it.
+        posterior = outcome_transform.untransform_posterior(posterior)
+    else:
+        posterior = _untransform_loo_posterior(
+            outcome_transform=outcome_transform, posterior=posterior
+        )
 
     # Untransform observed_Y (and observed_Yvar if present).
     # observed_Y has shape n x 1 x m; Standardize.untransform expects
@@ -494,6 +526,55 @@ def _untransform_loo_results(
     )
 
     return posterior, observed_Y, observed_Yvar
+
+
+def _untransform_loo_posterior(
+    outcome_transform: OutcomeTransform, posterior: GPyTorchPosterior
+) -> Posterior:
+    r"""Untransform a LOO posterior of shape ``batch_shape x n x 1 x m``.
+
+    The outcome transform is applied with the ``n`` folds laid out as the
+    q-dimension, i.e. to a ``batch_shape x n x m`` posterior as returned by
+    ``model.posterior(train_X)``. In the ``batch_shape x n x 1 x m`` layout, the
+    statistics of batched transforms (e.g. ``Standardize(batch_shape=...)``, of
+    shape ``batch_shape x 1 x m``) would broadcast against the folds rather than
+    against ``batch_shape``.
+
+    Args:
+        outcome_transform: The outcome transform of the model.
+        posterior: The LOO posterior in the model's internal (transformed) space,
+            with independent marginals of shape ``batch_shape x n x 1 x m``.
+
+    Returns:
+        The LOO posterior in the original outcome space, with the same shape. This
+        is a ``GPyTorchPosterior`` for linear transforms (e.g. ``Standardize``) and
+        a ``TransformedPosterior`` for nonlinear transforms (e.g. ``Log``).
+    """
+
+    def untransform_folds_as_q(mean: Tensor, variance: Tensor) -> Posterior:
+        return outcome_transform.untransform_posterior(
+            _build_diag_posterior(mean=mean.squeeze(-2), variance=variance.squeeze(-2))
+        )
+
+    posterior_tf = untransform_folds_as_q(posterior.mean, posterior.variance)
+    if isinstance(posterior_tf, GPyTorchPosterior):
+        # Linear transforms keep the (diagonal) Gaussian form.
+        return _build_diag_posterior(
+            mean=posterior_tf.mean.unsqueeze(-2),
+            variance=posterior_tf.variance.unsqueeze(-2),
+        )
+    return TransformedPosterior(
+        posterior=posterior,
+        sample_transform=lambda samples: outcome_transform.untransform(
+            samples.squeeze(-2)
+        )[0].unsqueeze(-2),
+        mean_transform=lambda mean, variance: untransform_folds_as_q(
+            mean, variance
+        ).mean.unsqueeze(-2),
+        variance_transform=lambda mean, variance: untransform_folds_as_q(
+            mean, variance
+        ).variance.unsqueeze(-2),
+    )
 
 
 def _likelihood_requires_X(likelihood: object) -> bool:
@@ -596,9 +677,14 @@ def _compute_loo_predictions(
         - train_Y: The training targets from the model
 
     Raises:
-        UnsupportedError: If the model doesn't have required attributes or
-            the forward method doesn't return a MultivariateNormal.
+        UnsupportedError: If the model is a multi-task model, doesn't have required
+            attributes or the forward method doesn't return a MultivariateNormal.
     """
+    if isinstance(model, MultiTaskGP):
+        raise UnsupportedError(
+            "Efficient LOO CV is not supported for multi-task models, got "
+            f"{type(model).__name__}."
+        )
     # Get training data - model should have train_inputs attribute
     if not hasattr(model, "train_inputs") or model.train_inputs is None:
         raise UnsupportedError(
@@ -629,6 +715,12 @@ def _compute_loo_predictions(
         raise UnsupportedError(
             f"Model's forward method must return a MultivariateNormal, "
             f"got {type(prior_dist).__name__}."
+        )
+    if isinstance(prior_dist, MultitaskMultivariateNormal):
+        # E.g. KroneckerMultiTaskGP, whose covariance is over all n x m outputs.
+        raise UnsupportedError(
+            "Efficient LOO CV is not supported for multi-task models, got "
+            f"{type(model).__name__}."
         )
 
     # Extract mean from the prior
@@ -708,14 +800,27 @@ def _build_loo_posterior(
         loo_mean = loo_mean.unsqueeze(-1)
         loo_variance = loo_variance.unsqueeze(-1)
 
+    return _build_diag_posterior(mean=loo_mean, variance=loo_variance)
+
+
+def _build_diag_posterior(mean: Tensor, variance: Tensor) -> GPyTorchPosterior:
+    r"""Build a posterior with independent marginals of shape ``... x q x m``.
+
+    Args:
+        mean: The marginal means with shape ``... x q x m``.
+        variance: The marginal variances with the same shape as ``mean``.
+
+    Returns:
+        A GPyTorchPosterior with diagonal covariance and shape ``... x q x m``.
+    """
     # Create distribution: for multi-output use MTMVN, for single-output use MVN.
-    # Both require mean shape ... x n x q (where q=1) and diagonal covariance.
-    # We squeeze the m dimension to get ... x n x 1 for the MVN mean, then
-    # iterate over outputs to create independent MVNs.
+    # Both require mean shape ... x q and diagonal covariance. We select each of
+    # the m outputs to get ... x q for the MVN mean, creating independent MVNs.
+    num_outputs = mean.shape[-1]
     mvns = [
         MultivariateNormal(
-            mean=loo_mean[..., t],
-            covariance_matrix=DiagLinearOperator(loo_variance[..., t]),
+            mean=mean[..., t],
+            covariance_matrix=DiagLinearOperator(variance[..., t]),
         )
         for t in range(num_outputs)
     ]
@@ -817,13 +922,15 @@ def ensemble_loo_cv(
     Example:
         >>> import torch
         >>> from botorch.cross_validation import ensemble_loo_cv
+        >>> from botorch.fit import fit_fully_bayesian_model_nuts
         >>> from botorch.models.fully_bayesian import SaasFullyBayesianSingleTaskGP
-        >>> from botorch.models.fully_bayesian import fit_fully_bayesian_model_nuts
         >>>
         >>> train_X = torch.rand(20, 2, dtype=torch.float64)
         >>> train_Y = torch.sin(train_X).sum(dim=-1, keepdim=True)
         >>> model = SaasFullyBayesianSingleTaskGP(train_X, train_Y)
-        >>> fit_fully_bayesian_model_nuts(model, warmup_steps=64, num_samples=32)
+        >>> fit_fully_bayesian_model_nuts(
+        ...     model, warmup_steps=64, num_samples=32, thinning=1
+        ... )
         >>> loo_results = ensemble_loo_cv(model)
         >>> loo_results.posterior.mean.shape  # Per-member means
         torch.Size([20, 32, 1, 1])
@@ -858,6 +965,10 @@ def ensemble_loo_cv(
     posterior = _build_ensemble_loo_posterior(
         loo_mean=loo_mean, loo_variance=loo_variance, num_outputs=num_outputs
     )
+
+    # Fully Bayesian models (e.g. ``SaasFullyBayesianSingleTaskGP``) only batch
+    # the hyperparameters over the ensemble members, not the training targets.
+    train_Y = train_Y.expand(loo_mean.shape[:-1])
 
     # Extract observed data (first ensemble member) and reshape to LOO CV format
     observed_Y, observed_Yvar = _get_ensemble_observed_data(
