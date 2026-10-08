@@ -391,6 +391,8 @@ class PFNModelWithPendingPoints(PFNModel):
 
         if pending_X is not None:
             assert pending_X.dim() == 2, "pending_X must be 2-dimensional."
+            # Map pending points to the same (transformed) space as train_X and X.
+            pending_X = self.transform_inputs(pending_X)
             pending_X = pending_X[None].repeat(X.shape[0], 1, 1)  # shape (b, n', d)
             train_X = torch.cat([train_X, pending_X], dim=1)  # shape (b, n+n', d)
             train_Y = torch.cat(

@@ -611,6 +611,31 @@ class TestPFNModelWithPendingPoints(BotorchTestCase):
         # First 10 entries should not be NaN
         self.assertFalse(torch.isnan(captured["train_Y"][:, :10, :]).any())
 
+    def test_pending_X_input_transform(self):
+        """Test that pending_X is input-transformed like train_X and X."""
+        bounds = torch.tensor([[0.0, 0.0, 0.0], [10.0, 10.0, 10.0]])
+        pfn = PFNModelWithPendingPoints(
+            10 * self.train_X,
+            self.train_Y,
+            DummyPFN(n_buckets=100),
+            input_transform=Normalize(d=3, bounds=bounds),
+        )
+        captured = {}
+        orig_pfn_predict = pfn.pfn_predict
+
+        def capture_pfn_predict(X, train_X, train_Y, **kwargs):
+            captured["X"] = X
+            captured["train_X"] = train_X
+            return orig_pfn_predict(X, train_X, train_Y, **kwargs)
+
+        pfn.pfn_predict = capture_pfn_predict
+        test_X = 10 * torch.rand(5, 3)
+        pending_X = 10 * torch.rand(3, 3)
+        pfn.posterior(test_X, pending_X=pending_X)
+        self.assertAllClose(captured["X"], test_X.unsqueeze(0) / 10)
+        self.assertAllClose(captured["train_X"][:, :10], self.train_X.unsqueeze(0))
+        self.assertAllClose(captured["train_X"][:, 10:], pending_X.unsqueeze(0) / 10)
+
     def test_pending_X_must_be_2d(self):
         """Test that pending_X must be 2-dimensional."""
         test_X = torch.rand(5, 3)
