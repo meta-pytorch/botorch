@@ -20,6 +20,7 @@ class BLLPosterior(GPyTorchPosterior):
         distribution: MultivariateNormal,
         X: Tensor,
         output_dim: int,
+        observation_noise: Tensor | None = None,
     ):
         """A posterior for Bayesian last layer models.
 
@@ -28,11 +29,15 @@ class BLLPosterior(GPyTorchPosterior):
             distribution: MultivarianteNormal distribution for the posterior.
             X: Input data on which the posterior was computed.
             output_dim: Output dimension of the model.
+            observation_noise: The variance of the observation noise included in
+                ``distribution`` (if any), broadcastable to ``(batch_shape) x N x
+                output_dim``. It is added to the samples drawn by ``rsample``.
         """
         super().__init__(distribution=distribution)
         self.model = model
         self.output_dim = output_dim
         self.X = X
+        self.observation_noise = observation_noise
         self._is_mt = output_dim > 1
 
     def rsample(
@@ -41,7 +46,8 @@ class BLLPosterior(GPyTorchPosterior):
     ) -> Tensor:
         """
         For VBLLs, we need to sample from W and then create the
-        generalized linear model to get posterior samples.
+        generalized linear model to get posterior samples. If the posterior
+        includes observation noise, it is added to these samples.
 
         Args:
             sample_shape: The shape of the samples to be drawn. If None, a single
@@ -53,4 +59,8 @@ class BLLPosterior(GPyTorchPosterior):
             posterior samples.
         """
         sample_shape = torch.Size([1] if sample_shape is None else sample_shape)
-        return self.model.sample(sample_shape)(self.X)
+        samples = self.model.sample(sample_shape)(self.X)
+        if self.observation_noise is not None:
+            noise_std = self.observation_noise.sqrt()
+            samples = samples + noise_std * torch.randn_like(samples)
+        return samples
