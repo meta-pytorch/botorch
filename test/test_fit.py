@@ -13,23 +13,29 @@ from itertools import filterfalse, product
 from unittest.mock import MagicMock, patch
 from warnings import catch_warnings, warn, WarningMessage
 
+import numpy as np
 import torch
 from botorch import fit
 from botorch.exceptions.errors import ModelFittingError, UnsupportedError
 from botorch.exceptions.warnings import OptimizationWarning
 from botorch.fit import fit_gpytorch_mll
-from botorch.models import SingleTaskGP, SingleTaskVariationalGP
+from botorch.models import ModelListGP, SingleTaskGP, SingleTaskVariationalGP
 from botorch.models.transforms.input import Normalize
 from botorch.models.transforms.outcome import Standardize
 from botorch.optim.closures import get_loss_closure_with_grads
 from botorch.optim.core import OptimizationResult, OptimizationStatus
 from botorch.optim.fit import fit_gpytorch_mll_scipy, fit_gpytorch_mll_torch
-from botorch.optim.utils import get_data_loader
+from botorch.optim.utils import get_data_loader, get_parameters
 from botorch.utils.context_managers import module_rollback_ctx, TensorCheckpoint
 from botorch.utils.testing import BotorchTestCase
-from gpytorch.kernels import RBFKernel
-from gpytorch.mlls import ExactMarginalLogLikelihood, VariationalELBO
+from gpytorch.kernels import RBFKernel, ScaleKernel
+from gpytorch.mlls import (
+    ExactMarginalLogLikelihood,
+    SumMarginalLogLikelihood,
+    VariationalELBO,
+)
 from linear_operator.utils.errors import NotPSDError
+from scipy.optimize import OptimizeResult
 
 MAX_ITER_MSG_REGEX = re.compile(
     # Note that the message changed with scipy 1.15, hence the different matching here.
@@ -478,6 +484,67 @@ class TestFitFallbackApproximate(BotorchTestCase):
             )
 
 
+class TestFitModelListGP(BotorchTestCase):
+    def _get_mll(
+        self, order: list[int], shared: bool
+    ) -> tuple[SumMarginalLogLikelihood, RBFKernel]:
+        with torch.random.fork_rng():
+            torch.manual_seed(0)
+            data = []
+            for i in range(3):
+                train_X = torch.rand(10, 1, dtype=torch.double)
+                train_Y = torch.sin((2 + 6 * i) * train_X)
+                data.append((train_X, train_Y + 0.05 * torch.randn_like(train_Y)))
+        base_kernel = RBFKernel().to(torch.double)
+        models = [
+            SingleTaskGP(
+                *data[i],
+                covar_module=ScaleKernel(
+                    base_kernel if shared else RBFKernel().to(torch.double)
+                ),
+            )
+            for i in order
+        ]
+        model = ModelListGP(*models)
+        return SumMarginalLogLikelihood(model.likelihood, model), base_kernel
+
+    def test_independent_sub_models(self):
+        # Sub-models without shared parameters are fit one after another.
+        mll, _ = self._get_mll(order=[0, 1, 2], shared=False)
+        self.assertFalse(fit._has_shared_parameters(mll.mlls))
+        with patch.object(fit, "_fit_fallback", side_effect=lambda mll, **_: mll) as m:
+            fit_gpytorch_mll(mll)
+        self.assertEqual([c.kwargs["mll"] for c in m.call_args_list], list(mll.mlls))
+
+    def test_shared_parameters(self):
+        # Sub-models with shared parameters must be fit jointly, so that the result
+        # does not depend on the order of the sub-models.
+        lengthscales = []
+        for order in ([0, 1, 2], [2, 1, 0]):
+            mll, base_kernel = self._get_mll(order=order, shared=True)
+            with catch_warnings(record=True):
+                fit_gpytorch_mll(mll)
+            lengthscales.append(base_kernel.lengthscale.detach().clone())
+        # Joint fit of the sum of the MLLs.
+        mll, base_kernel = self._get_mll(order=[0, 1, 2], shared=True)
+        mll.train()
+        fit_gpytorch_mll_scipy(
+            mll,
+            closure=get_loss_closure_with_grads(
+                mll, parameters=get_parameters(mll, requires_grad=True)
+            ),
+        )
+        self.assertAllClose(lengthscales[0], base_kernel.lengthscale)
+        self.assertAllClose(lengthscales[1], base_kernel.lengthscale, rtol=1e-3)
+        # The sum of the MLLs is passed to ``_fit_fallback``.
+        mll, _ = self._get_mll(order=[0, 1, 2], shared=True)
+        self.assertTrue(fit._has_shared_parameters(mll.mlls))
+        with patch.object(fit, "_fit_fallback", side_effect=lambda mll, **_: mll) as m:
+            fit_gpytorch_mll(mll)
+        m.assert_called_once()
+        self.assertIs(m.call_args.kwargs["mll"], mll)
+
+
 class TestFitIndependent(BotorchTestCase):
     """End-to-end integration tests for fit_gpytorch_mll with batched
     independent fitting via fit_gpytorch_mll_scipy."""
@@ -588,3 +655,53 @@ class TestFitIndependent(BotorchTestCase):
         test_X = torch.rand(5, 3, dtype=torch.double)
         posterior = model.posterior(test_X)
         self.assertEqual(posterior.mean.shape, torch.Size([3, 5, 1]))
+
+    def test_optimizer_kwargs(self):
+        """Optimizer kwargs that are not supported by batched fitting must not
+        make all fitting attempts fail."""
+        with torch.random.fork_rng():
+            torch.manual_seed(0)
+            train_X = torch.rand(10, 2, dtype=torch.double)
+            train_Y = torch.rand(10, 2, dtype=torch.double)
+        for optimizer_kwargs in (
+            {"timeout_sec": 60.0},
+            {"options": {"maxiter": 200, "disp": False}},
+            {"options": {"ftol": 1e-8}},
+        ):
+            model = SingleTaskGP(train_X=train_X, train_Y=train_Y)
+            mll = ExactMarginalLogLikelihood(model.likelihood, model)
+            with catch_warnings(record=True):
+                fit_gpytorch_mll(mll, optimizer_kwargs=optimizer_kwargs)
+            self.assertFalse(model.training)
+
+    def test_retry_on_failure(self):
+        """Abnormal terminations of batched fitting trigger a retry."""
+        with torch.random.fork_rng():
+            torch.manual_seed(0)
+            train_X = torch.rand(10, 2, dtype=torch.double)
+            train_Y = torch.rand(10, 2, dtype=torch.double)
+        model = SingleTaskGP(train_X=train_X, train_Y=train_Y)
+        mll = ExactMarginalLogLikelihood(model.likelihood, model)
+        statuses = iter([2, 0])
+
+        def mock_fmin(func, x0, bounds, **kwargs):
+            status = next(statuses)
+            return (
+                x0,
+                np.zeros(x0.shape[0]),
+                [
+                    OptimizeResult(success=status == 0, nit=1, status=status)
+                    for _ in range(x0.shape[0])
+                ],
+            )
+
+        with (
+            patch(
+                "botorch.optim.batched_lbfgs_b.fmin_l_bfgs_b_batched",
+                side_effect=mock_fmin,
+            ) as mock_fmin_batched,
+            catch_warnings(record=True),
+        ):
+            fit_gpytorch_mll(mll)
+        self.assertEqual(mock_fmin_batched.call_count, 2)
+        self.assertFalse(model.training)
