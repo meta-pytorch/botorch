@@ -110,8 +110,21 @@ class BoundedRiemannPosterior(Posterior):
         # convert base samples from N(O, I) to Uniform.
         U = torch.distributions.Normal(0, 1).cdf(base_samples)
         # Convert U to Riemann samples.
-        Z = self.icdf(U)  # (nsamp, b?, q, 1)
-        return Z
+        return self._icdf_samples(U)  # (sample_shape, b?, q, 1)
+
+    def _icdf_samples(self, U: Tensor) -> Tensor:
+        r"""Apply the inverse cdf to uniform samples with any number of sample dims.
+
+        Args:
+            U: A ``sample_shape x base_sample_shape``-dim tensor of uniform samples.
+
+        Returns:
+            A ``sample_shape x base_sample_shape x 1``-dim tensor of samples.
+        """
+        sample_shape = U.shape[: U.dim() - len(self.base_sample_shape)]
+        # ``icdf`` expects a single leading sample dimension.
+        Z = self.icdf(U.reshape(-1, *self.base_sample_shape))
+        return Z.reshape(*sample_shape, *Z.shape[1:])
 
     @property
     def base_sample_shape(self) -> torch.Size:
@@ -190,6 +203,10 @@ class BoundedRiemannPosterior(Posterior):
             value = torch.tensor(value, device=self.device, dtype=self.dtype)
             value = value.expand(*self.probabilities.shape[:-1]).unsqueeze(0)
         value = value.movedim(0, -1)  # (b?, q, b')
+        # Values above the total probability mass (e.g. U = 0.9999999 when the
+        # float32 softmax probabilities sum to 0.9999997) map to the upper end of
+        # the support, instead of indexing past the last bucket.
+        value = torch.minimum(value, self.cumprobs[..., -1:])
 
         index = torch.searchsorted(self.cumprobs, value)  # (b?, q, b')
 
@@ -199,6 +216,11 @@ class BoundedRiemannPosterior(Posterior):
         bucket_width = right_border - left_border
         right_cum_probs = torch.gather(self.cumprobs, -1, index)
         prob_width = torch.gather(self.probabilities, -1, index)
+        # Only a leading bucket without probability mass can be selected (for
+        # value = 0). Avoid 0 / 0 there and return its right border.
+        prob_width = torch.where(
+            prob_width > 0, prob_width, torch.ones_like(prob_width)
+        )
 
         bucket_proportion_remaining = (right_cum_probs - value) / prob_width
         result = (
@@ -252,11 +274,10 @@ class MultivariateRiemannPosterior(BoundedRiemannPosterior):
         # Draw samples
         samples = mvn.rsample(
             sample_shape=sample_shape, base_samples=base_samples
-        ).squeeze(-1)  # (nsamp, b?, q)
+        )  # (nsamp, b?, q)
         # Convert N(0, 1) marginals to Uniform samples.
         U = torch.distributions.Normal(0, 1).cdf(samples)  # (nsamp, b?, q)
-        Z = self.icdf(U)  # (nsamp, b?, q, 1)
-        return Z
+        return self._icdf_samples(U)  # (nsamp, b?, q, 1)
 
 
 @GetSampler.register(BoundedRiemannPosterior)
