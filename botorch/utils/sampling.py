@@ -543,11 +543,17 @@ class PolytopeSampler(ABC):
 
         Returns:
             True if ``x`` is contained inside the polytope (incl. its boundary),
-            False otherwise.
+            False otherwise. The equality constraints are checked up to a tolerance.
         """
         ineq = (self.A @ x - self.b <= 0).all()
         if self.equality_constraints is not None:
-            eq = (self.C @ x - self.d == 0).all()
+            # Allow for round-off errors in the equality constraints, e.g. due to the
+            # normalization of the constraints and of ``x`` to the unit cube in
+            # ``HitAndRunPolytopeSampler``. The tolerance is relative to the magnitude
+            # of the terms of the constraints if these are larger than one.
+            tol = 1e-8 if x.dtype == torch.double else 1e-6
+            scale = (self.C.abs() @ x.abs() + self.d.abs()).clamp_min(1.0)
+            eq = ((self.C @ x - self.d).abs() <= tol * scale).all()
             return ineq & eq
         return ineq
 
