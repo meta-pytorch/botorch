@@ -4,7 +4,9 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+from itertools import product
 from typing import Optional, Union
+from unittest import mock
 
 import torch
 from botorch.acquisition.objective import (
@@ -19,8 +21,13 @@ from botorch_community.acquisition.discretized import (
     DiscretizedNoisyExpectedImprovement,
     DiscretizedProbabilityOfImprovement,
 )
+from botorch_community.models.prior_fitted_network import (
+    MultivariatePFNModel,
+    PFNModel,
+    PFNModelWithPendingPoints,
+)
 from botorch_community.posteriors.riemann import BoundedRiemannPosterior
-from torch import Tensor
+from torch import nn, Tensor
 
 
 class MockDiscretizedModel:
@@ -48,6 +55,62 @@ class MockDiscretizedModel:
         negate_train_ys: bool = False,
     ) -> BoundedRiemannPosterior:
         return BoundedRiemannPosterior(self.borders, self.probabilities)
+
+
+class DummyPFN(nn.Module):
+    def __init__(self, n_buckets: int = 10) -> None:
+        """A dummy PFN that predicts a uniform distribution over its buckets."""
+        super().__init__()
+        self.n_buckets = n_buckets
+        self.criterion = mock.MagicMock()
+        self.criterion.borders = torch.linspace(-1, 1, n_buckets + 1)
+        self.style_encoder = None
+        self.y_style_encoder = None
+
+    def forward(self, x: Tensor, y: Tensor, test_x: Tensor, **kwargs) -> Tensor:
+        return torch.zeros(*test_x.shape[:-1], self.n_buckets, device=test_x.device)
+
+
+class TestDiscretizedWithPFNModels(BotorchTestCase):
+    def test_forward_with_pfn_models(self):
+        train_X = torch.rand(5, 2, device=self.device)
+        train_Y = torch.rand(5, 1, device=self.device)
+        train_Y = train_Y - train_Y.mean()  # required for ``negate_train_ys``
+        X = torch.rand(3, 1, 2, device=self.device)
+        minimize = ScalarizedPosteriorTransform(
+            weights=torch.tensor([-1.0], device=self.device)
+        )
+        # ``PFNModel`` and ``MultivariatePFNModel`` do not support pending points.
+        for model_cls, acqf_cls, posterior_transform in product(
+            (PFNModel, PFNModelWithPendingPoints, MultivariatePFNModel),
+            (DiscretizedExpectedImprovement, DiscretizedProbabilityOfImprovement),
+            (None, minimize),
+        ):
+            with self.subTest(
+                model_cls=model_cls,
+                acqf_cls=acqf_cls,
+                minimize=posterior_transform is not None,
+            ):
+                model = model_cls(train_X, train_Y, DummyPFN())
+                acqf = acqf_cls(
+                    model, best_f=0.0, posterior_transform=posterior_transform
+                )
+                self.assertEqual(acqf(X).shape, torch.Size([3]))
+
+        # Pending points and the negation of the training data are passed on.
+        model = PFNModelWithPendingPoints(train_X, train_Y, DummyPFN())
+        acqf = DiscretizedExpectedImprovement(
+            model, best_f=0.0, posterior_transform=minimize
+        )
+        X_pending = torch.rand(2, 2, device=self.device)
+        acqf.set_X_pending(X_pending)
+        with mock.patch.object(
+            model, "posterior", wraps=model.posterior
+        ) as mock_posterior:
+            acqf(X)
+        kwargs = mock_posterior.call_args.kwargs
+        self.assertTrue(torch.equal(kwargs["pending_X"], X_pending))
+        self.assertTrue(kwargs["negate_train_ys"])
 
 
 class TestDiscretizedExpectedImprovement(BotorchTestCase):

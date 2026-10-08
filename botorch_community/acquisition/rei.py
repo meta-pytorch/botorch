@@ -128,9 +128,12 @@ class LogRegionalExpectedImprovement(AnalyticAcquisitionFunction):
         Xs = (self.X_dev * (X_max - X_min) + X_min).reshape(-1, q, d)
 
         mean, sigma = self._mean_and_sigma(Xs)
+        # n_region x batch_shape, so that a batch_shape-dim best_f broadcasts
+        mean = mean.reshape(self.n_region, batch_shape)
+        sigma = sigma.reshape(self.n_region, batch_shape)
         u = _scaled_improvement(mean, sigma, self.best_f, self.maximize)
         logei = _log_ei_helper(u) + sigma.log()
-        logrei = logmeanexp(logei.reshape(self.n_region, batch_shape), dim=0)
+        logrei = logmeanexp(logei, dim=0)
         return logrei
 
 
@@ -185,6 +188,7 @@ class qLogRegionalExpectedImprovement(LogImprovementMCAcquisitionFunction):
             objective=objective,
             posterior_transform=posterior_transform,
             X_pending=X_pending,
+            fat=fat,
         )
         # adding + 1 to account for the additional MC sampling dimension
         # for points inside the trust region surrounding ``X``

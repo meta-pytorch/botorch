@@ -189,6 +189,33 @@ class TestPriorFittedNetwork(BotorchTestCase):
         self.assertIsInstance(model.input_transform, Normalize)
         self.assertEqual(model.input_transform.bounds.shape, torch.Size([2, 3]))
 
+    def test_posterior_does_not_refit_input_transform(self):
+        # The bounds of a learnable Normalize are fit to the training data and
+        # must not be re-fit to the test points when computing the posterior.
+        for model_cls in (PFNModel, PFNModelWithPendingPoints, MultivariatePFNModel):
+            with self.subTest(model_cls=model_cls):
+                dummy_pfn = DummyPFN()
+                captured = {}
+                orig_forward = dummy_pfn.forward
+                dummy_pfn.forward = lambda *a, **kw: (
+                    captured.update(kw),
+                    orig_forward(**kw),
+                )[1]
+                model = model_cls(
+                    train_X=torch.rand(10, 3),
+                    train_Y=torch.rand(10, 1),
+                    input_transform=Normalize(d=3),
+                    model=dummy_pfn,
+                )
+                bounds = model.input_transform.bounds.clone()
+                test_X = 5 + torch.rand(1, 1, 3)
+                model.posterior(test_X)
+                self.assertTrue(torch.equal(model.input_transform.bounds, bounds))
+                self.assertAllClose(
+                    captured["test_x"].transpose(0, 1),
+                    (test_X - bounds[0]) / (bounds[1] - bounds[0]),
+                )
+
     def test_style_hyperparameters(self):
         """Test that style_hyperparameters are stored and passed through get_styles."""
         train_X, train_Y = torch.rand(10, 3), torch.rand(10, 1)
@@ -479,6 +506,38 @@ class TestMultivariatePFN(BotorchTestCase):
         self.assertTrue(torch.equal(res["style"], torch.zeros(6, 7)))
         self.assertNotIn("y_style", res)
 
+        # A raw ``style`` tensor gives styles of shape (b, 1, ns) or (b, nf, ns).
+        for style in (torch.rand(3, 1, 7), torch.rand(3, 5, 7)):
+            with patch(
+                "botorch_community.models.prior_fitted_network.MultivariatePFNModel."
+                "pfn_predict",
+                return_value=return_value,
+            ) as mock_pfn_predict:
+                self.pfn._compute_conditional_means(
+                    X=X,
+                    train_X=torch.zeros(3, 4, 5),
+                    train_Y=torch.zeros(3, 4, 1),
+                    styles={"style": style},
+                    marginals=marginals,
+                )
+            res = mock_pfn_predict.call_args[1]
+            self.assertTrue(
+                torch.equal(res["style"], style.repeat_interleave(2, dim=0))
+            )
+
+    def test_posterior_with_raw_style(self):
+        pfn = MultivariatePFNModel(
+            torch.rand(10, 3), torch.rand(10, 1), DummyPFN(), style=torch.rand(4)
+        )
+        with patch(
+            "botorch_community.models.prior_fitted_network.MultivariatePFNModel."
+            "_estimate_covariances",
+            return_value=torch.eye(3).expand(2, 3, 3),
+        ):
+            post = pfn.posterior(torch.rand(2, 3, 3))
+        self.assertIsInstance(post, MultivariateRiemannPosterior)
+        self.assertEqual(post.correlation_matrix.shape, torch.Size([2, 3, 3]))
+
     def test_estimate_correlations(self):
         probabilities = torch.ones(2, 3, 1000)
         probabilities = probabilities / probabilities.sum(dim=-1, keepdim=True)
@@ -583,6 +642,31 @@ class TestPFNModelWithPendingPoints(BotorchTestCase):
         self.assertTrue(torch.isnan(captured["train_Y"][:, -3:, :]).all())
         # First 10 entries should not be NaN
         self.assertFalse(torch.isnan(captured["train_Y"][:, :10, :]).any())
+
+    def test_pending_X_input_transform(self):
+        """Test that pending_X is input-transformed like train_X and X."""
+        bounds = torch.tensor([[0.0, 0.0, 0.0], [10.0, 10.0, 10.0]])
+        pfn = PFNModelWithPendingPoints(
+            10 * self.train_X,
+            self.train_Y,
+            DummyPFN(n_buckets=100),
+            input_transform=Normalize(d=3, bounds=bounds),
+        )
+        captured = {}
+        orig_pfn_predict = pfn.pfn_predict
+
+        def capture_pfn_predict(X, train_X, train_Y, **kwargs):
+            captured["X"] = X
+            captured["train_X"] = train_X
+            return orig_pfn_predict(X, train_X, train_Y, **kwargs)
+
+        pfn.pfn_predict = capture_pfn_predict
+        test_X = 10 * torch.rand(5, 3)
+        pending_X = 10 * torch.rand(3, 3)
+        pfn.posterior(test_X, pending_X=pending_X)
+        self.assertAllClose(captured["X"], test_X.unsqueeze(0) / 10)
+        self.assertAllClose(captured["train_X"][:, :10], self.train_X.unsqueeze(0))
+        self.assertAllClose(captured["train_X"][:, 10:], pending_X.unsqueeze(0) / 10)
 
     def test_pending_X_must_be_2d(self):
         """Test that pending_X must be 2-dimensional."""

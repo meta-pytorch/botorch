@@ -8,6 +8,7 @@ import warnings
 from typing import Any
 
 import torch
+from botorch.acquisition.logei import qLogExpectedImprovement
 from botorch.acquisition.objective import ScalarizedPosteriorTransform
 from botorch.exceptions import BotorchWarning, UnsupportedError
 from botorch.models import SingleTaskGP
@@ -101,8 +102,58 @@ class TestLogRegionalExpectedImprovement(BotorchTestCase):
         rei_expected = torch.tensor([0.6910], device=self.device, dtype=dtype)
         self.assertAllClose(log_rei(X), rei_expected.log(), atol=1e-4)
 
+    def test_log_regional_expected_improvement_batch_best_f(self):
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.rand(8, 2, **tkwargs)
+        model = SingleTaskGP(train_X, train_X.sin().sum(dim=-1, keepdim=True))
+        X = torch.rand(3, 1, 2, **tkwargs)
+        X_dev = torch.rand(4, 2, **tkwargs)
+        best_f = torch.tensor([0.0, 0.5, 1.0], **tkwargs)
+        for maximize in (True, False):
+            log_rei = LogRegionalExpectedImprovement(
+                model=model, best_f=best_f, X_dev=X_dev, maximize=maximize
+            )(X)
+            # Each t-batch is evaluated with its own best_f.
+            expected = torch.cat(
+                [
+                    LogRegionalExpectedImprovement(
+                        model=model, best_f=best_f[i], X_dev=X_dev, maximize=maximize
+                    )(X[i : i + 1])
+                    for i in range(3)
+                ]
+            )
+            self.assertAllClose(log_rei, expected)
+
 
 class TestQLogRegionalExpectedImprovement(BotorchTestCase):
+    def test_fat(self):
+        # ``fat`` must be used consistently with qLogEI.
+        tkwargs: dict[str, Any] = {"device": self.device, "dtype": torch.double}
+        # ``mc_model_samples x mc_X_dev_samples x q x d`` = 1 x 1 x 2 x 1
+        samples = torch.tensor([-1.0, -2.0], **tkwargs).view(1, 1, 2, 1)
+        mm = MockModel(MockPosterior(samples=samples))
+        X = torch.zeros(2, 1, **tkwargs)
+        X_dev = torch.zeros(1, 1, **tkwargs)
+        values = {}
+        for fat in (True, False):
+            q_log_rei = qLogRegionalExpectedImprovement(
+                model=mm,
+                best_f=0.0,
+                X_dev=X_dev,
+                sampler=IIDNormalSampler(sample_shape=torch.Size([2])),
+                fat=fat,
+            )
+            self.assertEqual(q_log_rei._fat, fat)
+            q_log_ei = qLogExpectedImprovement(
+                model=mm,
+                best_f=0.0,
+                sampler=IIDNormalSampler(sample_shape=torch.Size([2])),
+                fat=fat,
+            )
+            values[fat] = q_log_rei(X)
+            self.assertAllClose(values[fat], q_log_ei(X).view(-1))
+        self.assertGreater((values[True] - values[False]).abs().item(), 1.0)
+
     def test_q_log_regional_expected_improvement(self):
         for dtype in (torch.float, torch.double):
             with self.subTest(dtype=dtype):
