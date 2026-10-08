@@ -506,8 +506,10 @@ class MVaR(MultiOutputRiskMeasureMCObjective):
             ``k'`` by repeating the last element. If ``self.pad_to_n_w``, we set
             ``k' = self.n_w``, producing a deterministic return shape.
         """
-        batch_shape, m = samples.shape[:-2], samples.shape[-1]
+        batch_shape = samples.shape[:-2]
         prepared_samples = self._prepare_samples(samples)
+        # The preprocessing function may change the number of outcomes (m -> m').
+        m = prepared_samples.shape[-1]
         # This is -1 x n_w x m.
         prepared_samples = prepared_samples.reshape(-1, *prepared_samples.shape[-2:])
         with torch.no_grad():

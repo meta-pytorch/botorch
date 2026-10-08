@@ -442,6 +442,26 @@ class TestMVaR(BotorchTestCase):
             # Check that the output has gradients.
             self.assertTrue(mvar(Y.requires_grad_()).requires_grad)
 
+    def test_mvar_preprocessing_changes_num_outcomes(self):
+        # The preprocessing function may remove outcomes (m -> m'). The output must
+        # match the MVaR of the preprocessed samples.
+        for m, expectation in ((3, False), (3, True), (4, False), (4, True)):
+            with self.subTest(m=m, expectation=expectation):
+                samples = torch.rand(3, 2 * 4, m, device=self.device)
+                mvar = MVaR(
+                    n_w=4,
+                    alpha=0.5,
+                    expectation=expectation,
+                    preprocessing_function=IdentityMCMultiOutputObjective(
+                        outcomes=[0, 1]
+                    ),
+                )
+                expected = MVaR(n_w=4, alpha=0.5, expectation=expectation)(
+                    samples[..., :2]
+                )
+                self.assertEqual(mvar(samples).shape, expected.shape)
+                self.assertTrue(torch.equal(mvar(samples), expected))
+
 
 class TestMARS(BotorchTestCase):
     def test_init(self):
