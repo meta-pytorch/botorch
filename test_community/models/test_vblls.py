@@ -246,6 +246,38 @@ class TestVBLLModel(BotorchTestCase):
                         f"(Parameterization: {covar_type})",
                     )
 
+    def test_frozen_backbone_gradient_clipping(self) -> None:
+        d = 4
+        X, y = _reg_data_singletask(d)
+        model = VBLLModel(
+            in_features=d,
+            hidden_features=4,
+            out_features=1,
+            num_layers=1,
+            device=self.device,
+        )
+        # reference model whose backbone is excluded from autograd altogether
+        model_ref = copy.deepcopy(model)
+        for param in model_ref.backbone.parameters():
+            param.requires_grad_(False)
+        optim_settings = {
+            "num_epochs": 3,
+            "batch_size": 4,
+            "freeze_backbone": True,
+            "optimizer_class": torch.optim.SGD,
+            "lr": 0.1,
+            "clip_val": 0.1,
+        }
+        for m in (model, model_ref):
+            torch.manual_seed(0)  # identical minibatches
+            m.fit(X, y, optimization_settings=optim_settings)
+        # gradients of the frozen backbone must not affect the clipping of the
+        # head gradients, i.e., the head is trained exactly as in the reference
+        for param, param_ref in zip(
+            model.head.parameters(), model_ref.head.parameters()
+        ):
+            self.assertAllClose(param, param_ref)
+
     def test_early_stopping(self) -> None:
         d, num_hidden = 4, 4
         # test for all parameterizations of the VBLL head

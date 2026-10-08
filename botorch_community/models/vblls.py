@@ -405,6 +405,11 @@ class VBLLModel(AbstractBLLModel):
             lr=optimization_settings["lr"],
             **optimizer_kwargs,
         )
+        # Only clip the gradients of the optimized parameters. A frozen backbone
+        # still receives (and accumulates) gradients, which must not be included.
+        optimized_params = [
+            p for group in optimizer.param_groups for p in group["params"]
+        ]
 
         best_loss = float("inf")
         epochs_no_improve = 0
@@ -429,7 +434,7 @@ class VBLLModel(AbstractBLLModel):
 
                 if optimization_settings["clip_val"] is not None:
                     torch.nn.utils.clip_grad_norm_(
-                        self.model.parameters(), optimization_settings["clip_val"]
+                        optimized_params, optimization_settings["clip_val"]
                     )
 
                 optimizer.step()
