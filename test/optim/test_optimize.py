@@ -879,7 +879,7 @@ class TestOptimizeAcqf(BotorchTestCase):
             (1, 2, dim),
             (3, 1, dim),
             (num_restarts, q, dim),
-            (1, dim),
+            (1, 1, dim),  # a 2-dim IC is a single restart
             (num_restarts, q, dim),
         ]
 
@@ -931,6 +931,34 @@ class TestOptimizeAcqf(BotorchTestCase):
                         batch_initial_conditions=ics,
                     )
                 self.assertEqual(acq_value_list.shape, (expected_shape,))
+
+    def test_optimize_acqf_2d_batch_initial_conditions(self):
+        # A ``q x d``-dim ``batch_initial_conditions`` is a single restart, whose
+        # q-batch must be optimized jointly (also with ``batch_limit < q``) and
+        # returned as a whole.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        target = torch.tensor([[0.1, 0.2], [0.7, 0.8]], **tkwargs)
+        acqf = NegSquaredDistanceAcquisitionFunction(target=target)
+        bounds = torch.tensor([[0.0, 0.0], [1.0, 1.0]], **tkwargs)
+        ic = torch.full((2, 2), 0.5, **tkwargs)
+        for options, return_best_only in product(
+            (None, {"batch_limit": 1}), (True, False)
+        ):
+            candidates, acq_value = optimize_acqf(
+                acq_function=acqf,
+                bounds=bounds,
+                q=2,
+                num_restarts=2,
+                options=options,
+                batch_initial_conditions=ic,
+                return_best_only=return_best_only,
+            )
+            if return_best_only:
+                self.assertAllClose(candidates, target, atol=1e-4)
+                self.assertEqual(acq_value.shape, torch.Size([]))
+            else:
+                self.assertAllClose(candidates, target.unsqueeze(0), atol=1e-4)
+                self.assertEqual(acq_value.shape, torch.Size([1]))
 
     def test_optimize_acqf_runs_given_batch_initial_conditions(self):
         num_restarts, raw_samples, dim = 1, 2, 3

@@ -370,10 +370,12 @@ def _optimize_acqf_batch(
     provided_initial_conditions = opt_inputs.batch_initial_conditions
     generated_initial_conditions = None
 
-    if (
-        provided_initial_conditions is not None
-        and len(provided_initial_conditions.shape) == 3
-    ):
+    if provided_initial_conditions is not None:
+        if provided_initial_conditions.ndim == 2:
+            # A ``q x d``-dim tensor holds the initial conditions of a single
+            # restart. Add the restart dimension, so that the q-batch is optimized
+            # jointly and not split up into separate problems along the q-dim.
+            provided_initial_conditions = provided_initial_conditions.unsqueeze(0)
         required_num_restarts -= provided_initial_conditions.shape[0]
 
     if opt_inputs.raw_samples is not None and required_num_restarts > 0:
