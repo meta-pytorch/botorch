@@ -18,8 +18,6 @@ References
 
 from __future__ import annotations
 
-from itertools import product
-
 import torch
 from botorch.acquisition.multi_objective.base import (
     MultiObjectiveAnalyticAcquisitionFunction,
@@ -51,14 +49,9 @@ class ExpectedHypervolumeImprovement(MultiObjectiveAnalyticAcquisitionFunction):
         additionally computes gradients via auto-differentiation as proposed by
         [Daulton2020qehvi]_.
 
-        Note: this is currently inefficient in two ways due to the binary partitioning
-        algorithm that we use for the box decomposition:
-
-            - We have more boxes in our decomposition
-            - If we used a box decomposition that used ``inf`` as the upper bound for
-                the last dimension *in all hypercells*, then we could reduce the number
-                of terms we need to compute from 2^m to 2^(m-1). [Yang2019]_ do this
-                by using DKLV17 and LKF17 for the box decomposition.
+        Note: this is currently inefficient due to the binary partitioning algorithm
+        that we use for the box decomposition, which results in more boxes than the
+        decompositions used by [Yang2019]_.
 
         TODO: Use DKLV17 and LKF17 for the box decomposition as in [Yang2019]_ for
         greater efficiency.
@@ -106,12 +99,6 @@ class ExpectedHypervolumeImprovement(MultiObjectiveAnalyticAcquisitionFunction):
         cell_bounds = self.partitioning.get_hypercell_bounds()
         self.register_buffer("cell_lower_bounds", cell_bounds[0])
         self.register_buffer("cell_upper_bounds", cell_bounds[1])
-        # create indexing tensor of shape ``2^m x m``
-        self._cross_product_indices = torch.tensor(
-            list(product(*[[0, 1] for _ in range(ref_point.shape[0])])),
-            dtype=torch.long,
-            device=ref_point.device,
-        )
         self.normal = Normal(0, 1)
 
     def psi(self, lower: Tensor, upper: Tensor, mu: Tensor, sigma: Tensor) -> Tensor:
@@ -196,23 +183,10 @@ class ExpectedHypervolumeImprovement(MultiObjectiveAnalyticAcquisitionFunction):
         # compute the difference psi_ll - psi_lu
         psi_diff = psi_ll - psi_lu
 
-        # this is batch_shape x num_cells x 2 x (m-1)
-        stacked_factors = torch.stack([psi_diff, nu], dim=-2)
-
-        # Take the cross product of psi_diff and nu across all outcomes
-        # e.g. for m = 2
-        # for each batch and cell, compute
-        # [psi_diff_0, psi_diff_1]
-        # [nu_0, psi_diff_1]
-        # [psi_diff_0, nu_1]
-        # [nu_0, nu_1]
-        # this tensor has shape: ``batch_shape x num_cells x 2^m x m``
-        all_factors_up_to_last = stacked_factors.gather(
-            dim=-2,
-            index=self._cross_product_indices.expand(
-                stacked_factors.shape[:-2] + self._cross_product_indices.shape
-            ),
-        )
-        # compute product for all 2^m terms,
-        # sum across all terms and hypercells
-        return all_factors_up_to_last.prod(dim=-1).sum(dim=-1).sum(dim=-1)
+        # The expected improvement in each hypercell is the product over the
+        # outcomes of ``psi_diff + nu``. This equals the sum over the 2^m products
+        # of either ``psi_diff`` or ``nu`` for each outcome (e.g., for m = 2:
+        # psi_diff_0 * psi_diff_1 + psi_diff_0 * nu_1 + nu_0 * psi_diff_1 + nu_0 * nu_1)
+        # but avoids materializing a ``batch_shape x num_cells x 2^m x m`` tensor.
+        # Sum across all hypercells.
+        return (psi_diff + nu).prod(dim=-1).sum(dim=-1)
