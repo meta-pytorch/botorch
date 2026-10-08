@@ -502,3 +502,35 @@ class TestLinearEllipticalSliceSampler(BotorchTestCase):
                 samples.mean(dim=0).norm(),
                 batch_samples.mean(dim=0).norm(),
             )
+
+    def test_batch_mcmc_fixed_indices(self):
+        torch.manual_seed(0)
+        d, num_chains, n = 4, 8, 32
+        fixed_indices, free_indices = [0, 2], [1, 3]
+        for dtype in (torch.float, torch.double):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            # N(0, I) truncated by a symmetric box, with two fixed features
+            bounds = torch.stack([-torch.ones(d, **tkwargs), torch.ones(d, **tkwargs)])
+            interior_point = torch.tensor([0.25, 0.0, -0.5, 0.0], **tkwargs)
+            for burnin in (0, 10):
+                sampler = LinearEllipticalSliceSampler(
+                    bounds=bounds,
+                    interior_point=interior_point,
+                    fixed_indices=fixed_indices,
+                    check_feasibility=True,
+                    burnin=burnin,
+                    num_chains=num_chains,
+                )
+                samples = sampler.draw(n=n)
+                self.assertEqual(samples.shape, torch.Size([num_chains * n, d]))
+                self.assertTrue(
+                    (samples[:, fixed_indices] == interior_point[fixed_indices]).all()
+                )
+                # all samples (across chains) are distinct
+                self.assertEqual(len(samples.unique(dim=0)), num_chains * n)
+                # the free features have mean zero thanks to symmetry
+                self.assertAllClose(
+                    samples[:, free_indices].mean(dim=0),
+                    torch.zeros(len(free_indices), **tkwargs),
+                    atol=0.3,
+                )

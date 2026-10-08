@@ -509,7 +509,9 @@ class PolytopeSampler(ABC):
         if equality_constraints is not None:
             self.C, self.d = equality_constraints
             U, S, Vh = torch.linalg.svd(self.C)
-            r = torch.nonzero(S).size(0)  # rank of matrix C
+            # rank of matrix C, using a tolerance to discard singular values that
+            # are non-zero only due to round-off errors (e.g. for redundant rows)
+            r = torch.linalg.matrix_rank(self.C).item()
             self.nullC = Vh[r:, :].transpose(-1, -2)  # orthonormal null space of C,
             # satisfying # C @ nullC = 0 and nullC.T @ nullC = I
             # using the change of variables x=x0+nullC*y,
@@ -541,11 +543,17 @@ class PolytopeSampler(ABC):
 
         Returns:
             True if ``x`` is contained inside the polytope (incl. its boundary),
-            False otherwise.
+            False otherwise. The equality constraints are checked up to a tolerance.
         """
         ineq = (self.A @ x - self.b <= 0).all()
         if self.equality_constraints is not None:
-            eq = (self.C @ x - self.d == 0).all()
+            # Allow for round-off errors in the equality constraints, e.g. due to the
+            # normalization of the constraints and of ``x`` to the unit cube in
+            # ``HitAndRunPolytopeSampler``. The tolerance is relative to the magnitude
+            # of the terms of the constraints if these are larger than one.
+            tol = 1e-8 if x.dtype == torch.double else 1e-6
+            scale = (self.C.abs() @ x.abs() + self.d.abs()).clamp_min(1.0)
+            eq = ((self.C @ x - self.d).abs() <= tol * scale).all()
             return ineq & eq
         return ineq
 
@@ -830,8 +838,9 @@ class DelaunayPolytopeSampler(PolytopeSampler):
             simplex_rvs = sample_simplex(
                 d=self.dim + 1, n=n, seed=seed, device=self.A.device, dtype=self.A.dtype
             )
-            transformed_samples = torch.stack(
-                [rv @ self._polytopes[idx] for rv, idx in zip(simplex_rvs, index_rvs)]
+            # convex combinations of the vertices of the sampled simplices
+            transformed_samples = torch.einsum(
+                "nk,nkd->nd", simplex_rvs, self._polytopes[index_rvs]
             )
         init_shift = self.x0.transpose(-1, -2)
         samples = init_shift + transformed_samples @ self.nullC.transpose(-1, -2)
@@ -1104,7 +1113,9 @@ def boltzmann_sample(
         Returns:
         A ``batch_shape x num_samples`` tensor of indices of sampled positions.
     """
-    norm_weights = standardize(function_values)
+    # Standardize over the ``N`` function values of each batch. Since ``standardize``
+    # operates on dim -2 for inputs with two or more dimensions, add a trailing dim.
+    norm_weights = standardize(function_values.unsqueeze(-1)).squeeze(-1)
     weights = torch.exp(eta * norm_weights)
     while torch.isinf(weights).any():
         eta *= temp_decrease
@@ -1138,13 +1149,41 @@ def sample_truncated_normal_perturbations(
     Returns:
         A ``n_discrete_points x d``-dim tensor containing the sampled points.
     """
-    X = normalize(X, bounds=bounds)
-    d = X.shape[1]
-    # sample points from N(X_center, sigma^2 I), truncated to be within
-    # [0, 1]^d.
     if X.shape[0] > 1:
         rand_indices = torch.randint(X.shape[0], (n_discrete_points,), device=X.device)
         X = X[rand_indices]
+    return _perturb_truncated_normal(
+        X=X, n_discrete_points=n_discrete_points, sigma=sigma, bounds=bounds, qmc=qmc
+    )
+
+
+def _perturb_truncated_normal(
+    X: Tensor,
+    n_discrete_points: int,
+    sigma: float,
+    bounds: Tensor,
+    qmc: bool,
+) -> Tensor:
+    r"""Perturb the points ``X`` with truncated normal noise.
+
+    In contrast to ``sample_truncated_normal_perturbations``, this does not resample
+    the points, i.e. the ``i``-th output is a perturbation of ``X[i]``.
+
+    Args:
+        X: A ``n_discrete_points x d``-dim tensor of points to perturb, or a
+            ``1 x d``-dim tensor if all points are perturbations of a single point.
+        n_discrete_points: The number of points to sample.
+        sigma: The standard deviation of the additive gaussian noise for
+            perturbing the points.
+        bounds: A ``2 x d``-dim tensor containing the bounds.
+        qmc: A boolean indicating whether to use qmc.
+
+    Returns:
+        A ``n_discrete_points x d``-dim tensor containing the perturbed points.
+    """
+    X = normalize(X, bounds=bounds)
+    d = X.shape[1]
+    # sample points from N(X, sigma^2 I), truncated to be within [0, 1]^d.
     if qmc:
         std_bounds = torch.zeros(2, d, dtype=X.dtype, device=X.device)
         std_bounds[1] = 1
@@ -1210,7 +1249,9 @@ def sample_perturbed_subset_dims(
     else:
         rand_indices = torch.randint(X.shape[0], (n_discrete_points,), device=X.device)
         X_cand = X[rand_indices]
-    pert = sample_truncated_normal_perturbations(
+    # NOTE: The perturbations must not resample the rows of ``X_cand``, so that
+    # ``pert[i]`` is a perturbation of ``X_cand[i]``.
+    pert = _perturb_truncated_normal(
         X=X_cand,
         n_discrete_points=n_discrete_points,
         sigma=sigma,
