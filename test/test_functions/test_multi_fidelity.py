@@ -73,6 +73,7 @@ class TestDiscreteMultiFidelity(
             f.to(device=self.device, dtype=dtype)
             X = torch.rand(*batch_shape, f.dim, device=self.device, dtype=dtype)
             X = f.bounds[0] + X * (f.bounds[1] - f.bounds[0])
+            X[..., -1] = X[..., -1].round()
             for fidelity in f.fidelities:
                 if X.ndim == 1:
                     X[-1] = fidelity
@@ -98,3 +99,12 @@ class TestDiscreteMultiFidelity(
                             [f.num_objectives] if f.num_objectives > 1 else []
                         )
                         self.assertEqual(res.shape, batch_shape + tail_shape)
+
+    def test_fidelity_is_categorical(self):
+        for f in self.functions:
+            self.assertEqual(f.categorical_inds, [f.dim - 1])
+            self.assertEqual(f.continuous_inds, list(range(f.dim - 1)))
+            X = (f.bounds[0] + f.bounds[1]) / 2
+            X[-1] = 0.5
+            with self.assertRaisesRegex(ValueError, "integer values"):
+                f.evaluate_true(X)

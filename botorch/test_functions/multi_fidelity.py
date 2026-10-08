@@ -190,7 +190,7 @@ class WingWeightMultiFidelity(SyntheticTestFunction):
        9. w_dg       in [1700,  2500]  (design gross weight)
        10. w_pp      in [0.025, 0.08]  (weight per unit area)
 
-    Fidelity parameter (stored as the 11th input):
+    Fidelity parameter (stored as the 11th input, categorical):
       0: High fidelity (HF)
       1: Low fidelity 1 (LF1)
       2: Low fidelity 2 (LF2)
@@ -200,7 +200,8 @@ class WingWeightMultiFidelity(SyntheticTestFunction):
     """
 
     dim = 11
-    continuous_inds = list(range(dim))
+    continuous_inds = list(range(dim - 1))
+    categorical_inds = [dim - 1]  # fidelity
     _num_fidelities = 1
     _bounds = [
         (150.0, 200.0),  # s_w
@@ -291,7 +292,8 @@ class BoreholeMultiFidelity(SyntheticTestFunction):
     """
 
     dim = 9
-    continuous_inds = list(range(dim))
+    continuous_inds = list(range(dim - 1))
+    categorical_inds = [dim - 1]  # fidelity
     _num_fidelities = 1
     _bounds = [
         (0.05, 0.15),  # r_w
