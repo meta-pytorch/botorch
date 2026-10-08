@@ -67,8 +67,15 @@ class TestExpectedHypervolumeImprovement(BotorchTestCase):
         # The EHVI of a hypercell is the product over the outcomes of
         # ``psi_diff + nu``. Compare against the explicit expansion of this product
         # into the sum over all 2^m products of ``psi_diff`` or ``nu`` per outcome.
+        torch.manual_seed(0)
         for dtype, m in product((torch.float, torch.double), (2, 3, 4)):
             tkwargs = {"device": self.device, "dtype": dtype}
+            # The two forms differ only by floating point rounding.
+            tols = (
+                {"rtol": 1e-10, "atol": 1e-12}
+                if dtype == torch.double
+                else {"rtol": 1e-3, "atol": 1e-5}
+            )
             ref_point = torch.zeros(m, **tkwargs)
             partitioning = NondominatedPartitioning(
                 ref_point=ref_point, Y=torch.rand(5, m, **tkwargs)
@@ -98,9 +105,9 @@ class TestExpectedHypervolumeImprovement(BotorchTestCase):
                 for s in product((0, 1), repeat=m)
             )
             self.assertGreater(expected.min().item(), 0.0)
-            self.assertAllClose(res, expected)
+            self.assertAllClose(res, expected, **tols)
             for r, e in zip(
                 torch.autograd.grad(res.sum(), (mean, variance)),
                 torch.autograd.grad(expected.sum(), (mean, variance)),
             ):
-                self.assertAllClose(r, e)
+                self.assertAllClose(r, e, **tols)
