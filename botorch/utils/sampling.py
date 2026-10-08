@@ -1104,7 +1104,9 @@ def boltzmann_sample(
         Returns:
         A ``batch_shape x num_samples`` tensor of indices of sampled positions.
     """
-    norm_weights = standardize(function_values)
+    # Standardize over the ``N`` function values of each batch. Since ``standardize``
+    # operates on dim -2 for inputs with two or more dimensions, add a trailing dim.
+    norm_weights = standardize(function_values.unsqueeze(-1)).squeeze(-1)
     weights = torch.exp(eta * norm_weights)
     while torch.isinf(weights).any():
         eta *= temp_decrease

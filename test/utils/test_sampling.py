@@ -838,3 +838,24 @@ class TestBoltzmannSample(BotorchTestCase):
         large_eta = 1000.0
         result = boltzmann_sample(function_values, num_samples, large_eta)
         self.assertEqual(result.shape, (num_samples,))
+
+    def test_boltzmann_sample_batched(self):
+        # Function values are standardized separately for each batch, so the sampling
+        # weights of each batch are the same as for the corresponding 1-d input.
+        for dtype in (torch.float32, torch.float64):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            function_values = torch.tensor(
+                [[1.0, 2.0, 3.0, 5.0], [101.0, 102.0, 103.0, 105.0], [-3, 0, 1, 30]],
+                **tkwargs,
+            )
+            for fvals in (function_values, function_values[:1].expand(3, -1)):
+                with mock.patch(
+                    "botorch.utils.sampling.batched_multinomial",
+                    wraps=batched_multinomial,
+                ) as mock_multinomial:
+                    result = boltzmann_sample(fvals, num_samples=2, eta=2.0)
+                    for fvals_i in fvals:
+                        boltzmann_sample(fvals_i, num_samples=2, eta=2.0)
+                self.assertEqual(result.shape, torch.Size([3, 2]))
+                weights = [c.kwargs["weights"] for c in mock_multinomial.call_args_list]
+                self.assertAllClose(weights[0], torch.stack(weights[1:]))
