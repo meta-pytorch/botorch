@@ -9,6 +9,7 @@ import warnings
 from functools import partial
 
 import torch
+from botorch import settings
 from botorch.acquisition.objective import ScalarizedPosteriorTransform
 from botorch.exceptions import (
     BotorchTensorDimensionError,
@@ -19,6 +20,7 @@ from botorch.exceptions.warnings import BotorchWarning, InputDataWarning
 from botorch.fit import fit_gpytorch_mll
 from botorch.models.gp_regression import SingleTaskGP
 from botorch.models.gpytorch import (
+    _use_fantasy_mean_cache,
     BatchedMultiOutputGPyTorchModel,
     GPyTorchModel,
     ModelListGPyTorchModel,
@@ -38,7 +40,7 @@ from botorch.posteriors.gpytorch import GPyTorchPosterior
 from botorch.sampling.normal import SobolQMCNormalSampler
 from botorch.utils.test_helpers import SimpleGPyTorchModel
 from botorch.utils.testing import BotorchTestCase, get_random_data
-from gpytorch import ExactMarginalLogLikelihood
+from gpytorch import ExactMarginalLogLikelihood, settings as gpt_settings
 from gpytorch.distributions import MultivariateNormal
 from gpytorch.kernels import RBFKernel, ScaleKernel
 from gpytorch.likelihoods import GaussianLikelihood
@@ -46,6 +48,8 @@ from gpytorch.means import ConstantMean
 from gpytorch.models import ExactGP, IndependentModelList
 from gpytorch.priors import LogNormalPrior
 from gpytorch.settings import trace_mode
+from gpytorch.utils.errors import CachingError
+from gpytorch.utils.memoize import get_from_cache
 from torch import Tensor
 from torch.nn.functional import one_hot
 
@@ -275,6 +279,100 @@ class TestGPyTorchModel(BotorchTestCase):
         with fantasize():
             model.posterior(test_X)
             self.assertTrue(model.last_fantasize_flag)
+
+    def test_condition_on_observations_with_noise(self) -> None:
+        # The posterior of a conditioned model must use the noise passed for the
+        # new observations in both the mean and the covariance, also if the model
+        # infers the noise level (which requires using the updated mean cache).
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.rand(6, 1, **tkwargs)
+        train_Y = torch.sin(6 * train_X)
+        model = SingleTaskGP(train_X, train_Y, outcome_transform=None)
+        model.likelihood.noise = 0.1
+        model.covar_module.lengthscale = 0.3
+        model.eval()
+        test_X = torch.tensor([[0.5], [0.2]], **tkwargs)
+        model.posterior(test_X)
+        new_X = torch.tensor([[0.5]], **tkwargs)
+        new_noise = torch.full((1, 1), 1e-6, **tkwargs)
+
+        def exact_posterior(new_X: Tensor, new_Y: Tensor, new_noise: float):
+            # Posterior of a GP with the same hyperparameters, computed densely.
+            all_X = torch.cat([train_X, new_X, test_X])
+            mean = model.mean_module(all_X)
+            covar = model.covar_module(all_X).to_dense()
+            noise = torch.tensor([0.1] * 6 + [new_noise], **tkwargs)
+            K = covar[:7, :7] + torch.diag(noise)
+            K_cross = covar[7:, :7]
+            residual = torch.cat([train_Y, new_Y]).squeeze(-1) - mean[:7]
+            post_mean = mean[7:] + K_cross @ torch.linalg.solve(K, residual)
+            post_covar = covar[7:, 7:] - K_cross @ torch.linalg.solve(K, K_cross.T)
+            return post_mean, post_covar
+
+        new_Y = torch.tensor([[2.0]], **tkwargs)
+        conditioned_model = model.condition_on_observations(
+            new_X, new_Y, noise=new_noise
+        )
+        posterior = conditioned_model.posterior(test_X)
+        expected_mean, expected_covar = exact_posterior(new_X, new_Y, 1e-6)
+        self.assertAllClose(posterior.mean.squeeze(-1), expected_mean)
+        self.assertAllClose(posterior.covariance_matrix, expected_covar)
+
+        # Same for fantasy models with a given observation noise.
+        sampler = SobolQMCNormalSampler(sample_shape=torch.Size([3]), seed=0)
+        fantasy_model = model.fantasize(
+            new_X, sampler=sampler, observation_noise=new_noise
+        )
+        posterior = fantasy_model.posterior(test_X)
+        for i, fantasy_Y in enumerate(fantasy_model.train_targets[:, -1]):
+            expected_mean, expected_covar = exact_posterior(
+                new_X, fantasy_Y.view(1, 1), 1e-6
+            )
+            self.assertAllClose(posterior.mean[i].squeeze(-1), expected_mean)
+            self.assertAllClose(posterior.covariance_matrix[i], expected_covar)
+
+        # If the new inputs require gradients, the mean cache is recomputed with
+        # gradients w.r.t. them (as needed e.g. by qKnowledgeGradient).
+        new_X.requires_grad_(True)
+        conditioned_model = model.condition_on_observations(new_X, new_Y)
+        with settings.propagate_grads(True):
+            mean = conditioned_model.posterior(test_X).mean.sum()
+        grad = torch.autograd.grad(mean, new_X)[0]
+        expected_mean, _ = exact_posterior(new_X, new_Y, 0.1)
+        expected_grad = torch.autograd.grad(expected_mean.sum(), new_X)[0]
+        self.assertAllClose(grad, expected_grad)
+
+    def test_use_fantasy_mean_cache(self) -> None:
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        model = SingleTaskGP(torch.rand(5, 1, **tkwargs), torch.rand(5, 1, **tkwargs))
+        model.posterior(torch.rand(2, 1, **tkwargs))
+        X, Y = torch.rand(1, 1, **tkwargs), torch.rand(1, 1, **tkwargs)
+        key = ("mean_cache", gpt_settings.observation_nan_policy.value())
+
+        def get_mean_cache(model):
+            return get_from_cache(model.prediction_strategy, *key)
+
+        # The mean cache is not stored if gradients may need to be propagated.
+        with settings.propagate_grads(True):
+            conditioned_model = model.condition_on_observations(X, Y)
+        with self.assertRaises(CachingError):
+            get_mean_cache(conditioned_model)
+        conditioned_model = model.condition_on_observations(
+            X.clone().requires_grad_(True), Y
+        )
+        with self.assertRaises(CachingError):
+            get_mean_cache(conditioned_model)
+        # Otherwise, the detached mean cache is stored.
+        conditioned_model = model.condition_on_observations(X, Y)
+        mean_cache = get_mean_cache(conditioned_model)
+        self.assertFalse(mean_cache.requires_grad)
+        # No-op if the mean cache is stored already or if there is none.
+        _use_fantasy_mean_cache(conditioned_model, X=X, noise=None)
+        self.assertIs(get_mean_cache(conditioned_model), mean_cache)
+        conditioned_model.prediction_strategy._memoize_cache = {}
+        _use_fantasy_mean_cache(conditioned_model, X=X, noise=None)
+        with self.assertRaises(CachingError):
+            get_mean_cache(conditioned_model)
 
     def test_input_transform(self):
         # simple test making sure that the input transforms are applied to both
