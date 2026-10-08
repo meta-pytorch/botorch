@@ -1099,8 +1099,10 @@ def optimize_acqf_list(
         raise ValueError("acq_function_list must be non-empty.")
     candidate_list, acq_value_list = [], []
     candidates = torch.tensor([], device=bounds.device, dtype=bounds.dtype)
-    base_X_pending = acq_function_list[0].X_pending
-    for acq_function in acq_function_list:
+    base_X_pendings = [
+        getattr(acq_function, "X_pending", None) for acq_function in acq_function_list
+    ]
+    for acq_function, base_X_pending in zip(acq_function_list, base_X_pendings):
         if candidate_list:
             acq_function.set_X_pending(
                 torch.cat([base_X_pending, candidates], dim=-2)
@@ -1150,6 +1152,10 @@ def optimize_acqf_list(
         if return_acq_values:
             acq_value_list.append(acq_value)
         candidates = torch.cat(candidate_list, dim=-2)
+    # Reset the acquisition functions to their original X_pending state. The
+    # first one has not been modified.
+    for acq_function, base_X_pending in zip(acq_function_list[1:], base_X_pendings[1:]):
+        acq_function.set_X_pending(base_X_pending)
     if not return_acq_values:
         return candidates, None
     return candidates, torch.stack(acq_value_list)
@@ -1781,10 +1787,10 @@ def optimize_acqf_discrete_local_search(
                     if base_X_avoid is not None
                     else candidates
                 )
+    # Reset acq_func to original X_pending state
+    if q > 1:
+        acq_function.set_X_pending(base_X_pending)
     if return_acq_values:
-        # Reset acq_func to original X_pending state
-        if q > 1:
-            acq_function.set_X_pending(base_X_pending)
         with torch.no_grad():
             acq_value = acq_function(candidates)  # compute joint acquisition value
         return candidates, acq_value
