@@ -35,7 +35,6 @@ from botorch.acquisition.bayesian_active_learning import (
     qBayesianActiveLearningByDisagreement,
 )
 from botorch.acquisition.cost_aware import InverseCostWeightedUtility
-from botorch.acquisition.fixed_feature import FixedFeatureAcquisitionFunction
 from botorch.acquisition.joint_entropy_search import qJointEntropySearch
 from botorch.acquisition.knowledge_gradient import (
     qKnowledgeGradient,
@@ -1914,18 +1913,6 @@ def optimize_objective(
                 ),
             )
 
-    if fixed_features:
-        acq_function = FixedFeatureAcquisitionFunction(
-            acq_function=acq_function,
-            d=bounds.shape[-1],
-            columns=list(fixed_features.keys()),
-            values=list(fixed_features.values()),
-        )
-        free_feature_dims = list(range(bounds.shape[1]) - fixed_features.keys())
-        free_feature_bounds = bounds[:, free_feature_dims]  # (2, d' <= d)
-    else:
-        free_feature_bounds = bounds
-
     if linear_constraints is None:
         inequality_constraints = None
     else:
@@ -1933,7 +1920,7 @@ def optimize_objective(
         inequality_constraints = []
         k, d = A.shape
         for i in range(k):
-            indices = A[i, :].nonzero(as_tuple=False).squeeze()
+            indices = A[i, :].nonzero(as_tuple=False).view(-1)
             coefficients = -A[i, indices]
             rhs = -b[i, 0]
             inequality_constraints.append((indices, coefficients, rhs))
@@ -1948,13 +1935,14 @@ def optimize_objective(
 
     return optimize_acqf(
         acq_function=acq_function,
-        bounds=free_feature_bounds,
+        bounds=bounds,
         q=q,
         num_restarts=optimizer_options.get("num_restarts", 60),
         raw_samples=optimizer_options.get("raw_samples", 1024),
         options=options,
         inequality_constraints=inequality_constraints,
-        fixed_features=None,  # handled inside the acquisition function
+        # ``optimize_acqf`` maps the constraints to the space of free features.
+        fixed_features=fixed_features,
         post_processing_func=post_processing_func,
         batch_initial_conditions=batch_initial_conditions,
         return_best_only=True,
