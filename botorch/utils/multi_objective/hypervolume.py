@@ -770,7 +770,9 @@ class NoisyExpectedHypervolumeMixin(CachedCholeskyMCSamplerMixin):
         # Non-incremental NEHVI measures total improvement relative to HV(f(B)).
         # Cache this baseline-only reference exactly once, before adding pending points.
         if not hasattr(self, "_baseline_hvs") and not self.incremental_nehvi:
-            if obj.shape[-2] != self._X_baseline.shape[-2]:
+            # Check the points rather than ``obj``, since the objective can map each
+            # point to multiple outcomes (e.g., MVaR over ``n_w`` perturbations).
+            if self.X_baseline.shape[-2] != self._X_baseline.shape[-2]:
                 raise RuntimeError(
                     "_baseline_hvs must be computed from the observed baseline only."
                 )
