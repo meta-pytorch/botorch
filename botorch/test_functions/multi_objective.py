@@ -1564,4 +1564,6 @@ class WeldedBeam(MultiObjectiveTestProblem, ConstrainedBaseTestProblem):
         g3 = 1 / (5 - 0.125) * (x1 - x4)
         g4 = (P - P_c) / P
 
-        return torch.stack([g1, g2, g3, g4], dim=-1)
+        # pymoo's constraints are satisfied if ``g <= 0``, whereas the slack
+        # returned here must be non-negative for feasible points.
+        return -torch.stack([g1, g2, g3, g4], dim=-1)

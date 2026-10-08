@@ -504,6 +504,17 @@ class TestWeldedBeam(
     def functions(self) -> list[BaseTestProblem]:
         return [WeldedBeam(), WeldedBeam(noise_std=[0.1, 0.2])]
 
+    def test_feasibility(self):
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        f = WeldedBeam().to(**tkwargs)
+        # The minimum-cost design of [Deb1991] is feasible, while the smallest beam
+        # violates the shear stress, bending stress and buckling constraints.
+        X = torch.tensor([[0.2444, 6.2187, 8.2915, 0.2444], [1.0, 1.0, 10.0, 1.0]])
+        self.assertTrue(f.is_feasible(X.to(**tkwargs), noise=False).all())
+        slack = f.evaluate_slack_true(f.bounds[0])
+        self.assertTrue((slack[[0, 1, 3]] < 0).all())
+        self.assertFalse(f.is_feasible(f.bounds[0], noise=False).item())
+
 
 class TestOSY(
     BotorchTestCase,
