@@ -274,6 +274,35 @@ class TestBoxDecomposition(BotorchTestCase):
                 with self.assertRaises(NotImplementedError):
                     DummyFastPartitioning(ref_point=ref_point, Y=Y.unsqueeze(0))
 
+    def test_fast_partitioning_update_with_points_worse_than_ref_point(self):
+        # Points that are not better than the reference point do not change the
+        # Pareto frontier, so the decomposition must not be updated.
+        for dtype, partitioning_class in product(
+            (torch.float, torch.double),
+            (DominatedPartitioning, FastNondominatedPartitioning),
+        ):
+            ref_point = self.ref_point_raw.to(dtype=dtype)
+            Y = self.Y_raw.to(dtype=dtype)
+            bd = partitioning_class(ref_point=ref_point, Y=Y)
+            cell_bounds = bd.get_hypercell_bounds().clone()
+            with mock.patch(
+                "botorch.utils.multi_objective.box_decompositions."
+                "box_decomposition.update_local_upper_bounds_incremental",
+                wraps=update_local_upper_bounds_incremental,
+            ) as mock_update_local_upper_bounds_incremental:
+                bd.update(Y=-Y)
+            mock_update_local_upper_bounds_incremental.assert_not_called()
+            self.assertTrue(torch.equal(bd.get_hypercell_bounds(), cell_bounds))
+            # The decomposition remains valid for subsequent updates.
+            new_Y = torch.tensor([[1.5, 1.5, 1.5]], device=self.device, dtype=dtype)
+            bd.update(Y=new_Y)
+            expected_bd = partitioning_class(
+                ref_point=ref_point, Y=torch.cat([Y, -Y, new_Y])
+            )
+            self.assertAllClose(
+                bd.compute_hypervolume(), expected_bd.compute_hypervolume()
+            )
+
     def test_nan_values(self) -> None:
         Y = torch.rand(10, 2)
         Y[8:, 1] = float("nan")
