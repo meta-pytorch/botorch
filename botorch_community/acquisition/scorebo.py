@@ -95,8 +95,9 @@ class qSelfCorrectingBayesianOptimization(
                         )
 
             self.optimal_inputs = optimal_inputs.unsqueeze(-2)
+            # NOTE: condition_on_observations applies the input transforms itself.
             self.conditional_model = self.model.condition_on_observations(
-                X=self.model.transform_inputs(self.optimal_inputs),
+                X=self.optimal_inputs,
                 Y=self.optimal_outputs,
                 noise=torch.full_like(self.optimal_outputs, MIN_INFERRED_NOISE_LEVEL),
             )
