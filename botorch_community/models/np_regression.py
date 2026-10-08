@@ -364,6 +364,11 @@ class NeuralProcessModel(Model, GP):
     def KLD_gaussian(self, min_std: float = 0.01, scaler: float = 0.5) -> torch.Tensor:
         r"""Analytical KLD between 2 Gaussian Distributions.
 
+        Computes ``KL(q(z | all) || p(z | context))``, the KL divergence of the
+        latent distribution given all points from the one given the context
+        points only, as in the NP objective and the latent information gain of
+        [Wu2023arxiv]_.
+
         Args:
             min_std: Float representing the minimum possible standardized std, defaults
             to 0.01.
@@ -379,7 +384,7 @@ class NeuralProcessModel(Model, GP):
         std_p = min_std + scaler * torch.sigmoid(self.z_logvar_context).to(self.device)
         p = torch.distributions.Normal(self.z_mu_context.to(self.device), std_p)
         q = torch.distributions.Normal(self.z_mu_all.to(self.device), std_q)
-        return torch.distributions.kl_divergence(p, q).sum()
+        return torch.distributions.kl_divergence(q, p).sum()
 
     def posterior(
         self,
