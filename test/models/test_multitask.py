@@ -843,6 +843,32 @@ class TestMultiTaskGP(BotorchTestCase):
         samples = posterior.rsample(sample_shape=torch.Size([2]))
         self.assertEqual(samples.shape, torch.Size([2, 3, 1]))
 
+    def test_observation_noise_unobserved_tasks(self) -> None:
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        # Task 0 has noise 0.05 and task 2 has noise 0.1. Task 1 is unobserved.
+        _, (train_X, train_Y, train_Yvar) = gen_multi_task_dataset(
+            yvar=0.05, task_values=[0, 2], **tkwargs
+        )
+        model = MultiTaskGP(
+            train_X=train_X,
+            train_Y=train_Y,
+            train_Yvar=train_Yvar,
+            task_feature=0,
+            all_tasks=[0, 1, 2],
+        )
+        test_x = torch.rand(3, 1, **tkwargs)
+        posterior_f = model.posterior(test_x)
+        posterior_y = model.posterior(test_x, observation_noise=True)
+        # The unobserved task uses the average noise across all training data.
+        expected_noise = torch.tensor([0.05, 0.075, 0.1], **tkwargs)
+        self.assertAllClose(posterior_y.variance, posterior_f.variance + expected_noise)
+        # Same result when the task feature is included in X.
+        posterior_y_1 = model.posterior(
+            torch.cat([torch.ones_like(test_x), test_x], dim=-1),
+            observation_noise=True,
+        )
+        self.assertAllClose(posterior_y_1.variance, posterior_y.variance[..., 1:2])
+
     def test_construct_inputs_heterogeneous(self) -> None:
         tkwargs: dict[str, Any] = {"device": self.device, "dtype": torch.double}
 
