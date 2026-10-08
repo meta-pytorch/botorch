@@ -157,6 +157,27 @@ class TestDH(
             expected = torch.tensor(self.expected[i], device=self.device)
             self.assertAllClose(actual, expected)
 
+    def test_dh4_max_hv(self):
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        for dim in (3, 4, 5):
+            f = DH4(dim=dim).to(**tkwargs)
+            # Points on the Pareto set: h(x) is minimized at x_0 + x_1 = 0.849894,
+            # and g(x) = 0 where h(x) >= 0, while g(x) is maximized where h(x) < 0
+            # (i.e., for x_0 > 0.985335), which leads to negative values of f_1.
+            x_0 = torch.cat(
+                [
+                    torch.linspace(0, 0.98, 100001, **tkwargs),
+                    torch.linspace(0.98, 1, 20001, **tkwargs),
+                ]
+            )
+            x_1 = (0.849894 - x_0).clamp(-0.15, 1)
+            x_rest = (x_0 > 0.985335).to(x_0).unsqueeze(-1).expand(-1, dim - 2)
+            Y = f.evaluate_true(torch.cat([x_0[:, None], x_1[:, None], x_rest], -1))
+            self.assertLess(Y[:, 1].min().item(), -0.7 * (dim - 2))
+            hv = _hypervolume_2d(Y, f.ref_point)
+            self.assertLessEqual(hv, f.max_hv)
+            self.assertGreater(hv, f.max_hv - 1e-5)
+
 
 class TestDTLZ(
     BotorchTestCase,

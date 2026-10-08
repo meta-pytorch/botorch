@@ -333,12 +333,21 @@ class DH4(DH3):
         h(x_0, x_1) = 2 - x_0 - 0.8 * exp(-((x_0 + x_1 - 0.35) / 0.25)^2)
         - exp(-((x_0 + x_1 - 0.85) / 0.03)^2)
 
-    The Pareto front is found at ``x_i = 0`` for ``i > 2``, with the local one being
-    near ``x_0 + x_1 = 0.35`` and the global one near ``x_0 + x_1 = 0.85``.
+    The Pareto front is found at ``x_i = 0`` for ``i > 1``, with the local one being
+    near ``x_0 + x_1 = 0.35`` and the global one near ``x_0 + x_1 = 0.85``. The
+    exception is ``x_0 > 0.98534``, where ``h`` can be negative, so that ``f_1``
+    is minimized by maximizing ``g``, i.e., at ``|x_i| = 1`` for ``i > 1``. Hence,
+    ``f_1`` can be negative and the maximum hypervolume depends on the dimension.
     """
 
     _x_1_lb = -0.15
-    _area_under_curve = 0.22845
+
+    @property
+    def _area_under_curve(self) -> float:
+        # Computed via numerical quadrature: 0.228445034673 for the part of the
+        # Pareto front with g = 0, and -0.001572780262 per unit of the maximum of
+        # g, 50 * (dim - 2), for the part of the Pareto front where h < 0.
+        return 0.228445034673 - 0.001572780262 * 50 * (self.dim - 2)
 
     def _h(self, X: Tensor) -> Tensor:
         exp_arg_1, exp_arg_2 = self._exp_args(X[..., :2].sum(dim=-1))
