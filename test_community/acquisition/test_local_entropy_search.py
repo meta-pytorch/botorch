@@ -337,6 +337,37 @@ class TestLocalEntropySearch(BotorchTestCase):
         )
         self.assertAllClose(entropy, expected)
 
+    def test_fixed_noise_likelihood(self) -> None:
+        # The conditional models' fixed noise likelihoods also contain the noise of
+        # the virtual observations, which must not lower the noise of the
+        # predictive distributions: LES must equal LES of a model with the same
+        # homoskedastic noise, and vanish far away from the local sequences.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.rand(6, 1, **tkwargs)
+        train_Y = torch.sin(6 * train_X)
+        X = torch.tensor([[[0.2]], [[0.5]], [[25.0]]], **tkwargs)
+        values = []
+        for train_Yvar in (None, torch.full_like(train_Y, 0.1)):
+            model = SingleTaskGP(
+                train_X, train_Y, train_Yvar=train_Yvar, outcome_transform=None
+            )
+            model.covar_module.lengthscale = 0.2
+            if train_Yvar is None:
+                model.likelihood.noise = 0.1
+            model.eval()
+            torch.manual_seed(0)
+            acqf = LocalEntropySearch(
+                model=model,
+                x_incumbent=torch.tensor([0.5], **tkwargs),
+                num_path_samples=8,
+                num_descent_steps=10,
+                bounds=torch.tensor([[0.0], [1.0]], **tkwargs),
+            )
+            with torch.no_grad():
+                values.append(acqf(X))
+        self.assertAllClose(values[1], values[0], atol=1e-6)
+        self.assertAllClose(values[1][-1], torch.zeros((), **tkwargs), atol=1e-6)
+
     def test_early_stopping_breaks_when_paths_stop_moving(self) -> None:
         train_X, model = self._get_model()
         acqf = LocalEntropySearch(
