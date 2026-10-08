@@ -428,6 +428,23 @@ class TestZDT(
                             )
                         )
 
+    def test_zdt3(self):
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        f = ZDT3(dim=3).to(**tkwargs)
+        # f_1 = g * h(f_0, g) with g = 1 + 9 * mean(x_1, x_2) = 10.
+        X = torch.tensor([0.5, 1.0, 1.0], **tkwargs)
+        expected = torch.tensor([0.5, 10 * (1 - math.sqrt(0.05))], **tkwargs)
+        self.assertAllClose(f.evaluate_true(X), expected)
+        # The Pareto front is attained at g = 1, i.e., larger values of the
+        # distance variables never decrease the second objective.
+        x_0 = torch.linspace(0, 1, 101, **tkwargs)
+        for x_rest in (0.1, 0.5, 1.0):
+            X_rest = torch.full((101, 2), x_rest, **tkwargs)
+            X_0 = torch.zeros(101, 2, **tkwargs)
+            Y = f.evaluate_true(torch.cat([x_0.unsqueeze(-1), X_rest], dim=-1))
+            Y_0 = f.evaluate_true(torch.cat([x_0.unsqueeze(-1), X_0], dim=-1))
+            self.assertTrue((Y[:, 1] > Y_0[:, 1]).all())
+
 
 # ------------------ Unconstrained Multi-objective test problems ------------------ #
 

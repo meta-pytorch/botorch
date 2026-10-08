@@ -1089,7 +1089,7 @@ class ZDT3(ZDT):
     d-dimensional problem evaluated on ``[0, 1]^d``:
 
         f_0(x) = x_0
-        f_1(x) = 1 - sqrt(x_0 / g(x)) - x_0 / g * sin(10 * pi * x_0)
+        f_1(x) = g(x) * (1 - sqrt(x_0 / g(x)) - x_0 / g(x) * sin(10 * pi * x_0))
         g(x) = 1 + 9 / (d - 1) * \sum_{i=1}^{d-1} x_i
 
     The reference point comes from [Yang2019a]_.
@@ -1113,7 +1113,7 @@ class ZDT3(ZDT):
     def _evaluate_true(self, X: Tensor) -> Tensor:
         f_0 = X[..., 0]
         g = self._g(X=X)
-        f_1 = 1 - (f_0 / g).sqrt() - f_0 / g * torch.sin(10 * math.pi * f_0)
+        f_1 = g * (1 - (f_0 / g).sqrt() - f_0 / g * torch.sin(10 * math.pi * f_0))
         return torch.stack([f_0, f_1], dim=-1)
 
     def gen_pareto_front(self, n: int) -> Tensor:
