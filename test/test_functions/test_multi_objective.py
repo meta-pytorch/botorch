@@ -48,6 +48,16 @@ from botorch.utils.testing import (
 )
 
 
+def _hypervolume_2d(Y: torch.Tensor, ref_point: torch.Tensor) -> float:
+    r"""Exact hypervolume of the 2-d outcomes ``Y`` (minimization) w.r.t. the
+    reference point, computed with a sweep over the first objective."""
+    Y = Y[(Y < ref_point).all(dim=-1)]
+    Y = Y[Y[:, 0].argsort()]
+    f_1 = Y[:, 1].cummin(dim=0).values
+    widths = torch.cat([Y[1:, 0], ref_point[:1]]) - Y[:, 0]
+    return (widths * (ref_point[1] - f_1)).sum().item()
+
+
 class DummyMOProblem(MultiObjectiveTestProblem):
     _ref_point = [0.0, 0.0]
     _num_objectives = 2
@@ -215,6 +225,35 @@ class TestDTLZ(
                                     ),
                                 )
                             )
+
+    def test_dtlz1_max_hv(self):
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        f = DTLZ1(dim=5, num_objectives=2).to(**tkwargs)
+        # The Pareto front is the segment f_0 + f_1 = 0.5 with f >= 0.
+        self.assertEqual(f.max_hv, 400.0**2 - 0.5**2 / 2)
+        self.assertEqual(DTLZ1(dim=5, num_objectives=3).max_hv, 400.0**3 - 0.5**3 / 6)
+        x_0 = torch.linspace(0, 1, 10001, **tkwargs)
+        X = torch.cat([x_0.unsqueeze(-1), torch.full((10001, 4), 0.5, **tkwargs)], -1)
+        hv = _hypervolume_2d(f.evaluate_true(X), f.ref_point)
+        self.assertLessEqual(hv, f.max_hv)
+        self.assertGreater(hv, f.max_hv - 1e-4)
+
+    def test_dtlz4(self):
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        # DTLZ4 is DTLZ2 with the position variables x_i mapped to x_i^100.
+        X = torch.tensor([0.99, 0.3, 0.5, 0.5, 0.5], **tkwargs)
+        theta = 0.99**100 * math.pi / 2
+        g = (0.3 - 0.5) ** 2
+        expected = torch.tensor([math.cos(theta), math.sin(theta)], **tkwargs)
+        f = DTLZ4(dim=5).to(**tkwargs)
+        self.assertAllClose(f.evaluate_true(X), (1 + g) * expected)
+        for M in (2, 3):
+            X = torch.rand(10, 6, **tkwargs)
+            X_pow = torch.cat([X[:, : M - 1].pow(100), X[:, M - 1 :]], dim=-1)
+            self.assertAllClose(
+                DTLZ4(dim=6, num_objectives=M).to(**tkwargs).evaluate_true(X),
+                DTLZ2(dim=6, num_objectives=M).to(**tkwargs).evaluate_true(X_pow),
+            )
 
 
 class TestGMM(

@@ -395,7 +395,9 @@ class DTLZ1(DTLZ):
 
     @property
     def _max_hv(self) -> float:
-        return self._ref_val**self.num_objectives - 1 / 2**self.num_objectives
+        # hypercube - volume of the simplex {f >= 0: sum_i f_i <= 0.5}
+        M = self.num_objectives
+        return self._ref_val**M - 0.5**M / math.factorial(M)
 
     def _evaluate_true(self, X: Tensor) -> Tensor:
         X_m = X[..., -self.k :]
@@ -531,13 +533,23 @@ class DTLZ3(DTLZ2):
 class DTLZ4(DTLZ2):
     r"""DTLZ4 test problem.
 
-    This is the same as DTLZ2, but with alpha=100 as the exponent,
-    resulting in dense solutions near the f_M-f_1 plane.
+    This is the same as DTLZ2, but with the first ``M - 1`` variables mapped to
+    ``x_i^alpha`` with alpha=100, resulting in dense solutions near the f_M-f_1
+    plane:
+
+        f_0(x) = (1 + g(x)) * cos(x_0^alpha * pi / 2)
+        f_1(x) = (1 + g(x)) * sin(x_0^alpha * pi / 2)
+        g(x) = \sum_{i=m}^{d-1} (x_i - 0.5)^2
 
     The global Pareto-optimal front corresponds to x_i = 0.5 for x_i in X_m.
     """
 
     _alpha = 100.0
+
+    def _evaluate_true(self, X: Tensor) -> Tensor:
+        n_pos = self.num_objectives - 1
+        X = torch.cat([X[..., :n_pos].pow(self._alpha), X[..., n_pos:]], dim=-1)
+        return super()._evaluate_true(X)
 
 
 class DTLZ5(DTLZ):
