@@ -598,6 +598,31 @@ class TestQLogNoisyExpectedImprovement(BotorchTestCase):
                 self.assertTrue(torch.equal(acqf.X_baseline, X_baseline[[-1]]))
                 self.assertEqual(kwargs["marginalize_dim"], -3)
 
+    def test_set_X_pending_does_not_prune_again(self):
+        # The baseline is pruned once at initialization. Incremental qLogNEI
+        # adds the pending points to this baseline in ``set_X_pending``, which
+        # should not (randomly) prune the already pruned baseline again.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        torch.manual_seed(0)
+        X_baseline = torch.rand(20, 2, **tkwargs)
+        model = SingleTaskGP(X_baseline, torch.randn(20, 1, **tkwargs)).eval()
+        prune = "botorch.acquisition.logei.prune_inferior_points"
+        X_pending = torch.rand(2, 2, **tkwargs)
+        for cache_root in (True, False):
+            with mock.patch(prune, wraps=prune_inferior_points) as mock_prune:
+                acqf = qLogNoisyExpectedImprovement(
+                    model=model, X_baseline=X_baseline, cache_root=cache_root
+                )
+                X_pruned = acqf.X_baseline.clone()
+                for _ in range(2):
+                    acqf.set_X_pending(X_pending)
+                mock_prune.assert_called_once()
+            self.assertTrue(
+                torch.equal(acqf.X_baseline, torch.cat([X_pruned, X_pending]))
+            )
+            acqf.set_X_pending(None)
+            self.assertTrue(torch.equal(acqf.X_baseline, X_pruned))
+
     def test_cache_root(self):
         sample_cached_path = (
             "botorch.acquisition.cached_cholesky.sample_cached_cholesky"
