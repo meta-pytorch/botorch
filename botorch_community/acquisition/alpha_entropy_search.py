@@ -144,11 +144,10 @@ class qAlphaEntropySearch(AcquisitionFunction, MCSamplerMixin):
                         self.optimal_inputs[:1], observation_noise=False
                     )
 
-                # NOTE: ``condition_on_observations`` applies the input transform,
-                # except for ``ModelListGP``, which expects a list of transformed
-                # inputs (one per output).
+                # NOTE: ``condition_on_observations`` applies the input transform.
+                # ``ModelListGP`` expects a list of inputs (one per output).
                 X_opt = (
-                    self.initial_model.transform_inputs(self.optimal_inputs)
+                    [self.optimal_inputs] * self.initial_model.num_outputs
                     if isinstance(self.initial_model, ModelListGP)
                     else self.optimal_inputs
                 )
