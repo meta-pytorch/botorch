@@ -109,6 +109,18 @@ class TestNeuralProcessModel(unittest.TestCase):
         self.assertTrue(torch.is_tensor(kld))
         with self.assertRaises(ValueError):
             self.model.KLD_gaussian(scaler=-1)
+        # KL(q(z | all) || p(z | context)), e.g. for a reduced latent variance
+        self.model.z_mu_all = torch.zeros(self.z_dim)
+        self.model.z_mu_context = torch.zeros(self.z_dim)
+        self.model.z_logvar_all = torch.full((self.z_dim,), -3.0)
+        self.model.z_logvar_context = torch.full((self.z_dim,), 3.0)
+        std_all = 0.01 + 0.5 * torch.sigmoid(self.model.z_logvar_all)
+        std_context = 0.01 + 0.5 * torch.sigmoid(self.model.z_logvar_context)
+        expected = torch.distributions.kl_divergence(
+            torch.distributions.Normal(self.model.z_mu_all, std_all),
+            torch.distributions.Normal(self.model.z_mu_context, std_context),
+        ).sum()
+        self.assertTrue(torch.allclose(self.model.KLD_gaussian(), expected))
 
     def test_data_to_z_params(self):
         self.initialize()
