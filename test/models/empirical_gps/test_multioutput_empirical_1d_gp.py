@@ -984,6 +984,33 @@ class TestMultiOutputEmpiricalOneDimensionalGP(BotorchTestCase):
                 X_full=historical_X, Y_full=historical_Y, ard=False, correction=nc
             )
 
+    def test_observation_noise_per_output(self) -> None:
+        """`observation_noise=True` adds the average `train_Yvar` of each output."""
+        tkwargs = {"device": self.device, "dtype": self.dtype}
+        train_X, train_Y, _, historical_X, historical_Y = self._get_data(num_train=4)
+        train_Yvar = torch.stack(
+            [
+                torch.linspace(1e-4, 3e-4, 4, **tkwargs),
+                torch.linspace(0.5, 1.5, 4, **tkwargs),
+            ],
+            dim=-1,
+        )
+        model = MultiOutputEmpiricalOneDimensionalGP(
+            train_X=train_X,
+            train_Y=train_Y,
+            train_Yvar=train_Yvar,
+            historical_X=historical_X,
+            historical_Y=historical_Y,
+        )
+        test_X = historical_X[:3]
+        added_noise = (
+            model.posterior(test_X, observation_noise=True).variance
+            - model.posterior(test_X).variance
+        )
+        self.assertAllClose(
+            added_noise, train_Yvar.mean(dim=0).expand(3, 2), atol=1e-10, rtol=1e-6
+        )
+
     @unittest.skipUnless(torch.cuda.is_available(), "requires CUDA")
     def test_observation_noise_follows_query_tensor(self) -> None:
         """`observation_noise=True` must read the noise onto the query tensor.
