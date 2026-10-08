@@ -466,6 +466,25 @@ class TestSmoothNonLinearities(BotorchTestCase):
                     test_max_X.backward()
                     self.assertAllClose(X.grad, torch.ones_like(X.grad))
 
+                    # case 4: the maximum is finite, but some inputs are negative
+                    # infinity. These should neither contribute to the value, nor lead
+                    # to NaN gradients for the other elements.
+                    X = torch.randn(2, n, **tkwargs)
+                    X[0, 1] = -torch.inf
+                    X[0, 3] = -torch.inf
+                    X.requires_grad = True
+                    test_max_X = test_max(X, dim=-1, tau=tau)
+                    test_max_X.sum().backward()
+                    is_finite = X.detach().isfinite()
+                    for i in range(2):
+                        X_ref = X.detach()[i, is_finite[i]].requires_grad_(True)
+                        test_max_X_ref = test_max(X_ref, dim=-1, tau=tau)
+                        test_max_X_ref.backward()
+                        self.assertAllClose(test_max_X[i], test_max_X_ref)
+                        expected_grad = torch.zeros_like(X.grad[i])
+                        expected_grad[is_finite[i]] = X_ref.grad
+                        self.assertAllClose(X.grad[i], expected_grad)
+
             # testing logplusexp
             n = 17
             x, y = torch.randn(n, d, **tkwargs), torch.randn(n, d, **tkwargs)
