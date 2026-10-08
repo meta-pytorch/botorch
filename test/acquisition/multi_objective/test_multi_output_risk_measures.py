@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import warnings
+from math import ceil
 
 import torch
 from botorch.acquisition.multi_objective.multi_output_risk_measures import (
@@ -441,6 +442,42 @@ class TestMVaR(BotorchTestCase):
 
             # Check that the output has gradients.
             self.assertTrue(mvar(Y.requires_grad_()).requires_grad)
+
+    def test_mvar_with_ties(self):
+        # With ties in the samples, MVaR points can be dominated by more than
+        # ``ceil(alpha * n_w)`` samples. E.g., (3, 0) is dominated by two samples
+        # and no other point dominated by at least one sample dominates it.
+        def brute_force_mvar(Y: Tensor, alpha: float) -> Tensor:
+            grid = torch.cartesian_prod(*(y.unique() for y in Y.unbind(dim=-1)))
+            count = (Y >= grid.unsqueeze(-2)).all(dim=-1).sum(dim=-1)
+            alpha_level_points = grid[count >= ceil(alpha * Y.shape[-2])]
+            return alpha_level_points[is_non_dominated(alpha_level_points)]
+
+        torch.manual_seed(0)
+        for dtype in (torch.float, torch.double):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            test_cases = [
+                (
+                    torch.tensor([[3, 0], [3, 0], [0, 2], [1, 1]], **tkwargs),
+                    0.25,
+                    torch.tensor([[0, 2], [1, 1], [3, 0]], **tkwargs),
+                )
+            ]
+            for m in (2, 3):
+                for _ in range(10):
+                    n_w = int(torch.randint(2, 8, ()))
+                    alpha = float(torch.rand(())) * 0.99 + 0.01
+                    Y = torch.randint(0, 4, (n_w, m), device=self.device).to(dtype)
+                    test_cases.append((Y, alpha, brute_force_mvar(Y, alpha)))
+            for Y, alpha, expected in test_cases:
+                mvar = MVaR(n_w=Y.shape[0], alpha=alpha)
+                for mvar_set in (
+                    mvar.get_mvar_set_via_counting(Y)[0],
+                    mvar.get_mvar_set_vectorized(Y)[0],
+                ):
+                    self.assertTrue(
+                        torch.equal(mvar_set.unique(dim=0), expected.unique(dim=0))
+                    )
 
     def test_mvar_preprocessing_changes_num_outcomes(self):
         # The preprocessing function may remove outcomes (m -> m'). The output must
