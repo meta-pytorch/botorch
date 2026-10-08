@@ -41,23 +41,36 @@ class IndexSampler(MCSampler):
         r"""Constructs base samples as indices to sample with them from
         the Posterior.
 
+        The same ensemble member is used for all batch dimensions of a given MC
+        sample, i.e., the batch dimensions are collapsed (as for the normal samplers
+        with ``batch_range``). This ensures that a candidate produces the same
+        acquisition value regardless of its position in the t-batch, and that the
+        sample average approximation does not change with the t-batch size (e.g.,
+        between raw-sample screening and the optimization restarts).
+
         Args:
             posterior: The ensemble posterior to construct the base samples
                 for.
         """
-        if (
-            self.base_samples is None
-            or self.base_samples.shape != self.sample_shape + posterior.batch_shape
-        ):
+        target_shape = self.sample_shape + posterior.batch_shape
+        if self.base_samples is None or self.base_samples.shape != target_shape:
+            weights = posterior.weights
             with torch.random.fork_rng():
                 torch.manual_seed(self.seed)
-                base_samples = (
-                    Multinomial(
-                        probs=posterior.mixture_weights,
+                if weights.ndim == 1:
+                    base_samples = (
+                        Multinomial(probs=weights)
+                        .sample(sample_shape=self.sample_shape)
+                        .argmax(dim=-1)
+                        .view(self.sample_shape + (1,) * len(posterior.batch_shape))
+                        .expand(target_shape)
                     )
-                    .sample(sample_shape=self.sample_shape)
-                    .argmax(dim=-1)
-                )
+                else:  # batched ensemble weights, draw per batch
+                    base_samples = (
+                        Multinomial(probs=posterior.mixture_weights)
+                        .sample(sample_shape=self.sample_shape)
+                        .argmax(dim=-1)
+                    )
             self.register_buffer("base_samples", base_samples)
         if self.base_samples.device != posterior.device:
             self.to(device=posterior.device)  # pragma: nocover
