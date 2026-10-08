@@ -189,6 +189,33 @@ class TestPriorFittedNetwork(BotorchTestCase):
         self.assertIsInstance(model.input_transform, Normalize)
         self.assertEqual(model.input_transform.bounds.shape, torch.Size([2, 3]))
 
+    def test_posterior_does_not_refit_input_transform(self):
+        # The bounds of a learnable Normalize are fit to the training data and
+        # must not be re-fit to the test points when computing the posterior.
+        for model_cls in (PFNModel, PFNModelWithPendingPoints, MultivariatePFNModel):
+            with self.subTest(model_cls=model_cls):
+                dummy_pfn = DummyPFN()
+                captured = {}
+                orig_forward = dummy_pfn.forward
+                dummy_pfn.forward = lambda *a, **kw: (
+                    captured.update(kw),
+                    orig_forward(**kw),
+                )[1]
+                model = model_cls(
+                    train_X=torch.rand(10, 3),
+                    train_Y=torch.rand(10, 1),
+                    input_transform=Normalize(d=3),
+                    model=dummy_pfn,
+                )
+                bounds = model.input_transform.bounds.clone()
+                test_X = 5 + torch.rand(1, 1, 3)
+                model.posterior(test_X)
+                self.assertTrue(torch.equal(model.input_transform.bounds, bounds))
+                self.assertAllClose(
+                    captured["test_x"].transpose(0, 1),
+                    (test_X - bounds[0]) / (bounds[1] - bounds[0]),
+                )
+
     def test_style_hyperparameters(self):
         """Test that style_hyperparameters are stored and passed through get_styles."""
         train_X, train_Y = torch.rand(10, 3), torch.rand(10, 1)
