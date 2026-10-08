@@ -170,6 +170,30 @@ class TestPareto(BotorchTestCase):
         Y = torch.hstack([nans, rands])
         non_dominated = is_non_dominated(Y)
         self.assertFalse(non_dominated[..., :, :2].any().item())
+        # Points with a NaN in any position (including the first point) are
+        # dominated and must not affect which of the other points are
+        # non-dominated, for both the vectorized and the loop-based implementation.
+        nan = float("nan")
+        Y = torch.rand(3, 20, 2, device=self.device)
+        nan_rows = torch.tensor(
+            [[nan, 2.0], [2.0, nan], [nan, -1.0], [-1.0, nan]], device=self.device
+        )
+        nan_idcs = ([0, 5, 9, 13], [2, 3, 17, 19], [1, 4, 6, 11])
+        for b, idcs in enumerate(nan_idcs):
+            Y[b, idcs] = nan_rows
+        for fn, maximize, deduplicate in product(
+            (is_non_dominated, _is_non_dominated_loop), (True, False), (True, False)
+        ):
+            with self.subTest(fn=fn, maximize=maximize, deduplicate=deduplicate):
+                non_dominated = fn(Y, maximize=maximize, deduplicate=deduplicate)
+                for b, idcs in enumerate(nan_idcs):
+                    valid = torch.ones(20, dtype=torch.bool, device=self.device)
+                    valid[idcs] = False
+                    expected = torch.zeros_like(valid)
+                    expected[valid] = fn(
+                        Y[b, valid], maximize=maximize, deduplicate=deduplicate
+                    )
+                    self.assertTrue(torch.equal(non_dominated[b], expected))
 
     def test_is_non_dominated_loop(self):
         n = 20
