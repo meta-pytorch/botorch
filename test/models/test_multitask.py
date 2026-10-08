@@ -42,6 +42,7 @@ from gpytorch.mlls.exact_marginal_log_likelihood import ExactMarginalLogLikeliho
 from gpytorch.priors import GammaPrior, LogNormalPrior, SmoothedBoxPrior
 from gpytorch.priors.lkj_prior import LKJCovariancePrior
 from gpytorch.settings import max_cholesky_size, max_root_decomposition_size
+from linear_operator.operators import DiagLinearOperator, KroneckerProductLinearOperator
 
 
 def _gen_model_and_data(
@@ -516,6 +517,43 @@ class TestMultiTaskGP(BotorchTestCase):
         # Check that observed and unobserved task indices are computed correctly.
         self.assertEqual(model._observed_task_indices.tolist(), [0, 1])
         self.assertEqual(model._unobserved_task_indices.tolist(), [2, 3])
+
+    def test_inferred_task_noise_with_non_contiguous_task_values(self) -> None:
+        # The default likelihood must look up the per-task noise levels using the
+        # task indices rather than the raw task values, so that a model with
+        # non-contiguous task values is equivalent to one with task values 0, 1.
+        tkwargs: dict[str, Any] = {"device": self.device, "dtype": torch.double}
+        X = torch.rand(8, 1, **tkwargs)
+        train_Y = torch.cat([torch.sin(6 * X), torch.cos(6 * X)])
+        test_X = torch.rand(3, 1, **tkwargs)
+        task_noise = torch.tensor([0.1, 0.2], **tkwargs)
+        results = {}
+        for task_values in ([0, 1], [0, 2], [3, 7]):
+            task_column = torch.tensor(task_values, **tkwargs).repeat_interleave(8)
+            train_X = torch.cat([X.repeat(2, 1), task_column.unsqueeze(-1)], dim=-1)
+            torch.manual_seed(0)  # Same initialization for all models.
+            model = MultiTaskGP(train_X, train_Y, task_feature=-1)
+            self.assertIsInstance(model.likelihood, HadamardGaussianLikelihood)
+            model.likelihood.noise = task_noise
+            prior = model(train_X)
+            noise = model.likelihood(prior, train_X).variance - prior.variance
+            self.assertAllClose(noise, task_noise.repeat_interleave(8))
+            mll = ExactMarginalLogLikelihood(model.likelihood, model)
+            mll_value = mll(prior, model.train_targets, train_X)
+            model.eval()
+            posterior = model.posterior(test_X, observation_noise=True)
+            results[tuple(task_values)] = (
+                mll_value,
+                posterior.mean,
+                posterior.variance,
+                set(model.likelihood.state_dict()),
+            )
+        expected = results.pop((0, 1))
+        for task_values, result in results.items():
+            with self.subTest(task_values=task_values):
+                for value, expected_value in zip(result[:3], expected[:3]):
+                    self.assertAllClose(value, expected_value)
+                self.assertEqual(result[3], expected[3])
 
     def test_MultiTaskGP_construct_inputs(self) -> None:
         for dtype, fixed_noise, skip_task_features_in_datasets in zip(
@@ -1124,6 +1162,17 @@ class TestKroneckerMultiTaskGP(BotorchTestCase):
             with self.assertRaises(NotImplementedError):
                 model.posterior(test_x, posterior_transform=post_tf)
 
+            # test that subsetting the outputs or passing a tensor of observation
+            # noise throws an error (rather than being silently ignored)
+            posterior_all = model.posterior(test_x, output_indices=[0, 1])
+            self.assertEqual(posterior_all.mean.shape, torch.Size([3, 2, 2]))
+            with self.assertRaisesRegex(NotImplementedError, "output_indices"):
+                model.posterior(test_x, output_indices=[1])
+            with self.assertRaisesRegex(NotImplementedError, "observation noise"):
+                model.posterior(
+                    test_x, observation_noise=torch.full((3, 2, 2), 0.1, **tkwargs)
+                )
+
     def test_KroneckerMultiTaskGP_custom(self) -> None:
         for batch_shape, dtype in itertools.product(
             (torch.Size(),),  # torch.Size([3])), TODO: Fix and test batch mode
@@ -1213,6 +1262,78 @@ class TestKroneckerMultiTaskGP(BotorchTestCase):
             self.assertIsInstance(posterior_f.distribution, MultitaskMultivariateNormal)
             self.assertEqual(posterior_f.mean.shape, torch.Size([3, 2, 2]))
             self.assertEqual(posterior_f.variance.shape, torch.Size([3, 2, 2]))
+
+    def test_KroneckerMultiTaskGP_posterior_with_task_noise(self) -> None:
+        # Compare the posterior against the exact GP posterior, computed densely,
+        # for equal and different noise levels per task, correlated task noise, and
+        # noise that also differs across data points.
+        tkwargs: dict[str, Any] = {"device": self.device, "dtype": torch.double}
+        train_X, train_Y = _gen_random_kronecker_mt_data(**tkwargs)
+        test_X = torch.rand(3, 2, **tkwargs)
+        n, m = train_Y.shape
+
+        class DataNoiseLikelihood(MultitaskGaussianLikelihood):
+            def _shaped_noise_covar(self, shape, *args, **kwargs):
+                noise = super()._shaped_noise_covar(shape, *args, **kwargs)
+                data_noise = torch.linspace(0.5, 2.0, shape[-2], **tkwargs)
+                return KroneckerProductLinearOperator(
+                    DiagLinearOperator(data_noise), noise.linear_ops[1]
+                )
+
+        for likelihood_rank, task_noises, likelihood in (
+            (0, [0.05, 0.05], None),
+            (0, [0.01, 0.5], None),
+            (1, None, None),
+            (0, [0.01, 0.5], DataNoiseLikelihood(num_tasks=2)),
+        ):
+            model = KroneckerMultiTaskGP(
+                train_X,
+                train_Y,
+                likelihood=likelihood,
+                likelihood_rank=likelihood_rank,
+            )
+            with torch.no_grad():
+                if task_noises is None:
+                    model.likelihood.task_noise_covar_factor.copy_(
+                        torch.tensor([[0.1], [0.6]], **tkwargs)
+                    )
+                else:
+                    model.likelihood.task_noises = torch.tensor(task_noises, **tkwargs)
+                model.covar_module.task_covar_module.covar_factor.copy_(
+                    torch.tensor([[1.0, 0.0], [0.9, 0.3]], **tkwargs)
+                )
+            model.eval()
+            # The covariance matrices are interleaved, i.e. ordered by data point.
+            prior = model.forward(torch.cat([train_X, test_X]))
+            covar = prior.lazy_covariance_matrix.to_dense()
+            train_noise = model.likelihood._shaped_noise_covar(train_X.shape)
+            train_covar = covar[: n * m, : n * m] + train_noise.to_dense()
+            cross_covar = covar[n * m :, : n * m]
+            residual = (train_Y - prior.mean[:n]).reshape(-1)
+            expected_mean = prior.mean[n:] + (
+                cross_covar @ torch.linalg.solve(train_covar, residual)
+            ).view(-1, m)
+            expected_covar = covar[n * m :, n * m :] - cross_covar @ torch.linalg.solve(
+                train_covar, cross_covar.T
+            )
+            test_noise = model.likelihood._shaped_noise_covar(test_X.shape).to_dense()
+            for observation_noise in (False, True):
+                with self.subTest(
+                    likelihood_rank=likelihood_rank,
+                    task_noises=task_noises,
+                    likelihood=likelihood,
+                    observation_noise=observation_noise,
+                ):
+                    posterior = model.posterior(
+                        test_X, observation_noise=observation_noise
+                    )
+                    expected_var = (
+                        expected_covar + test_noise
+                        if observation_noise
+                        else expected_covar
+                    ).diagonal()
+                    self.assertAllClose(posterior.mean, expected_mean)
+                    self.assertAllClose(posterior.variance, expected_var.view(-1, m))
 
 
 class TestMultiTaskUtils(BotorchTestCase):

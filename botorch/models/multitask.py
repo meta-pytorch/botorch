@@ -75,9 +75,11 @@ from gpytorch.utils.memoize import cached, pop_from_cache
 from linear_operator.operators import (
     BatchRepeatLinearOperator,
     CatLinearOperator,
+    ConstantDiagLinearOperator,
     DiagLinearOperator,
     KroneckerProductDiagLinearOperator,
     KroneckerProductLinearOperator,
+    LinearOperator,
     RootLinearOperator,
     to_linear_operator,
 )
@@ -122,6 +124,50 @@ def _compute_multitask_mean(
         # mean_x has shape ``batch_shape x n`` regardless
         mean_x = mean_module(x_mean)
     return mean_x
+
+
+def _inverse_root(covar: LinearOperator) -> LinearOperator:
+    r"""Compute an inverse root ``R`` of a covariance matrix, s.t. ``R R^T = covar^-1``.
+
+    Unlike ``covar.root_inv_decomposition()``, which returns ``R R^T`` (as a
+    ``RootLinearOperator``), this returns the root ``R`` itself. For diagonal
+    covariances, ``R`` is computed exactly; otherwise via a dense eigendecomposition.
+    """
+    if isinstance(covar, DiagLinearOperator):
+        return DiagLinearOperator(covar.diagonal().rsqrt())
+    evals, evecs = torch.linalg.eigh(covar.to_dense())
+    return to_linear_operator(evecs * evals.clamp_min(1e-7).rsqrt().unsqueeze(-2))
+
+
+class _TaskMappedHadamardGaussianLikelihood(HadamardGaussianLikelihood):
+    r"""A ``HadamardGaussianLikelihood`` for task values that are not task indices.
+
+    ``MultiTaskGP`` maps raw task values (e.g. ``[0, 2]``) to contiguous task
+    indices (``[0, 1]``) in its forward pass. The likelihood is evaluated on the
+    raw inputs, so the same mapping has to be applied before looking up the
+    per-task noise levels.
+    """
+
+    def __init__(self, task_mapper: Tensor, **kwargs: Any) -> None:
+        r"""
+        Args:
+            task_mapper: A tensor mapping raw task values to task indices, as
+                returned by ``get_task_value_remapping``.
+            kwargs: Passed to ``HadamardGaussianLikelihood``.
+        """
+        super().__init__(**kwargs)
+        # Not persistent, to keep the state dict the same as that of the base class.
+        self.register_buffer("_task_mapper", task_mapper, persistent=False)
+
+    def _shaped_noise_covar(
+        self, base_shape: torch.Size, *params: Any, **kwargs: Any
+    ) -> LinearOperator:
+        if len(params) > 0 and len(params[0]) > 0:
+            task_values = params[0] if torch.is_tensor(params[0]) else params[0][0]
+            if task_values.shape[-1] > 1:
+                task_values = task_values[..., [self.task_feature_index]]
+            params = (self._task_mapper[task_values.long()], *params[1:])
+        return super()._shaped_noise_covar(base_shape, *params, **kwargs)
 
 
 class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
@@ -286,21 +332,35 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
                 raise RuntimeError("All output tasks must be present in input data.")
         self._output_tasks = output_tasks
         self._num_outputs = len(output_tasks)
+        task_mapper = get_task_value_remapping(
+            all_task_values=torch.tensor(
+                sorted(all_tasks), dtype=torch.long, device=train_X.device
+            ),
+            dtype=train_X.dtype,
+        )
 
         if likelihood is None:
             if train_Yvar is None:
                 noise_prior = LogNormalPrior(loc=-4.0, scale=1.0)
-                likelihood = HadamardGaussianLikelihood(
-                    num_tasks=self.num_tasks,
-                    batch_shape=torch.Size(),
-                    noise_prior=noise_prior,
-                    noise_constraint=GreaterThan(
+                likelihood_kwargs = {
+                    "num_tasks": self.num_tasks,
+                    "batch_shape": torch.Size(),
+                    "noise_prior": noise_prior,
+                    "noise_constraint": GreaterThan(
                         MIN_INFERRED_NOISE_LEVEL,
                         transform=None,
                         initial_value=noise_prior.mode,
                     ),
-                    task_feature_index=task_feature,
-                )
+                    "task_feature_index": task_feature,
+                }
+                if task_mapper is None:
+                    likelihood = HadamardGaussianLikelihood(**likelihood_kwargs)
+                else:
+                    # The likelihood looks up the per-task noise levels using the
+                    # raw task values, which need to be mapped to task indices.
+                    likelihood = _TaskMappedHadamardGaussianLikelihood(
+                        task_mapper=task_mapper, **likelihood_kwargs
+                    )
             else:
                 likelihood = FixedNoiseGaussianLikelihood(noise=train_Yvar.squeeze(-1))
 
@@ -342,12 +402,6 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
         )
 
         self.covar_module = data_covar_module * task_covar_module
-        task_mapper = get_task_value_remapping(
-            all_task_values=torch.tensor(
-                sorted(all_tasks), dtype=torch.long, device=train_X.device
-            ),
-            dtype=train_X.dtype,
-        )
         self.register_buffer("_task_mapper", task_mapper)
         self._expected_task_values = set(all_tasks)
         if input_transform is not None:
@@ -797,6 +851,18 @@ class KroneckerMultiTaskGP(ExactGP, GPyTorchModel, FantasizeMixin):
                 "Posterior transforms currently not supported for "
                 f"{self.__class__.__name__}"
             )
+        if output_indices is not None and list(output_indices) != list(
+            range(self.num_outputs)
+        ):
+            raise NotImplementedError(
+                "Subsetting the outputs via `output_indices` is currently not "
+                f"supported for {self.__class__.__name__}."
+            )
+        if torch.is_tensor(observation_noise):
+            raise NotImplementedError(
+                "Passing a tensor of observation noise is currently not supported "
+                f"for {self.__class__.__name__}."
+            )
 
         X = self.transform_inputs(X)
         train_x = self.train_inputs[0]
@@ -881,7 +947,12 @@ class KroneckerMultiTaskGP(ExactGP, GPyTorchModel, FantasizeMixin):
         test_mean = self.mean_module(X)
 
         train_noise = self.likelihood._shaped_noise_covar(train_x.shape)
-        diagonal_noise = isinstance(train_noise, DiagLinearOperator)
+        # The closed form below is only valid for homoskedastic noise. Kronecker
+        # structured noise (e.g. with different noise levels for different tasks)
+        # is handled by whitening.
+        diagonal_noise = isinstance(train_noise, DiagLinearOperator) and not isinstance(
+            train_noise, KroneckerProductLinearOperator
+        )
         if detach_test_caches.on():
             train_noise = train_noise.detach()
         test_noise = (
@@ -920,12 +991,8 @@ class KroneckerMultiTaskGP(ExactGP, GPyTorchModel, FantasizeMixin):
             # TODO: enforce the diagonalization to return a KPLT for all shapes in
             # gpytorch or dense linear algebra for small shapes
             data_noise, task_noise = train_noise.linear_ops
-            data_noise_root = data_noise.root_inv_decomposition(
-                method="diagonalization"
-            )
-            task_noise_root = task_noise.root_inv_decomposition(
-                method="diagonalization"
-            )
+            data_noise_root = _inverse_root(data_noise)
+            task_noise_root = _inverse_root(task_noise)
 
             # ultimately we need to compute the diagonal of
             # (K_{x* X} \kron K_T)(K_{XX} \kron K_T + \Sigma_X \kron \Sigma_T)^{-1}
@@ -936,12 +1003,18 @@ class KroneckerMultiTaskGP(ExactGP, GPyTorchModel, FantasizeMixin):
             #                   \Sigma_T^{-1/2T}K_{T}\Sigma_T^{-1/2})
             # first we construct the components of R's eigen-decomposition
             # TODO: make this be the default KPMatmulLT diagonal method in gpytorch
-            whitened_data_covar = (
-                data_noise_root.transpose(-1, -2)
-                .matmul(data_data_covar)
-                .matmul(data_noise_root)
-            )
-            w_data_evals, w_data_evecs = whitened_data_covar.diagonalization()
+            if isinstance(data_noise, ConstantDiagLinearOperator):
+                # For \Sigma_X = c I (as for MultitaskGaussianLikelihood), the whitened
+                # data covariance K_{XX} / c has the same eigenvectors as K_{XX}.
+                w_data_evals = data_data_evals * data_noise_root.diagonal() ** 2
+                w_data_evecs = data_data_evecs
+            else:
+                whitened_data_covar = (
+                    data_noise_root.transpose(-1, -2)
+                    .matmul(data_data_covar)
+                    .matmul(data_noise_root)
+                )
+                w_data_evals, w_data_evecs = whitened_data_covar.diagonalization()
             whitened_task_covar = (
                 task_noise_root.transpose(-1, -2)
                 .matmul(self._task_covar_matrix)
