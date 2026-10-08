@@ -574,6 +574,21 @@ class TestParameterConstraints(BotorchTestCase):
                 new_nlc[0](torch.tensor([[4.0]], device=self.device)),
             )
 
+        # test that the result does not depend on the order of the fixed features
+        def nlc3(x):
+            return x
+
+        for fixed_features in ({0: 0.1, 2: 0.9}, {2: 0.9, 0: 0.1}):
+            (new_nlc3,) = _generate_unfixed_nonlin_constraints(
+                constraints=[(nlc3, True)],
+                fixed_features=fixed_features,
+                dimension=3,
+            )
+            self.assertAllClose(
+                new_nlc3[0](torch.tensor([[0.5]], device=self.device)),
+                torch.tensor([[0.1, 0.5, 0.9]], device=self.device),
+            )
+
     def test_generate_unfixed_lin_constraints(self):
         # Case 1: some fixed features are in the indices
         indices = [
