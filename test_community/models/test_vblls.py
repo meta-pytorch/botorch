@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import copy
+import itertools
 from unittest.mock import patch
 
 import numpy as np
@@ -458,6 +459,63 @@ class TestVBLLModel(BotorchTestCase):
                     f"Expected samples to have shape {expected_shape},"
                     f"but got {y_hat.shape}.",
                 )
+
+    def test_sampling_with_batch_shapes(self) -> None:
+        d, num_hidden, n = 4, 5, 3
+        for out_features in (1, 2):
+            model = VBLLModel(
+                in_features=d,
+                hidden_features=num_hidden,
+                out_features=out_features,
+                num_layers=1,
+                device=self.device,
+            )
+            for batch_shape, sample_shape in itertools.product(
+                (torch.Size(), torch.Size([2])),
+                (torch.Size(), torch.Size([2]), torch.Size([2, 3])),
+            ):
+                X = torch.rand(
+                    batch_shape + torch.Size([n, d]),
+                    dtype=torch.float64,
+                    device=self.device,
+                )
+                sample_path = model.sample(sample_shape=sample_shape)
+                y_hat = sample_path(X)
+                self.assertEqual(
+                    y_hat.shape,
+                    sample_shape + batch_shape + torch.Size([n, out_features]),
+                )
+                # each sample is a linear model on the features of the backbone
+                params = sample_path.sampled_params.reshape(
+                    -1, out_features, num_hidden
+                )
+                y_hat = y_hat.reshape(-1, *batch_shape, n, out_features)
+                features = model.backbone(X)
+                for i in range(params.shape[0]):
+                    self.assertAllClose(y_hat[i], features @ params[i].T)
+
+    def test_rsample_batched(self) -> None:
+        d = 4
+        model = VBLLModel(
+            in_features=d,
+            hidden_features=4,
+            out_features=1,
+            num_layers=1,
+            device=self.device,
+        )
+        X = torch.rand(2, 3, d, dtype=torch.float64, device=self.device)
+        posterior = model.posterior(X)
+        sample_shape = torch.Size([5])
+        torch.manual_seed(0)
+        samples = posterior.rsample(sample_shape)
+        self.assertEqual(samples.shape, torch.Size([5, 2, 3, 1]))
+        self.assertEqual(samples.shape, posterior._extended_shape(sample_shape))
+        # the samples of each batch are evaluated at the inputs of that batch
+        for b in range(X.shape[0]):
+            torch.manual_seed(0)
+            self.assertAllClose(
+                samples[:, b], model.posterior(X[b]).rsample(sample_shape)
+            )
 
     def test_shape_of_forward(self) -> None:
         d = 4

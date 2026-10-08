@@ -6,8 +6,6 @@
 
 from __future__ import annotations
 
-import math
-
 import torch
 from botorch.posteriors import GPyTorchPosterior
 from botorch_community.models.blls import AbstractBLLModel
@@ -51,14 +49,8 @@ class BLLPosterior(GPyTorchPosterior):
                 representing the desired dimensions.
 
         Returns:
-            A ``(sample_shape) x N x output_dim``-dim Tensor of maximum
+            A ``(sample_shape) x (batch_shape) x N x output_dim``-dim Tensor of
             posterior samples.
         """
-        n_samples = 1 if sample_shape is None else math.prod(sample_shape)
-        samples_list = [self.model.sample()(self.X) for _ in range(n_samples)]
-        samples = torch.stack(samples_list, dim=0)
-
-        # reshape to [sample_shape, n, output_dim]
-        sample_shape = torch.Size([1]) if sample_shape is None else sample_shape
-        new_shape = sample_shape + samples.shape[-2:]
-        return samples.reshape(new_shape)
+        sample_shape = torch.Size([1] if sample_shape is None else sample_shape)
+        return self.model.sample(sample_shape)(self.X)
