@@ -495,6 +495,37 @@ class PolytopeSamplerTestBase(ABC):
             self.assertGreater(samples[:, 0].std().item(), 1e-2)
             self.assertGreater(samples[:, 2].std().item(), 1e-2)
 
+    def test_interior_point_with_eq_constraints(self):
+        # A feasible interior point is accepted even if, due to round-off errors, it
+        # only satisfies the equality constraints approximately, e.g. after the
+        # normalization of the constraints and the point to the unit cube.
+        for dtype in (torch.float, torch.double):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            bounds = torch.tensor([[0.1, 0.1, 0.1], [0.7, 0.7, 0.7]], **tkwargs)
+            C = torch.ones(1, 3, **tkwargs)
+            d = torch.ones(1, 1, **tkwargs)
+            for x in ([0.3, 0.3, 0.4], [0.25, 0.25, 0.5]):
+                interior_point = torch.tensor(x, **tkwargs).unsqueeze(-1)
+                self.assertTrue(torch.equal(C @ interior_point, d))
+                sampler = self.sampler_class(
+                    equality_constraints=(C, d),
+                    bounds=bounds,
+                    interior_point=interior_point,
+                    **self.sampler_kwargs,
+                )
+                samples = sampler.draw(n=8)
+                self.assertLessEqual((C @ samples.t() - d).abs().max().item(), 1e-5)
+                self.assertTrue((samples <= bounds[1]).all())
+                self.assertTrue((samples >= bounds[0]).all())
+            # infeasible points are still rejected
+            with self.assertRaisesRegex(ValueError, "not feasible"):
+                self.sampler_class(
+                    equality_constraints=(C, d),
+                    bounds=bounds,
+                    interior_point=torch.full((3, 1), 0.3, **tkwargs),
+                    **self.sampler_kwargs,
+                )
+
     def test_sample_polytope_1d(self):
         for dtype in (torch.float, torch.double):
             A = torch.tensor(
