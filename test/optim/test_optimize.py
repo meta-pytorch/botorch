@@ -1412,6 +1412,44 @@ class TestOptimizeAcqf(BotorchTestCase):
             # And it converges to the (feasible) target.
             self.assertAllClose(candidate, target.unsqueeze(0), atol=1e-2)
 
+    def test_optimize_acqf_nonlinear_constraints_with_unordered_fixed_features(
+        self,
+    ):
+        # The values of the fixed features must be passed to the nonlinear
+        # constraints in the correct order, independently of the order of the keys
+        # of ``fixed_features`` (which is not sorted e.g. if negative indices are
+        # normalized).
+        for dtype in (torch.float, torch.double):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            # The unconstrained optimum x1 = 1 violates the constraint x1 <= x0 = 0.9.
+            acqf = NegSquaredDistanceAcquisitionFunction(
+                target=torch.tensor([0.9, 1.0, 0.2], **tkwargs)
+            )
+            bounds = torch.tensor([[0.0] * 3, [1.0] * 3], **tkwargs)
+
+            def constraint(x):
+                return x[..., 0] - x[..., 1]
+
+            for fixed_features in (
+                {0: 0.9, 2: 0.2},
+                {2: 0.2, 0: 0.9},
+                {-1: 0.2, 0: 0.9},
+            ):
+                candidate, _ = optimize_acqf(
+                    acq_function=acqf,
+                    bounds=bounds,
+                    q=1,
+                    num_restarts=1,
+                    fixed_features=fixed_features,
+                    nonlinear_inequality_constraints=[(constraint, True)],
+                    batch_initial_conditions=torch.tensor(
+                        [[[0.9, 0.05, 0.2]]], **tkwargs
+                    ),
+                )
+                self.assertAllClose(
+                    candidate, torch.tensor([[0.9, 0.9, 0.2]], **tkwargs), atol=1e-4
+                )
+
     @mock.patch("botorch.optim.optimize.gen_batch_initial_conditions")
     @mock.patch("botorch.optim.optimize.gen_candidates_scipy")
     def test_optimize_acqf_non_linear_constraints_sequential(

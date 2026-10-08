@@ -440,7 +440,11 @@ def _generate_unfixed_nonlin_constraints(
             selector.append(idx_X)
             idx_X += 1
 
-    values = torch.tensor(list(fixed_features.values()), dtype=torch.double)
+    # The fixed features are appended in ascending order of their indices (see
+    # ``selector``), so their values need to be in the same order.
+    values = torch.tensor(
+        [fixed_features[i] for i in sorted(fixed_features)], dtype=torch.double
+    )
 
     def _wrap_nonlin_constraint(
         constraint: Callable[[Tensor], Tensor],
