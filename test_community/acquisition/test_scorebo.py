@@ -6,7 +6,9 @@
 
 import torch
 from botorch.acquisition.objective import ScalarizedPosteriorTransform
-from botorch.utils.test_helpers import get_fully_bayesian_model
+from botorch.models.fully_bayesian import SaasFullyBayesianSingleTaskGP
+from botorch.models.transforms.input import Normalize
+from botorch.utils.test_helpers import _get_mcmc_samples, get_fully_bayesian_model
 from botorch.utils.testing import BotorchTestCase
 from botorch_community.acquisition.scorebo import qSelfCorrectingBayesianOptimization
 
@@ -100,3 +102,36 @@ class TestQSelfCorrectingBayesianOptimization(BotorchTestCase):
                 distance_metric="NOT_A_DISTANCE",
                 X_pending=X_pending,
             )
+
+    def test_optimal_inputs_input_transform(self):
+        # The optimal inputs are in the raw input space and must be transformed
+        # (only) once when conditioning on them.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        num_models, d = 3, 2
+        bounds = torch.tensor([[0.0] * d, [10.0] * d], **tkwargs)
+        train_X = 10 * torch.rand(8, d, **tkwargs)
+        model = SaasFullyBayesianSingleTaskGP(
+            train_X,
+            torch.sin(train_X.sum(dim=-1, keepdim=True)),
+            input_transform=Normalize(d=d, bounds=bounds),
+        )
+        model.load_mcmc_samples(
+            _get_mcmc_samples(num_models, d, infer_noise=True, **tkwargs)
+        )
+        model.eval()
+        optimal_inputs = torch.full((1, num_models, d), 5.0, **tkwargs)
+        optimal_outputs = torch.full((1, num_models, 1), 3.0, **tkwargs)
+        acq = qSelfCorrectingBayesianOptimization(
+            model=model,
+            optimal_inputs=optimal_inputs,
+            optimal_outputs=optimal_outputs,
+        )
+        cond_train_X = acq.conditional_model.train_inputs[0]
+        self.assertAllClose(
+            cond_train_X[..., -1, :], torch.full_like(cond_train_X[..., -1, :], 0.5)
+        )
+        # The conditional models are (noiselessly) conditioned at the optimum.
+        posterior = acq.conditional_model.posterior(
+            optimal_inputs[0, 0].view(1, 1, d), observation_noise=False
+        )
+        self.assertTrue((posterior.variance < 1e-3).all())
