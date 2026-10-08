@@ -4,6 +4,8 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+import math
+
 import torch
 from botorch.test_functions.sensitivity_analysis import Gsobol, Ishigami, Morris
 from botorch.utils.testing import BotorchTestCase
@@ -27,6 +29,25 @@ class TestIshigami(BotorchTestCase):
         self.assertIsNone(f._optimizers)
         with self.assertRaises(NotImplementedError):
             f.optimal_value
+
+    def test_dgsm(self):
+        for b in (0.1, 0.05):
+            f = Ishigami(b=b)
+            X = torch.rand(10, 3, dtype=torch.double) * 2 * math.pi - math.pi
+            X.requires_grad_(True)
+            (grad,) = torch.autograd.grad(f.evaluate_true(X).sum(), X)
+            mean, abs_mean, sq_mean = f.compute_dgsm(X.detach())
+            self.assertAllClose(torch.tensor(mean).to(grad), grad.mean(dim=0))
+            self.assertAllClose(torch.tensor(abs_mean).to(grad), grad.abs().mean(dim=0))
+            self.assertAllClose(torch.tensor(sq_mean).to(grad), grad.pow(2).mean(dim=0))
+            # Exact values for x_3: E|df/dx_3| = 2 b pi^2 and
+            # E[(df/dx_3)^2] = 8 b^2 pi^6 / 7 for x ~ U[-pi, pi]^3.
+            self.assertAlmostEqual(
+                f.dgsm_gradient_abs[2], 2 * b * math.pi**2, delta=5e-3
+            )
+            self.assertAlmostEqual(
+                f.dgsm_gradient_square[2], 8 * b**2 * math.pi**6 / 7, delta=2e-2
+            )
 
 
 class TestGsobol(BotorchTestCase):

@@ -53,8 +53,9 @@ class Ishigami(SyntheticTestFunction):
             self.si_t = [0.3131, 0.6868, 0.095]
             self.s_ij = [0, 0.094, 0]
             self.dgsm_gradient = [-0.0002, -0.0002, -0.0002]
-            self.dgsm_gradient_abs = [1.26, 4.45, 1.97]
-            self.dgsm_gradient_square = [2.8, 24.5, 11]
+            # E|df/dx_3| = 2 b pi^2, E[(df/dx_3)^2] = 8 b^2 pi^6 / 7
+            self.dgsm_gradient_abs = [1.26, 4.45, 0.987]
+            self.dgsm_gradient_square = [2.8, 24.5, 2.75]
         self._bounds = [(-math.pi, math.pi) for _ in range(self.dim)]
         self.b = b
         super().__init__(noise_std=noise_std, negate=negate, dtype=dtype)
@@ -77,7 +78,7 @@ class Ishigami(SyntheticTestFunction):
         """
         dx_1 = torch.cos(X[..., 0]) * (1 + self.b * (X[..., 2] ** 4))
         dx_2 = 14 * torch.cos(X[..., 1]) * torch.sin(X[..., 1])
-        dx_3 = 0.4 * (X[..., 2] ** 3) * torch.sin(X[..., 0])
+        dx_3 = 4 * self.b * (X[..., 2] ** 3) * torch.sin(X[..., 0])
         gradient_measure = [
             torch.mean(dx_1).item(),
             torch.mean(dx_2).item(),
