@@ -21,6 +21,7 @@ from copy import deepcopy
 from typing import Any, TYPE_CHECKING
 
 import torch
+from botorch import settings
 from botorch.acquisition.objective import PosteriorTransform
 from botorch.exceptions.errors import (
     BotorchTensorDimensionError,
@@ -48,8 +49,11 @@ from botorch.posteriors.fully_bayesian import GaussianMixturePosterior
 from botorch.posteriors.gpytorch import GPyTorchPosterior
 from botorch.utils.multitask import separate_mtmvn
 from botorch.utils.transforms import is_ensemble
+from gpytorch import settings as gpt_settings
 from gpytorch.distributions import MultitaskMultivariateNormal, MultivariateNormal
 from gpytorch.likelihoods.gaussian_likelihood import FixedNoiseGaussianLikelihood
+from gpytorch.utils.errors import CachingError
+from gpytorch.utils.memoize import add_to_cache, get_from_cache
 from linear_operator.operators import BlockDiagLinearOperator, CatLinearOperator
 from torch import broadcast_shapes, Tensor
 
@@ -57,6 +61,52 @@ if TYPE_CHECKING:
     from botorch.posteriors.posterior_list import PosteriorList  # pragma: no cover
     from botorch.posteriors.transformed import TransformedPosterior  # pragma: no cover
     from gpytorch.likelihoods import Likelihood  # pragma: no cover
+
+
+def _use_fantasy_mean_cache(
+    fantasy_model: Model, X: Tensor, noise: Tensor | None
+) -> None:
+    r"""Make the posterior of a fantasy model use its updated mean cache.
+
+    GPyTorch's ``DefaultPredictionStrategy.get_fantasy_strategy`` stores the updated
+    mean cache under a different key than the one it is looked up with (which
+    includes the ``observation_nan_policy``). The mean cache is therefore recomputed
+    from scratch, which is costly and, unlike the posterior covariance, ignores the
+    ``noise`` passed for the new observations if the likelihood infers the noise.
+
+    This stores the (detached) updated mean cache under the expected key, unless
+    gradients may need to be propagated through it, i.e. if gradients are propagated
+    through the test caches or if the new inputs or noise require gradients (as in
+    ``qKnowledgeGradient``). In these cases, the mean cache is recomputed with
+    gradients as before. This is a no-op if the cache is already stored under the
+    expected key.
+
+    Args:
+        fantasy_model: The model returned by ``get_fantasy_model``.
+        X: The (transformed) inputs of the new observations.
+        noise: The noise of the new observations, if any.
+    """
+    strategy = getattr(fantasy_model, "prediction_strategy", None)
+    nan_policy = gpt_settings.observation_nan_policy.value()
+    if (
+        strategy is None
+        or nan_policy != "ignore"
+        or settings.propagate_grads.on()
+        or gpt_settings.detach_test_caches.off()
+        or X.requires_grad
+        or (noise is not None and noise.requires_grad)
+    ):
+        return
+    try:
+        get_from_cache(strategy, "mean_cache", nan_policy)
+        return
+    except CachingError:
+        pass
+    try:
+        mean_cache = get_from_cache(strategy, "mean_cache")
+    except CachingError:
+        return
+    add_to_cache(strategy, "mean_cache", mean_cache.detach(), nan_policy)
 
 
 class GPyTorchModel(Model, ABC):
@@ -270,6 +320,7 @@ class GPyTorchModel(Model, ABC):
         # get_fantasy_model will properly copy any existing outcome transforms
         # (since it deepcopies the original model))
         fantasy_model = self.get_fantasy_model(inputs=X, targets=Y, **kwargs)
+        _use_fantasy_mean_cache(fantasy_model, X=X, noise=kwargs.get("noise"))
 
         # If we use an input transform, the fantasized data will not get added to
         # the training data by default. We need to manually add it.
