@@ -432,6 +432,7 @@ class MultivariatePFNModel(PFNModel):
         output_indices: list[int] | None = None,
         observation_noise: bool | Tensor = False,
         posterior_transform: PosteriorTransform | None = None,
+        negate_train_ys: bool = False,
     ) -> BoundedRiemannPosterior | MultivariateRiemannPosterior:
         """Computes the posterior over model outputs at the provided points.
 
@@ -448,6 +449,8 @@ class MultivariatePFNModel(PFNModel):
             output_indices: **Currently not supported for PFNModel.**
             observation_noise: **Currently not supported for PFNModel**.
             posterior_transform: **Currently not supported for PFNModel**.
+            negate_train_ys: Whether to negate the training Ys. This is useful
+                for minimization.
 
         Returns:
             A posterior representing a batch of b? x q? distributions.
@@ -457,11 +460,14 @@ class MultivariatePFNModel(PFNModel):
             output_indices=output_indices,
             observation_noise=observation_noise,
             posterior_transform=posterior_transform,
+            negate_train_ys=negate_train_ys,
         )
         if len(X.shape) == 1 or X.shape[-2] == 1:
             # No q dimension, or q=1
             return marginals
-        X, train_X, train_Y, orig_X_shape, styles = self._prepare_data(X)
+        X, train_X, train_Y, orig_X_shape, styles = self._prepare_data(
+            X, negate_train_ys=negate_train_ys
+        )
         # Estimate correlation structure, making another forward pass.
         R = self.estimate_correlations(
             X=X,
