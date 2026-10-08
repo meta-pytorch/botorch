@@ -466,6 +466,11 @@ class HigherOrderGP(BatchedMultiOutputGPyTorchModel, ExactGP, FantasizeMixin):
                 "Posterior transforms currently not supported for "
                 f"{self.__class__.__name__}"
             )
+        if torch.is_tensor(observation_noise):
+            raise NotImplementedError(
+                "Passing a tensor of observation noise is currently not supported "
+                f"for {self.__class__.__name__}."
+            )
 
         # input transforms are applied at ``posterior`` in ``eval`` mode, and at
         # ``model.forward()`` at the training time
@@ -480,8 +485,12 @@ class HigherOrderGP(BatchedMultiOutputGPyTorchModel, ExactGP, FantasizeMixin):
             # we need to skip posterior variances here
             es.enter_context(skip_posterior_variances(True))
             mvn = self(X)
-            if observation_noise is not False:
+            test_noise = None
+            if observation_noise:
                 # TODO: ensure that this still works for structured noise solves.
+                test_noise = self.likelihood._shaped_noise_covar(
+                    mvn.mean.shape, X
+                ).diagonal()
                 mvn = self.likelihood(mvn, X)
 
             # lazy covariance matrix includes the interpolated version of the full
@@ -532,6 +541,8 @@ class HigherOrderGP(BatchedMultiOutputGPyTorchModel, ExactGP, FantasizeMixin):
                 pred_variance = mvn.variance
             else:
                 pred_variance = self.make_posterior_variances(joint_covar)
+                if test_noise is not None:
+                    pred_variance = pred_variance + test_noise
 
             # mean and variance get reshaped into the target shape
             new_mean = mvn.mean.reshape(*X.shape[:-1], *self.target_shape)
@@ -555,6 +566,7 @@ class HigherOrderGP(BatchedMultiOutputGPyTorchModel, ExactGP, FantasizeMixin):
                 joint_covariance_matrix=joint_covar.clone(),
                 output_shape=X.shape[:-1] + self.target_shape,
                 num_outputs=self._num_outputs,
+                test_noise=test_noise,
             )
             if hasattr(self, "outcome_transform"):
                 posterior = self.outcome_transform.untransform_posterior(posterior, X=X)
