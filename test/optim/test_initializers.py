@@ -1604,6 +1604,20 @@ class TestSampleAroundBest(BotorchTestCase):
             self.assertTrue((X_rnd >= 1).all())
             self.assertTrue((X_rnd <= 2).all())
             mock_subset_dims.assert_called_once()
+            # the subset of dimensions is perturbed using ``subset_sigma``
+            self.assertEqual(mock_subset_dims.call_args.kwargs["sigma"], 1e-1)
+            with mock.patch(
+                "botorch.optim.initializers.sample_perturbed_subset_dims",
+                wraps=sample_perturbed_subset_dims,
+            ) as mock_subset_dims:
+                sample_points_around_best(
+                    acq_function=acqf,
+                    n_discrete_points=5,
+                    sigma=1e-3,
+                    bounds=bounds,
+                    subset_sigma=0.2,
+                )
+            self.assertEqual(mock_subset_dims.call_args.kwargs["sigma"], 0.2)
             # test tiny prob_perturb to make sure we perturb at least one dimension
             X_rnd = sample_points_around_best(
                 acq_function=acqf,
