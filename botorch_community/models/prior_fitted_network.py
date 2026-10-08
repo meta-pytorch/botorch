@@ -563,7 +563,8 @@ class MultivariatePFNModel(PFNModel):
             X: evaluation point, shape (b, q, d)
             train_X: Training X, shape (b, n, d)
             train_Y: Training Y, shape (b, n, 1)
-            styles: dict from name to tensor shaped (b, ns) for any styles.
+            styles: dict from name to tensor shaped (b, ns) for any styles, or
+                (b, 1, ns) / (b, num_features, ns) for a raw ``style`` tensor.
             marginals: A posterior object with marginal posteriors for f(X), but no
                 correlation structure yet added. posterior.probabilities has
                 shape (b?, q, num_buckets).
@@ -589,8 +590,12 @@ class MultivariatePFNModel(PFNModel):
         train_Y = torch.cat((train_Y, cond_Y), dim=-2)  # (b, q, n+1, 1)
         cond_styles = {}
         for name, style in styles.items():
-            ns = style.shape[-1]
-            cond_styles[name] = style.unsqueeze(-2).expand(b, q, ns).reshape(b * q, ns)
+            style_shape = style.shape[1:]
+            cond_styles[name] = (
+                style.unsqueeze(1)
+                .expand(b, q, *style_shape)
+                .reshape(b * q, *style_shape)
+            )
         # Construct eval points
         eval_X = X.unsqueeze(1).expand(b, q, q, d)
         # Squeeze everything into necessary 2 batch dims, and do PFN forward pass
