@@ -537,6 +537,35 @@ class TestEMEmpiricalGaussianProcess(BotorchTestCase):
         self._test_model_with_map_priors()
         self._test_forward_output_symmetry_and_psd()
 
+    def test_mean_prior_centered_at_mean_module(self) -> None:
+        """The kernel prior on mu (use_mean_prior) is centered at m(Z).
+
+        Shifting the data and the constant of the mean module by the same offset
+        must shift the EM mean by that offset and leave the covariance unchanged.
+        """
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        torch.manual_seed(0)
+        X = torch.linspace(0, 1, 6, **tkwargs).unsqueeze(-1)
+        Ys = torch.randn(3, 6, **tkwargs)
+        priors = []
+        for offset in (0.0, 5.0):
+            mean_module = ConstantMean().to(**tkwargs)
+            mean_module.constant = offset
+            priors.append(
+                pretrain_em_prior(
+                    datasets=[
+                        ExperimentDataset(X=X, Y=(y + offset).unsqueeze(-1)) for y in Ys
+                    ],
+                    mean_module=mean_module,
+                    covar_module=ScaleKernel(RBFKernel()).to(**tkwargs),
+                    likelihood_noise=0.01,
+                    use_mean_prior=True,
+                    num_em_iterations=10,
+                )
+            )
+        self.assertAllClose(priors[1].mu_inducing, priors[0].mu_inducing + 5.0)
+        self.assertAllClose(priors[1].Sigma_inducing, priors[0].Sigma_inducing)
+
     # =========================================================================
     # Gradient Flow and MLL Tests
     # =========================================================================
