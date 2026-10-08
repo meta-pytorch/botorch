@@ -361,7 +361,13 @@ class NeuralProcessModel(Model, GP):
         mu = mu.to(self.device)
         return mu + std * eps
 
-    def KLD_gaussian(self, min_std: float = 0.01, scaler: float = 0.5) -> torch.Tensor:
+    def KLD_gaussian(
+        self,
+        min_std: float = 0.01,
+        scaler: float = 0.5,
+        z_params_all: tuple[torch.Tensor, torch.Tensor] | None = None,
+        z_params_context: tuple[torch.Tensor, torch.Tensor] | None = None,
+    ) -> torch.Tensor:
         r"""Analytical KLD between 2 Gaussian Distributions.
 
         Computes ``KL(q(z | all) || p(z | context))``, the KL divergence of the
@@ -373,6 +379,11 @@ class NeuralProcessModel(Model, GP):
             min_std: Float representing the minimum possible standardized std, defaults
             to 0.01.
             scaler: Float scaling the std, defaults to 0.5.
+            z_params_all: Optional mean and log variance of the latent distribution
+                given all points. Defaults to ``(self.z_mu_all, self.z_logvar_all)``.
+            z_params_context: Optional mean and log variance of the latent
+                distribution given the context points. Defaults to
+                ``(self.z_mu_context, self.z_logvar_context)``.
 
         Returns:
             torch.Tensor: A tensor representing the KLD.
@@ -380,10 +391,18 @@ class NeuralProcessModel(Model, GP):
 
         if min_std <= 0 or scaler <= 0:
             raise ValueError()
-        std_q = min_std + scaler * torch.sigmoid(self.z_logvar_all).to(self.device)
-        std_p = min_std + scaler * torch.sigmoid(self.z_logvar_context).to(self.device)
-        p = torch.distributions.Normal(self.z_mu_context.to(self.device), std_p)
-        q = torch.distributions.Normal(self.z_mu_all.to(self.device), std_q)
+        z_mu_all, z_logvar_all = (
+            (self.z_mu_all, self.z_logvar_all) if z_params_all is None else z_params_all
+        )
+        z_mu_context, z_logvar_context = (
+            (self.z_mu_context, self.z_logvar_context)
+            if z_params_context is None
+            else z_params_context
+        )
+        std_q = min_std + scaler * torch.sigmoid(z_logvar_all).to(self.device)
+        std_p = min_std + scaler * torch.sigmoid(z_logvar_context).to(self.device)
+        p = torch.distributions.Normal(z_mu_context.to(self.device), std_p)
+        q = torch.distributions.Normal(z_mu_all.to(self.device), std_q)
         return torch.distributions.kl_divergence(q, p).sum()
 
     def posterior(
