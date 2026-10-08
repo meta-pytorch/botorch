@@ -1300,7 +1300,7 @@ def sample_points_around_best(
             bounds=bounds,
             # ensure that we return n_discrete_points
             n_discrete_points=n_discrete_points - n_trunc_normal_points,
-            sigma=sigma,
+            sigma=subset_sigma,
             prob_perturb=prob_perturb,
         )
         perturbed_X = torch.cat([perturbed_X, perturbed_subset_dims_X], dim=0)
