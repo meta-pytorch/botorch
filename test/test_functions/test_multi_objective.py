@@ -401,6 +401,18 @@ class TestToyRobust(
     def functions(self) -> list[BaseTestProblem]:
         return [ToyRobust(), ToyRobust(noise_std=[0.1, 0.2])]
 
+    def test_levy_submodule(self):
+        # The Levy function is a submodule of each instance, so that it is moved
+        # along with the problem and not shared across instances.
+        f1, f2 = ToyRobust(), ToyRobust()
+        self.assertIsNot(f1.levy, f2.levy)
+        f1.to(device=self.device, dtype=torch.float)
+        self.assertEqual(f1.levy.bounds.device.type, self.device.type)
+        self.assertEqual(f1.levy.bounds.dtype, torch.float)
+        self.assertEqual(f2.levy.bounds.dtype, torch.double)
+        X = torch.rand(3, 1, device=self.device) * 0.7
+        self.assertEqual(f1.evaluate_true(X).shape, torch.Size([3, 2]))
+
 
 class TestVehicleSafety(
     BotorchTestCase,

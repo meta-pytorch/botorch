@@ -855,11 +855,22 @@ class ToyRobust(MultiObjectiveTestProblem):
     _bounds = [(0.0, 0.7)]
     _ref_point = [-6.1397, -8.1942]
     num_objectives = 2
-    levy = Levy()
 
-    def forward(self, X: Tensor, noise: bool = True) -> Tensor:
-        self.levy.bounds = self.levy.bounds.to(X)
-        return super().forward(X=X, noise=noise)
+    def __init__(
+        self,
+        noise_std: None | float | list[float] = None,
+        negate: bool = False,
+        dtype: torch.dtype = torch.double,
+    ) -> None:
+        r"""
+        Args:
+            noise_std: Standard deviation of the observation noise.
+            negate: If True, negate the objectives.
+            dtype: The dtype that is used for the bounds of the function.
+        """
+        super().__init__(noise_std=noise_std, negate=negate, dtype=dtype)
+        # Registered as a submodule so that it is moved along with the problem.
+        self.levy = Levy(dtype=dtype)
 
     def f_1(self, X: Tensor) -> Tensor:
         p1 = 2.4 - 10 * X - 0.1 * X.pow(2)
