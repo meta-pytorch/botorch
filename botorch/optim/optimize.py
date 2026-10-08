@@ -985,7 +985,10 @@ def optimize_acqf_cyclic(
 
     if q > 1:
         cyclic_options = cyclic_options or {}
-        stopping_criterion = ExpMAStoppingCriterion(**cyclic_options)
+        # The acquisition values are maximized.
+        stopping_criterion = ExpMAStoppingCriterion(
+            **{"minimize": False, **cyclic_options}
+        )
         stop = stopping_criterion(fvals=acq_vals)
         base_X_pending = acq_function.X_pending
         idxr = torch.ones(q, dtype=torch.bool, device=opt_inputs.bounds.device)
