@@ -37,18 +37,42 @@ class TestAugmentedUpperConfidenceBound(BotorchTestCase):
 
         return model
 
+    def _get_expected_aucb(self, model, X, best_f, beta, cost, maximize=True):
+        r"""Evaluate the AUCB formula point by point, for ``batch_shape x 1 x d`` X:
+        ``(mu(x) + sqrt(beta) * sigma(x) - y^+) / (c(s) (1 + |mu(x) - mu_s(x)|))``,
+        with numerator ``y^+ - (mu(x) - sqrt(beta) * sigma(x))`` for minimization.
+        """
+        values = []
+        with torch.no_grad():
+            for x in X.reshape(-1, X.shape[-1]):
+                s = int(x[-1].round().item())
+                x = x[:-1].unsqueeze(0)
+                posterior = model.posterior(x)
+                mean = posterior.mean.item()
+                sigma = posterior.variance.sqrt().item()
+                mean_s = model.models[s].posterior(x).mean.item()
+                improvement = mean - best_f if maximize else best_f - mean
+                values.append(
+                    (improvement + beta**0.5 * sigma)
+                    / (cost[s] * (1 + abs(mean - mean_s)))
+                )
+        return torch.tensor(values, device=X.device, dtype=X.dtype).view(X.shape[:-2])
+
     def test_upper_confidence_bound(self):
         for dtype in (torch.float, torch.double):
             mm = self._get_mock_agp(torch.Size([]), dtype)
+            cost = {0: 0.5, 1: 1}
             module = AugmentedUpperConfidenceBound(
                 model=mm,
                 beta=1.0,
                 best_f=torch.tensor(5.0, device=self.device, dtype=dtype),
-                cost={0: 0.5, 1: 1},
+                cost=cost,
             )
             X = torch.tensor([[0, 1]], device=self.device, dtype=dtype)
             ucb = module(X)
-            ucb_expected = torch.tensor([8.0169], device=self.device, dtype=dtype)
+            ucb_expected = self._get_expected_aucb(
+                mm, X.unsqueeze(0), best_f=5.0, beta=1.0, cost=cost
+            )
             self.assertAllClose(ucb, ucb_expected, atol=1e-4)
 
             module = AugmentedUpperConfidenceBound(
@@ -56,11 +80,13 @@ class TestAugmentedUpperConfidenceBound(BotorchTestCase):
                 beta=1.0,
                 maximize=False,
                 best_f=torch.tensor(0.5, device=self.device, dtype=dtype),
-                cost={0: 0.5, 1: 1},
+                cost=cost,
             )
             X = torch.tensor([[0, 1]], device=self.device, dtype=dtype)
             ucb = module(X)
-            ucb_expected = torch.tensor([0.1217], device=self.device, dtype=dtype)
+            ucb_expected = self._get_expected_aucb(
+                mm, X.unsqueeze(0), best_f=0.5, beta=1.0, cost=cost, maximize=False
+            )
             self.assertAllClose(ucb, ucb_expected, atol=1e-4)
 
             # check for proper error if not multi-source model
@@ -89,16 +115,22 @@ class TestAugmentedUpperConfidenceBound(BotorchTestCase):
 
     def test_upper_confidence_bound_batch(self):
         for dtype in (torch.float, torch.double):
-            mm = self._get_mock_agp(torch.Size([2]), dtype)
+            mm = self._get_mock_agp(torch.Size([]), dtype)
+            cost = {0: 0.5, 1: 1.0}
             module = AugmentedUpperConfidenceBound(
                 model=mm,
                 beta=1.0,
                 best_f=torch.tensor(1.0, device=self.device, dtype=dtype),
-                cost={0: 0.5, 1: 1.0},
+                cost=cost,
             )
-            X = torch.tensor([[0, 1]], device=self.device, dtype=dtype)
+            # ``b1 x b2 x 1 x d`` candidates from both sources
+            X = torch.rand(2, 3, 1, 2, device=self.device, dtype=dtype)
+            X[..., -1] = torch.tensor([0.0, 1.0, 1.0], device=self.device).view(3, 1)
             ucb = module(X)
-            ucb_expected = torch.tensor([2.3892], device=self.device, dtype=dtype)
+            self.assertEqual(ucb.shape, torch.Size([2, 3]))
+            ucb_expected = self._get_expected_aucb(
+                mm, X, best_f=1.0, beta=1.0, cost=cost
+            )
             self.assertAllClose(ucb, ucb_expected, atol=1e-4)
 
             # check for proper error if not multi-source model
