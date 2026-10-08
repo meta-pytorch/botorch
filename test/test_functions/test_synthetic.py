@@ -528,6 +528,28 @@ class TestPressureVessel(
         ),
     ]
 
+    def test_rounding(self):
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        f = PressureVessel().to(**tkwargs)
+        # The thicknesses are rounded to multiples of 0.0625 in both the objective
+        # and the constraints. Rounding x_1 = 0.84374 down to 0.8125 violates the
+        # first constraint, 0.0193 * x_3 <= x_1.
+        X = torch.tensor([0.84374, 0.4375, 43.7170974, 157.5607547], **tkwargs)
+        X_round = torch.tensor([0.8125, 0.4375, 43.7170974, 157.5607547], **tkwargs)
+        self.assertAllClose(f.evaluate_true(X), f.evaluate_true(X_round))
+        self.assertAllClose(f.evaluate_slack_true(X), f.evaluate_slack_true(X_round))
+        self.assertFalse(f.is_feasible(X, noise=False).item())
+        # Feasible design close to the optimum.
+        X_opt = torch.tensor([0.8125, 0.4375, 42.09844, 176.6367], **tkwargs)
+        self.assertTrue(f.is_feasible(X_opt, noise=False).item())
+        self.assertGreaterEqual(f.evaluate_true(X_opt).item(), f.optimal_value)
+        self.assertLess(f.evaluate_true(X_opt).item(), f.optimal_value + 0.01)
+        # The objective is increasing in all inputs and the upper corner is feasible.
+        self.assertTrue(f.is_feasible(f.bounds[1], noise=False).item())
+        self.assertAlmostEqual(
+            f.evaluate_true(f.bounds[1]).item(), f.worst_feasible_value, places=6
+        )
+
 
 class TestSpeedReducer(
     BotorchTestCase,

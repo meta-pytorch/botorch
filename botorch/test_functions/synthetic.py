@@ -1414,13 +1414,21 @@ class PressureVessel(ConstrainedSyntheticTestFunction):
     continuous_inds = list(range(dim))
     num_constraints = 4
     _bounds = [(0.0, 10.0), (0.0, 10.0), (10.0, 50.0), (150.0, 200.0)]
-    _optimal_value = 6059.946341  # from [CoelloCoello2002constraint]
-    _worst_feasible_value = 240526.7248  # Computed from 100 SLSQP restarts
+    # Best known solution, attained at x ~= (0.8125, 0.4375, 42.09845, 176.63660).
+    # Verified by an exhaustive search over the rounded thicknesses x1 and x2.
+    _optimal_value = 6059.714335
+    # The objective is increasing in all inputs and the upper corner is feasible.
+    _worst_feasible_value = 269214.5
 
-    def _evaluate_true(self, X: Tensor) -> Tensor:
+    def _round_thicknesses(self, X: Tensor) -> tuple[Tensor, Tensor, Tensor, Tensor]:
+        # The thicknesses x1 and x2 are integer multiples of 0.0625 inches.
         x1, x2, x3, x4 = X.unbind(-1)
         x1 = round_nearest(x1, increment=0.0625, bounds=self._bounds[0])
         x2 = round_nearest(x2, increment=0.0625, bounds=self._bounds[1])
+        return x1, x2, x3, x4
+
+    def _evaluate_true(self, X: Tensor) -> Tensor:
+        x1, x2, x3, x4 = self._round_thicknesses(X)
         return (
             0.6224 * x1 * x3 * x4
             + 1.7781 * x2 * x3.pow(2)
@@ -1429,7 +1437,9 @@ class PressureVessel(ConstrainedSyntheticTestFunction):
         )
 
     def _evaluate_slack_true(self, X: Tensor) -> Tensor:
-        x1, x2, x3, x4 = X.unbind(-1)
+        # The constraints must be evaluated at the same (rounded) design as the
+        # objective, otherwise infeasible designs can appear to be feasible.
+        x1, x2, x3, x4 = self._round_thicknesses(X)
         return -torch.stack(
             [
                 -x1 + 0.0193 * x3,
