@@ -368,6 +368,14 @@ class TestAckleyMixed(
         with self.assertRaisesRegex(ValueError, "Expected dim > 3. Got dim=3."):
             AckleyMixed(dim=3)
 
+    def test_dtype(self):
+        # The output dtype follows the input dtype, even without calling ``to``.
+        f = AckleyMixed(dim=5, randomize_optimum=True).to(device=self.device)
+        for dtype in (torch.float, torch.double):
+            X = torch.rand(3, 5, device=self.device, dtype=dtype)
+            X[..., :2] = X[..., :2].round()
+            self.assertEqual(f(X).dtype, dtype)
+
 
 class TestTrajectoryPlanning(BotorchTestCase):
     def test_trajectory_defaults(self):
@@ -412,7 +420,14 @@ class TestTrajectoryPlanning(BotorchTestCase):
         problem = TrajectoryPlanning(dim=8)
         x = torch.rand(problem.dim)
         cost = problem(x)
-        self.assertEqual(cost.shape, torch.Size([1]))
+        self.assertEqual(cost.shape, torch.Size([]))
+
+    def test_batch_input(self):
+        problem = TrajectoryPlanning(dim=8)
+        X = torch.rand(2, 3, problem.dim, dtype=torch.double)
+        costs = problem(X)
+        self.assertEqual(costs.shape, torch.Size([2, 3]))
+        self.assertAllClose(costs[1, 2], problem(X[1, 2]))
 
     def test_at_goal_early(self):
         # Test that trajectory building terminates early when start is at goal
