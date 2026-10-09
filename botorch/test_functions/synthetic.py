@@ -399,6 +399,13 @@ class Hartmann(SyntheticTestFunction):
     with ``H(z) = -3.32237``.
     """
 
+    # optimizers and optimal values for dim=4 not implemented
+    _optimal_value_lookup: dict[int, float] = {3: -3.86278, 6: -3.32237}
+    _optimizers_lookup: dict[int, list[tuple[float, ...]]] = {
+        3: [(0.114614, 0.555649, 0.852547)],
+        6: [(0.20169, 0.150011, 0.476874, 0.275332, 0.311652, 0.6573)],
+    }
+
     def __init__(
         self,
         dim=6,
@@ -421,14 +428,8 @@ class Hartmann(SyntheticTestFunction):
         self.continuous_inds = list(range(dim))
         if bounds is None:
             bounds = [(0.0, 1.0) for _ in range(self.dim)]
-        # optimizers and optimal values for dim=4 not implemented
-        optvals = {3: -3.86278, 6: -3.32237}
-        optimizers = {
-            3: [(0.114614, 0.555649, 0.852547)],
-            6: [(0.20169, 0.150011, 0.476874, 0.275332, 0.311652, 0.6573)],
-        }
-        self._optimal_value = optvals.get(self.dim)
-        self._optimizers = optimizers.get(self.dim)
+        self._optimal_value = self._optimal_value_lookup.get(self.dim)
+        self._optimizers = self._optimizers_lookup.get(self.dim)
         super().__init__(noise_std=noise_std, negate=negate, bounds=bounds, dtype=dtype)
         self.register_buffer("ALPHA", torch.tensor([1.0, 1.2, 3.0, 3.2]))
         if dim == 3:
@@ -1296,9 +1297,18 @@ class ConstrainedHartmann(Hartmann, ConstrainedSyntheticTestFunction):
 
     This is a constrained version of the standard Hartmann test function that
     uses ``||x||_2 <= 1`` as the constraint. This problem comes from [Letham2019]_.
+
+    For ``dim=3``, the optimizer of the unconstrained Hartmann function violates the
+    constraint and the constrained optimum lies on the boundary ``||x||_2 = 1``.
     """
 
     num_constraints = 1
+    # For dim=3, computed from 2000 SLSQP restarts.
+    _optimal_value_lookup = {**Hartmann._optimal_value_lookup, 3: -3.838521}
+    _optimizers_lookup = {
+        **Hartmann._optimizers_lookup,
+        3: [(0.04273, 0.537385, 0.842253)],
+    }
 
     def __init__(
         self,
@@ -1345,9 +1355,13 @@ class ConstrainedHartmannSmooth(Hartmann, ConstrainedSyntheticTestFunction):
 
     This is a constrained version of the standard Hartmann test function that
     uses ``||x||_2^2 <= 1`` as the constraint to obtain smoother constraint slack.
+    The feasible set and hence the optimum are the same as for
+    ``ConstrainedHartmann``.
     """
 
     num_constraints = 1
+    _optimal_value_lookup = ConstrainedHartmann._optimal_value_lookup
+    _optimizers_lookup = ConstrainedHartmann._optimizers_lookup
 
     def __init__(
         self,
@@ -1400,13 +1414,21 @@ class PressureVessel(ConstrainedSyntheticTestFunction):
     continuous_inds = list(range(dim))
     num_constraints = 4
     _bounds = [(0.0, 10.0), (0.0, 10.0), (10.0, 50.0), (150.0, 200.0)]
-    _optimal_value = 6059.946341  # from [CoelloCoello2002constraint]
-    _worst_feasible_value = 240526.7248  # Computed from 100 SLSQP restarts
+    # Best known solution, attained at x ~= (0.8125, 0.4375, 42.09845, 176.63660).
+    # Verified by an exhaustive search over the rounded thicknesses x1 and x2.
+    _optimal_value = 6059.714335
+    # The objective is increasing in all inputs and the upper corner is feasible.
+    _worst_feasible_value = 269214.5
 
-    def _evaluate_true(self, X: Tensor) -> Tensor:
+    def _round_thicknesses(self, X: Tensor) -> tuple[Tensor, Tensor, Tensor, Tensor]:
+        # The thicknesses x1 and x2 are integer multiples of 0.0625 inches.
         x1, x2, x3, x4 = X.unbind(-1)
         x1 = round_nearest(x1, increment=0.0625, bounds=self._bounds[0])
         x2 = round_nearest(x2, increment=0.0625, bounds=self._bounds[1])
+        return x1, x2, x3, x4
+
+    def _evaluate_true(self, X: Tensor) -> Tensor:
+        x1, x2, x3, x4 = self._round_thicknesses(X)
         return (
             0.6224 * x1 * x3 * x4
             + 1.7781 * x2 * x3.pow(2)
@@ -1415,7 +1437,9 @@ class PressureVessel(ConstrainedSyntheticTestFunction):
         )
 
     def _evaluate_slack_true(self, X: Tensor) -> Tensor:
-        x1, x2, x3, x4 = X.unbind(-1)
+        # The constraints must be evaluated at the same (rounded) design as the
+        # objective, otherwise infeasible designs can appear to be feasible.
+        x1, x2, x3, x4 = self._round_thicknesses(X)
         return -torch.stack(
             [
                 -x1 + 0.0193 * x3,
@@ -1441,7 +1465,9 @@ class WeldedBeamSO(ConstrainedSyntheticTestFunction):
     continuous_inds = list(range(dim))
     num_constraints = 6
     _bounds = [(0.125, 10.0), (0.1, 10.0), (0.1, 10.0), (0.1, 10.0)]
-    _optimal_value = 1.728226  # from [CoelloCoello2002constraint]
+    # Best known solution (rounded to 6 decimals), reproduced by 100 SLSQP restarts.
+    _optimal_value = 1.724852
+    _optimizers = [(0.20573, 3.470489, 9.036624, 0.20573)]
     _worst_feasible_value = 19.01859  # Computed from 100 SLSQP restarts
 
     def _evaluate_true(self, X: Tensor) -> Tensor:
@@ -1461,12 +1487,13 @@ class WeldedBeamSO(ConstrainedSyntheticTestFunction):
         M = P * (L + x2 / 2)
         R = torch.sqrt(0.25 * (x2.pow(2) + (x1 + x3).pow(2)))
         J = 2 * math.sqrt(2) * x1 * x2 * (x2.pow(2) / 12 + 0.25 * (x1 + x3).pow(2))
+        # P_c = 4.013 * E * sqrt(x3^2 * x4^6 / 36) / L^2 * (1 - x3 / (2L) sqrt(E / 4G))
         P_c = (
             4.013
             * E
             * x3
             * x4.pow(3)
-            * 6
+            / 6
             / (L**2)
             * (1 - 0.25 * x3 * math.sqrt(E / G) / L)
         )
@@ -1497,7 +1524,9 @@ class TensionCompressionString(ConstrainedSyntheticTestFunction):
     continuous_inds = list(range(dim))
     num_constraints = 4
     _bounds = [(0.01, 1.0), (0.01, 1.0), (0.01, 20.0)]
-    _optimal_value = 0.012681  # from [CoelloCoello2002constraint]
+    # Best known solution, attained at x ~= (0.051689, 0.356718, 11.28897).
+    # Reproduced by 300 SLSQP restarts.
+    _optimal_value = 0.0126652
     _worst_feasible_value = 0.306081  # Computed from 100 SLSQP restarts
 
     def _evaluate_true(self, X: Tensor) -> Tensor:
