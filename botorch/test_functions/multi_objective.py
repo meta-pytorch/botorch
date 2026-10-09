@@ -51,10 +51,20 @@ References
     Test Suite Construction and Performance Comparisons. IEEE Transactions
     on Evolutionary Computation, 23(6):972–986, December 2019.
 
+.. [Jain2014]
+    H. Jain and K. Deb. An Evolutionary Many-Objective Optimization Algorithm
+    Using Reference-Point Based Nondominated Sorting Approach, Part II: Handling
+    Constraints and Extending to an Adaptive Approach. IEEE Transactions on
+    Evolutionary Computation, 18(4):602–622, 2014.
+
 .. [Oszycka1995]
     A. Osyczka and S. Kundu. A new method to solve generalized
     multicriteria optimization problems using the simple genetic algorithm.
     In Structural Optimization 10. 94–99, 1995.
+
+.. [Srinivas1994]
+    N. Srinivas and K. Deb. Multiobjective Optimization Using Nondominated
+    Sorting in Genetic Algorithms. Evolutionary Computation, 2(3):221–248, 1994.
 
 .. [Tanabe2020]
     Ryoji Tanabe and Hisao Ishibuchi. An easy-to-use real-world multi-objective
@@ -114,7 +124,9 @@ class BraninCurrin(MultiObjectiveTestProblem):
     num_objectives = 2
     _bounds = [(0.0, 1.0), (0.0, 1.0)]
     _ref_point = [18.0, 6.0]
-    _max_hv = 59.36011874867746  # this is approximated using NSGA-II
+    # Computed from a 32000 x 32000 grid and dense samples of the boundary of the
+    # domain, on which part of the Pareto front lies (these points attain 59.40645).
+    _max_hv = 59.4066
 
     def __init__(
         self,
@@ -323,12 +335,21 @@ class DH4(DH3):
         h(x_0, x_1) = 2 - x_0 - 0.8 * exp(-((x_0 + x_1 - 0.35) / 0.25)^2)
         - exp(-((x_0 + x_1 - 0.85) / 0.03)^2)
 
-    The Pareto front is found at ``x_i = 0`` for ``i > 2``, with the local one being
-    near ``x_0 + x_1 = 0.35`` and the global one near ``x_0 + x_1 = 0.85``.
+    The Pareto front is found at ``x_i = 0`` for ``i > 1``, with the local one being
+    near ``x_0 + x_1 = 0.35`` and the global one near ``x_0 + x_1 = 0.85``. The
+    exception is ``x_0 > 0.98534``, where ``h`` can be negative, so that ``f_1``
+    is minimized by maximizing ``g``, i.e., at ``|x_i| = 1`` for ``i > 1``. Hence,
+    ``f_1`` can be negative and the maximum hypervolume depends on the dimension.
     """
 
     _x_1_lb = -0.15
-    _area_under_curve = 0.22845
+
+    @property
+    def _area_under_curve(self) -> float:
+        # Computed via numerical quadrature: 0.228445034673 for the part of the
+        # Pareto front with g = 0, and -0.001572780262 per unit of the maximum of
+        # g, 50 * (dim - 2), for the part of the Pareto front where h < 0.
+        return 0.228445034673 - 0.001572780262 * 50 * (self.dim - 2)
 
     def _h(self, X: Tensor) -> Tensor:
         exp_arg_1, exp_arg_2 = self._exp_args(X[..., :2].sum(dim=-1))
@@ -391,7 +412,9 @@ class DTLZ1(DTLZ):
 
     @property
     def _max_hv(self) -> float:
-        return self._ref_val**self.num_objectives - 1 / 2**self.num_objectives
+        # hypercube - volume of the simplex {f >= 0: sum_i f_i <= 0.5}
+        M = self.num_objectives
+        return self._ref_val**M - 0.5**M / math.factorial(M)
 
     def _evaluate_true(self, X: Tensor) -> Tensor:
         X_m = X[..., -self.k :]
@@ -527,13 +550,23 @@ class DTLZ3(DTLZ2):
 class DTLZ4(DTLZ2):
     r"""DTLZ4 test problem.
 
-    This is the same as DTLZ2, but with alpha=100 as the exponent,
-    resulting in dense solutions near the f_M-f_1 plane.
+    This is the same as DTLZ2, but with the first ``M - 1`` variables mapped to
+    ``x_i^alpha`` with alpha=100, resulting in dense solutions near the f_M-f_1
+    plane:
+
+        f_0(x) = (1 + g(x)) * cos(x_0^alpha * pi / 2)
+        f_1(x) = (1 + g(x)) * sin(x_0^alpha * pi / 2)
+        g(x) = \sum_{i=m}^{d-1} (x_i - 0.5)^2
 
     The global Pareto-optimal front corresponds to x_i = 0.5 for x_i in X_m.
     """
 
     _alpha = 100.0
+
+    def _evaluate_true(self, X: Tensor) -> Tensor:
+        n_pos = self.num_objectives - 1
+        X = torch.cat([X[..., :n_pos].pow(self._alpha), X[..., n_pos:]], dim=-1)
+        return super()._evaluate_true(X)
 
 
 class DTLZ5(DTLZ):
@@ -1058,7 +1091,7 @@ class ZDT3(ZDT):
     d-dimensional problem evaluated on ``[0, 1]^d``:
 
         f_0(x) = x_0
-        f_1(x) = 1 - sqrt(x_0 / g(x)) - x_0 / g * sin(10 * pi * x_0)
+        f_1(x) = g(x) * (1 - sqrt(x_0 / g(x)) - x_0 / g(x) * sin(10 * pi * x_0))
         g(x) = 1 + 9 / (d - 1) * \sum_{i=1}^{d-1} x_i
 
     The reference point comes from [Yang2019a]_.
@@ -1082,7 +1115,7 @@ class ZDT3(ZDT):
     def _evaluate_true(self, X: Tensor) -> Tensor:
         f_0 = X[..., 0]
         g = self._g(X=X)
-        f_1 = 1 - (f_0 / g).sqrt() - f_0 / g * torch.sin(10 * math.pi * f_0)
+        f_1 = g * (1 - (f_0 / g).sqrt() - f_0 / g * torch.sin(10 * math.pi * f_0))
         return torch.stack([f_0, f_1], dim=-1)
 
     def gen_pareto_front(self, n: int) -> Tensor:
@@ -1268,7 +1301,10 @@ class ConstrainedBraninCurrin(BraninCurrin, ConstrainedBaseTestProblem):
     _bounds = [(0.0, 1.0), (0.0, 1.0)]
     _con_bounds = [(-5.0, 10.0), (0.0, 15.0)]
     _ref_point = [80.0, 12.0]
-    _max_hv = 608.4004237022673  # from NSGA-II with 90k evaluations
+    # Computed from a 32000 x 32000 grid and dense samples of the constraint
+    # boundary, on which part of the Pareto front lies (these points attain
+    # 609.4036).
+    _max_hv = 609.4038
 
     def __init__(
         self,
@@ -1298,28 +1334,62 @@ class ConstrainedBraninCurrin(BraninCurrin, ConstrainedBaseTestProblem):
 
 
 class C2DTLZ2(DTLZ2, ConstrainedBaseTestProblem):
+    r"""C2-DTLZ2 test problem from [Jain2014]_.
+
+    This is DTLZ2 with the constraint
+
+        c(x) = -min(
+            min_i [(f_i(x) - 1)^2 + \sum_{j != i} f_j(x)^2 - r^2],
+            \sum_i (f_i(x) - 1 / sqrt(M))^2 - r^2
+        ) >= 0,
+
+    which only leaves the regions of the objective space within distance ``r`` of
+    the ``M`` points ``e_i`` and of the point ``(1, ..., 1) / sqrt(M)`` feasible.
+    As in [Jain2014]_, ``r = 0.4`` for ``M = 3`` and ``r = 0.5`` for ``M > 3``. For
+    ``M = 2``, ``r = 0.2`` is used.
+    """
+
     num_constraints = 1
-    _r = 0.2
-    # approximate from nsga-ii, TODO: replace with analytic
-    _max_hv = 0.3996406303723544
+
+    @property
+    def _r(self) -> float:
+        if self.num_objectives == 2:
+            return 0.2
+        return 0.4 if self.num_objectives == 3 else 0.5
+
+    @property
+    def _max_hv(self) -> float | None:
+        if self.num_objectives != 2:
+            return None
+        # The feasible Pareto front consists of the arcs of the unit circle with
+        # angles in [0, a], [pi / 4 - a, pi / 4 + a] and [pi / 2 - a, pi / 2],
+        # where a = 2 * arcsin(r / 2). The hypervolume dominated by the full quarter
+        # circle is reduced by the area between the circle and the two "corners"
+        # of the dominated region that bridge the gaps between these arcs.
+        a = 2 * math.asin(self._r / 2)
+
+        def _area_under_circle(lo: float, hi: float) -> float:
+            # integral of sqrt(1 - t^2) from lo to hi
+            def F(t: float) -> float:
+                return 0.5 * (t * math.sqrt(1 - t * t) + math.asin(t))
+
+            return F(hi) - F(lo)
+
+        lo, hi = a, pi / 4 - a  # the second gap is the mirror image of the first
+        gap = (math.cos(lo) - math.cos(hi)) * (math.sin(hi) - math.sin(lo)) - (
+            _area_under_circle(math.cos(hi), math.cos(lo))
+            - math.sin(lo) * (math.cos(lo) - math.cos(hi))
+        )
+        return self._ref_val**2 - pi / 4 - 2 * gap
 
     def _evaluate_slack_true(self, X: Tensor) -> Tensor:
-        if X.ndim > 2:
-            raise NotImplementedError("Batch X is not supported.")
         f_X = self.evaluate_true(X=X)
-        term1 = (f_X - 1).pow(2)
-        mask = ~(torch.eye(f_X.shape[-1], device=f_X.device).bool())
-        indices = torch.arange(f_X.shape[1], device=f_X.device).repeat(f_X.shape[1], 1)
-        indexer = indices[mask].view(f_X.shape[1], f_X.shape[-1] - 1)
-        term2_inner = (
-            f_X.unsqueeze(1)
-            .expand(f_X.shape[0], f_X.shape[-1], f_X.shape[-1])
-            .gather(dim=-1, index=indexer.repeat(f_X.shape[0], 1, 1))
-        )
-        term2 = (term2_inner.pow(2) - self._r**2).sum(dim=-1)
-        min1 = (term1 + term2).min(dim=-1).values
-        min2 = ((f_X - 1 / math.sqrt(f_X.shape[-1])).pow(2) - self._r**2).sum(dim=-1)
-        return -torch.min(min1, min2).unsqueeze(-1)
+        f_X_sq = f_X.pow(2)
+        # (f_i - 1)^2 + \sum_{j != i} f_j^2 for each i
+        dist_to_e_i = (f_X - 1).pow(2) + f_X_sq.sum(dim=-1, keepdim=True) - f_X_sq
+        dist_to_center = (f_X - 1 / math.sqrt(self.num_objectives)).pow(2).sum(dim=-1)
+        min_dist = torch.minimum(dist_to_e_i.min(dim=-1).values, dist_to_center)
+        return -(min_dist - self._r**2).unsqueeze(-1)
 
 
 class DiscBrake(MultiObjectiveTestProblem, ConstrainedBaseTestProblem):
@@ -1476,7 +1546,14 @@ class OSY(MultiObjectiveTestProblem, ConstrainedBaseTestProblem):
 
 
 class SRN(MultiObjectiveTestProblem, ConstrainedBaseTestProblem):
-    r"""The constrained SRN problem.
+    r"""The constrained SRN problem from [Srinivas1994]_.
+
+    Two-dimensional problem evaluated on ``[-20, 20]^2``:
+
+        f_0(x) = 2 + (x_0 - 2)^2 + (x_1 - 1)^2
+        f_1(x) = 9 * x_0 - (x_1 - 1)^2
+        c_0(x) = 225 - x_0^2 - x_1^2 >= 0
+        c_1(x) = 3 * x_1 - x_0 - 10 >= 0
 
     See [GarridoMerchan2020]_ for more details on this problem. Note that this is a
     minimization problem.
@@ -1490,12 +1567,12 @@ class SRN(MultiObjectiveTestProblem, ConstrainedBaseTestProblem):
     _ref_point = [0.0, 0.0]  # TODO: Determine proper reference point
 
     def _evaluate_true(self, X: Tensor) -> Tensor:
-        obj1 = 2.0 + (X - 2.0).pow(2).sum(dim=-1)
+        obj1 = 2.0 + (X[..., 0] - 2.0).pow(2) + (X[..., 1] - 1.0).pow(2)
         obj2 = 9.0 * X[..., 0] - (X[..., 1] - 1.0).pow(2)
         return torch.stack([obj1, obj2], dim=-1)
 
     def _evaluate_slack_true(self, X: Tensor) -> Tensor:
-        c1 = 225.0 - (X.pow(2)).pow(2).sum(dim=-1)
+        c1 = 225.0 - X.pow(2).sum(dim=-1)
         c2 = -10.0 - X[..., 0] + 3 * X[..., 1]
         return torch.stack([c1, c2], dim=-1)
 
@@ -1564,4 +1641,6 @@ class WeldedBeam(MultiObjectiveTestProblem, ConstrainedBaseTestProblem):
         g3 = 1 / (5 - 0.125) * (x1 - x4)
         g4 = (P - P_c) / P
 
-        return torch.stack([g1, g2, g3, g4], dim=-1)
+        # pymoo's constraints are satisfied if ``g <= 0``, whereas the slack
+        # returned here must be non-negative for feasible points.
+        return -torch.stack([g1, g2, g3, g4], dim=-1)
