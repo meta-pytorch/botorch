@@ -14,6 +14,7 @@ import torch
 from gpytorch.distributions import MultitaskMultivariateNormal
 from gpytorch.distributions.multivariate_normal import MultivariateNormal
 from linear_operator import to_linear_operator
+from linear_operator.operators import BlockDiagLinearOperator
 
 
 def separate_mtmvn(mvn: MultitaskMultivariateNormal) -> list[MultivariateNormal]:
@@ -24,10 +25,22 @@ def separate_mtmvn(mvn: MultitaskMultivariateNormal) -> list[MultivariateNormal]
     # T150340766 Upstream as a class method on gpytorch MultitaskMultivariateNormal.
     full_covar = mvn.lazy_covariance_matrix
     num_data, num_tasks = mvn.mean.shape[-2:]
+    # Independent tasks (e.g. from ``from_independent_mvns``) have a block-diagonal
+    # covariance with one ``num_data x num_data`` block per task.
+    is_block_diag = (
+        not mvn._interleaved
+        and isinstance(full_covar, BlockDiagLinearOperator)
+        and full_covar.num_blocks == num_tasks
+    )
 
     mvns = []
     for c in range(num_tasks):
-        if mvn._interleaved:
+        if is_block_diag:
+            # Take the block of task c. Slicing a ``BlockDiagLinearOperator`` (see
+            # below) can return wrong results, since ``BlockLinearOperator._getitem``
+            # assumes that the blocks are interleaved.
+            task_covar = full_covar.base_linear_op[..., c, :, :]
+        elif mvn._interleaved:
             # For interleaved: task c data points are at positions
             # c, c+num_tasks, c+2*num_tasks, ...
             # Must use tensor indexing for strided access.
