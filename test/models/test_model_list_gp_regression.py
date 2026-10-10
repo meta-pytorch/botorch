@@ -296,6 +296,33 @@ class TestModelListGP(BotorchTestCase):
         self.assertIsInstance(posterior, GPyTorchPosterior)
         self.assertIsInstance(posterior.distribution, MultivariateNormal)
 
+    def test_ModelListGP_multi_task_posterior_transform(self) -> None:
+        # Scalarizing the posterior of q > 1 points previously errored out, since the
+        # per-task covariances of the `MultiTaskGP` are `InterpolatedLinearOperator`s.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.rand(10, 1, **tkwargs)
+        task = torch.cat([torch.zeros(5, 1, **tkwargs), torch.ones(5, 1, **tkwargs)])
+        model1 = MultiTaskGP(
+            torch.cat([train_X, task], dim=-1), torch.sin(6 * train_X), task_feature=-1
+        )
+        model2 = SingleTaskGP(train_X, torch.cos(6 * train_X))
+        model = ModelListGP(model1, model2).eval()
+        weights = torch.tensor([1.0, 2.0, 0.5], **tkwargs)
+        post_tf = ScalarizedPosteriorTransform(weights=weights)
+        q = 3
+        X = torch.rand(q, 1, **tkwargs)
+        with torch.no_grad():
+            posterior_tf = model.posterior(X, posterior_transform=post_tf)
+            posterior1 = model1.posterior(X)
+            posterior2 = model2.posterior(X)
+        # The covariance of `posterior1` is in task-major order.
+        covar1 = posterior1.covariance_matrix
+        blocks = [covar1[:q, :q], covar1[q:, q:], posterior2.covariance_matrix]
+        expected_mean = torch.cat([posterior1.mean, posterior2.mean], dim=-1)
+        self.assertAllClose(posterior_tf.mean, expected_mean @ weights[:, None])
+        expected_covar_tf = sum(w**2 * block for w, block in zip(weights, blocks))
+        self.assertAllClose(posterior_tf.covariance_matrix, expected_covar_tf)
+
     def test_ModelListGP_multi_task(self, use_outcome_transform: bool = False):
         tkwargs = {"device": self.device, "dtype": torch.float}
         outcome_transform_kwargs = (
