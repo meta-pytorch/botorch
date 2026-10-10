@@ -94,7 +94,8 @@ class TestLogImprovementAcquisitionFunction(BotorchTestCase):
         )
         with self.assertRaisesRegex(
             BotorchError,
-            "Log-Improvement should not be used with `ConstrainedMCObjective`.",
+            "Log-Improvement should not be used with `ConstrainedMCObjective`. "
+            "Please pass the `constraints` directly",
         ):
             DummyLogImprovementAcquisitionFunction(model=mm, objective=objective)
 

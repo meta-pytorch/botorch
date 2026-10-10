@@ -946,7 +946,7 @@ class TestGenBatchInitialCandidates(BotorchTestCase):
         # constraints are obeyed
         with self.assertRaisesRegex(
             UnsupportedError,
-            "Option 'sample_around_best' is not supported when equality"
+            "Option 'sample_around_best' is not supported when equality "
             "constraints are present.",
         ):
             gen_batch_initial_conditions(
