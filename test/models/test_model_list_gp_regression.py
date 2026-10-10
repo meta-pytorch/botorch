@@ -25,7 +25,7 @@ from botorch.sampling.list_sampler import ListSampler
 from botorch.sampling.normal import IIDNormalSampler
 from botorch.utils.testing import BotorchTestCase, get_random_data
 from gpytorch.distributions import MultitaskMultivariateNormal, MultivariateNormal
-from gpytorch.kernels import RBFKernel
+from gpytorch.kernels import GridInterpolationKernel, RBFKernel, ScaleKernel
 from gpytorch.likelihoods import LikelihoodList
 from gpytorch.likelihoods.gaussian_likelihood import (
     FixedNoiseGaussianLikelihood,
@@ -426,6 +426,33 @@ class TestModelListGP(BotorchTestCase):
             self.assertAllClose(posterior_tf.mean, expected_mean @ weights[:, None])
             expected_covar_tf = sum(w**2 * block for w, block in zip(weights, blocks))
             self.assertAllClose(posterior_tf.covariance_matrix, expected_covar_tf)
+
+    def test_ModelListGP_batched_multi_output_interpolated_kernel(self) -> None:
+        # With a SKI kernel, the blocks of the sub-model's covariance contain
+        # `InterpolatedLinearOperator`s, which cannot be indexed lazily.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.rand(20, 1, **tkwargs)
+        train_Y = torch.randn(20, 3, **tkwargs)
+        covar_module = ScaleKernel(
+            GridInterpolationKernel(
+                RBFKernel(batch_shape=torch.Size([2])),
+                grid_size=16,
+                num_dims=1,
+                grid_bounds=[(0.0, 1.0)],
+            ),
+            batch_shape=torch.Size([2]),
+        )
+        model1 = SingleTaskGP(train_X, train_Y[:, :2], covar_module=covar_module)
+        model2 = SingleTaskGP(train_X, train_Y[:, 2:])
+        model = ModelListGP(model1, model2).eval()
+        for q in (2, 3):
+            X = torch.rand(q, 1, **tkwargs)
+            with torch.no_grad():
+                covar = model.posterior(X).covariance_matrix
+                covar1 = model1.posterior(X).covariance_matrix
+                covar2 = model2.posterior(X).covariance_matrix
+            expected = torch.block_diag(covar1[:q, :q], covar1[q:, q:], covar2)
+            self.assertAllClose(covar, expected)
 
     def test_transform_revert_train_inputs(self):
         tkwargs = {"device": self.device, "dtype": torch.float}

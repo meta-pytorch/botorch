@@ -34,12 +34,22 @@ def separate_mtmvn(mvn: MultitaskMultivariateNormal) -> list[MultivariateNormal]
     )
 
     mvns = []
+    dense_blocks = None
     for c in range(num_tasks):
         if is_block_diag:
             # Take the block of task c. Slicing a ``BlockDiagLinearOperator`` (see
             # below) can return wrong results, since ``BlockLinearOperator._getitem``
             # assumes that the blocks are interleaved.
-            task_covar = full_covar.base_linear_op[..., c, :, :]
+            try:
+                task_covar = full_covar.base_linear_op[..., c, :, :]
+            except AttributeError:
+                # Indexing blocks that contain ``InterpolatedLinearOperator``s (e.g.
+                # from SKI kernels) fails in linear_operator, since
+                # ``InterpolatedLinearOperator.to`` requires a dtype. Use the dense
+                # blocks instead.
+                if dense_blocks is None:
+                    dense_blocks = full_covar.base_linear_op.to_dense()
+                task_covar = dense_blocks[..., c, :, :]
         elif mvn._interleaved:
             # For interleaved: task c data points are at positions
             # c, c+num_tasks, c+2*num_tasks, ...
