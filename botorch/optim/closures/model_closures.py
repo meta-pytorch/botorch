@@ -137,7 +137,7 @@ def _get_loss_closure_exact_internal(
             # During model training, the model inputs get transformed in the forward
             # pass. The train_inputs property is not transformed yet, so we need to
             # transform it before passing it to the likelihood for consistency.
-            *(model.transform_inputs(X=t_in) for t_in in model.train_inputs),
+            *(model._transform_train_inputs(X=t_in) for t_in in model.train_inputs),
             **kwargs,
         )
         return -log_likelihood

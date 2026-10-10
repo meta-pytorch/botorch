@@ -471,6 +471,30 @@ class TestBatchedMultiOutputGPyTorchModel(BotorchTestCase):
             mean, std = traced_model(X_test)
             self.assertEqual(mean.shape, torch.Size([3, 2]))
 
+    def test_batched_input_transform_with_multiple_outputs(self) -> None:
+        # The training inputs of multi-output models have an output dimension, which
+        # must not be aligned with the batch dimension of the input transform.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.rand(2, 5, 1, **tkwargs)
+        train_X[1] = 10 + 5 * train_X[1]
+        new_X = torch.rand(2, 2, 1, **tkwargs)
+        new_X[1] = 10 + 5 * new_X[1]
+        bounds = torch.stack([train_X.amin(dim=-2), train_X.amax(dim=-2)], dim=-2)
+        intf = Normalize(d=1, bounds=bounds)  # Separate bounds for each batch.
+        for m in (1, 2, 3):
+            model = SimpleBatchedMultiOutputGPyTorchModel(
+                train_X, torch.rand(2, 5, m, **tkwargs), input_transform=intf
+            )
+            model.eval()
+            train_X_tf, new_X_tf = intf(train_X), intf(new_X)
+            if m > 1:  # The inputs are the same for all outputs.
+                train_X_tf = train_X_tf.unsqueeze(-3).expand(2, m, 5, 1)
+                new_X_tf = new_X_tf.unsqueeze(-3).expand(2, m, 2, 1)
+            self.assertAllClose(model.train_inputs[0], train_X_tf)
+            model.posterior(new_X)  # Compute caches before conditioning.
+            cm = model.condition_on_observations(new_X, torch.rand(2, 2, m, **tkwargs))
+            self.assertAllClose(cm.train_inputs[0][..., -2:, :], new_X_tf)
+
 
 class TestModelListGPyTorchModel(BotorchTestCase):
     def test_model_list_gpytorch_model(self):
