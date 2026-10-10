@@ -362,6 +362,17 @@ class HigherOrderGP(BatchedMultiOutputGPyTorchModel, ExactGP, FantasizeMixin):
                     lambda module, dim_num=dim_num: self.latent_parameters[dim_num],
                 )
 
+    def _transform_train_inputs(self, X: Tensor, preprocess: bool = False) -> Tensor:
+        r"""Transform inputs that are in the format of the training inputs.
+
+        Unlike other ``BatchedMultiOutputGPyTorchModel``s, ``HigherOrderGP`` does
+        not add an output dimension to its training inputs, so they are transformed
+        as is.
+        """
+        return super(BatchedMultiOutputGPyTorchModel, self)._transform_train_inputs(
+            X=X, preprocess=preprocess
+        )
+
     def forward(self, X: Tensor) -> MultivariateNormal:
         if self.training:
             X = self.transform_inputs(X)

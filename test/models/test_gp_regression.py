@@ -13,8 +13,9 @@ from botorch.exceptions.warnings import OptimizationWarning
 from botorch.fit import fit_gpytorch_mll
 from botorch.models.gp_regression import SingleTaskGP
 from botorch.models.transforms import Normalize, Standardize
-from botorch.models.transforms.input import InputStandardize
+from botorch.models.transforms.input import InputStandardize, Warp
 from botorch.models.transforms.outcome import Log
+from botorch.optim.closures import get_loss_closure
 from botorch.posteriors import GPyTorchPosterior
 from botorch.sampling import SobolQMCNormalSampler
 from botorch.utils.datasets import SupervisedDataset
@@ -440,6 +441,133 @@ class TestGPRegressionBase(BotorchTestCase):
             fit_gpytorch_mll(mll, optimizer_kwargs={"options": {"maxiter": 2}})
             tf_X = intf(X)
             self.assertEqual(X.shape, tf_X.shape)
+
+    def test_batched_input_transform_with_multiple_outputs(self) -> None:
+        # A batched multi-output model with a separate input transform for each
+        # batch must match one single-output model per batch and output with the
+        # same hyperparameters, in train mode (MLL), in eval mode (posterior) and
+        # after conditioning. The output dimension of the training inputs must not
+        # be aligned with the batch dimension of the input transform.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        b = 2
+        test_X, new_X = torch.rand(b, 4, 1, **tkwargs), torch.rand(b, 2, 1, **tkwargs)
+        test_X[1], new_X[1] = 10 + 5 * test_X[1], 10 + 5 * new_X[1]
+        warp_bounds = torch.tensor([[0.0], [15.0]], **tkwargs)
+        warp_c0 = torch.tensor([0.5, 2.0], **tkwargs)
+        warp_c1 = torch.tensor([2.0, 0.7], **tkwargs)
+
+        def get_intf(name: str, bounds: torch.Tensor, i: int | None = None):
+            # The transform of the batched model if ``i`` is None, otherwise the
+            # equivalent transform of the single-output model for batch ``i``.
+            batch_shape = torch.Size([b] if i is None else [])
+            if name == "normalize":
+                return Normalize(d=1, batch_shape=batch_shape)
+            if name == "normalize_bounds":
+                return Normalize(d=1, bounds=bounds if i is None else bounds[i])
+            if name == "standardize":
+                return InputStandardize(d=1, batch_shape=batch_shape)
+            # Use different warping parameters for each batch.
+            intf = Warp(d=1, indices=[0], batch_shape=batch_shape, bounds=warp_bounds)
+            c0, c1 = (warp_c0, warp_c1) if i is None else (warp_c0[i], warp_c1[i])
+            intf.concentration0.data = c0.reshape_as(intf.concentration0)
+            intf.concentration1.data = c1.reshape_as(intf.concentration1)
+            return intf.to(**tkwargs)
+
+        for m, tf_name in itertools.product(
+            (2, 3), ("normalize", "normalize_bounds", "standardize", "warp")
+        ):
+            _, model_kwargs = self._get_model_and_data(
+                batch_shape=torch.Size([b]), m=m, **tkwargs
+            )
+            train_X, train_Y = model_kwargs["train_X"], model_kwargs["train_Y"]
+            train_Yvar = model_kwargs.get("train_Yvar")
+            train_X[1] = 10 + 5 * train_X[1]  # Different input ranges per batch.
+            bounds = torch.stack([train_X.amin(dim=-2), train_X.amax(dim=-2)], dim=-2)
+            model = SingleTaskGP(
+                train_X=train_X,
+                train_Y=train_Y,
+                train_Yvar=train_Yvar,
+                input_transform=get_intf(tf_name, bounds=bounds),
+                outcome_transform=None,
+            )
+            fixed_noise = train_Yvar is not None
+            model.covar_module.lengthscale = 0.2 + torch.rand(b, m, 1, 1, **tkwargs)
+            model.mean_module.constant = torch.randn(b, m, **tkwargs)
+            if not fixed_noise:
+                model.likelihood.noise = 0.05 + 0.1 * torch.rand(b, m, 1, **tkwargs)
+            new_Y = torch.randn(b, 2, m, **tkwargs)
+            noise = torch.full_like(new_Y, 0.01) if fixed_noise else None
+            # Evaluate the MLL in train mode, as when fitting the model.
+            model.train()
+            mll = ExactMarginalLogLikelihood(model.likelihood, model)
+            loss = get_loss_closure(mll)()
+            # A copy of the training inputs is transformed like the training inputs.
+            prior = model(*model.train_inputs)
+            prior_copy = model(model.train_inputs[0].clone())
+            self.assertAllClose(prior.mean, prior_copy.mean)
+            self.assertAllClose(prior.covariance_matrix, prior_copy.covariance_matrix)
+            model.eval()
+            posterior = model.posterior(test_X)
+            cm = model.condition_on_observations(
+                new_X, new_Y, **({} if noise is None else {"noise": noise})
+            )
+            cm_posterior = cm.posterior(test_X)
+            for i, j in itertools.product(range(b), range(m)):
+                model_ij = SingleTaskGP(
+                    train_X=train_X[i],
+                    train_Y=train_Y[i, :, [j]],
+                    train_Yvar=None if train_Yvar is None else train_Yvar[i, :, [j]],
+                    input_transform=get_intf(tf_name, bounds=bounds, i=i),
+                    outcome_transform=None,
+                )
+                model_ij.covar_module.lengthscale = model.covar_module.lengthscale[i, j]
+                model_ij.mean_module.constant = model.mean_module.constant[i, j]
+                if not fixed_noise:
+                    model_ij.likelihood.noise = model.likelihood.noise[i, j]
+                model_ij.train()
+                mll_ij = ExactMarginalLogLikelihood(model_ij.likelihood, model_ij)
+                self.assertAllClose(loss[i, j], get_loss_closure(mll_ij)())
+                model_ij.eval()
+                posterior_ij = model_ij.posterior(test_X[i])
+                self.assertAllClose(posterior.mean[i, :, j], posterior_ij.mean[:, 0])
+                self.assertAllClose(
+                    posterior.variance[i, :, j], posterior_ij.variance[:, 0]
+                )
+                cm_ij = model_ij.condition_on_observations(
+                    new_X[i],
+                    new_Y[i, :, [j]],
+                    **({} if noise is None else {"noise": noise[i, :, [j]]}),
+                )
+                cm_posterior_ij = cm_ij.posterior(test_X[i])
+                self.assertAllClose(
+                    cm_posterior.mean[i, :, j], cm_posterior_ij.mean[:, 0]
+                )
+                self.assertAllClose(
+                    cm_posterior.variance[i, :, j], cm_posterior_ij.variance[:, 0]
+                )
+            # Fantasize also transforms the new inputs of each batch separately.
+            fm = model.fantasize(new_X, sampler=SobolQMCNormalSampler(torch.Size([3])))
+            self.assertAllClose(
+                fm.train_inputs[0][..., -2:, :],
+                cm.train_inputs[0][..., -2:, :].expand(3, b, m, 2, 1),
+            )
+
+    def test_forward_with_test_inputs_in_train_mode(self) -> None:
+        # Unlike the training inputs of multi-output models, other inputs passed to
+        # ``forward`` in train mode (e.g., to evaluate the prior) have no output
+        # dimension and are transformed as is.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        intf = Normalize(d=1, bounds=torch.tensor([[0.0], [2.0]], **tkwargs))
+        model, _ = self._get_model_and_data(
+            batch_shape=torch.Size(), m=2, input_transform=intf, **tkwargs
+        )
+        test_X = torch.rand(3, 1, **tkwargs)
+        model.train()
+        prior = model.forward(test_X)
+        model.eval()
+        expected_prior = model.forward(intf(test_X))
+        self.assertAllClose(prior.mean, expected_prior.mean)
+        self.assertAllClose(prior.covariance_matrix, expected_prior.covariance_matrix)
 
 
 class TestSingleTaskGP(TestGPRegressionBase):
