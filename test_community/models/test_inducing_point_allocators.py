@@ -16,7 +16,7 @@ from botorch.utils.testing import BotorchTestCase
 from botorch_community.models.utils.inducing_point_allocators import (
     RandomizedPivotedCholesky,
 )
-from gpytorch.kernels import RBFKernel, ScaleKernel
+from gpytorch.kernels import LinearKernel, RBFKernel, ScaleKernel
 from gpytorch.mlls import VariationalELBO
 
 
@@ -68,6 +68,42 @@ class TestRandomizedPivotedCholesky(BotorchTestCase):
                 )
             residual[:j] = 0
             self.assertTrue(torch.allclose(seen[j], residual / diagonal.max()))
+
+    def test_nonuniform_diagonal_matches_dense_reference(self):
+        for dtype in (torch.float32, torch.float64):
+            with self.subTest(dtype=dtype):
+                # Full row rank with unequal variances and nonzero correlations.
+                X = torch.cat(
+                    [torch.diag(torch.arange(1, 7)), torch.ones(6, 1)], dim=-1
+                ).to(device=self.device, dtype=dtype)
+                kernel = LinearKernel().to(X)
+                matrix = kernel(X).to_dense().detach()
+                diagonal = matrix.diagonal()
+                selected = []
+                pivots = [4, 1, 3]
+
+                def choose(weights, count):
+                    residual = diagonal.clone()
+                    if selected:
+                        cross = matrix[:, selected]
+                        gram = matrix[selected][:, selected]
+                        residual -= (cross * torch.linalg.solve(gram, cross.T).T).sum(
+                            -1
+                        )
+                    residual[selected] = 0
+                    torch.testing.assert_close(
+                        weights, residual / diagonal.max(), rtol=1e-5, atol=1e-7
+                    )
+                    pivot = pivots[len(selected)]
+                    selected.append(pivot)
+                    return torch.tensor([pivot], device=self.device)
+
+                with patch("torch.multinomial", side_effect=choose):
+                    points = RandomizedPivotedCholesky().allocate_inducing_points(
+                        X, kernel, len(pivots), torch.Size()
+                    )
+                self.assertEqual(selected, pivots)
+                self.assertTrue(torch.equal(points, X[pivots]))
 
     def test_large_output_scale_preserves_sampling(self):
         X = torch.arange(5, device=self.device, dtype=torch.float).unsqueeze(-1)
