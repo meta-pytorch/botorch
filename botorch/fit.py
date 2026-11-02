@@ -46,7 +46,7 @@ from gpytorch.mlls.marginal_log_likelihood import MarginalLogLikelihood
 from gpytorch.mlls.sum_marginal_log_likelihood import SumMarginalLogLikelihood
 from linear_operator.utils.errors import NotPSDError
 from torch import device, Tensor
-from torch.nn import Parameter
+from torch.nn import Module, Parameter
 from torch.utils.data import DataLoader
 
 
@@ -147,6 +147,26 @@ def fit_gpytorch_mll(
     )
 
 
+def _check_train_data_detached(model: Module) -> None:
+    r"""Raises an error if the training data is attached to a computation graph.
+
+    Fitting would otherwise fail on the second backward pass with an error from
+    autograd that doesn't mention the training data.
+
+    Args:
+        model: The model to check.
+    """
+    train_inputs = getattr(model, "train_inputs", None) or ()
+    train_targets = getattr(model, "train_targets", None)
+    train_data = (*train_inputs, train_targets)
+    if any(t is not None and t.grad_fn is not None for t in train_data):
+        raise UnsupportedError(
+            "Cannot fit a model whose training data is attached to a computation "
+            "graph. Please detach the training data before constructing the model, "
+            "e.g. using `train_X.detach()` and `train_Y.detach()`."
+        )
+
+
 def _fit_fallback(
     mll: MarginalLogLikelihood,
     *,
@@ -198,6 +218,7 @@ def _fit_fallback(
         evaluation mode, i.e. ``mll.training == False``. Otherwise, ``mll``
         will be in training mode.
     """
+    _check_train_data_detached(mll.model)
     # Setup
     optimizer_kwargs = {} if optimizer_kwargs is None else optimizer_kwargs
     params_nograd: dict[str, Parameter] = None  # pyre-ignore [9]

@@ -116,6 +116,27 @@ class TestFitAPI(BotorchTestCase):
                 optimizer_kwargs=None,
             )
 
+    def test_train_data_attached_to_graph(self):
+        tkwargs = {"dtype": torch.double, "device": self.device}
+        train_X = torch.rand(8, 2, **tkwargs)
+        train_Y = train_X.sum(dim=-1, keepdim=True)
+        X_leaf = train_X.clone().requires_grad_(True)
+        for X, Y in (
+            (X_leaf, X_leaf.sum(dim=-1, keepdim=True)),  # as in the original report
+            (X_leaf * 1.0, train_Y),
+            (train_X, train_Y.clone().requires_grad_(True)),
+        ):
+            model = SingleTaskGP(X, Y)
+            mll = ExactMarginalLogLikelihood(model.likelihood, model)
+            with self.assertRaisesRegex(UnsupportedError, "computation graph"):
+                fit_gpytorch_mll(mll)
+
+        # A leaf input isn't attached to a graph and can still be fit.
+        model = SingleTaskGP(X_leaf, train_Y)
+        mll = ExactMarginalLogLikelihood(model.likelihood, model)
+        fit_gpytorch_mll(mll, optimizer_kwargs={"options": {"maxiter": 2}})
+        self.assertFalse(mll.training)
+
     def test_custom_fit_protocol(self):
         """If model has custom_fit, fit_gpytorch_mll calls it directly."""
         mock_custom_fit = MagicMock(return_value=self.mll)
