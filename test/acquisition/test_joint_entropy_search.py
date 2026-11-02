@@ -10,6 +10,7 @@ import torch
 from botorch.acquisition.joint_entropy_search import qJointEntropySearch
 from botorch.acquisition.objective import ScalarizedPosteriorTransform
 from botorch.models.fully_bayesian import SaasFullyBayesianSingleTaskGP
+from botorch.models.gp_regression import SingleTaskGP
 from botorch.sampling.normal import SobolQMCNormalSampler
 from botorch.utils.test_helpers import get_model
 from botorch.utils.testing import BotorchTestCase
@@ -109,3 +110,26 @@ class TestQJointEntropySearch(BotorchTestCase):
                 optimal_outputs=optimal_outputs,
                 estimation_type="LB",
             )
+
+    def test_mc_independent_candidates_are_additive(self):
+        torch.manual_seed(0)
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.rand(6, 2, **tkwargs)
+        model = SingleTaskGP(train_X, torch.sin(5 * train_X[:, :1]))
+        optimal_inputs = torch.rand(4, 2, **tkwargs)
+        with torch.no_grad():
+            optimal_outputs = model.posterior(optimal_inputs).mean + 1
+        acq = qJointEntropySearch(
+            model=model,
+            optimal_inputs=optimal_inputs,
+            optimal_outputs=optimal_outputs,
+            estimation_type="MC",
+            num_samples=4096,
+        )
+        acq.sampler = SobolQMCNormalSampler(torch.Size([4096]), seed=0)
+        # The distant point is independent of both the other candidate and optima.
+        X = torch.tensor([[0.3, 0.6], [50.0, 50.0]], **tkwargs)
+        with torch.no_grad():
+            joint = acq(X)
+            separate = acq(X[:1]) + acq(X[1:])
+        self.assertLess((joint - separate).abs().item(), 0.02)

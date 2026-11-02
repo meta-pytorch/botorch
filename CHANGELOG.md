@@ -2,6 +2,12 @@
 
 The release log for BoTorch.
 
+## Unreleased
+
+#### Bug Fixes
+* Fix Monte Carlo JES for q > 1 by using marginal conditional log densities and the q-dimensional Gaussian entropy constant (#3428).
+
+
 ## [0.18.1] -- Jun 8, 2026
 
 * Make JAX/jaxlib/NumPyro optional dependencies, only required for fitting
