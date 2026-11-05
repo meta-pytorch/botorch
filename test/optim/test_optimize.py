@@ -1160,6 +1160,77 @@ class TestOptimizeAcqf(BotorchTestCase):
         self.assertTrue(first_expected_warning_raised)
         self.assertTrue(second_expected_warning_raised)
 
+    def test_optimize_acqf_nonlinear_equality_constraints(self):
+        """Nonlinear equality constraints are solved directly, not as a band."""
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        radius_sq = 0.25
+
+        def circle(x):
+            # h(x) == 0 on the circle of radius 0.5 centred at the origin
+            return x[..., 0] ** 2 + x[..., 1] ** 2 - radius_sq
+
+        mock_acq_function = SquaredAcquisitionFunction()
+        bounds = torch.stack([-torch.ones(2, **tkwargs), torch.ones(2, **tkwargs)])
+
+        def ic_generator(
+            acq_function,
+            bounds,
+            q,
+            num_restarts,
+            raw_samples,
+            fixed_features=None,
+            options=None,
+            inequality_constraints=None,
+            equality_constraints=None,
+            **kwargs,
+        ):
+            # Project random points onto the manifold; it has measure zero, so
+            # the default initializer cannot produce feasible points.
+            with torch.random.fork_rng():
+                torch.manual_seed(0)
+                pts = torch.rand(num_restarts, q, 2, **tkwargs) * 2 - 1
+            return pts / pts.norm(dim=-1, keepdim=True) * radius_sq**0.5
+
+        candidates, _ = optimize_acqf(
+            acq_function=mock_acq_function,
+            bounds=bounds,
+            q=1,
+            num_restarts=2,
+            raw_samples=16,
+            nonlinear_equality_constraints=[(circle, True)],
+            ic_generator=ic_generator,
+        )
+        # The returned candidate lies on the manifold, far below any band width
+        # a user would plausibly choose.
+        self.assertLess(circle(candidates).abs().max().item(), 1e-6)
+
+        # ``ic_generator`` is required: the manifold cannot be sampled.
+        with self.assertRaisesRegex(
+            RuntimeError, "`ic_generator` must be given if there are non-linear"
+        ):
+            optimize_acqf(
+                acq_function=mock_acq_function,
+                bounds=bounds,
+                q=1,
+                num_restarts=2,
+                raw_samples=16,
+                nonlinear_equality_constraints=[(circle, True)],
+            )
+
+        # Inter-point nonlinear equality constraints are not supported on the
+        # sequential path, mirroring the inequality behaviour.
+        with self.assertRaisesRegex(UnsupportedError, "non-linear equality"):
+            optimize_acqf(
+                acq_function=mock_acq_function,
+                bounds=bounds,
+                q=2,
+                num_restarts=2,
+                raw_samples=16,
+                nonlinear_equality_constraints=[(circle, False)],
+                ic_generator=ic_generator,
+                sequential=True,
+            )
+
     def test_optimize_acqf_nonlinear_constraints(self):
         num_restarts = 2
         for dtype in (torch.float, torch.double):
@@ -2046,6 +2117,7 @@ class TestTensorValuedFixedFeaturesProjection(BotorchTestCase):
             inequality_constraints=inequality_constraints,
             equality_constraints=None,
             nonlinear_inequality_constraints=None,
+            nonlinear_equality_constraints=None,
             fixed_features=tensor_fixed_features,
             post_processing_func=None,
             batch_initial_conditions=batch_ics,
@@ -2662,6 +2734,7 @@ class TestOptimizeAcqfMixed(BotorchTestCase):
                 "retry_on_optimization_warning": True,
                 "return_acq_values": True,
                 "nonlinear_inequality_constraints": None,
+                "nonlinear_equality_constraints": None,
             }
             for i in range(len(call_args_list)):
                 expected_call_args["fixed_features"] = fixed_features_list[i]
@@ -3350,6 +3423,7 @@ class TestOptimizeAcqfInputs(BotorchTestCase):
             "inequality_constraints": None,
             "equality_constraints": None,
             "nonlinear_inequality_constraints": None,
+            "nonlinear_equality_constraints": None,
             "fixed_features": None,
             "post_processing_func": None,
             "batch_initial_conditions": None,

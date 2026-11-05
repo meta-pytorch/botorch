@@ -72,6 +72,7 @@ def _make_opt_inputs(
         inequality_constraints=inequality_constraints,
         equality_constraints=equality_constraints,
         nonlinear_inequality_constraints=nonlinear_inequality_constraints,
+        nonlinear_equality_constraints=None,
         fixed_features=fixed_features or {},
         post_processing_func=post_processing_func,
         batch_initial_conditions=None,

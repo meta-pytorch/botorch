@@ -77,6 +77,7 @@ class OptimizeAcqfInputs:
     inequality_constraints: list[tuple[Tensor, Tensor, float]] | None
     equality_constraints: list[tuple[Tensor, Tensor, float]] | None
     nonlinear_inequality_constraints: list[tuple[Callable, bool]] | None
+    nonlinear_equality_constraints: list[tuple[Callable, bool]] | None
     fixed_features: Mapping[int, float | Tensor] | None
     post_processing_func: Callable[[Tensor], Tensor] | None
     batch_initial_conditions: Tensor | None
@@ -166,6 +167,11 @@ class OptimizeAcqfInputs:
                     "`ic_generator` must be given if "
                     "there are non-linear inequality constraints."
                 )
+            if self.nonlinear_equality_constraints is not None:
+                raise RuntimeError(
+                    "`ic_generator` must be given if "
+                    "there are non-linear equality constraints."
+                )
             if self.raw_samples is None:
                 raise ValueError(
                     "Must specify `raw_samples` when "
@@ -251,6 +257,12 @@ def _validate_sequential_inputs(opt_inputs: OptimizeAcqfInputs) -> None:
             if not intra_point:
                 raise UnsupportedError(
                     const_err_message.format(i, "non-linear inequality")
+                )
+    if opt_inputs.nonlinear_equality_constraints is not None:
+        for i, (_, intra_point) in enumerate(opt_inputs.nonlinear_equality_constraints):
+            if not intra_point:
+                raise UnsupportedError(
+                    const_err_message.format(i, "non-linear equality")
                 )
 
     # TODO: Validate constraints if provided:
@@ -401,7 +413,10 @@ def _optimize_acqf_batch(
         "batch_limit",
         (
             opt_inputs.num_restarts
-            if not opt_inputs.nonlinear_inequality_constraints
+            if not (
+                opt_inputs.nonlinear_inequality_constraints
+                or opt_inputs.nonlinear_equality_constraints
+            )
             else 1
         ),
     )
@@ -411,6 +426,7 @@ def _optimize_acqf_batch(
         "inequality_constraints",
         "equality_constraints",
         "nonlinear_inequality_constraints",
+        "nonlinear_equality_constraints",
     ]:
         if (constraint := getattr(opt_inputs, constraint_name)) is not None:
             gen_kwargs[constraint_name] = constraint
@@ -626,6 +642,7 @@ def optimize_acqf(
     inequality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
     equality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
     nonlinear_inequality_constraints: list[tuple[Callable, bool]] | None = None,
+    nonlinear_equality_constraints: list[tuple[Callable, bool]] | None = None,
     fixed_features: Mapping[int, float | Tensor] | None = None,
     post_processing_func: Callable[[Tensor], Tensor] | None = None,
     batch_initial_conditions: Tensor | None = None,
@@ -698,6 +715,14 @@ def optimize_acqf(
             with each tuple encoding an equality constraint of the form
             ``\sum_i (X[indices[i]] * coefficients[i]) = rhs``. See the docstring of
             ``make_scipy_linear_constraints`` for an example.
+        nonlinear_equality_constraints: A list of tuples representing the nonlinear
+            equality constraints. The first element in the tuple is a callable
+            representing a constraint of the form ``callable(x) == 0``; the second
+            is a boolean indicating whether it is an intra-point (``True``) or
+            inter-point (``False``) constraint. Only intra-point constraints are
+            currently supported. Requires ``ic_generator`` or
+            ``batch_initial_conditions``, since the equality manifold has measure
+            zero and cannot be sampled by the default initializer.
         nonlinear_inequality_constraints: A list of tuples representing the nonlinear
             inequality constraints. The first element in the tuple is a callable
             representing a constraint of the form ``callable(x) >= 0``. In case of an
@@ -805,6 +830,7 @@ def optimize_acqf(
         inequality_constraints=inequality_constraints,
         equality_constraints=equality_constraints,
         nonlinear_inequality_constraints=nonlinear_inequality_constraints,
+        nonlinear_equality_constraints=nonlinear_equality_constraints,
         fixed_features=fixed_features,
         post_processing_func=post_processing_func,
         batch_initial_conditions=batch_initial_conditions,
@@ -948,6 +974,7 @@ def optimize_acqf_cyclic(
         inequality_constraints=inequality_constraints,
         equality_constraints=equality_constraints,
         nonlinear_inequality_constraints=None,
+        nonlinear_equality_constraints=None,
         fixed_features=fixed_features,
         post_processing_func=post_processing_func,
         batch_initial_conditions=batch_initial_conditions,

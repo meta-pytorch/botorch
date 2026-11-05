@@ -23,8 +23,10 @@ from botorch.optim.parameter_constraints import (
     get_constraint_tolerance,
     make_scipy_bounds,
     make_scipy_linear_constraints,
+    make_scipy_nonlinear_equality_constraints,
     make_scipy_nonlinear_inequality_constraints,
     nonlinear_constraint_is_feasible,
+    nonlinear_equality_constraint_is_feasible,
     project_to_equality_constraints,
     project_to_feasible_space_via_slsqp,
 )
@@ -476,6 +478,148 @@ class TestParameterConstraints(BotorchTestCase):
                 inequality_constraints=[(indices, coefficients, 1.0)],
                 equality_constraints=[(indices, coefficients, 1.0)],
             )
+
+    def test_make_scipy_nonlinear_equality_constraints(self):
+        def nlc(x):
+            return 4 - x.sum()
+
+        def f_np_wrapper(x: npt.NDArray, f: Callable):
+            """Given a torch callable, compute value + grad given a numpy array."""
+            X = (
+                torch.from_numpy(x)
+                .to(self.device)
+                .view(shapeX)
+                .contiguous()
+                .requires_grad_(True)
+            )
+            loss = f(X).sum()
+            gradf = _arrayify(torch.autograd.grad(loss, X)[0].contiguous().view(-1))
+            return loss.item(), gradf
+
+        shapeX = torch.Size((1, 2, 4))
+        b, q, _ = shapeX
+
+        with self.assertRaisesRegex(
+            ValueError, f"A nonlinear constraint has to be a tuple, got {type(nlc)}."
+        ):
+            make_scipy_nonlinear_equality_constraints([nlc], f_np_wrapper, shapeX)
+        with self.assertRaisesRegex(
+            ValueError,
+            "A nonlinear constraint has to be a tuple of length 2, got length 3.",
+        ):
+            make_scipy_nonlinear_equality_constraints(
+                [(nlc, True, 1)], f_np_wrapper, shapeX
+            )
+
+        # Unlike the inequality builder, an infeasible starting point is fine:
+        # the equality manifold has measure zero, so ICs generally violate it.
+        x = torch.zeros(shapeX.numel(), device=self.device)
+        constraints = make_scipy_nonlinear_equality_constraints(
+            [(nlc, True)], f_np_wrapper, shapeX
+        )
+        self.assertEqual(len(constraints), b * q)
+        for c in constraints:
+            self.assertEqual(c["type"], "eq")
+            self.assertTrue(callable(c["fun"]))
+            self.assertTrue(callable(c["jac"]))
+        # value matches the callable on the corresponding sub-point
+        X = x.view(shapeX)
+        for i in range(b):
+            for j in range(q):
+                self.assertAlmostEqual(
+                    constraints[i * q + j]["fun"](x.cpu().numpy()),
+                    nlc(X[i, j]).item(),
+                    places=10,
+                )
+
+        # inter-point: one constraint per batch rather than per (batch, q)
+        inter = make_scipy_nonlinear_equality_constraints(
+            [(nlc, False)], f_np_wrapper, shapeX
+        )
+        self.assertEqual(len(inter), b)
+        self.assertEqual(inter[0]["type"], "eq")
+
+    def test_make_nonlinear_constraints_constraint_type(self):
+        def nlc(x):
+            return 4 - x.sum()
+
+        def f_np_wrapper(x: npt.NDArray, f: Callable):
+            X = (
+                torch.from_numpy(x)
+                .to(self.device)
+                .view(shapeX)
+                .contiguous()
+                .requires_grad_(True)
+            )
+            loss = f(X).sum()
+            gradf = _arrayify(torch.autograd.grad(loss, X)[0].contiguous().view(-1))
+            return loss.item(), gradf
+
+        shapeX = torch.Size((1, 1, 3))
+        # default is unchanged
+        default = _make_nonlinear_constraints(
+            f_np_wrapper=f_np_wrapper, nlc=nlc, is_intrapoint=True, shapeX=shapeX
+        )
+        self.assertTrue(all(c["type"] == "ineq" for c in default))
+        eq = _make_nonlinear_constraints(
+            f_np_wrapper=f_np_wrapper,
+            nlc=nlc,
+            is_intrapoint=True,
+            shapeX=shapeX,
+            constraint_type="eq",
+        )
+        self.assertTrue(all(c["type"] == "eq" for c in eq))
+
+    def test_nonlinear_equality_constraint_is_feasible(self):
+        def nlc(x):
+            return x.sum() - 1.0
+
+        tol = 1e-6
+        # exactly satisfied
+        x = torch.tensor([[[0.5, 0.5]]], device=self.device, dtype=torch.double)
+        self.assertTrue(
+            nonlinear_equality_constraint_is_feasible(
+                nlc, is_intrapoint=True, x=x, tolerance=tol
+            ).all()
+        )
+        # violated in either direction by more than the tolerance
+        for delta in (1e-3, -1e-3):
+            x = torch.tensor(
+                [[[0.5 + delta, 0.5]]], device=self.device, dtype=torch.double
+            )
+            self.assertFalse(
+                nonlinear_equality_constraint_is_feasible(
+                    nlc, is_intrapoint=True, x=x, tolerance=tol
+                ).all()
+            )
+        # within tolerance is feasible
+        x = torch.tensor(
+            [[[0.5 + tol / 10, 0.5]]], device=self.device, dtype=torch.double
+        )
+        self.assertTrue(
+            nonlinear_equality_constraint_is_feasible(
+                nlc, is_intrapoint=True, x=x, tolerance=tol
+            ).all()
+        )
+
+    def test_evaluate_feasibility_nonlinear_equality(self):
+        def nlc(x):
+            return x.sum() - 1.0
+
+        feasible = torch.tensor([[[0.5, 0.5]]], device=self.device, dtype=torch.double)
+        infeasible = torch.tensor(
+            [[[0.9, 0.9]]], device=self.device, dtype=torch.double
+        )
+        self.assertTrue(
+            evaluate_feasibility(
+                X=feasible, nonlinear_equality_constraints=[(nlc, True)]
+            ).all()
+        )
+        self.assertFalse(
+            evaluate_feasibility(
+                X=infeasible, nonlinear_equality_constraints=[(nlc, True)]
+            ).all()
+        )
 
     def test_nonlinear_constraint_is_feasible(self):
         def nlc(x):

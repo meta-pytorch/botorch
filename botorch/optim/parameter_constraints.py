@@ -361,7 +361,11 @@ def _make_linear_constraints(
 
 
 def _make_nonlinear_constraints(
-    f_np_wrapper: Callable, nlc: Callable, is_intrapoint: bool, shapeX: torch.Size
+    f_np_wrapper: Callable,
+    nlc: Callable,
+    is_intrapoint: bool,
+    shapeX: torch.Size,
+    constraint_type: str = "ineq",
 ) -> list[ScipyConstraintDict]:
     """Create nonlinear constraints to be used by ``scipy.optimize.minimize``.
 
@@ -379,11 +383,14 @@ def _make_nonlinear_constraints(
             inter-point constraint (see the docstring of the ``inequality_constraints``
             argument to ``optimize_acqf()``).
         shapeX: Shape of the three-dimensional batch X, that should be optimized.
+        constraint_type: Either ``"ineq"`` (the constraint is satisfied when
+            ``nlc(x) >= 0``) or ``"eq"`` (satisfied when ``nlc(x) == 0``), as
+            expected by ``scipy.optimize.minimize``.
 
     Returns:
         A list of constraint dictionaries with the following keys
 
-        - "type": Indicates the type of the constraint, here always "ineq".
+        - "type": Indicates the type of the constraint, ``constraint_type``.
         - "fun": A callable evaluating the constraint value on ``x``, a flattened
             version of the input tensor ``X``, returning a scalar.
         - "jac": A callable evaluating the constraint's Jacobian on ``x``, a flattened
@@ -406,14 +413,16 @@ def _make_nonlinear_constraints(
                     f_np_wrapper=f_np_wrapper,
                     nlc=get_intrapoint_constraint(b=i, q=j, nlc=nlc),
                 )
-                constraints.append({"type": "ineq", "fun": f_obj, "jac": f_grad})
+                constraints.append(
+                    {"type": constraint_type, "fun": f_obj, "jac": f_grad}
+                )
     else:
         for i in range(b):
             f_obj, f_grad = _make_f_and_grad_nonlinear_inequality_constraints(
                 f_np_wrapper=f_np_wrapper,
                 nlc=get_interpoint_constraint(b=i, nlc=nlc),
             )
-            constraints.append({"type": "ineq", "fun": f_obj, "jac": f_grad})
+            constraints.append({"type": constraint_type, "fun": f_obj, "jac": f_grad})
 
     return constraints
 
@@ -661,6 +670,46 @@ def nonlinear_constraint_is_feasible(
     return is_feasible.view(x.shape[:-2])
 
 
+def nonlinear_equality_constraint_is_feasible(
+    nonlinear_equality_constraint: Callable,
+    is_intrapoint: bool,
+    x: Tensor,
+    tolerance: float | None = None,
+) -> Tensor:
+    """Checks if a nonlinear equality constraint is fulfilled (within tolerance).
+
+    Args:
+        nonlinear_equality_constraint: Callable to evaluate the constraint. The
+            constraint is satisfied when ``const(x) == 0``.
+        is_intrapoint: If True, the constraint is an intra-point constraint that
+            is applied pointwise and is broadcasted over the q-batch. Else, the
+            constraint has to be evaluated over the whole q-batch and is an
+            inter-point constraint.
+        x: Tensor of shape ``batch x q x d``.
+        tolerance: Rather than the exact ``const(x) == 0`` constraint, this helper
+            checks ``|const(x)| <= tolerance``. This avoids marking candidates as
+            infeasible due to tiny violations.
+
+    Returns:
+        A boolean tensor of shape ``batch`` indicating if the constraint is
+        satisfied by the corresponding batch of ``x``.
+    """
+    if tolerance is None:
+        tolerance = get_constraint_tolerance(dtype=x.dtype)
+
+    def check_x(x: Tensor) -> bool:
+        return abs(_arrayify(nonlinear_equality_constraint(x)).item()) <= tolerance
+
+    x_flat = x.view(-1, *x.shape[-2:])
+    is_feasible = torch.ones(x_flat.shape[0], dtype=torch.bool, device=x.device)
+    for i, x_ in enumerate(x_flat):
+        if is_intrapoint:
+            is_feasible[i] &= all(check_x(x__) for x__ in x_)
+        else:
+            is_feasible[i] &= check_x(x_)
+    return is_feasible.view(x.shape[:-2])
+
+
 def _get_f_np_wrapper_for_projection(
     shapeX: torch.Size, device: torch.device, dtype: torch.dtype
 ) -> Callable:
@@ -755,11 +804,69 @@ def make_scipy_nonlinear_inequality_constraints(
     return scipy_nonlinear_inequality_constraints
 
 
+def make_scipy_nonlinear_equality_constraints(
+    nonlinear_equality_constraints: list[tuple[Callable, bool]],
+    f_np_wrapper: Callable,
+    shapeX: torch.Size,
+) -> list[dict]:
+    r"""Generate Scipy nonlinear equality constraints from callables.
+
+    Args:
+        nonlinear_equality_constraints: A list of tuples representing the nonlinear
+            equality constraints. The first element in the tuple is a callable
+            representing a constraint of the form ``callable(x) == 0``. In case of an
+            intra-point constraint, ``callable()`` takes in an one-dimensional tensor
+            of shape ``d`` and returns a scalar. In case of an inter-point constraint,
+            ``callable()`` takes a two dimensional tensor of shape ``q x d`` and again
+            returns a scalar. The second element is a boolean, indicating if it is an
+            intra-point or inter-point constraint (``True`` for intra-point, ``False``
+            for inter-point). For more information on intra-point vs inter-point
+            constraints, see the docstring of the ``inequality_constraints`` argument
+            to ``optimize_acqf()``.
+        f_np_wrapper: A wrapper function that given a constraint evaluates the value
+            and gradient (using autograd) of a numpy input and returns both the
+            objective and the gradient.
+        shapeX: Shape of the three-dimensional batch X, that should be optimized.
+
+    Returns:
+        A list of dictionaries containing callables for constraint function
+        values and Jacobians and a string indicating the associated constraint
+        type (``"eq"``), as expected by ``scipy.optimize.minimize``.
+
+    Note:
+        Unlike the inequality counterpart, no feasibility check is performed on the
+        starting point. The set ``{x : h(x) = 0}`` has measure zero, so initial
+        conditions generally cannot satisfy it exactly, and SLSQP does not require a
+        feasible starting point for equality constraints.
+    """
+    scipy_nonlinear_equality_constraints = []
+    for constraint in nonlinear_equality_constraints:
+        if not isinstance(constraint, tuple):
+            raise ValueError(
+                f"A nonlinear constraint has to be a tuple, got {type(constraint)}."
+            )
+        if len(constraint) != 2:
+            raise ValueError(
+                "A nonlinear constraint has to be a tuple of length 2, "
+                f"got length {len(constraint)}."
+            )
+        nlc, is_intrapoint = constraint
+        scipy_nonlinear_equality_constraints += _make_nonlinear_constraints(
+            f_np_wrapper=f_np_wrapper,
+            nlc=nlc,
+            is_intrapoint=is_intrapoint,
+            shapeX=shapeX,
+            constraint_type="eq",
+        )
+    return scipy_nonlinear_equality_constraints
+
+
 def evaluate_feasibility(
     X: Tensor,
     inequality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
     equality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
     nonlinear_inequality_constraints: list[tuple[Callable, bool]] | None = None,
+    nonlinear_equality_constraints: list[tuple[Callable, bool]] | None = None,
     tolerance: float | None = None,
 ) -> Tensor:
     r"""Evaluate feasibility of candidate points (within a tolerance).
@@ -793,6 +900,9 @@ def evaluate_feasibility(
             ``False`` for inter-point). For more information on intra-point vs
             inter-point constraints, see the docstring of the
             ``inequality_constraints`` argument.
+        nonlinear_equality_constraints: A list of tuples representing the nonlinear
+            equality constraints, each of the form ``callable(x) == 0``. Same
+            tuple structure as ``nonlinear_inequality_constraints``.
         tolerance: The tolerance used to check the feasibility of constraints.
             For inequality constraints, we check if ``const(X) >= rhs - tolerance``.
             For equality constraints, we check if ``abs(const(X) - rhs) < tolerance``.
@@ -836,6 +946,14 @@ def evaluate_feasibility(
         for const, intra in nonlinear_inequality_constraints:
             is_feasible &= nonlinear_constraint_is_feasible(
                 nonlinear_inequality_constraint=const,
+                is_intrapoint=intra,
+                x=X,
+                tolerance=tolerance,
+            )
+    if nonlinear_equality_constraints is not None:
+        for const, intra in nonlinear_equality_constraints:
+            is_feasible &= nonlinear_equality_constraint_is_feasible(
+                nonlinear_equality_constraint=const,
                 is_intrapoint=intra,
                 x=X,
                 tolerance=tolerance,
