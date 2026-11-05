@@ -28,6 +28,7 @@ from botorch.optim.utils import get_data_loader
 from botorch.utils.context_managers import module_rollback_ctx, TensorCheckpoint
 from botorch.utils.testing import BotorchTestCase
 from gpytorch.kernels import RBFKernel
+from gpytorch.likelihoods import FixedNoiseGaussianLikelihood
 from gpytorch.mlls import ExactMarginalLogLikelihood, VariationalELBO
 from linear_operator.utils.errors import NotPSDError
 
@@ -121,21 +122,31 @@ class TestFitAPI(BotorchTestCase):
         train_X = torch.rand(8, 2, **tkwargs)
         train_Y = train_X.sum(dim=-1, keepdim=True)
         X_leaf = train_X.clone().requires_grad_(True)
-        for X, Y in (
-            (X_leaf, X_leaf.sum(dim=-1, keepdim=True)),  # as in the original report
-            (X_leaf * 1.0, train_Y),
-            (train_X, train_Y.clone().requires_grad_(True)),
+        for X, Y, Yvar in (
+            (X_leaf, X_leaf.sum(dim=-1, keepdim=True), None),  # original report
+            (X_leaf * 1.0, train_Y, None),
+            (train_X, train_Y.clone().requires_grad_(True), None),
+            (train_X, train_Y, torch.full_like(train_Y, 0.1, requires_grad=True) * 1),
         ):
-            model = SingleTaskGP(X, Y)
+            model = SingleTaskGP(X, Y, train_Yvar=Yvar, input_transform=Normalize(d=2))
             mll = ExactMarginalLogLikelihood(model.likelihood, model)
+            # Evaluation mode caches transformed inputs without their graph.
+            mll.eval()
             with self.assertRaisesRegex(UnsupportedError, "computation graph"):
                 fit_gpytorch_mll(mll)
 
-        # A leaf input isn't attached to a graph and can still be fit.
-        model = SingleTaskGP(X_leaf, train_Y)
-        mll = ExactMarginalLogLikelihood(model.likelihood, model)
-        fit_gpytorch_mll(mll, optimizer_kwargs={"options": {"maxiter": 2}})
-        self.assertFalse(mll.training)
+        # Leaf inputs and learned noise are allowed.
+        for likelihood in (
+            None,
+            FixedNoiseGaussianLikelihood(
+                noise=torch.full_like(train_Y.squeeze(-1), 0.1),
+                learn_additional_noise=True,
+            ),
+        ):
+            model = SingleTaskGP(X_leaf, train_Y, likelihood=likelihood)
+            mll = ExactMarginalLogLikelihood(model.likelihood, model)
+            fit_gpytorch_mll(mll, optimizer_kwargs={"options": {"maxiter": 2}})
+            self.assertFalse(mll.training)
 
     def test_custom_fit_protocol(self):
         """If model has custom_fit, fit_gpytorch_mll calls it directly."""
@@ -424,6 +435,16 @@ class TestFitFallbackApproximate(BotorchTestCase):
                 parameters={n: p for n, p in mll.named_parameters() if p.requires_grad},
                 data_loader=self.data_loader,
             )
+
+    def test_train_data_attached_to_graph(self):
+        # The stored targets are unused when fitting with an external data loader.
+        self.mll.model.train_targets = (
+            self.mll.model.train_targets.clone().requires_grad_(True) * 1
+        )
+        fit_gpytorch_mll(
+            self.mll, data_loader=self.data_loader, optimizer_kwargs={"step_limit": 2}
+        )
+        self.assertFalse(self.mll.training)
 
     def test_main(self):
         # Test parameter updates
