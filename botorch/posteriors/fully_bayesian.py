@@ -124,9 +124,8 @@ class GaussianMixturePosterior(GPyTorchPosterior):
         if self._mixture_variance is None:
             num_mcmc_samples = self.mean.shape[MCMC_DIM]
             t1 = self._variance.sum(dim=MCMC_DIM) / num_mcmc_samples
-            t2 = self._mean.pow(2).sum(dim=MCMC_DIM) / num_mcmc_samples
-            t3 = -(self._mean.sum(dim=MCMC_DIM) / num_mcmc_samples).pow(2)
-            self._mixture_variance = t1 + t2 + t3
+            t2 = self._mean.var(dim=MCMC_DIM, correction=0)
+            self._mixture_variance = t1 + t2
         return self._mixture_variance
 
     @property
