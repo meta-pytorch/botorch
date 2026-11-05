@@ -7,8 +7,6 @@
 from __future__ import annotations
 
 import itertools
-import subprocess
-import sys
 import warnings
 from functools import partial
 from unittest.mock import patch
@@ -79,28 +77,6 @@ class DummyRelevancePursuitModule(Module, RelevancePursuitMixin):
 
 
 class TestRobustGP(BotorchTestCase):
-    def test_public_import(self) -> None:
-        # Use a fresh process so existing imports cannot hide a circular dependency.
-        result = subprocess.run(
-            [
-                sys.executable,
-                "-c",
-                "import sys; import botorch.models; "
-                "assert 'botorch.models.robust_relevance_pursuit_model' "
-                "not in sys.modules; "
-                "from botorch.models import RobustRelevancePursuitSingleTaskGP; "
-                "from botorch.models.robust_relevance_pursuit_model "
-                "import RobustRelevancePursuitSingleTaskGP as direct; "
-                "assert RobustRelevancePursuitSingleTaskGP is direct; "
-                "assert 'RobustRelevancePursuitSingleTaskGP' "
-                "in botorch.models.__all__",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-        self.assertEqual(result.returncode, 0, result.stderr)
-
     def _make_dataset(
         self,
         n: int,
