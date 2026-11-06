@@ -4,6 +4,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+from copy import deepcopy
 from typing import Any
 
 import torch
@@ -143,22 +144,15 @@ class HierarchicalConditionalKernel(Kernel):
 
         # Check that parent values are not too close to each other to avoid issues
         # with _row_equal checks used in branching.
-        all_parent_values = sorted(
-            {
-                p
-                for dependencies in hierarchical_dependencies.values()
-                for p in dependencies.keys()
-            }
-        )
-        for i in range(len(all_parent_values) - 1):
-            val1, val2 = all_parent_values[i : i + 2]
-            # This is the same check as torch.isclose.
-            if val2 - val1 <= ATOL + RTOL * max(abs(val1), abs(val2)):
-                raise ValueError(
-                    f"Float parent values {val1} and {val2} are closer than the "
-                    f"default tolerance (rtol={RTOL}, atol={ATOL}). This will cause "
-                    "ambiguity in hierarchical branching. "
-                )
+        for dependencies in hierarchical_dependencies.values():
+            parent_values = sorted(dependencies)
+            for val1, val2 in zip(parent_values[:-1], parent_values[1:]):
+                if val2 - val1 <= ATOL + RTOL * max(abs(val1), abs(val2)):
+                    raise ValueError(
+                        f"Float parent values {val1} and {val2} are closer than the "
+                        f"default tolerance (rtol={RTOL}, atol={ATOL}). This causes "
+                        "ambiguity in hierarchical branching. "
+                    )
 
         self.hierarchical_dependencies = hierarchical_dependencies
         self.use_saas_prior = use_saas_prior
@@ -245,6 +239,7 @@ def _transform_hierarchical_dependencies(
     train_X: Tensor,
     hierarchical_dependencies: dict[int, dict[int | float, list[int]]],
     input_transform: InputTransform | None,
+    feature_indices: list[int] | None = None,
 ) -> dict[int, dict[int | float, list[int]]]:
     """Transform hierarchical_dependencies values according to the input transform.
 
@@ -258,6 +253,8 @@ def _transform_hierarchical_dependencies(
         hierarchical_dependencies: A dictionary of the form
             ``{parent_index: {parent_value: children_indices}}``.
         input_transform: The input transform to apply.
+        feature_indices: Map dependency indices to physical input columns, when
+            the full inputs include an additional task column.
 
     Returns:
         A new hierarchical_dependencies dict with transformed parent values.
@@ -272,24 +269,38 @@ def _transform_hierarchical_dependencies(
         for parent_value in value_to_children.keys()
     ]
 
-    if not parent_value_pairs:  # pragma: no cover
-        raise ValueError(
-            "Something went wrong. No parent values could be extracted from "
-            f"{hierarchical_dependencies=}."
-        )
+    if not parent_value_pairs:
+        return hierarchical_dependencies
+
+    # Fit a copy on real training inputs, before preprocessing dummy values.
+    # The model constructor subsequently fits the caller's original transform.
+    fitted_transform = deepcopy(
+        input_transform,
+        memo={
+            id(buffer): buffer.detach().clone() for buffer in input_transform.buffers()
+        },
+    ).to(train_X)
+    with torch.no_grad():
+        fitted_transform(train_X)
 
     # Create dummy X tensors with the parent values in the appropriate columns.
     n_pairs = len(parent_value_pairs)
     dummy_X = train_X[0:1].repeat(n_pairs, 1)
-    row_indices = torch.arange(n_pairs)
-    col_indices = torch.tensor([p[0] for p in parent_value_pairs])
-    values = torch.tensor([p[1] for p in parent_value_pairs], dtype=dummy_X.dtype)
+    row_indices = torch.arange(n_pairs, device=train_X.device)
+    col_indices = torch.tensor(
+        [
+            p[0] if feature_indices is None else feature_indices[p[0]]
+            for p in parent_value_pairs
+        ],
+        device=train_X.device,
+    )
+    values = train_X.new_tensor([p[1] for p in parent_value_pairs])
     dummy_X[row_indices, col_indices] = values
 
     # Apply the input transform to get the transformed values.
     # Use preprocess_transform to ensure the transform is applied in the same way
     # as it is applied to model training data, without modifying buffers.
-    transformed_X = input_transform.preprocess_transform(dummy_X)
+    transformed_X = fitted_transform.preprocess_transform(dummy_X)
 
     # Extract transformed parent values.
     transformed_values = transformed_X[row_indices, col_indices].tolist()
@@ -489,12 +500,17 @@ class HierarchicalConditionalKernelMultiTaskGP(MultiTaskGP):
         # Determine num_non_task_features for constructing the hierarchical kernel.
         # We need this before calling super().__init__().
         num_non_task_features = train_X.shape[-1] - 1
+        physical_task_feature = task_feature % train_X.shape[-1]
+        feature_indices = [
+            i for i in range(train_X.shape[-1]) if i != physical_task_feature
+        ]
 
         # Transform hierarchical_dependencies values to match the transformed inputs.
         transformed_dependencies = _transform_hierarchical_dependencies(
             train_X=train_X,
             hierarchical_dependencies=hierarchical_dependencies,
             input_transform=input_transform,
+            feature_indices=feature_indices,
         )
 
         # Construct the hierarchical conditional kernel for data covariance.
