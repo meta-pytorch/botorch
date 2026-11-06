@@ -8,6 +8,7 @@ import itertools
 import math
 import warnings
 from typing import Any
+from unittest import mock
 
 import torch
 from botorch.acquisition.objective import ScalarizedPosteriorTransform
@@ -23,6 +24,7 @@ from botorch.models.multitask import (
 from botorch.models.transforms.input import InputTransform, Normalize
 from botorch.models.transforms.outcome import OutcomeTransform, Standardize
 from botorch.models.utils.priors import BetaPrior
+from botorch.optim.utils import sample_all_priors
 from botorch.posteriors import GPyTorchPosterior
 from botorch.posteriors.transformed import TransformedPosterior
 from botorch.utils.datasets import MultiTaskDataset, SupervisedDataset
@@ -1009,6 +1011,66 @@ class TestMultiTaskGP(BotorchTestCase):
 
 
 class TestKroneckerMultiTaskGP(BotorchTestCase):
+    def test_sample_all_priors(self) -> None:
+        for dtype in (torch.float, torch.double):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            for sampled_covar in (
+                torch.tensor([[2.0, 0.5], [0.5, 1.0]], **tkwargs),
+                torch.ones(2, 2, **tkwargs),
+            ):
+                model, _, _ = _gen_kronecker_model_and_data(**tkwargs)
+                task_kernel = model.covar_module.task_covar_module
+
+                with mock.patch.object(
+                    task_kernel.IndexKernelPrior,
+                    "sample",
+                    return_value=sampled_covar,
+                ):
+                    sample_all_priors(model)
+
+                self.assertAllClose(task_kernel._eval_covar_matrix(), sampled_covar)
+                self.assertTrue(torch.isfinite(task_kernel.raw_var).all())
+                self.assertTrue((task_kernel.var >= torch.finfo(dtype).eps / 2).all())
+
+            for likelihood_rank, has_global_noise in itertools.product(
+                (0, 1, 2), (False, True)
+            ):
+                task_prior = None
+                if likelihood_rank > 0:
+                    task_prior = LKJCovariancePrior(
+                        2,
+                        torch.tensor(1.5, **tkwargs),
+                        SmoothedBoxPrior(0.1, 1.0),
+                    )
+                likelihood = MultitaskGaussianLikelihood(
+                    num_tasks=2,
+                    rank=likelihood_rank,
+                    noise_prior=LogNormalPrior(0, 1),
+                    task_prior=task_prior,
+                    batch_shape=torch.Size([3]),
+                    has_global_noise=has_global_noise,
+                )
+                model, _, _ = _gen_kronecker_model_and_data(
+                    model_kwargs={"likelihood": likelihood},
+                    batch_shape=torch.Size([3]),
+                    **tkwargs,
+                )
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    sample_all_priors(model)
+                self.assertTrue(
+                    all(
+                        setting_closure is not None
+                        for *_, setting_closure in model.named_priors()
+                    )
+                )
+                self.assertTrue(
+                    all(
+                        torch.isfinite(parameter).all()
+                        for parameter in likelihood.parameters()
+                    )
+                )
+
     def test_KroneckerMultiTaskGP_default(self) -> None:
         bounds = torch.tensor([[-1.0, 0.0], [1.0, 1.0]])
 
