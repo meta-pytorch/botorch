@@ -25,6 +25,85 @@ from gpytorch.likelihoods.likelihood import Likelihood
 from torch import Tensor
 
 
+def _default_cat_kernel_factory(
+    batch_shape: torch.Size,
+    ard_num_dims: int,
+    active_dims: list[int] | None,
+) -> Kernel:
+    r"""Construct the default categorical kernel.
+
+    Args:
+        batch_shape: The batch shape of the kernel.
+        ard_num_dims: The number of categorical dimensions for ARD.
+        active_dims: The categorical dimensions to operate on, or None.
+
+    Returns:
+        The instantiated CategoricalKernel.
+    """
+    return CategoricalKernel(
+        batch_shape=batch_shape,
+        ard_num_dims=ard_num_dims,
+        active_dims=active_dims,
+        lengthscale_constraint=GreaterThan(1e-06),
+    )
+
+
+def _get_mixed_covar_module(
+    aug_batch_shape: torch.Size,
+    cat_dims: list[int],
+    ord_dims: list[int],
+    cont_kernel_factory: Callable[..., Kernel],
+    cat_kernel_factory: Callable[..., Kernel],
+) -> Kernel:
+    r"""Assemble the covariance module for a mixed single-task GP.
+
+    Args:
+        aug_batch_shape: The augmented batch shape.
+        cat_dims: List of categorical feature dimensions.
+        ord_dims: List of ordinal (continuous) feature dimensions.
+        cont_kernel_factory: Factory function returning continuous kernel.
+        cat_kernel_factory: Factory function returning categorical kernel.
+
+    Returns:
+        The assembled covariance module.
+    """
+    if len(ord_dims) == 0:
+        return ScaleKernel(
+            cat_kernel_factory(
+                batch_shape=aug_batch_shape,
+                ard_num_dims=len(cat_dims),
+                active_dims=None,
+            )
+        )
+    sum_kernel = ScaleKernel(
+        cont_kernel_factory(
+            batch_shape=aug_batch_shape,
+            ard_num_dims=len(ord_dims),
+            active_dims=ord_dims,
+        )
+        + ScaleKernel(
+            cat_kernel_factory(
+                batch_shape=aug_batch_shape,
+                ard_num_dims=len(cat_dims),
+                active_dims=cat_dims,
+            )
+        )
+    )
+    prod_kernel = ScaleKernel(
+        cont_kernel_factory(
+            batch_shape=aug_batch_shape,
+            ard_num_dims=len(ord_dims),
+            active_dims=ord_dims,
+        )
+        * cat_kernel_factory(
+            batch_shape=aug_batch_shape,
+            ard_num_dims=len(cat_dims),
+            active_dims=cat_dims,
+        )
+    )
+    return sum_kernel + prod_kernel
+
+
 class MixedSingleTaskGP(SingleTaskGP):
     r"""A single-task exact GP model for mixed search spaces.
 
@@ -39,7 +118,8 @@ class MixedSingleTaskGP(SingleTaskGP):
 
     where ``xi`` and ``ci`` are the continuous and categorical features of the
     input, respectively. The suffix ``_i`` indicates that we fit different
-    lengthscales for the kernels in the sum and product terms.
+    lengthscales for the kernels in the sum and product terms. The categorical
+    kernel `K_cat` can be customized via ``cat_kernel_factory``.
 
     Since this model does not provide gradients for the categorical features,
     optimization of the acquisition function will need to be performed in
@@ -68,6 +148,8 @@ class MixedSingleTaskGP(SingleTaskGP):
         likelihood: Likelihood | None = None,
         outcome_transform: OutcomeTransform | _DefaultType | None = DEFAULT,
         input_transform: InputTransform | None = None,  # TODO
+        cat_kernel_factory: None
+        | (Callable[[torch.Size, int, list[int] | None], Kernel]) = None,
     ) -> None:
         r"""A single-task exact GP model supporting categorical parameters.
 
@@ -98,6 +180,12 @@ class MixedSingleTaskGP(SingleTaskGP):
                 transform one has to instantiate the transform with
                 ``transform_on_train`` == False and pass in the already
                 transformed input.
+            cat_kernel_factory: A method that accepts ``batch_shape``,
+                ``ard_num_dims``, and ``active_dims`` arguments and returns an
+                instantiated GPyTorch ``Kernel`` object to be used as the base
+                kernel for the categorical dimensions. active_dims is None if all
+                inputs are categorical. If omitted, this model uses a
+                ``CategoricalKernel`` with ARD.
         """
         if len(cat_dims) == 0:
             raise ValueError(
@@ -109,47 +197,19 @@ class MixedSingleTaskGP(SingleTaskGP):
         if cont_kernel_factory is None:
             cont_kernel_factory = get_covar_module_with_dim_scaled_prior
 
+        if cat_kernel_factory is None:
+            cat_kernel_factory = _default_cat_kernel_factory
+
         d = train_X.shape[-1]
         cat_dims = normalize_indices(indices=cat_dims, d=d)
         ord_dims = sorted(set(range(d)) - set(cat_dims))
-        if len(ord_dims) == 0:
-            covar_module = ScaleKernel(
-                CategoricalKernel(
-                    batch_shape=aug_batch_shape,
-                    ard_num_dims=len(cat_dims),
-                    lengthscale_constraint=GreaterThan(1e-06),
-                )
-            )
-        else:
-            sum_kernel = ScaleKernel(
-                cont_kernel_factory(
-                    batch_shape=aug_batch_shape,
-                    ard_num_dims=len(ord_dims),
-                    active_dims=ord_dims,
-                )
-                + ScaleKernel(
-                    CategoricalKernel(
-                        batch_shape=aug_batch_shape,
-                        ard_num_dims=len(cat_dims),
-                        active_dims=cat_dims,
-                        lengthscale_constraint=GreaterThan(1e-06),
-                    )
-                )
-            )
-            prod_kernel = ScaleKernel(
-                cont_kernel_factory(
-                    batch_shape=aug_batch_shape,
-                    ard_num_dims=len(ord_dims),
-                    active_dims=ord_dims,
-                )
-                * CategoricalKernel(
-                    batch_shape=aug_batch_shape,
-                    ard_num_dims=len(cat_dims),
-                    active_dims=cat_dims,
-                    lengthscale_constraint=GreaterThan(1e-06),
-                )
-            )
-            covar_module = sum_kernel + prod_kernel
+        covar_module = _get_mixed_covar_module(
+            aug_batch_shape=aug_batch_shape,
+            cat_dims=cat_dims,
+            ord_dims=ord_dims,
+            cont_kernel_factory=cont_kernel_factory,
+            cat_kernel_factory=cat_kernel_factory,
+        )
         super().__init__(
             train_X=train_X,
             train_Y=train_Y,
