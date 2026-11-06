@@ -171,7 +171,7 @@ class ChainedOutcomeTransform(OutcomeTransform, ModuleDict):
             - The transformed observation noise (if applicable).
         """
         for tf in self.values():
-            Y, Yvar = tf.forward(Y=Y, Yvar=Yvar, X=X)
+            Y, Yvar = tf(Y=Y, Yvar=Yvar, X=X)
         return Y, Yvar
 
     def subset_output(self, idcs: list[int]) -> OutcomeTransform:
