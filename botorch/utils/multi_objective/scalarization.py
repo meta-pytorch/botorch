@@ -63,7 +63,7 @@ def get_chebyshev_scalarization(
 
     Example:
         >>> weights = torch.tensor([0.75, -0.25])
-        >>> transform = get_aug_chebyshev_scalarization(weights, Y)
+        >>> transform = get_chebyshev_scalarization(weights, Y)
     """
     # the chebyshev_obj assumes all objectives should be minimized, so
     # multiply Y by -1
