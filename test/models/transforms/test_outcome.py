@@ -617,6 +617,42 @@ class TestOutcomeTransforms(BotorchTestCase):
             self.assertEqual(stdvs.item(), 1.0)
             self.assertEqual(stdvs_sq.item(), 1.0)
 
+    def test_stratified_standardize_single_observation(self) -> None:
+        for dtype, batch_shape in itertools.product(
+            (torch.float, torch.double),
+            (torch.Size(), torch.Size([2]), torch.Size([2, 3])),
+        ):
+            with self.subTest(dtype=dtype, batch_shape=batch_shape):
+                Y = torch.arange(
+                    1, batch_shape.numel() + 1, dtype=dtype, device=self.device
+                ).reshape(*batch_shape, 1, 1)
+                X = torch.zeros(*batch_shape, 1, 2, dtype=dtype, device=self.device)
+                tf = StratifiedStandardize(
+                    stratification_idx=-1,
+                    all_task_values=torch.tensor([0], device=self.device),
+                    batch_shape=batch_shape,
+                )
+                for Yvar in (None, torch.full_like(Y, 0.25)):
+                    tf.train()
+                    tf_Y, tf_Yvar = tf(Y=Y, Yvar=Yvar, X=X)
+                    self.assertAllClose(tf_Y, torch.zeros_like(Y))
+                    self.assertAllClose(tf.means, Y)
+                    self.assertAllClose(tf.stdvs, torch.ones_like(Y))
+                    self.assertAllClose(tf._stdvs_sq, torch.ones_like(Y))
+                    if Yvar is None:
+                        self.assertIsNone(tf_Yvar)
+                    else:
+                        self.assertAllClose(tf_Yvar, Yvar)
+                    untf_Y, untf_Yvar = tf.untransform(Y=tf_Y, Yvar=tf_Yvar, X=X)
+                    self.assertAllClose(untf_Y, Y)
+                    if Yvar is None:
+                        self.assertIsNone(untf_Yvar)
+                    else:
+                        self.assertAllClose(untf_Yvar, Yvar)
+                    tf.eval()
+                    eval_Y, _ = tf(Y=Y + 1, X=X)
+                    self.assertAllClose(eval_Y, torch.ones_like(Y))
+
     def test_log(self):
         ms = (1, 2)
         batch_shapes = (torch.Size(), torch.Size([2]))

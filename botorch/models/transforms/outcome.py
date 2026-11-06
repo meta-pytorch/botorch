@@ -519,6 +519,8 @@ class StratifiedStandardize(Standardize):
     module state (i.e. the mean/std normalizing constants). If in eval mode,
     calling forward simply applies the standardization using the current module
     state.
+
+    For a stratum with a single observation, only de-meaning is performed.
     """
 
     def __init__(
@@ -599,7 +601,7 @@ class StratifiedStandardize(Standardize):
                 Y_strata = Y.clone()
                 Y_strata[..., mask, :] = float("nan")
                 stdvs = (
-                    torch.ones_like(Y_strata)
+                    torch.ones_like(Y_strata.squeeze(-2))
                     if Y.shape[-2] == 1
                     else nanstd(X=Y_strata, dim=-2)
                 )
