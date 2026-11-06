@@ -60,6 +60,7 @@ from torch import Tensor
 _C = None  # Fused C++ kernel module, loaded lazily by _try_load_fused_kernel().
 _load_attempted = False  # Sentinel to avoid retrying after a failed load.
 _FUSED_MAX_I = 32  # Must match MAX_I in logei_fused.cpp.
+_FUSED_MAX_M = 8  # Must match MAX_M in logei_fused.cpp.
 
 
 def _try_load_fused_kernel() -> None:
@@ -322,6 +323,7 @@ class qLogExpectedHypervolumeImprovement(
             and self.fat
             and obj.device.type == "cpu"
             and q <= _FUSED_MAX_I
+            and obj.shape[-1] <= _FUSED_MAX_M
             # An approximate box decomposition can have zero cells; there is
             # nothing to fuse then and the Python path handles it directly.
             and self.cell_lower_bounds.shape[-2] > 0
