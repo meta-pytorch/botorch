@@ -13,6 +13,7 @@ BoTorch API Reference
 
    acquisition
    models
+   community
    generation
    posteriors
    optim
