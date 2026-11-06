@@ -10,6 +10,9 @@ from itertools import product
 
 import torch
 from botorch.exceptions.errors import BotorchError, BotorchTensorDimensionError
+from botorch.utils.multi_objective.box_decompositions.dominated import (
+    DominatedPartitioning,
+)
 from botorch.utils.multi_objective.hypervolume import (
     get_hypervolume_maximizing_subset,
     Hypervolume,
@@ -231,6 +234,25 @@ class TestHypervolume(BotorchTestCase):
                     self.assertAlmostEqual(
                         hv.compute(Y), expected, delta=rtol * expected
                     )
+
+    def test_hypervolume_matches_box_decomposition(self):
+        # The acquisition functions use the box decompositions, so check that
+        # both agree, including on inputs with ties and duplicates.
+        generator = torch.Generator().manual_seed(0)
+        sizes = {2: 60, 3: 20, 4: 10}
+        for dtype, ties in product((torch.float, torch.double), (False, True)):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            rtol = 1e-5 if dtype == torch.float else 1e-10
+            for m, n in sizes.items():
+                ref_point = torch.full((m,), -0.1, **tkwargs)
+                Y = _random_points(n, m, ties, generator, **tkwargs)
+                volume = Hypervolume(ref_point).compute(Y)
+                expected = DominatedPartitioning(
+                    ref_point=ref_point, Y=Y
+                ).compute_hypervolume()
+                self.assertAlmostEqual(
+                    volume, expected.item(), delta=rtol * expected.item()
+                )
 
     def test_hypervolume_ties(self):
         # Points that share coordinate values. The previous implementation
