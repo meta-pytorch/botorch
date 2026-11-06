@@ -25,10 +25,12 @@ from botorch.acquisition.multi_objective.hypervolume_knowledge_gradient import (
 from botorch.acquisition.multi_objective.monte_carlo import (
     qNoisyExpectedHypervolumeImprovement,
 )
+from botorch.acquisition.multi_objective.objective import GenericMCMultiOutputObjective
+from botorch.acquisition.objective import GenericMCObjective
 from botorch.exceptions import BadInitialCandidatesWarning, SamplingWarning
 from botorch.exceptions.errors import BotorchTensorDimensionError, UnsupportedError
 from botorch.exceptions.warnings import BotorchWarning
-from botorch.models import SingleTaskGP
+from botorch.models import HigherOrderGP, SingleTaskGP
 from botorch.models.model_list_gp_regression import ModelListGP
 from botorch.optim.initializers import (
     gen_batch_initial_conditions,
@@ -46,7 +48,12 @@ from botorch.optim.initializers import (
     transform_intra_point_constraint,
 )
 from botorch.sampling.normal import IIDNormalSampler
-from botorch.utils.sampling import manual_seed, unnormalize
+from botorch.utils.multi_objective.pareto import is_non_dominated
+from botorch.utils.sampling import (
+    manual_seed,
+    sample_truncated_normal_perturbations,
+    unnormalize,
+)
 from botorch.utils.testing import (
     BotorchTestCase,
     get_max_violation_of_bounds,
@@ -1530,3 +1537,130 @@ class TestSampleAroundBest(BotorchTestCase):
             self.assertTrue(
                 ((X_rnd.unsqueeze(0) == X_train.unsqueeze(1)).all(dim=-1)).sum() == 0
             )
+
+    def test_sample_points_around_best_higher_order_gp(self):
+        # The posterior mean of a ``HigherOrderGP`` has shape ``n x output_shape``,
+        # so the leading dimensions of the posterior mean must not be averaged over
+        # as batch dimensions. https://github.com/meta-pytorch/botorch/issues/1687
+        for dtype in (torch.float, torch.double):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            bounds = torch.zeros(2, 2, **tkwargs)
+            bounds[1] = 1
+            X_train = torch.rand(10, 2, **tkwargs)
+            model = HigherOrderGP(X_train, torch.randn(10, 3, 2, **tkwargs)).eval()
+            with torch.no_grad():
+                mean = model.posterior(X_train).mean
+            self.assertEqual(mean.shape, torch.Size([10, 3, 2]))
+            # single-objective
+            objective = GenericMCObjective(lambda Y, X=None: Y.sum(dim=(-1, -2)))
+            acqf = qExpectedImprovement(model, best_f=0.0, objective=objective)
+            with mock.patch(
+                "botorch.optim.initializers.sample_truncated_normal_perturbations",
+                wraps=sample_truncated_normal_perturbations,
+            ) as mock_sample:
+                X_rnd = sample_points_around_best(
+                    acq_function=acqf,
+                    n_discrete_points=4,
+                    sigma=1e-3,
+                    bounds=bounds,
+                    best_pct=1e-8,  # ensures that we only use the best point
+                )
+            self.assertEqual(X_rnd.shape, torch.Size([4, 2]))
+            best_X = mock_sample.call_args.kwargs["X"]
+            self.assertTrue(
+                torch.equal(best_X, X_train[objective(mean).argmax()][None])
+            )
+            # end-to-end, as in the issue
+            batch_initial_conditions = gen_batch_initial_conditions(
+                acq_function=acqf,
+                bounds=bounds,
+                q=1,
+                num_restarts=2,
+                raw_samples=8,
+                options={"sample_around_best": True},
+            )
+            self.assertEqual(batch_initial_conditions.shape, torch.Size([2, 1, 2]))
+            # multi-objective
+            mo_objective = GenericMCMultiOutputObjective(
+                lambda Y, X=None: Y.mean(dim=-2)
+            )
+            acqf = qNoisyExpectedHypervolumeImprovement(
+                model,
+                ref_point=torch.zeros(2, **tkwargs),
+                X_baseline=X_train,
+                objective=mo_objective,
+                sampler=IIDNormalSampler(sample_shape=torch.Size([2])),
+                prune_baseline=False,
+                cache_root=False,
+            )
+            with mock.patch(
+                "botorch.optim.initializers.sample_truncated_normal_perturbations",
+                wraps=sample_truncated_normal_perturbations,
+            ) as mock_sample:
+                X_rnd = sample_points_around_best(
+                    acq_function=acqf, n_discrete_points=4, sigma=1e-3, bounds=bounds
+                )
+            self.assertEqual(X_rnd.shape, torch.Size([4, 2]))
+            best_X = mock_sample.call_args.kwargs["X"]
+            is_pareto = is_non_dominated(mo_objective(mean))
+            self.assertTrue(torch.equal(best_X, X_train[is_pareto]))
+
+    def test_sample_points_around_best_batched_model(self):
+        # The posterior mean is averaged over the batch dimensions of the model.
+        for dtype in (torch.float, torch.double):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            bounds = torch.zeros(2, 2, **tkwargs)
+            bounds[1] = 1
+            X_train = torch.rand(10, 2, **tkwargs)
+            model = SingleTaskGP(
+                X_train.expand(3, 10, 2), torch.randn(3, 10, 1, **tkwargs)
+            ).eval()
+            mock_mean = torch.rand(2, 10, 1, **tkwargs)
+            mock_model = MockModel(MockPosterior(mean=mock_mean))
+            # ``MockModel.batch_shape`` is inferred from the samples here, which have
+            # more batch dimensions than the posterior mean.
+            mock_samples = torch.rand(3, 2, 10, 1, **tkwargs)
+            mock_model_samples = MockModel(
+                MockPosterior(mean=mock_mean, samples=mock_samples)
+            )
+            cases = [
+                (model, None),
+                (mock_model, None),
+                (mock_model_samples, None),
+                # If the model does not define its batch shape, all but the last two
+                # dimensions of the posterior mean are treated as batch dimensions.
+                (mock_model, mock.PropertyMock(side_effect=NotImplementedError)),
+                (mock_model, mock.PropertyMock(return_value=None)),
+            ]
+            for m, batch_shape_mock in cases:
+                acqf = qNoisyExpectedImprovement(
+                    m, X_baseline=X_train, prune_baseline=False, cache_root=False
+                )
+                with ExitStack() as es:
+                    if batch_shape_mock is not None:
+                        es.enter_context(
+                            mock.patch.object(
+                                MockModel, "batch_shape", new=batch_shape_mock
+                            )
+                        )
+                    mock_sample = es.enter_context(
+                        mock.patch(
+                            "botorch.optim.initializers."
+                            "sample_truncated_normal_perturbations",
+                            wraps=sample_truncated_normal_perturbations,
+                        )
+                    )
+                    X_rnd = sample_points_around_best(
+                        acq_function=acqf,
+                        n_discrete_points=4,
+                        sigma=1e-3,
+                        bounds=bounds,
+                        best_pct=1e-8,  # ensures that we only use the best point
+                    )
+                self.assertEqual(X_rnd.shape, torch.Size([4, 2]))
+                best_X = mock_sample.call_args.kwargs["X"]
+                with torch.no_grad():
+                    mean = m.posterior(X_train).mean
+                self.assertEqual(mean.ndim, 3)
+                expected_best_X = X_train[mean.mean(dim=0).argmax()][None]
+                self.assertTrue(torch.equal(best_X, expected_best_X))
