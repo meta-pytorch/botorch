@@ -605,6 +605,50 @@ class TestInputTransforms(BotorchTestCase):
                 stdz8 = InputStandardize(d=3, batch_shape=batch_shape, indices=[0, 2])
                 self.assertFalse(stdz7.equals(stdz8))
 
+    def test_standardize_single_observation(self) -> None:
+        # The standard deviation of a single observation is undefined (NaN). As for
+        # standard deviations below ``min_std``, the inputs are not standardized.
+        for batch_shape in (torch.Size(), torch.Size([3])):
+            X = torch.rand(*batch_shape, 1, 2, device=self.device)
+            stdz = InputStandardize(d=2, batch_shape=batch_shape)
+            with warnings.catch_warnings():
+                # torch warns about the degrees of freedom of the std estimate.
+                warnings.simplefilter("ignore", category=UserWarning)
+                X_stdz = stdz(X)
+            self.assertAllClose(X_stdz, X)
+            self.assertAllClose(stdz.stds, torch.ones_like(stdz.stds))
+            self.assertAllClose(stdz.means, torch.zeros_like(stdz.means))
+
+    def test_equals_with_different_state(self) -> None:
+        # ``equals`` returns False rather than raising if the state dict keys differ.
+        bounds = torch.tensor([[0.0, 0.0], [1.0, 1.0]], device=self.device)
+        tf1 = ChainedInputTransform(a=Normalize(d=2, bounds=bounds))
+        tf2 = ChainedInputTransform(
+            a=Normalize(d=2, bounds=bounds), b=Round(integer_indices=[0])
+        )
+        self.assertFalse(tf1.equals(tf2))
+        self.assertFalse(tf2.equals(tf1))
+        # Warp compares ``eps`` and the normalization of the inputs.
+        warp_tf = Warp(d=2, indices=[0, 1])
+        self.assertTrue(warp_tf.equals(Warp(d=2, indices=[0, 1])))
+        self.assertFalse(warp_tf.equals(Warp(d=2, indices=[0, 1], eps=1e-3)))
+        self.assertFalse(warp_tf.equals(Warp(d=2, indices=[0, 1], bounds=bounds)))
+
+    def test_normalize_get_init_args_with_center(self) -> None:
+        X = torch.tensor([[0.0], [2.0], [4.0]], device=self.device)
+        bounds = torch.tensor([[0.0], [4.0]], device=self.device)
+        for nlz in (
+            Normalize(d=1, center=0.0),
+            Normalize(d=1, bounds=bounds, center=0.0),
+        ):
+            X_nlzd = nlz(X)
+            nlz_copy = Normalize(**nlz.get_init_args())
+            self.assertEqual(nlz_copy.center, 0.0)
+            self.assertAllClose(nlz_copy.bounds, nlz.bounds)
+            self.assertTrue(nlz.equals(nlz_copy))
+            # The copy also behaves the same when re-learning the bounds.
+            self.assertAllClose(nlz_copy(X), X_nlzd)
+
     def test_chained_input_transform(self) -> None:
         ds = (1, 2)
         batch_shapes = (torch.Size(), torch.Size([2]))
@@ -801,6 +845,34 @@ class TestInputTransforms(BotorchTestCase):
             tf = BatchBroadcastedInputTransform(
                 transforms=[tf1, tf2], broadcast_index=-2
             )
+
+    def test_batch_broadcasted_input_transform_submodules(self) -> None:
+        # The transforms must be registered as submodules, so that they are put
+        # into eval mode, moved by ``to`` and included in the state dict.
+        tf1, tf2 = Normalize(d=2), InputStandardize(d=2)
+        tf = BatchBroadcastedInputTransform(transforms=[tf1, tf2])
+        self.assertEqual(
+            set(tf.state_dict()),
+            {
+                f"transforms.{i}.{k}"
+                for i in (0, 1)
+                for k in ("_coefficient", "_offset")
+            },
+        )
+        X = torch.rand(2, 4, 2, device=self.device)
+        tf(X)
+        tf.eval()
+        self.assertFalse(tf1.training)
+        self.assertFalse(tf2.training)
+        # In eval mode, the learned coefficients are used rather than re-learned.
+        X_new = 2 * X + 1
+        expected = torch.stack(
+            [(X_new[i] - t.offset) / t.coefficient for i, t in enumerate((tf1, tf2))]
+        )
+        self.assertAllClose(tf(X_new), expected)
+        tf.to(dtype=torch.double)
+        self.assertEqual(tf1._coefficient.dtype, torch.double)
+        self.assertEqual(tf2._coefficient.dtype, torch.double)
 
     def test_round_transform_init(self) -> None:
         # basic init
@@ -1908,6 +1980,37 @@ class TestInputTransforms(BotorchTestCase):
                 self.assertAlmostEqual(X_tf[1, 0].item(), 0.4)
                 self.assertAlmostEqual(X_tf[2, 1].item(), 0.5)
 
+            with self.subTest("many_tasks_and_unknown_task_values", dtype=dtype):
+                fi = {2 * t + 1: torch.randperm(6)[: t % 6].tolist() for t in range(10)}
+                tf = LearnedFeatureImputation(feature_indices=fi, d=6, **tkwargs)
+                tf.raw_imputation_values.data.normal_()
+                X = torch.rand(2, 15, 7, **tkwargs)
+                # Includes task values that are not in ``feature_indices``.
+                X[..., -1] = torch.randint(-1, 22, X.shape[:-1]).to(X)
+                # Compare with a row-by-row reference.
+                expected = X.clone()
+                imputation_values = tf.imputation_values.detach()
+                for i, j in itertools.product(range(2), range(15)):
+                    task = int(X[i, j, -1].item())
+                    if task in fi:
+                        missing = [k for k in range(6) if k not in fi[task]]
+                        task_pos = sorted(fi).index(task)
+                        expected[i, j, missing] = imputation_values[task_pos, missing]
+                self.assertTrue(torch.equal(tf(X), expected))
+
+            with self.subTest("parameter_dtype_and_no_tasks", dtype=dtype):
+                other_dtype = torch.float if dtype == torch.double else torch.double
+                tf = LearnedFeatureImputation(
+                    feature_indices={0: [0]}, d=2, dtype=other_dtype, device=self.device
+                )
+                X = torch.tensor([[0.3, 0.6, 0.0]], **tkwargs)
+                X_tf = tf(X)
+                self.assertEqual(X_tf.dtype, dtype)
+                self.assertEqual(X_tf[0, 1].item(), 0.0)
+                self.assertTrue(torch.equal(X_tf[0, [0, 2]], X[0, [0, 2]]))
+                tf = LearnedFeatureImputation(feature_indices={}, d=2, **tkwargs)
+                self.assertTrue(torch.equal(tf(X), X))
+
             with self.subTest("non_contiguous_task_values", dtype=dtype):
                 tf = LearnedFeatureImputation(
                     feature_indices={5: [0, 1, 2], 12: [0, 1, 3]},
@@ -2610,3 +2713,33 @@ class TestInputPerturbation(BotorchTestCase):
             sec_expected = X.unsqueeze(-2).expand(*X.shape[:-1], num_pert, -1)
             sec_expected = sec_expected.flatten(-3, -2)
             self.assertAllClose(subset_transformed[..., 2:], sec_expected)
+
+    def test_input_perturbation_equals(self) -> None:
+        p = torch.rand(3, 2, device=self.device)
+        tf = InputPerturbation(perturbation_set=p)
+        self.assertTrue(tf.equals(InputPerturbation(perturbation_set=p.clone())))
+        for kwargs in (
+            {"multiplicative": True},
+            {"indices": [1, 2]},
+            {"bounds": torch.zeros(2, 2, device=self.device)},
+        ):
+            other = InputPerturbation(perturbation_set=p, **kwargs)
+            self.assertFalse(tf.equals(other))
+            self.assertFalse(other.equals(tf))
+        # The perturbations cached by ``transform`` are not compared.
+        used_tf = InputPerturbation(perturbation_set=p).eval()
+        used_tf(torch.rand(4, 2, device=self.device))
+        self.assertTrue(tf.equals(used_tf))
+        self.assertTrue(used_tf.equals(tf))
+
+        # Callable perturbation sets are compared by identity.
+        def perturbation_generator(X: Tensor) -> Tensor:
+            return torch.stack([X * 0.1, X * 0.2], dim=-2)
+
+        tf = InputPerturbation(perturbation_set=perturbation_generator)
+        self.assertTrue(
+            tf.equals(InputPerturbation(perturbation_set=perturbation_generator))
+        )
+        self.assertFalse(
+            tf.equals(InputPerturbation(perturbation_set=lambda X: 2 * X.unsqueeze(-2)))
+        )

@@ -959,9 +959,10 @@ class MultiTaskGPyTorchModel(GPyTorchModel, ABC):
         the average noise per task is computed, and a diagonal noise
         matrix is added to the posterior covariance matrix, where
         the noise per input is the average noise for its respective
-        task. If the likelihood is a Gaussian likelihood, then
-        currently there is a shared inferred noise level for all
-        tasks.
+        task. For tasks without any training data, the average noise
+        across all training data is used. If the likelihood is a Gaussian
+        likelihood, then currently there is a shared inferred noise level
+        for all tasks.
 
         TODO: implement support for task-specific inferred noise levels.
 
@@ -995,11 +996,12 @@ class MultiTaskGPyTorchModel(GPyTorchModel, ABC):
             noise_by_task = torch.zeros(
                 *self.batch_shape, self.num_tasks, dtype=X.dtype, device=X.device
             )
+            noise = self.likelihood.noise
             for task_feature in unique_test_task_features:
                 mask = train_task_features == task_feature
-                noise_by_task[..., task_feature] = self.likelihood.noise[
-                    ..., mask
-                ].mean(dim=-1)
+                # Use the average noise across all tasks for unobserved tasks.
+                task_noise = noise[..., mask] if mask.any() else noise
+                noise_by_task[..., task_feature] = task_noise.mean(dim=-1)
             # noise_shape is ``broadcast(test_batch_shape, model.batch_shape) x q``
             noise_shape = (
                 broadcast_shapes(X.shape[:-2], self.batch_shape) + X.shape[-2:-1]
@@ -1077,19 +1079,28 @@ class MultiTaskGPyTorchModel(GPyTorchModel, ABC):
         self.eval()  # make sure model is in eval mode
         # input transforms are applied at ``posterior`` in ``eval`` mode, and at
         # ``model.forward()`` at the training time
-        X_full = self.transform_inputs(X_full)
+        X_full_tf = self.transform_inputs(X_full)
         with gpt_posterior_settings():
-            mvn = self(X_full)
+            mvn = self(X_full_tf)
             mvn = self._apply_noise(
-                X=X_full,
+                X=X_full_tf,
                 mvn=mvn,
                 observation_noise=observation_noise,
             )
-        # If single-output, return the posterior of a single-output model
-        if num_outputs == 1:
-            posterior = GPyTorchPosterior(distribution=mvn)
-        else:
-            # Otherwise, make a MultitaskMultivariateNormal out of this
+        posterior = GPyTorchPosterior(distribution=mvn)
+        outcome_transform = getattr(self, "outcome_transform", None)
+        if outcome_transform is not None and (
+            num_outputs == 1 or outcome_transform._is_linear
+        ):
+            # Un-transform the posterior before splitting it into one output per
+            # task, using ``X_full``, which includes the task feature. This is
+            # needed for transforms that depend on the task, such as
+            # ``StratifiedStandardize``.
+            posterior = outcome_transform.untransform_posterior(posterior, X=X_full)
+            outcome_transform = None
+        if num_outputs > 1:
+            # Make a MultitaskMultivariateNormal out of this
+            mvn = posterior.distribution
             mtmvn = MultitaskMultivariateNormal(
                 mean=mvn.mean.view(*mvn.mean.shape[:-1], num_outputs, -1).transpose(
                     -1, -2
@@ -1098,8 +1109,10 @@ class MultiTaskGPyTorchModel(GPyTorchModel, ABC):
                 interleaved=False,
             )
             posterior = GPyTorchPosterior(distribution=mtmvn)
-        if hasattr(self, "outcome_transform"):
-            posterior = self.outcome_transform.untransform_posterior(posterior, X=X)
+        if outcome_transform is not None:
+            # Non-linear transforms return a ``TransformedPosterior``, which cannot
+            # be split into one output per task, so these are applied afterwards.
+            posterior = outcome_transform.untransform_posterior(posterior, X=X)
         if posterior_transform is not None:
             return posterior_transform(posterior=posterior, X=X)
         return posterior

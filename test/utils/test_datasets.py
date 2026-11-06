@@ -192,6 +192,9 @@ class TestDatasets(BotorchTestCase):
         self.assertEqual(dataset, dataset)
         self.assertNotEqual(dataset, dataset2)
         self.assertNotEqual(dataset2, dataset)
+        # Comparison with other types.
+        self.assertNotEqual(dataset, None)
+        self.assertNotEqual(dataset, "dataset")
 
     def test_clone(self, supervised: bool = True) -> None:
         has_yvar_options = [False]
@@ -256,6 +259,34 @@ class TestDatasets(BotorchTestCase):
 
     def test_clone_ranking(self) -> None:
         self.test_clone(supervised=False)
+
+    def test_group_indices_are_preserved(self) -> None:
+        dataset = SupervisedDataset(
+            X=torch.tensor([[0.1, 0.0], [0.2, 1.0], [0.3, 0.0], [0.4, 1.0]]),
+            Y=rand(4, 1),
+            feature_names=["x", "task"],
+            outcome_names=["y"],
+            group_indices=tensor([0, 1, 1, 2]),
+        )
+        mask = tensor([True, False, True, True])
+        for use_deepcopy in (False, True):
+            dataset2 = dataset.clone(deepcopy=use_deepcopy)
+            self.assertEqual(dataset, dataset2)
+            self.assertTrue(torch.equal(dataset2.group_indices, dataset.group_indices))
+            dataset2 = dataset.clone(deepcopy=use_deepcopy, mask=mask)
+            self.assertTrue(torch.equal(dataset2.group_indices, tensor([0, 1, 2])))
+        # Splitting a joint dataset by task.
+        mt_dataset = MultiTaskDataset.from_joint_dataset(
+            dataset=dataset, task_feature_index=-1, target_task_value=0
+        )
+        self.assertTrue(
+            torch.equal(mt_dataset.datasets["y"].group_indices, tensor([0, 1]))
+        )
+        self.assertTrue(
+            torch.equal(mt_dataset.datasets["task_1"].group_indices, tensor([1, 2]))
+        )
+        ds_no_task = mt_dataset.get_dataset_without_task_feature(outcome_name="task_1")
+        self.assertTrue(torch.equal(ds_no_task.group_indices, tensor([1, 2])))
 
     def test_fixedNoise(self):
         # Generate some data
@@ -490,6 +521,11 @@ class TestDatasets(BotorchTestCase):
             mt_dataset,
             MultiTaskDataset(datasets=[dataset_1, dataset_5], target_outcome_name="z"),
         )
+        # The order of the datasets matters (it determines the order of the data).
+        self.assertNotEqual(
+            MultiTaskDataset(datasets=[dataset_1, dataset_2], target_outcome_name="y"),
+            MultiTaskDataset(datasets=[dataset_2, dataset_1], target_outcome_name="y"),
+        )
 
     def test_get_heterogeneous_feature_mapping(self):
         ds_target = make_dataset(
@@ -515,6 +551,22 @@ class TestDatasets(BotorchTestCase):
         self.assertEqual(len(all_datasets), 2)
         self.assertEqual(full_dim, 3)
         self.assertEqual(feature_indices, [[0, 1], [0, 2]])
+
+    def test_get_dataset_without_task_feature_heterogeneous(self) -> None:
+        ds_1 = make_dataset(d=2, feature_names=["a", "task"], outcome_names=["y"])
+        ds_2 = make_dataset(d=3, feature_names=["a", "b", "task"], outcome_names=["z"])
+        for target_outcome_name in ("y", "z"):
+            mt_dataset = MultiTaskDataset(
+                datasets=[ds_1, ds_2],
+                target_outcome_name=target_outcome_name,
+                task_feature_index=-1,
+            )
+            for ds in (ds_1, ds_2):
+                ds_no_task = mt_dataset.get_dataset_without_task_feature(
+                    outcome_name=ds.outcome_names[0]
+                )
+                self.assertEqual(ds_no_task.feature_names, ds.feature_names[:-1])
+                self.assertTrue(torch.equal(ds_no_task.X, ds.X[:, :-1]))
 
     def test_clone_multitask(self) -> None:
         for has_yvar in [False, True]:
@@ -758,9 +810,18 @@ class TestDatasets(BotorchTestCase):
                     self.assertIsNone(context_dt2.metric_decomposition)
 
     def test_contextual_dataset_equality(self) -> None:
-        context_dt, _ = make_contextual_dataset(has_yvar=True, contextual_outcome=True)
+        context_dt, datasets = make_contextual_dataset(
+            has_yvar=True, contextual_outcome=True
+        )
         clone = context_dt.clone()
         self.assertEqual(context_dt, clone)
+        # The order of the datasets matters (it determines the order of outcomes).
+        reordered_dt = ContextualDataset(
+            datasets=list(reversed(datasets)),
+            parameter_decomposition=context_dt.parameter_decomposition,
+            metric_decomposition=context_dt.metric_decomposition,
+        )
+        self.assertNotEqual(context_dt, reordered_dt)
         for yvar, outcome in (
             (True, False),
             (False, True),
