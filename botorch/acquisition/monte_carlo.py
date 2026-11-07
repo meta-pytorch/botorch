@@ -422,7 +422,7 @@ class qExpectedImprovement(SampleReducingMCAcquisitionFunction):
             constraints=constraints,
             eta=eta,
         )
-        self.register_buffer("best_f", torch.as_tensor(best_f))
+        self.register_buffer("best_f", torch.as_tensor(best_f, dtype=torch.double))
 
     def _sample_forward(self, obj: Tensor) -> Tensor:
         r"""Evaluate qExpectedImprovement per sample on the candidate set ``X``.
@@ -745,9 +745,11 @@ class qProbabilityOfImprovement(SampleReducingMCAcquisitionFunction):
             constraints=constraints,
             eta=eta,
         )
-        best_f = torch.as_tensor(best_f).unsqueeze(-1)  # adding batch dim
+        best_f = torch.as_tensor(best_f, dtype=torch.double).unsqueeze(
+            -1
+        )  # adding batch dim
         self.register_buffer("best_f", best_f)
-        self.register_buffer("tau", torch.as_tensor(tau))
+        self.register_buffer("tau", torch.as_tensor(tau, dtype=torch.double))
 
     def _sample_forward(self, obj: Tensor) -> Tensor:
         r"""Evaluate qProbabilityOfImprovement per sample on the candidate set ``X``.
@@ -760,7 +762,7 @@ class qProbabilityOfImprovement(SampleReducingMCAcquisitionFunction):
                 indicators.
         """
         improvement = obj - self.best_f.to(obj)
-        return torch.sigmoid(improvement / self.tau)
+        return torch.sigmoid(improvement / self.tau.to(improvement))
 
 
 class qSimpleRegret(SampleReducingMCAcquisitionFunction):

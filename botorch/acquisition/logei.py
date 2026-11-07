@@ -222,7 +222,7 @@ class qLogExpectedImprovement(LogImprovementMCAcquisitionFunction):
             tau_max=check_tau(tau_max, name="tau_max"),
             fat=fat,
         )
-        self.register_buffer("best_f", torch.as_tensor(best_f))
+        self.register_buffer("best_f", torch.as_tensor(best_f, dtype=torch.double))
         self.tau_relu = check_tau(tau_relu, name="tau_relu")
 
     def _sample_forward(self, obj: Tensor) -> Tensor:
@@ -236,7 +236,7 @@ class qLogExpectedImprovement(LogImprovementMCAcquisitionFunction):
         """
         li = _log_improvement(
             Y=obj,
-            best_f=self.best_f,
+            best_f=self.best_f.to(obj),
             tau=self.tau_relu,
             fat=self._fat,
         )
