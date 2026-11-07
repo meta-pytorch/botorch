@@ -661,6 +661,160 @@ class TestMultiObjectiveMCAcquisitionFunction(BotorchTestCase):
 
 
 class TestQNoisyExpectedHypervolumeImprovement(BotorchTestCase):
+    def test_batched_pending_cache_transitions_match_independent_decisions(
+        self,
+    ) -> None:
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.tensor([[0.1], [0.4], [0.7], [0.9]], **tkwargs)
+        train_Y = torch.cat((train_X.sin(), train_X.cos()), dim=-1)
+        for acqf_class, cached, incremental, cache_root, model_batched in product(
+            (
+                qNoisyExpectedHypervolumeImprovement,
+                qLogNoisyExpectedHypervolumeImprovement,
+            ),
+            (False, True),
+            (False, True),
+            (False, True),
+            (False, True),
+        ):
+            with self.subTest(
+                acqf=acqf_class.__name__,
+                cached=cached,
+                incremental=incremental,
+                cache_root=cache_root,
+                model_batched=model_batched,
+            ):
+                model = SingleTaskGP(
+                    train_X.expand(2, -1, -1) if model_batched else train_X,
+                    torch.stack((train_Y, train_Y + 0.1)) if model_batched else train_Y,
+                )
+                # A singleton before q broadcasts with the model batch. The
+                # three pending decisions introduce a separate batch axis.
+                batch = (3, 1) if model_batched else (3,)
+                pending = train_X.new_tensor([0.62, 0.76, 0.89]).view(*batch, 1, 1)
+                query = (
+                    train_X.new_tensor([0.21, 0.36, 0.56])
+                    .view(*batch, 1, 1)
+                    .requires_grad_()
+                )
+                kwargs = {
+                    "model": model,
+                    "ref_point": [-0.5, -0.5],
+                    "X_baseline": train_X[::2],
+                    "cache_root": cache_root,
+                    "cache_pending": cached,
+                    "max_iep": 1,
+                    "incremental_nehvi": incremental,
+                    "prune_baseline": False,
+                }
+
+                def make_acq(X_pending: Tensor) -> Any:
+                    return acqf_class(
+                        **kwargs,
+                        X_pending=X_pending,
+                        sampler=SobolQMCNormalSampler(torch.Size([4]), seed=19),
+                    )
+
+                actual_acq = make_acq(pending)
+                independent = [make_acq(pending[row]) for row in range(3)]
+                transitions = (
+                    pending,
+                    torch.cat((pending, pending - 0.09), dim=-2),
+                    pending + 0.02,
+                    None,
+                )
+                for current in transitions:
+                    actual_acq.set_X_pending(current)
+                    for row, reference in enumerate(independent):
+                        reference.set_X_pending(
+                            None if current is None else current[row]
+                        )
+                    actual = actual_acq(query)
+                    expected = torch.stack(
+                        [
+                            reference(query[row])
+                            for row, reference in enumerate(independent)
+                        ]
+                    )
+                    if not model_batched:
+                        expected = expected.squeeze(-1)
+                    self.assertAllClose(actual, expected, atol=1e-10, rtol=1e-8)
+                    weights = torch.arange(1, actual.numel() + 1, **tkwargs).reshape_as(
+                        actual
+                    )
+                    actual_gradient = torch.autograd.grad(
+                        (actual * weights).sum(), query, retain_graph=True
+                    )[0]
+                    expected_gradient = torch.autograd.grad(
+                        (expected * weights).sum(), query
+                    )[0]
+                    self.assertAllClose(
+                        actual_gradient, expected_gradient, atol=1e-9, rtol=1e-7
+                    )
+                # Clearing pending decisions must discard their batch shape.
+                new_batch = (5, 1) if model_batched else (5,)
+                later = torch.linspace(0.2, 0.6, 5, **tkwargs).view(*new_batch, 1, 1)
+                actual = actual_acq(later)
+                expected = torch.stack([independent[0](point) for point in later])
+                if not model_batched:
+                    expected = expected.squeeze(-1)
+                self.assertAllClose(actual, expected, atol=1e-10, rtol=1e-8)
+
+    def test_uncached_batched_pending_with_empty_cached_prefix(self) -> None:
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.tensor([[0.1], [0.4], [0.7], [0.9]], **tkwargs)
+        train_Y = torch.cat((train_X.sin(), train_X.cos()), dim=-1)
+        model = SingleTaskGP(train_X, train_Y)
+        ref = train_X.new_tensor([-0.5, -0.5])
+        pending = train_X.new_tensor([[[0.72]], [[0.89]]])
+        query = train_X.new_tensor([[[0.21]], [[0.56]]], requires_grad=True)
+        for acqf_class in (
+            qNoisyExpectedHypervolumeImprovement,
+            qLogNoisyExpectedHypervolumeImprovement,
+        ):
+            with self.subTest(acqf_class=acqf_class.__name__):
+                kwargs = {
+                    "model": model,
+                    "ref_point": ref,
+                    "X_baseline": train_X[::2],
+                    "cache_root": False,
+                    "cache_pending": False,
+                    "prune_baseline": False,
+                }
+                actual_acq = acqf_class(
+                    **kwargs,
+                    X_pending=pending,
+                    sampler=SobolQMCNormalSampler(torch.Size([8]), seed=19),
+                )
+                actual = actual_acq(query)
+                expected = torch.cat(
+                    [
+                        acqf_class(
+                            **kwargs,
+                            X_pending=pending[row],
+                            sampler=SobolQMCNormalSampler(torch.Size([8]), seed=19),
+                        )(query[row])
+                        for row in range(2)
+                    ]
+                )
+                self.assertAllClose(actual, expected, atol=1e-10, rtol=1e-8)
+                gradient = torch.autograd.grad(actual.sum(), query, retain_graph=True)[
+                    0
+                ]
+                oracle_gradient = torch.autograd.grad(expected.sum(), query)[0]
+                self.assertAllClose(gradient, oracle_gradient, atol=1e-9, rtol=1e-7)
+
+    def test_pending_prefix_empty_and_nonempty_batch_shapes(self) -> None:
+        from botorch.utils.multi_objective.hypervolume import (
+            NoisyExpectedHypervolumeMixin,
+        )
+
+        X = torch.randn(2, 3, 4, device=self.device)
+        self.assertTrue(NoisyExpectedHypervolumeMixin._is_prefix(X[0, :0], X))
+        self.assertTrue(NoisyExpectedHypervolumeMixin._is_prefix(X[:, :1], X))
+        self.assertFalse(NoisyExpectedHypervolumeMixin._is_prefix(X[0, :1], X))
+        self.assertFalse(NoisyExpectedHypervolumeMixin._is_prefix(X[:, :1] + 1, X))
+
     def setUp(self):
         super().setUp()
         self.ref_point = [0.0, 0.0, 0.0]

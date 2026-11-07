@@ -797,14 +797,15 @@ class NoisyExpectedHypervolumeMixin(CachedCholeskyMCSamplerMixin):
     def _is_prefix(X_prefix: Tensor, X: Tensor) -> bool:
         r"""Return whether ``X_prefix`` is an exact pointwise prefix of ``X``."""
         n = X_prefix.shape[-2]
-        return n <= X.shape[-2] and torch.equal(X_prefix, X[..., :n, :])
+        return n == 0 or (n <= X.shape[-2] and torch.equal(X_prefix, X[..., :n, :]))
 
     def set_X_pending(self, X_pending: Tensor | None = None) -> None:
         r"""Replace the complete set of pending design points.
 
         Args:
-            X_pending: ``n x d`` Tensor with ``n`` ``d``-dim design points that have
-                been submitted for evaluation but have not yet been evaluated.
+            X_pending: ``batch_shape x n x d`` Tensor with ``n`` ``d``-dim design
+                points that have been submitted for evaluation but have not yet
+                been evaluated.
         """
         old_X_pending = self.X_pending
         if X_pending is not None:
@@ -842,7 +843,10 @@ class NoisyExpectedHypervolumeMixin(CachedCholeskyMCSamplerMixin):
             num_uncached = new_pending.shape[-2] - cached_pending.shape[-2]
             if num_uncached <= self._max_iep:
                 return
-            X_baseline = torch.cat([self._X_baseline, new_pending], dim=-2)
+            X_baseline = torch.cat(
+                [match_batch_shape(self._X_baseline, new_pending), new_pending],
+                dim=-2,
+            )
             self.register_buffer("_X_baseline_and_pending", X_baseline)
             if self.partitioning is None:
                 self._set_cell_bounds()
@@ -860,11 +864,18 @@ class NoisyExpectedHypervolumeMixin(CachedCholeskyMCSamplerMixin):
                 del self._baseline_L
             self.q_in = -1
             self.q_out = -1
-            self._prev_nehvi = torch.zeros_like(self._prev_nehvi)
+            # A replacement can remove pending decision-batch axes entirely.
+            self._prev_nehvi = self._prev_nehvi.new_zeros(())
             pending_to_cache = (
                 new_pending if new_pending.shape[-2] > self._max_iep else empty_pending
             )
-            X_baseline = torch.cat([self._X_baseline, pending_to_cache], dim=-2)
+            X_baseline = torch.cat(
+                [
+                    match_batch_shape(self._X_baseline, pending_to_cache),
+                    pending_to_cache,
+                ],
+                dim=-2,
+            )
             self.register_buffer("_X_baseline_and_pending", X_baseline)
             self._set_cell_bounds()
 
@@ -872,8 +883,20 @@ class NoisyExpectedHypervolumeMixin(CachedCholeskyMCSamplerMixin):
         # Dynamic pending points (at or below max_iep) remain in the forward q-batch,
         # so adding their contribution here would count them twice.
         if not self.incremental_nehvi and new_pending.shape[-2] > self._max_iep:
+            hypervolumes = self._hypervolumes
+            sample_ndim = len(self.sampler.sample_shape)
+            # The observed baseline has no pending decision-batch dimensions.
+            # Insert those axes after MC samples and before model batch axes.
+            baseline_hvs = self._baseline_hvs.view(
+                *self._baseline_hvs.shape[:sample_ndim],
+                *([1] * (hypervolumes.ndim - self._baseline_hvs.ndim)),
+                *self._baseline_hvs.shape[sample_ndim:],
+            )
+            improvement = (hypervolumes - baseline_hvs).clamp_min(0.0)
             self._prev_nehvi = (
-                (self._hypervolumes - self._baseline_hvs).clamp_min(0.0).mean()
+                improvement.mean(dim=tuple(range(sample_ndim)))
+                if sample_ndim
+                else improvement
             )
         # Set q_in=-1 so that self.sampler is updated at the next forward call.
         self.q_in = -1
@@ -883,7 +906,8 @@ class NoisyExpectedHypervolumeMixin(CachedCholeskyMCSamplerMixin):
         r"""Compute hypervolume over X_baseline under each posterior sample.
 
         Returns:
-            A ``sample_shape``-dim tensor of hypervolumes.
+            A ``sample_shape x batch_shape``-dim tensor of hypervolumes, retaining
+            pending decision and model batch dimensions.
         """
         return (
             self.partitioning.compute_hypervolume()
