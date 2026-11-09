@@ -139,7 +139,7 @@ class IIDNormalSampler(NormalMCSampler):
     r"""Sampler for MC base samples using iid N(0,1) samples.
 
     Example:
-        >>> sampler = IIDNormalSampler(1000, seed=1234)
+        >>> sampler = IIDNormalSampler(torch.Size([1000]), seed=1234)
         >>> posterior = model.posterior(test_X)
         >>> samples = sampler(posterior)
     """

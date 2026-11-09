@@ -98,8 +98,11 @@ class TestPosteriorList(BotorchTestCase):
         with self.assertRaisesRegex(NotImplementedError, "same `batch_shape`"):
             p._extended_shape()
         dtype_err_msg = "Multi-dtype posteriors are currently not supported."
-        with self.assertRaisesRegex(NotImplementedError, dtype_err_msg):
+        with self.assertRaisesRegex(NotImplementedError, dtype_err_msg) as e:
             p.dtype
+        # the message lists the actual dtypes, not a literal "{dtypes}"
+        self.assertIn("torch.float32", str(e.exception))
+        self.assertIn("torch.float64", str(e.exception))
         device_err_msg = "Multi-device posteriors are currently not supported."
         p_2._device = None
         with self.assertRaisesRegex(NotImplementedError, device_err_msg):
