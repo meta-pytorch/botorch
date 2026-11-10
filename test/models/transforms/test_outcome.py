@@ -419,6 +419,131 @@ class TestOutcomeTransforms(BotorchTestCase):
                 new_transform.load_state_dict(state_dict)
                 self.assertTrue(new_transform._is_trained)
 
+    def test_stratified_standardize_task_count(self):
+        for dtype, batch_shape, task_values in itertools.product(
+            (torch.float, torch.double),
+            (torch.Size(), torch.Size([2])),
+            ([0, 1], [1, 2], [1, 4]),
+        ):
+            with self.subTest(dtype=dtype, batch_shape=batch_shape, tasks=task_values):
+                tasks = torch.tensor(task_values, device=self.device)
+                transform = StratifiedStandardize(
+                    stratification_idx=-1,
+                    all_task_values=tasks.flip(0).repeat(2),
+                    batch_shape=batch_shape,
+                ).to(device=self.device, dtype=dtype)
+                self.assertEqual(
+                    transform.means.shape, batch_shape + torch.Size([2, 1])
+                )
+                X = tasks.repeat_interleave(2).to(dtype=dtype).unsqueeze(-1)
+                X = X.expand(*batch_shape, 4, 1)
+                Y = torch.tensor(
+                    [[1.0], [3.0], [10.0], [14.0]], device=self.device, dtype=dtype
+                ).expand(*batch_shape, 4, 1)
+                Yvar = torch.ones_like(Y)
+                transformed, transformed_var = transform(Y=Y, Yvar=Yvar, X=X)
+                means = torch.tensor([[2.0], [12.0]], device=self.device, dtype=dtype)
+                variances = torch.tensor(
+                    [[2.0], [8.0]], device=self.device, dtype=dtype
+                )
+                self.assertAllClose(transform.means, means.expand_as(transform.means))
+                self.assertAllClose(
+                    transform.stdvs, variances.sqrt().expand_as(transform.stdvs)
+                )
+                self.assertAllClose(
+                    transform._stdvs_sq, variances.expand_as(transform._stdvs_sq)
+                )
+                expected = (
+                    Y - means.repeat_interleave(2, dim=-2)
+                ) / variances.sqrt().repeat_interleave(2, dim=-2)
+                self.assertAllClose(transformed, expected)
+                self.assertAllClose(
+                    transformed_var, Yvar / variances.repeat_interleave(2, dim=-2)
+                )
+                restored, restored_var = transform.untransform(
+                    Y=transformed, Yvar=transformed_var, X=X
+                )
+                self.assertAllClose(restored, Y)
+                self.assertAllClose(restored_var, Yvar)
+
+    def test_stratified_standardize_load_state_dict(self):
+        for dtype, batch_shape, legacy, chained in itertools.product(
+            (torch.float, torch.double),
+            (torch.Size(), torch.Size([2])),
+            (False, True),
+            (False, True),
+        ):
+            with self.subTest(
+                dtype=dtype, batch_shape=batch_shape, legacy=legacy, chained=chained
+            ):
+                tasks = torch.tensor([1, 2, 4], device=self.device)
+                kwargs = {
+                    "stratification_idx": -1,
+                    "all_task_values": tasks,
+                    "batch_shape": batch_shape,
+                }
+                source = StratifiedStandardize(**kwargs).to(
+                    device=self.device, dtype=dtype
+                )
+                X = torch.tensor(
+                    [[1.0], [1.0], [4.0], [4.0]], device=self.device, dtype=dtype
+                ).expand(*batch_shape, 4, 1)
+                Y = torch.tensor(
+                    [[1.0], [3.0], [10.0], [14.0]], device=self.device, dtype=dtype
+                ).expand(*batch_shape, 4, 1)
+                Yvar = torch.ones_like(Y)
+                expected = source(Y=Y, Yvar=Yvar, X=X)
+                target = StratifiedStandardize(**kwargs).to(
+                    device=self.device, dtype=dtype
+                )
+                source_module = (
+                    ChainedOutcomeTransform(stratified=source) if chained else source
+                )
+                target_module = (
+                    ChainedOutcomeTransform(stratified=target) if chained else target
+                )
+                state = source_module.state_dict()
+                if legacy:
+                    prefix = "stratified." if chained else ""
+                    state._metadata[prefix.removesuffix(".")]["version"] = 1
+                    for name, fill in (
+                        ("means", 0.0),
+                        ("stdvs", 1.0),
+                        ("_stdvs_sq", 1.0),
+                    ):
+                        key = prefix + name
+                        padding = torch.full(
+                            (*batch_shape, 2, 1), fill, device=self.device, dtype=dtype
+                        )
+                        state[key] = torch.cat([state[key], padding], dim=-2)
+                target_module.load_state_dict(state)
+                self.assertEqual(target.means.shape, batch_shape + torch.Size([3, 1]))
+                self.assertAllClose(target.means, source.means)
+                self.assertAllClose(target.stdvs, source.stdvs)
+                self.assertAllClose(target._stdvs_sq, source._stdvs_sq)
+                self.assertTrue(target._is_trained)
+                self.assertAllClose(
+                    target.means[..., 1, :], torch.zeros_like(target.means[..., 1, :])
+                )
+                self.assertAllClose(
+                    target.stdvs[..., 1, :], torch.ones_like(target.stdvs[..., 1, :])
+                )
+                actual = target_module.eval()(Y=Y, Yvar=Yvar, X=X)
+                self.assertAllClose(actual[0], expected[0])
+                self.assertAllClose(actual[1], expected[1])
+
+    def test_stratified_standardize_rejects_incompatible_state(self):
+        for version, name in itertools.product((1, 2), ("means", "stdvs", "_stdvs_sq")):
+            with self.subTest(version=version, name=name):
+                source = StratifiedStandardize(-1, torch.arange(5))
+                state = source.state_dict()
+                state._metadata[""]["version"] = version
+                if version == 1:
+                    state[name][-1] = 2.0
+                target = StratifiedStandardize(-1, torch.tensor([1, 4]))
+                with self.assertRaisesRegex(RuntimeError, "size mismatch"):
+                    target.load_state_dict(state)
+
     def test_stratified_standardize(self):
         n = 5
         seed = randint(0, 100)

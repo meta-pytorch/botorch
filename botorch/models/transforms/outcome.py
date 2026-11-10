@@ -26,6 +26,7 @@ import logging
 import warnings
 from abc import ABC, abstractmethod
 from collections import OrderedDict
+from typing import Any
 
 import torch
 from botorch.models.transforms.utils import (
@@ -519,7 +520,11 @@ class StratifiedStandardize(Standardize):
     module state (i.e. the mean/std normalizing constants). If in eval mode,
     calling forward simply applies the standardization using the current module
     state.
+
+    The statistics contain one row per distinct task value, in sorted order.
     """
+
+    _version = 2
 
     def __init__(
         self,
@@ -553,7 +558,7 @@ class StratifiedStandardize(Standardize):
         )
         if self.strata_mapping is None:
             self.strata_mapping = all_task_values
-        n_strata = self.strata_mapping.shape[0]
+        n_strata = all_task_values.numel()
         self._min_stdv = min_stdv
         self.register_buffer("means", torch.zeros(*batch_shape, n_strata, 1))
         self.register_buffer("stdvs", torch.ones(*batch_shape, n_strata, 1))
@@ -562,6 +567,39 @@ class StratifiedStandardize(Standardize):
         self._batch_shape = batch_shape
         self._m = 1  # TODO: support multiple outputs
         self._outputs = None
+
+    def _load_from_state_dict(
+        self,
+        state_dict: dict[str, Tensor],
+        prefix: str,
+        local_metadata: dict[str, Any],
+        strict: bool,
+        missing_keys: list[str],
+        unexpected_keys: list[str],
+        error_msgs: list[str],
+    ) -> None:
+        # Older checkpoints have unused trailing rows, sized for the raw-label
+        # lookup rather than the compact task indices stored in that lookup.
+        legacy_shape = self._batch_shape + self.strata_mapping.shape + torch.Size([1])
+        if local_metadata.get("version", 1) < 2:
+            n_strata = self.means.shape[-2]
+            for name, fill in (("means", 0.0), ("stdvs", 1.0), ("_stdvs_sq", 1.0)):
+                key = prefix + name
+                if (
+                    key in state_dict
+                    and state_dict[key].shape == legacy_shape
+                    and (state_dict[key][..., n_strata:, :] == fill).all()
+                ):
+                    state_dict[key] = state_dict[key][..., :n_strata, :]
+        super()._load_from_state_dict(
+            state_dict=state_dict,
+            prefix=prefix,
+            local_metadata=local_metadata,
+            strict=strict,
+            missing_keys=missing_keys,
+            unexpected_keys=unexpected_keys,
+            error_msgs=error_msgs,
+        )
 
     def forward(
         self, Y: Tensor, Yvar: Tensor | None = None, X: Tensor | None = None
