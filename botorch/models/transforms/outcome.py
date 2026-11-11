@@ -808,8 +808,8 @@ class Log(OutcomeTransform):
                 dim=-1,
             )
         if Yvar is not None:
-            # Delta method: Var[log(Y)] ≈ Var[Y] / Y^2
-            Yvar_tf = Yvar / Y.clamp(min=1e-8).pow(2)
+            # Delta method: Var[log(Y)] ≈ Var[Y] / Y^2; divide twice to avoid overflow.
+            Yvar_tf = (Yvar / Y) / Y
             if outputs is not None:
                 Yvar = torch.stack(
                     [
@@ -859,7 +859,7 @@ class Log(OutcomeTransform):
                 "is a lossy operation. The untransformed variance is an "
                 "approximation that may not exactly match the original variance."
             )
-            Yvar_utf = Yvar * torch.exp(2.0 * Y)
+            Yvar_utf = (Yvar * Y_utf) * Y_utf
             if outputs is not None:
                 Yvar = torch.stack(
                     [
