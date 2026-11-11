@@ -40,13 +40,14 @@ from botorch.utils.context_managers import (
     parameter_rollback_ctx,
     TensorCheckpoint,
 )
+from gpytorch.likelihoods import FixedNoiseGaussianLikelihood
 from gpytorch.mlls._approximate_mll import _ApproximateMarginalLogLikelihood
 from gpytorch.mlls.exact_marginal_log_likelihood import ExactMarginalLogLikelihood
 from gpytorch.mlls.marginal_log_likelihood import MarginalLogLikelihood
 from gpytorch.mlls.sum_marginal_log_likelihood import SumMarginalLogLikelihood
 from linear_operator.utils.errors import NotPSDError
 from torch import device, Tensor
-from torch.nn import Parameter
+from torch.nn import Module, Parameter
 from torch.utils.data import DataLoader
 
 
@@ -174,6 +175,30 @@ def _has_shared_parameters(mlls: Iterable[MarginalLogLikelihood]) -> bool:
     return False
 
 
+def _check_train_data_detached(model: Module) -> None:
+    r"""Raises an error if the training data is attached to a computation graph.
+
+    Fitting would otherwise fail on the second backward pass with an error from
+    autograd that doesn't mention the training data.
+
+    Args:
+        model: The model to check.
+    """
+    train_inputs = getattr(model, "train_inputs", None) or ()
+    train_targets = getattr(model, "train_targets", None)
+    train_data = (*train_inputs, train_targets)
+    likelihood = getattr(model, "likelihood", None)
+    if isinstance(likelihood, FixedNoiseGaussianLikelihood):
+        train_data = (*train_data, likelihood.noise_covar.noise)
+    if any(t is not None and t.grad_fn is not None for t in train_data):
+        raise UnsupportedError(
+            "Cannot fit a model whose training data is attached to a computation "
+            "graph. Please detach the training data before constructing the model, "
+            "e.g. using `train_X.detach()`, `train_Y.detach()`, and "
+            "`train_Yvar.detach()` when observation noise is provided."
+        )
+
+
 def _fit_fallback(
     mll: MarginalLogLikelihood,
     *,
@@ -236,6 +261,8 @@ def _fit_fallback(
     # its own internal dispatch (e.g. batched independent fitting in
     # fit_gpytorch_mll_scipy).
     mll.train()
+    if isinstance(mll, ExactMarginalLogLikelihood):
+        _check_train_data_detached(mll.model)
     if closure is None and closure_kwargs is not None:
         closure = get_loss_closure_with_grads(
             mll, parameters=get_parameters(mll, requires_grad=True)
