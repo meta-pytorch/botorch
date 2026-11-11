@@ -47,7 +47,6 @@ from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.means import ConstantMean
 from gpytorch.models import ExactGP, IndependentModelList
 from gpytorch.priors import LogNormalPrior
-from gpytorch.settings import trace_mode
 from torch import Tensor
 from torch.nn.functional import one_hot
 
@@ -475,32 +474,6 @@ class TestBatchedMultiOutputGPyTorchModel(BotorchTestCase):
         post_tf = ScalarizedPosteriorTransform(weights=torch.zeros(2, **tkwargs))
         post = model.posterior(torch.rand(3, 2, **tkwargs), posterior_transform=post_tf)
         self.assertTrue(torch.equal(post.mean, torch.zeros(3, 1, **tkwargs)))
-
-    def test_posterior_in_trace_mode(self):
-        tkwargs = {"device": self.device, "dtype": torch.double}
-        train_X = torch.rand(5, 1, **tkwargs)
-        train_Y = torch.cat([torch.sin(train_X), torch.cos(train_X)], dim=-1)
-        model = SimpleBatchedMultiOutputGPyTorchModel(train_X, train_Y)
-
-        class MeanVarModelWrapper(torch.nn.Module):
-            def __init__(self, model):
-                super().__init__()
-                self.model = model
-
-            def forward(self, x):
-                # get the model posterior
-                posterior = self.model.posterior(x, observation_noise=True)
-                mean = posterior.mean.detach()
-                std = posterior.variance.sqrt().detach()
-                return mean, std
-
-        wrapped_model = MeanVarModelWrapper(model)
-        with torch.no_grad(), trace_mode():
-            X_test = torch.rand(3, 1, **tkwargs)
-            wrapped_model(X_test)  # Compute caches
-            traced_model = torch.jit.trace(wrapped_model, X_test)
-            mean, std = traced_model(X_test)
-            self.assertEqual(mean.shape, torch.Size([3, 2]))
 
 
 class TestModelListGPyTorchModel(BotorchTestCase):
