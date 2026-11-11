@@ -158,13 +158,14 @@ def check_min_max_scaling(
     """
     ignore_dims = ignore_dims or []
     check_dims = list(set(range(X.shape[-1])) - set(ignore_dims))
-    if len(check_dims) == 0:
+    if len(check_dims) == 0 or X.numel() == 0:
         return None
 
     with torch.no_grad():
         X_check = X[..., check_dims]
-        Xmin = torch.min(X_check, dim=-1).values
-        Xmax = torch.max(X_check, dim=-1).values
+        # min / max of each feature across the ``n`` data points
+        Xmin = torch.min(X_check, dim=-2).values
+        Xmax = torch.max(X_check, dim=-2).values
         msg = None
         if strict and max(torch.abs(Xmin).max(), torch.abs(Xmax - 1).max()) > atol:
             msg = "scaled"
