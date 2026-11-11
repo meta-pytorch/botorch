@@ -606,9 +606,9 @@ def _split_hvkg_fantasy_points(
     # X_fantasies is b x n_f * num_pareto x d, needs to be n_f x b x num_pareto x d
     # reshape into num_fantasies x b x num_pareto x d
     new_shape = torch.Size(
-        [n_f, *X_fantasies.shape[:-2], num_pareto, X_fantasies.shape[-1]]
+        [*X_fantasies.shape[:-2], n_f, num_pareto, X_fantasies.shape[-1]]
     )
-    X_fantasies = X_fantasies.reshape(new_shape)
+    X_fantasies = X_fantasies.reshape(new_shape).movedim(-3, 0)
     # n_f x b x num_pareto x d
     return X_actual, X_fantasies
 
