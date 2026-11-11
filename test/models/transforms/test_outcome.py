@@ -664,6 +664,35 @@ class TestOutcomeTransforms(BotorchTestCase):
         ms = (1, 2)
         batch_shapes = (torch.Size(), torch.Size([2]))
         dtypes = (torch.float, torch.double)
+        for dtype, means, variances, expected in (
+            (
+                torch.float,
+                [1e-10, 1e20, 1e-25],
+                [1e-22, 1e38, 1e-30],
+                [0.01, 0.01, 1e20],
+            ),
+            (
+                torch.double,
+                [1e-100, 1e160, 1e-200],
+                [1e-202, 1e308, 1e-200],
+                [0.01, 1e-12, 1e200],
+            ),
+        ):
+            with self.subTest(dtype=dtype):
+                Y = torch.tensor([means], device=self.device, dtype=dtype)
+                Yvar = torch.tensor([variances], device=self.device, dtype=dtype)
+                tf = Log()
+                Y_tf, Yvar_tf = tf(Y=Y, Yvar=Yvar)
+                self.assertAllClose(Y_tf, Y.log())
+                self.assertAllClose(
+                    Yvar_tf,
+                    torch.tensor([expected], device=self.device, dtype=dtype),
+                    atol=0,
+                    rtol=1e-6,
+                )
+                Y_utf, Yvar_utf = tf.untransform(Y=Y_tf, Yvar=Yvar_tf)
+                self.assertAllClose(Y_utf, Y, atol=0, rtol=1e-5)
+                self.assertAllClose(Yvar_utf, Yvar, atol=0, rtol=1e-5)
 
         # test transform and untransform
         for m, batch_shape, dtype in itertools.product(ms, batch_shapes, dtypes):
