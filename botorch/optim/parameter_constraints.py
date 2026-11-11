@@ -94,7 +94,7 @@ def make_scipy_bounds(
             ebounds = torch.full_like(X, float("-inf" if lower else "inf"))
         else:
             if not torch.is_tensor(bounds):
-                bounds = torch.tensor(bounds)
+                bounds = torch.tensor(bounds, dtype=torch.double, device="cpu")
             ebounds = bounds.expand_as(X)
         return _arrayify(ebounds).flatten()
 
