@@ -100,7 +100,7 @@ class TestInputDataChecks(BotorchTestCase):
         with self.assertRaises(InputDataError):
             check_min_max_scaling(X=X, strict=True, raise_on_fail=True)
         # check proper input
-        Xmin, Xmax = X.min(dim=-1, keepdim=True)[0], X.max(dim=-1, keepdim=True)[0]
+        Xmin, Xmax = X.min(dim=-2, keepdim=True)[0], X.max(dim=-2, keepdim=True)[0]
         Xstd = (X - Xmin) / (Xmax - Xmin)
         with warnings.catch_warnings(record=True) as ws:
             check_min_max_scaling(X=Xstd)
@@ -110,6 +110,13 @@ class TestInputDataChecks(BotorchTestCase):
             check_min_max_scaling(X=Xstd, strict=True)
         self.assertFalse(any(issubclass(w.category, InputDataWarning) for w in ws))
         check_min_max_scaling(X=Xstd, strict=True, raise_on_fail=True)
+        # each feature spans [0, 1] across the data points, but no row does
+        X_cols = torch.tensor([[0.0, 0.0], [0.5, 1.0], [1.0, 0.5]])
+        check_min_max_scaling(X=X_cols, strict=True, raise_on_fail=True)
+        # each row spans [0, 1], but the last feature does not
+        X_rows = torch.tensor([[0.0, 1.0, 0.5], [1.0, 0.0, 0.5]])
+        with self.assertRaisesRegex(InputDataError, "not scaled"):
+            check_min_max_scaling(X=X_rows, strict=True, raise_on_fail=True)
         # check violation
         X[0, 0, 0] = 2
         with warnings.catch_warnings(record=True) as ws:
@@ -132,6 +139,17 @@ class TestInputDataChecks(BotorchTestCase):
         with warnings.catch_warnings(record=True) as ws:
             check_min_max_scaling(X=X, ignore_dims=[0, 1, 2])
         self.assertFalse(any(issubclass(w.category, InputDataWarning) for w in ws))
+
+    def test_check_min_max_scaling_empty(self):
+        for shape in ((0, 3), (2, 0, 3)):
+            X = torch.empty(shape, device=self.device)
+            for strict in (False, True):
+                with self.subTest(shape=shape, strict=strict):
+                    with warnings.catch_warnings(record=True) as ws:
+                        warnings.simplefilter("always", InputDataWarning)
+                        check_min_max_scaling(X=X, strict=strict)
+                        check_min_max_scaling(X=X, strict=strict, raise_on_fail=True)
+                    self.assertFalse(ws)
 
     def test_check_standardization(self):
         # Ensure that it is not filtered out.

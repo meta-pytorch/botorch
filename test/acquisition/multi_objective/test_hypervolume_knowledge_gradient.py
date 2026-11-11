@@ -612,11 +612,16 @@ class TestHypervolumeKnowledgeGradient(BotorchTestCase):
                 X=X, n_f=n_f, num_pareto=num_pareto
             )
             self.assertTrue(torch.equal(X_actual, X[..., :q, :]))
-            self.assertTrue(
-                torch.equal(
-                    X_fant, X[..., q:, :].reshape(n_f, *batch_shape, num_pareto, d)
-                )
+            self.assertEqual(
+                X_fant.shape, torch.Size([n_f, *batch_shape, num_pareto, d])
             )
+            for i in range(n_f):
+                self.assertTrue(
+                    torch.equal(
+                        X_fant[i],
+                        X[..., q + i * num_pareto : q + (i + 1) * num_pareto, :],
+                    )
+                )
         # test two many fantasies
         X = torch.rand(10, d, device=self.device)
         n_f = 100
