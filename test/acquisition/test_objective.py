@@ -423,6 +423,32 @@ class TestConstrainedMCObjective(BotorchTestCase):
             )
             self.assertTrue(torch.equal(obj(samples), constrained_obj))
 
+    def test_infeasible_cost_scalar_precision(self):
+        # A Python-float infeasible_cost and a double-Tensor infeasible_cost
+        # must agree; the scalar used to be rounded through the default dtype.
+        previous_dtype = torch.get_default_dtype()
+        try:
+            torch.set_default_dtype(torch.float)
+            cost = 1e8 + 0.5
+            obj_scalar = ConstrainedMCObjective(
+                objective=generic_obj, constraints=[feasible_con], infeasible_cost=cost
+            )
+            obj_tensor = ConstrainedMCObjective(
+                objective=generic_obj,
+                constraints=[feasible_con],
+                infeasible_cost=torch.tensor(cost, dtype=torch.double),
+            )
+            samples = torch.randn(2, device=self.device, dtype=torch.double)
+            self.assertTrue(torch.equal(obj_scalar(samples), obj_tensor(samples)))
+            self.assertEqual(
+                obj_scalar.infeasible_cost.item(), obj_tensor.infeasible_cost.item()
+            )
+            # float32 samples keep their output dtype
+            samples32 = torch.randn(2, device=self.device, dtype=torch.float)
+            self.assertEqual(obj_scalar(samples32).dtype, torch.float)
+        finally:
+            torch.set_default_dtype(previous_dtype)
+
 
 class TestIdentityMCObjective(BotorchTestCase):
     def test_identity_mc_objective(self):

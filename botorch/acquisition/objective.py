@@ -457,7 +457,9 @@ class ConstrainedMCObjective(GenericMCObjective):
         if not isinstance(eta, Tensor):
             eta = torch.full((len(constraints),), eta)
         self.register_buffer("eta", eta)
-        self.register_buffer("infeasible_cost", torch.as_tensor(infeasible_cost))
+        self.register_buffer(
+            "infeasible_cost", torch.as_tensor(infeasible_cost, dtype=torch.double)
+        )
 
     def forward(self, samples: Tensor, X: Tensor | None = None) -> Tensor:
         r"""Evaluate the feasibility-weighted objective on the samples.
@@ -477,7 +479,7 @@ class ConstrainedMCObjective(GenericMCObjective):
             obj=obj,
             constraints=self.constraints,
             samples=samples,
-            infeasible_cost=self.infeasible_cost,
+            infeasible_cost=self.infeasible_cost.to(obj),
             eta=self.eta,
         )
 
