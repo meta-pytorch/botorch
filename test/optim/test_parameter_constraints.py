@@ -30,7 +30,7 @@ from botorch.optim.parameter_constraints import (
 )
 from botorch.utils.testing import BotorchTestCase
 from scipy import sparse
-from scipy.optimize import Bounds, LinearConstraint, OptimizeWarning
+from scipy.optimize import Bounds, LinearConstraint, minimize, OptimizeWarning
 from scipy.optimize._minimize import standardize_constraints
 
 
@@ -811,6 +811,64 @@ class TestParameterConstraints(BotorchTestCase):
 
 
 class TestMakeScipyBounds(BotorchTestCase):
+    def test_make_scipy_bounds_default_device(self) -> None:
+        X = torch.zeros(3, 1, 2, dtype=torch.double, device="cpu")
+        lower_tensor = torch.tensor([0.1, 0.2], dtype=torch.float, device="cpu")
+        upper_tensor = torch.tensor([0.3, 0.4], dtype=torch.float, device="cpu")
+        with torch.device("meta"):
+            for lower, upper in [(0.1, 0.2), (None, 0.2), (0.1, None)]:
+                bounds = make_scipy_bounds(X, lower, upper)
+                np.testing.assert_array_equal(
+                    bounds.lb,
+                    np.full(X.numel(), -np.inf if lower is None else lower),
+                )
+                np.testing.assert_array_equal(
+                    bounds.ub,
+                    np.full(X.numel(), np.inf if upper is None else upper),
+                )
+            tensor_bounds = make_scipy_bounds(X, lower_tensor, upper_tensor)
+
+        np.testing.assert_array_equal(
+            tensor_bounds.lb, np.tile(lower_tensor.numpy().astype(np.float64), 3)
+        )
+        np.testing.assert_array_equal(
+            tensor_bounds.ub, np.tile(upper_tensor.numpy().astype(np.float64), 3)
+        )
+
+    def test_make_scipy_bounds_scalar_precision(self) -> None:
+        default_dtype = torch.get_default_dtype()
+        try:
+            for dtype, (lower, upper) in product(
+                (torch.float, torch.double),
+                [
+                    (0.1, 0.2),
+                    (100000001.0, 100000002.0),
+                    (-100000002.0, -100000001.0),
+                ],
+            ):
+                torch.set_default_dtype(dtype)
+                X = torch.zeros(3, 1, 2, dtype=torch.double, device=self.device)
+                bounds = make_scipy_bounds(X, lower, upper)
+                np.testing.assert_array_equal(bounds.lb, np.full(X.numel(), lower))
+                np.testing.assert_array_equal(bounds.ub, np.full(X.numel(), upper))
+        finally:
+            torch.set_default_dtype(default_dtype)
+
+    def test_make_scipy_bounds_scalar_minimize(self) -> None:
+        lower, upper = 100000001.0, 100000002.0
+        target = (lower + upper) / 2
+        X = torch.full((1, 1), target, dtype=torch.double, device=self.device)
+        bounds = make_scipy_bounds(X, lower, upper)
+        result = minimize(
+            fun=lambda x: np.square(x - target).sum(),
+            x0=np.array([target]),
+            jac=lambda x: 2 * (x - target),
+            bounds=bounds,
+            method="L-BFGS-B",
+        )
+        self.assertTrue(result.success)
+        np.testing.assert_array_equal(result.x, [target])
+
     def test_make_scipy_bounds(self):
         X = torch.zeros(3, 1, 2)
         # both None
