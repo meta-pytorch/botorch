@@ -29,6 +29,7 @@ from botorch.optim.parameter_constraints import (
     evaluate_feasibility,
     make_scipy_bounds,
     make_scipy_linear_constraints,
+    make_scipy_nonlinear_equality_constraints,
     make_scipy_nonlinear_inequality_constraints,
     project_to_equality_constraints,
 )
@@ -68,6 +69,7 @@ def gen_candidates_scipy(
     inequality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
     equality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
     nonlinear_inequality_constraints: list[tuple[Callable, bool]] | None = None,
+    nonlinear_equality_constraints: list[tuple[Callable, bool]] | None = None,
     options: dict[str, Any] | None = None,
     fixed_features: Mapping[int, float | Tensor] | None = None,
     timeout_sec: float | None = None,
@@ -94,6 +96,11 @@ def gen_candidates_scipy(
         equality constraints: A list of tuples (indices, coefficients, rhs),
             with each tuple encoding an inequality constraint of the form
             ``\sum_i (X[indices[i]] * coefficients[i]) = rhs``.
+        nonlinear_equality_constraints: A list of tuples representing the nonlinear
+            equality constraints. The first element in the tuple is a callable
+            representing a constraint of the form ``callable(x) == 0``; the second
+            is a boolean indicating an intra-point (``True``) or inter-point
+            (``False``) constraint, as for ``nonlinear_inequality_constraints``.
         nonlinear_inequality_constraints: A list of tuples representing the nonlinear
             inequality constraints. The first element in the tuple is a callable
             representing a constraint of the form ``callable(x) >= 0``. In case of an
@@ -193,6 +200,7 @@ def gen_candidates_scipy(
 
     is_constrained = (
         nonlinear_inequality_constraints
+        or nonlinear_equality_constraints
         or equality_constraints
         or inequality_constraints
     )
@@ -312,6 +320,7 @@ def gen_candidates_scipy(
                 inequality_constraints=inequality_constraints,
                 equality_constraints=equality_constraints,
                 nonlinear_inequality_constraints=nonlinear_inequality_constraints,
+                nonlinear_equality_constraints=nonlinear_equality_constraints,
             )
             bounds = make_scipy_bounds(
                 X=candidates_,
@@ -377,6 +386,24 @@ def gen_candidates_scipy(
                     validate_feasibility=False,
                 )
 
+            if _no_fixed_features.nonlinear_equality_constraints:
+                # Make sure ``batch_limit`` is 1 for now.
+                if not (len(candidates_.shape) == 3 and candidates_.shape[0] == 1):
+                    raise ValueError(
+                        "`batch_limit` must be 1 when non-linear equality "
+                        "constraints are given."
+                    )
+                # See the comment in the inequality branch above: these callables
+                # have already been transformed to operate on the reduced (unfixed)
+                # variable, so ``fixed_features`` must not be re-applied here.
+                constraints += make_scipy_nonlinear_equality_constraints(
+                    nonlinear_equality_constraints=(
+                        _no_fixed_features.nonlinear_equality_constraints
+                    ),
+                    f_np_wrapper=partial(f_np_wrapper, fixed_features=None),
+                    shapeX=candidates_.shape,
+                )
+
             x0 = _arrayify(x0)
 
             res = minimize_with_timeout(
@@ -413,10 +440,11 @@ def gen_candidates_scipy(
     )
     clamped_candidates = clamped_candidates.reshape(original_initial_conditions_shape)
 
-    if nonlinear_inequality_constraints:
+    if nonlinear_inequality_constraints or nonlinear_equality_constraints:
         is_feasible = evaluate_feasibility(
             X=clamped_candidates,
             nonlinear_inequality_constraints=nonlinear_inequality_constraints,
+            nonlinear_equality_constraints=nonlinear_equality_constraints,
         )
         if not is_feasible.all():
             warnings.warn(

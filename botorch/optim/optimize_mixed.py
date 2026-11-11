@@ -200,6 +200,7 @@ def _filter_infeasible(
         inequality_constraints=inequality_constraints,
         equality_constraints=equality_constraints,
         nonlinear_inequality_constraints=None,
+        nonlinear_equality_constraints=None,
     )
     return X[is_feasible]
 
@@ -1075,6 +1076,7 @@ def optimize_acqf_mixed_alternating(
         inequality_constraints=inequality_constraints,
         equality_constraints=equality_constraints,
         nonlinear_inequality_constraints=None,
+        nonlinear_equality_constraints=None,
         fixed_features=fixed_features,
         post_processing_func=post_processing_func,
         batch_initial_conditions=None,

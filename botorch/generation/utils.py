@@ -67,6 +67,7 @@ class _NoFixedFeatures:
     inequality_constraints: list[tuple[Tensor, Tensor, float]] | None
     equality_constraints: list[tuple[Tensor, Tensor, float]] | None
     nonlinear_inequality_constraints: list[Callable[[Tensor], Tensor]] | None
+    nonlinear_equality_constraints: list[Callable[[Tensor], Tensor]] | None
 
 
 def _remove_fixed_features_from_optimization(
@@ -79,6 +80,7 @@ def _remove_fixed_features_from_optimization(
     inequality_constraints: list[tuple[Tensor, Tensor, float]] | None,
     equality_constraints: list[tuple[Tensor, Tensor, float]] | None,
     nonlinear_inequality_constraints: list[Callable[[Tensor], Tensor]] | None,
+    nonlinear_equality_constraints: list[Callable[[Tensor], Tensor]] | None = None,
 ) -> _NoFixedFeatures:
     """
     Given a set of non-empty fixed features, this function effectively reduces the
@@ -103,6 +105,9 @@ def _remove_fixed_features_from_optimization(
         equality_constraints: A list of tuples (indices, coefficients, rhs),
             with each tuple encoding an inequality constraint of the form
             ``sum_i (X[indices[i]] * coefficients[i]) = rhs``.
+        nonlinear_equality_constraints: A list of callables that represent
+            non-linear equality constraints of the form ``callable(x) == 0``, with
+            the same signature as ``nonlinear_inequality_constraints``.
         nonlinear_inequality_constraints: A list of callables that represent
             non-linear inequality constraints of the form ``callable(x) >= 0``. Each
             callable is expected to take a ``(num_restarts) x q x d``-dim tensor as
@@ -121,6 +126,7 @@ def _remove_fixed_features_from_optimization(
             inequality_constraints=inequality_constraints,
             equality_constraints=equality_constraints,
             nonlinear_inequality_constraints=nonlinear_inequality_constraints,
+            nonlinear_equality_constraints=nonlinear_equality_constraints,
         )
     # sort the keys for consistency
     sorted_keys = sorted(fixed_features)
@@ -157,6 +163,11 @@ def _remove_fixed_features_from_optimization(
         dimension=d,
         eq=True,
     )
+    nonlinear_equality_constraints = _generate_unfixed_nonlin_constraints(
+        constraints=nonlinear_equality_constraints,
+        fixed_features=fixed_features,
+        dimension=d,
+    )
     nonlinear_inequality_constraints = _generate_unfixed_nonlin_constraints(
         constraints=nonlinear_inequality_constraints,
         fixed_features=fixed_features,
@@ -170,4 +181,5 @@ def _remove_fixed_features_from_optimization(
         inequality_constraints=inequality_constraints,
         equality_constraints=equality_constraints,
         nonlinear_inequality_constraints=nonlinear_inequality_constraints,
+        nonlinear_equality_constraints=nonlinear_equality_constraints,
     )
