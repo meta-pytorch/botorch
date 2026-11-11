@@ -603,11 +603,12 @@ def _split_hvkg_fantasy_points(
         )
     split_sizes = [X.size(-2) - n_f * num_pareto, n_f * num_pareto]
     X_actual, X_fantasies = torch.split(X, split_sizes, dim=-2)
-    # X_fantasies is b x n_f * num_pareto x d, needs to be n_f x b x num_pareto x d.
-    # The i-th block of num_pareto points of each t-batch belongs to the i-th
-    # fantasy: unflatten into b x n_f x num_pareto x d, then move the fantasy
-    # dimension to the front (a plain reshape would mix the t-batches).
-    X_fantasies = X_fantasies.unflatten(-2, (n_f, num_pareto)).movedim(-3, 0)
+    # X_fantasies is b x n_f * num_pareto x d, needs to be n_f x b x num_pareto x d
+    # reshape into num_fantasies x b x num_pareto x d
+    new_shape = torch.Size(
+        [*X_fantasies.shape[:-2], n_f, num_pareto, X_fantasies.shape[-1]]
+    )
+    X_fantasies = X_fantasies.reshape(new_shape).movedim(-3, 0)
     # n_f x b x num_pareto x d
     return X_actual, X_fantasies
 

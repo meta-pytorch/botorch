@@ -569,12 +569,12 @@ class TestHypervolumeKnowledgeGradient(BotorchTestCase):
             self.assertEqual(
                 X_fant.shape, torch.Size([n_f, *batch_shape, num_pareto, d])
             )
-            # the i-th block of `num_pareto` points of each t-batch contains the
-            # designs of the i-th fantasy model of that t-batch
             for i in range(n_f):
-                start = q + i * num_pareto
                 self.assertTrue(
-                    torch.equal(X_fant[i], X[..., start : start + num_pareto, :])
+                    torch.equal(
+                        X_fant[i],
+                        X[..., q + i * num_pareto : q + (i + 1) * num_pareto, :],
+                    )
                 )
         # test two many fantasies
         X = torch.rand(10, d, device=self.device)
