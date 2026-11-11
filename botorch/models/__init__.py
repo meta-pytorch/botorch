@@ -57,6 +57,9 @@ if TYPE_CHECKING:
         PairwiseGP,
         PairwiseLaplaceMarginalLogLikelihood,
     )
+    from botorch.models.robust_relevance_pursuit_model import (  # noqa: F401
+        RobustRelevancePursuitSingleTaskGP,
+    )
 
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "ApproximateGPyTorchModel": (".approximate_gp", "ApproximateGPyTorchModel"),
@@ -101,6 +104,10 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "PairwiseLaplaceMarginalLogLikelihood": (
         ".pairwise_gp",
         "PairwiseLaplaceMarginalLogLikelihood",
+    ),
+    "RobustRelevancePursuitSingleTaskGP": (
+        ".robust_relevance_pursuit_model",
+        "RobustRelevancePursuitSingleTaskGP",
     ),
 }
 
