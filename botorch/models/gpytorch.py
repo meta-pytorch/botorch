@@ -585,22 +585,17 @@ class BatchedMultiOutputGPyTorchModel(GPyTorchModel):
             mvn = self(X)
             mvn = self._apply_noise(X=X, mvn=mvn, observation_noise=observation_noise)
             if self._num_outputs > 1:
-                if torch.jit.is_tracing():
-                    mvn = MultitaskMultivariateNormal.from_batch_mvn(
-                        mvn, task_dim=output_dim_idx
+                mean_x = mvn.mean
+                covar_x = mvn.lazy_covariance_matrix
+                output_indices = output_indices or range(self._num_outputs)
+                mvns = [
+                    MultivariateNormal(
+                        mean_x.select(dim=output_dim_idx, index=t),
+                        covar_x[(slice(None),) * output_dim_idx + (t,)],
                     )
-                else:
-                    mean_x = mvn.mean
-                    covar_x = mvn.lazy_covariance_matrix
-                    output_indices = output_indices or range(self._num_outputs)
-                    mvns = [
-                        MultivariateNormal(
-                            mean_x.select(dim=output_dim_idx, index=t),
-                            covar_x[(slice(None),) * output_dim_idx + (t,)],
-                        )
-                        for t in output_indices
-                    ]
-                    mvn = MultitaskMultivariateNormal.from_independent_mvns(mvns=mvns)
+                    for t in output_indices
+                ]
+                mvn = MultitaskMultivariateNormal.from_independent_mvns(mvns=mvns)
 
         posterior = GPyTorchPosterior(distribution=mvn)
         if hasattr(self, "outcome_transform"):
