@@ -149,6 +149,12 @@ class BatchedNDarrayOptimizationClosure:
 
     This enables independent optimization of each batch element (e.g., each
     output of a ``BatchedMultiOutputGPyTorchModel``) using batched L-BFGS-B.
+
+    If the batched evaluation fails with a numerical error (e.g., a ``NanError``
+    caused by the NaN covariance of a single batch element), the requested batch
+    elements are evaluated one at a time, with the other elements set to values
+    at which they were evaluated successfully. Only the elements that fail on
+    their own get NaN values and gradients, as in ``NdarrayOptimizationClosure``.
     """
 
     def __init__(
@@ -180,6 +186,10 @@ class BatchedNDarrayOptimizationClosure:
             trailing_numel = max(int(torch.Size(trailing).numel()), 1)
             self._trailing_sizes[name] = trailing_numel
             self._per_element_size += trailing_numel
+
+        # The last state at which all batch elements were evaluated without a
+        # numerical error. Used to evaluate the elements one at a time.
+        self._finite_state: npt.NDArray | None = None
 
     @property
     def state(self) -> npt.NDArray:
@@ -232,49 +242,105 @@ class BatchedNDarrayOptimizationClosure:
         Returns:
             A tuple ``(values, grads)`` where ``values`` has shape
             ``(active_batch_size,)`` and ``grads`` has shape
-            ``(active_batch_size, per_element_size)``.
+            ``(active_batch_size, per_element_size)``. Elements that fail with
+            a numerical error get NaN values and gradients. After such a
+            failure, the parameters of the elements not in ``batch_indices``
+            are set to the last values (if any) at which they were evaluated
+            successfully.
         """
-        if state is not None:
-            if batch_indices is not None:
+        if state is None:
+            full_state = self.state
+        else:
+            if batch_indices is None:
+                full_state = np.array(state, dtype=np_float64)
+            else:
                 # Update only active batch elements
                 full_state = self.state
                 full_state[batch_indices] = state
-                self.state = full_state
-            else:
-                self.state = state
+            self.state = full_state
 
         try:
-            with zero_grad_ctx(parameters=self.parameters):
-                per_batch_values = self.forward(**kwargs)
-                scalar = per_batch_values.sum()
-                scalar.backward()
-
-                values = as_ndarray(
-                    per_batch_values.detach().reshape(self.batch_size),
-                    dtype=np_float64,
-                )
-
-                grads = np.zeros(
-                    (self.batch_size, self._per_element_size), dtype=np_float64
-                )
-                index = 0
-                for name, param in self.parameters.items():
-                    size = self._trailing_sizes[name]
-                    if param.grad is not None:
-                        grads[:, index : index + size] = as_ndarray(
-                            param.grad.reshape(self.batch_size, size),
-                            dtype=np_float64,
-                        )
-                    index += size
+            values, grads = self._evaluate(**kwargs)
         except RuntimeError as e:
-            value, grad_flat = _handle_numerical_errors(
-                e, x=self.state.ravel(), dtype=np_float64
+            # Re-raises errors that are not numerical, e.g. ``NotPSDError``.
+            _handle_numerical_errors(e, x=full_state, dtype=np_float64)
+            indices = (
+                np.arange(self.batch_size) if batch_indices is None else batch_indices
             )
-            values = np.full(self.batch_size, value / self.batch_size, dtype=np_float64)
-            grads = np.zeros(
-                (self.batch_size, self._per_element_size), dtype=np_float64
+            values, grads = self._evaluate_elementwise(
+                full_state=full_state, indices=indices, **kwargs
             )
+        else:
+            self._finite_state = full_state
 
         if batch_indices is not None:
             return values[batch_indices], grads[batch_indices]
+        return values, grads
+
+    def _evaluate(self, **kwargs: Any) -> tuple[npt.NDArray, npt.NDArray]:
+        """Evaluate all batch elements at the current state."""
+        with zero_grad_ctx(parameters=self.parameters):
+            per_batch_values = self.forward(**kwargs)
+            scalar = per_batch_values.sum()
+            scalar.backward()
+
+            values = as_ndarray(
+                per_batch_values.detach().reshape(self.batch_size),
+                dtype=np_float64,
+            )
+
+            grads = np.zeros(
+                (self.batch_size, self._per_element_size), dtype=np_float64
+            )
+            index = 0
+            for name, param in self.parameters.items():
+                size = self._trailing_sizes[name]
+                if param.grad is not None:
+                    grads[:, index : index + size] = as_ndarray(
+                        param.grad.reshape(self.batch_size, size),
+                        dtype=np_float64,
+                    )
+                index += size
+        return values, grads
+
+    def _evaluate_elementwise(
+        self, full_state: npt.NDArray, indices: npt.NDArray, **kwargs: Any
+    ) -> tuple[npt.NDArray, npt.NDArray]:
+        """Evaluate the batch elements in ``indices`` one at a time.
+
+        Batch element ``i`` is evaluated at ``full_state[i]``, with the other
+        elements set to values at which they were evaluated successfully (or,
+        before the first successful evaluation, to ``full_state[i]``). Since the
+        batch elements are independent, this gives the values and gradients of
+        element ``i`` even if other elements fail at ``full_state``.
+        """
+        values = np.full(self.batch_size, np.nan, dtype=np_float64)
+        grads = np.full(
+            (self.batch_size, self._per_element_size), np.nan, dtype=np_float64
+        )
+        finite_state = self._finite_state
+        for i in indices:
+            if finite_state is None:
+                probe = np.repeat(full_state[i : i + 1], self.batch_size, axis=0)
+            else:
+                probe = finite_state.copy()
+                probe[i] = full_state[i]
+            self.state = probe
+            try:
+                probe_values, probe_grads = self._evaluate(**kwargs)
+            except RuntimeError as e:
+                values[i], grads[i] = _handle_numerical_errors(
+                    e, x=full_state[i], dtype=np_float64
+                )
+            else:
+                values[i], grads[i] = probe_values[i], probe_grads[i]
+                finite_state = probe
+        self._finite_state = finite_state
+
+        # Restore the evaluated elements. Set the others to finite values, so that
+        # an element that stopped at a failing point does not make the following
+        # batched evaluations fail.
+        state = full_state if finite_state is None else finite_state.copy()
+        state[indices] = full_state[indices]
+        self.state = state
         return values, grads
