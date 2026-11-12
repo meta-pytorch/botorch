@@ -12,6 +12,82 @@ from botorch.utils.testing import BotorchTestCase
 
 
 class TestEnsemblePosterior(BotorchTestCase):
+    def test_batched_weighted_variance(self):
+        devices = [torch.device("cpu")]
+        if torch.cuda.is_available():
+            devices.append(torch.device("cuda"))
+        for device, dtype, batch_shape in itertools.product(
+            devices, (torch.float, torch.double), ((2,), (2, 3))
+        ):
+            with self.subTest(device=device, dtype=dtype, batch_shape=batch_shape):
+                values = torch.arange(
+                    torch.Size(batch_shape).numel() * 3 * 2,
+                    device=device,
+                    dtype=dtype,
+                ).reshape(*batch_shape, 3, 2, 1)
+                weights = values.new_tensor([3.0, 3.0, 0.0]).expand(*batch_shape, 3)
+                posterior = EnsemblePosterior(values, weights)
+                # Equal reliability weights on the first two members give
+                # their ordinary unbiased two-observation sample variance.
+                expected = values[..., :2, :, :].var(dim=-3)
+                self.assertAllClose(posterior.variance, expected)
+                self.assertTrue(torch.isfinite(posterior.variance).all())
+
+    def test_batched_weighted_variance_derivatives(self):
+        devices = [torch.device("cpu")]
+        if torch.cuda.is_available():
+            devices.append(torch.device("cuda"))
+        for device, dtype in itertools.product(devices, (torch.float, torch.double)):
+            with self.subTest(device=device, dtype=dtype):
+                values = (
+                    torch.linspace(-0.5, 1.2, 2 * 3 * 2 * 2, device=device, dtype=dtype)
+                    .reshape(2, 3, 2, 2)
+                    .requires_grad_()
+                )
+                weights = values.new_tensor(
+                    [[1.0, 2.0, 3.0], [4.0, 3.0, 2.0]], requires_grad=True
+                )
+                actual = EnsemblePosterior(values, weights).variance
+                # Independent pairwise-difference identity for reliability
+                # variance: sum_{i<j} wi*wj*(yi-yj)^2 / (2*sum_{i<j} wi*wj).
+                i, j = torch.triu_indices(3, 3, offset=1, device=device)
+                pair_weights = weights[..., i] * weights[..., j]
+                squared_differences = (
+                    values[..., i, :, :] - values[..., j, :, :]
+                ).square()
+                expected = (pair_weights[..., None, None] * squared_differences).sum(
+                    dim=-3
+                ) / (2 * pair_weights.sum(dim=-1))[..., None, None]
+                self.assertAllClose(actual, expected)
+                leaves = (values, weights)
+                gradients = torch.autograd.grad(
+                    actual.square().sum(), leaves, create_graph=True
+                )
+                expected_gradients = torch.autograd.grad(
+                    expected.square().sum(), leaves, create_graph=True
+                )
+                hessians = torch.autograd.grad(
+                    sum(g.square().sum() for g in gradients), leaves
+                )
+                expected_hessians = torch.autograd.grad(
+                    sum(g.square().sum() for g in expected_gradients), leaves
+                )
+                for observed, reference in zip(
+                    (*gradients, *hessians), (*expected_gradients, *expected_hessians)
+                ):
+                    self.assertAllClose(observed, reference)
+                if dtype == torch.double:
+
+                    def variance(v, w):
+                        return EnsemblePosterior(v, w).variance
+
+                    self.assertTrue(
+                        torch.autograd.gradcheck(variance, leaves, fast_mode=True)
+                    )
+                    self.assertTrue(
+                        torch.autograd.gradgradcheck(variance, leaves, fast_mode=True)
+                    )
+
     def test_EnsemblePosterior_invalid(self):
         for shape, dtype in itertools.product(
             ((5, 2), (5, 1)), (torch.float, torch.double)
