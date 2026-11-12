@@ -57,6 +57,49 @@ class NotSoAbstractOutcomeTransform(OutcomeTransform):
 
 
 class TestOutcomeTransforms(BotorchTestCase):
+    def test_standardize_constant_target_derivatives(self) -> None:
+        for device in ("cpu", "cuda") if torch.cuda.is_available() else ("cpu",):
+            Y = torch.tensor(
+                [[2.0, 0.0], [2.0, 1.0], [2.0, 3.0]],
+                dtype=torch.double,
+                device=device,
+                requires_grad=True,
+            )
+            transform = Standardize(m=2, min_stdv=1e-3).to(Y)
+            # A larger threshold keeps finite-difference perturbations in the
+            # constant-output branch. The other column exercises ordinary scaling.
+            self.assertTrue(torch.autograd.gradcheck(lambda y: transform(y)[0], (Y,)))
+            self.assertTrue(
+                torch.autograd.gradgradcheck(lambda y: transform(y)[0], (Y,))
+            )
+            transform = Standardize(m=2).to(Y)
+            loss = transform(Y)[0].square().sum()
+            grad = torch.autograd.grad(loss, Y, create_graph=True)[0]
+            hessian_row = torch.autograd.grad(grad[0, 0], Y)[0]
+            self.assertTrue(grad.isfinite().all())
+            expected = torch.zeros_like(Y)
+            expected[:, 0] = torch.tensor([4 / 3, -2 / 3, -2 / 3], device=device)
+            self.assertAllClose(hessian_row, expected)
+
+    def test_stratified_constant_target_derivatives(self) -> None:
+        X = torch.tensor([[0.0], [0.0], [1.0]], device=self.device)
+        Y = torch.tensor(
+            [[2.0], [2.0], [5.0]],
+            device=self.device,
+            dtype=torch.double,
+            requires_grad=True,
+        )
+
+        def transform(y):
+            return StratifiedStandardize(
+                stratification_idx=0,
+                all_task_values=torch.tensor([0, 1]),
+                min_stdv=1e-3,
+            ).to(y)(y, X=X.to(y))[0]
+
+        self.assertTrue(torch.autograd.gradcheck(transform, (Y,)))
+        self.assertTrue(torch.autograd.gradgradcheck(transform, (Y,)))
+
     def test_abstract_base_outcome_transform(self):
         with self.assertRaises(TypeError):
             OutcomeTransform()

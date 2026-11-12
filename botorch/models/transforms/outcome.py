@@ -29,7 +29,6 @@ from collections import OrderedDict
 
 import torch
 from botorch.models.transforms.utils import (
-    nanstd,
     norm_to_lognorm_mean,
     norm_to_lognorm_variance,
 )
@@ -288,6 +287,23 @@ class Standardize(OutcomeTransform):
         """
         return self.means, self.stdvs, self._stdvs_sq
 
+    def _get_stdvs(self, Y: Tensor, keepdim: bool = False) -> Tensor:
+        """Compute standard deviations with the constant-output fallback.
+
+        Clamp the variance before taking its square root: masking a zero
+        standard deviation afterwards still leaves a singular backward pass.
+        """
+        count = (~Y.isnan()).sum(dim=-2, keepdim=keepdim)
+        centered = (Y - Y.nanmean(dim=-2, keepdim=True)).nan_to_num(nan=0.0)
+        variance = centered.square().sum(dim=-2, keepdim=keepdim) / (
+            count - 1
+        ).clamp_min(1)
+        threshold = self._min_stdv**2
+        stdvs = variance.clamp_min(threshold).sqrt()
+        return torch.where(
+            (count > 1) & (variance >= threshold), stdvs, torch.ones_like(stdvs)
+        )
+
     def _validate_training_inputs(self, Y: Tensor, Yvar: Tensor | None = None) -> None:
         """Validate training inputs.
 
@@ -339,8 +355,7 @@ class Standardize(OutcomeTransform):
                     (*Y.shape[:-2], 1, Y.shape[-1]), dtype=Y.dtype, device=Y.device
                 )
             else:
-                stdvs = nanstd(X=Y, dim=-2, keepdim=True)
-            stdvs = stdvs.where(stdvs >= self._min_stdv, torch.full_like(stdvs, 1.0))
+                stdvs = self._get_stdvs(Y=Y, keepdim=True)
             means = Y.nanmean(dim=-2, keepdim=True)
             if self._outputs is not None:
                 unused = [i for i in range(self._m) if i not in self._outputs]
@@ -598,14 +613,7 @@ class StratifiedStandardize(Standardize):
                 mask = strata != s
                 Y_strata = Y.clone()
                 Y_strata[..., mask, :] = float("nan")
-                stdvs = (
-                    torch.ones_like(Y_strata)
-                    if Y.shape[-2] == 1
-                    else nanstd(X=Y_strata, dim=-2)
-                )
-                stdvs = stdvs.where(
-                    stdvs >= self._min_stdv, torch.full_like(stdvs, 1.0)
-                )
+                stdvs = self._get_stdvs(Y=Y_strata)
                 means = Y_strata.nanmean(dim=-2)
                 self.means[..., mapped_strata, :] = means
                 self.stdvs[..., mapped_strata, :] = stdvs
