@@ -1,0 +1,27 @@
+{
+  "note": "Formatting-only changes made after the evidence was generated, so that the files pass the repository's ufmt and flake8 checks. The evidence manifests (followup-file-hashes.json, fitted-gp-benchmark/protocol.json, validation/*-upstream-checks.json) record the sha256_before hashes.",
+  "tools": {
+    "ufmt": "2.9.1",
+    "usort": "1.1.0",
+    "ruff-api": "0.2.1",
+    "flake8": "7.0.0"
+  },
+  "files": [
+    {
+      "path": "botorch_community/utils/multi_objective/fpbi.py",
+      "sha256_before": "2296e1e87264431d52e712af82f6ef008d10935bd8147d11c5ee3b647b2697e4",
+      "sha256_after": "9f03992b67609ad0f50f6a0c2eb9eda7a96308db6507250b7663b5398db07189",
+      "change": "usort moved the botorch_community import into the sorted import block",
+      "ast_identical": false,
+      "ast_identical_up_to_import_order": true
+    },
+    {
+      "path": "notebooks_community/pareto_decision_making/experiments/benchmark_fpbi.py",
+      "sha256_before": "0333cc93992e4f5d945701af946c8e4db824ee1619f9505969006ef3389dd438",
+      "sha256_after": "3500935906e74c26c94101535b88ce2b53b3e13b3ff7fad545945d0f5f60f232",
+      "change": "ufmt joined an except clause; its explanatory comment moved to the next line (flake8 E501)",
+      "ast_identical": true,
+      "ast_identical_up_to_import_order": true
+    }
+  ]
+}

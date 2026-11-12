@@ -41,11 +41,10 @@ from typing import Any, Protocol
 
 import numpy as np
 import torch
+from botorch_community.utils.multi_objective.decision_making import _pareto, _validate_y
 from numpy.typing import NDArray
 from scipy.optimize import minimize
 from torch import Tensor
-
-from botorch_community.utils.multi_objective.decision_making import _pareto, _validate_y
 
 Objective = Callable[[Tensor], Tensor]
 

@@ -903,7 +903,9 @@ def aggregate_output_types(cell_outputs: list[NotebookNode]) -> CELL_OUTPUTS_TO_
         data = (
             cell_output["data"][prioritized_data_dtype]
             if "data" in cell_output
-            else cell_output["text"] if "text" in cell_output else cell_output["evalue"]
+            else cell_output["text"]
+            if "text" in cell_output
+            else cell_output["evalue"]
         )
         image_check = (
             prioritized_data_dtype.startswith("image")

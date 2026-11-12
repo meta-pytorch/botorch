@@ -217,6 +217,10 @@ See [previous-version comparison](evidence/selector-optimization/report.md),
 [original-prototype comparison](evidence/selector-optimization-vs-original/report.md),
 their raw repeats/protocols/source snapshots, and the
 [follow-up checksum index](evidence/followup-file-hashes.json).
+After the evidence was generated, `fpbi.py` and `benchmark_fpbi.py` were
+reformatted to pass the repository's lint checks (import order and line
+wrapping only); [post-evidence formatting](evidence/post-evidence-formatting.json)
+lists their hashes before and after.
 
 ## Applicable uses
 

@@ -800,9 +800,8 @@ def main() -> None:
                             warnings=measured["warnings"],
                         )
                     )
-                except (
-                    Exception
-                ) as error:  # noqa: BLE001 - retain each failure and continue.
+                except Exception as error:  # noqa: BLE001
+                    # Retain each failure and continue.
                     if isinstance(error, GenerationFailure):
                         row.update(
                             {
