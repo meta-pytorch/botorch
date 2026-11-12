@@ -152,12 +152,19 @@ def nanstd(X: Tensor, dim: int, keepdim: bool = False) -> Tensor:
         keepdim: If True, the dimension along which the standard deviation is
             compute is kept.
     """
-    n = (~torch.isnan(X)).sum(dim=dim, keepdim=keepdim)
-    return (
-        (X - X.nanmean(dim=dim, keepdim=True)).pow(2).nanmean(dim=dim, keepdim=keepdim)
-        * n
-        / (n - 1)
-    ).sqrt()
+    valid = ~torch.isnan(X)
+    safe = torch.where(valid, X, 0)
+    n = valid.sum(dim=dim, keepdim=True)
+    mean = safe.sum(dim=dim, keepdim=True) / n.clamp_min(1)
+    centered = torch.where(valid, safe - mean, 0)
+    variance = centered.square().sum(dim=dim, keepdim=True) / (n - 1).clamp_min(1)
+    # Mask before nonlinear arithmetic so a missing value cannot contaminate
+    # observed-coordinate derivatives. Select the zero subgradient for a
+    # constant slice without differentiating sqrt at zero.
+    positive = variance > 0
+    std = torch.where(positive, torch.where(positive, variance, 1).sqrt(), 0)
+    result = torch.where(n > 1, std, std.new_full((), float("nan")))
+    return result if keepdim else result.squeeze(dim)
 
 
 def kumaraswamy_warp(X: Tensor, c0: Tensor, c1: Tensor, eps: float = 1e-8) -> Tensor:
