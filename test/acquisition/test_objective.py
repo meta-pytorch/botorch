@@ -554,6 +554,20 @@ class TestLearnedObjective(BotorchTestCase):
             # The variance is large hence the loose atol.
             self.assertAllClose(avg_obj_val, flipped_avg_obj_val, atol=1e-2)
 
+        with self.subTest("Multi-dimensional sample shape"):
+            pref_obj = LearnedObjective(
+                pref_model=pref_model, sample_shape=torch.Size([2, 4]), seed=0
+            )
+            obj_val = pref_obj(test_X)
+            self.assertEqual(
+                obj_val.shape, torch.Size([2 * 4 * og_sample_shape, batch_size, q])
+            )
+            # the same base samples as with sample_shape=torch.Size([8])
+            flat_pref_obj = LearnedObjective(
+                pref_model=pref_model, sample_shape=torch.Size([8]), seed=0
+            )
+            self.assertAllClose(obj_val, flat_pref_obj(test_X))
+
         # test posterior mean
         with self.subTest("PosteriorMeanModel"):
             mean_pref_model = PosteriorMeanModel(model=pref_model)

@@ -574,4 +574,6 @@ class LearnedObjective(MCAcquisitionObjective):
         else:
             # return preference posterior augmented samples
             samples = self.sampler(posterior).squeeze(-1)
-            return samples.reshape(-1, *samples.shape[2:])  # batch_shape x N
+            # merge the preference-model sample dimensions with sample_size
+            num_sample_dims = len(self.sampler.sample_shape) + 1
+            return samples.reshape(-1, *samples.shape[num_sample_dims:])
