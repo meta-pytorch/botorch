@@ -8,6 +8,7 @@ from math import log
 
 import torch
 from botorch.utils.transforms import is_fully_bayesian
+from gpytorch.likelihoods import HadamardGaussianLikelihood
 from gpytorch.models.exact_gp import ExactGP
 
 MLL = "MLL"
@@ -36,7 +37,18 @@ def compute_in_sample_model_fit_metric(model: ExactGP, criterion: str) -> float:
         model.train()
     with torch.no_grad():
         output = model(*model.train_inputs)
-        output = model.likelihood(output)
+        likelihood_inputs = model.train_inputs
+        map_tasks = getattr(model, "_map_tasks", None)
+        if (
+            isinstance(model.likelihood, HadamardGaussianLikelihood)
+            and map_tasks is not None
+        ):
+            # MultiTaskGP.forward remaps task labels for its kernel/mean, but
+            # leaves train_inputs in their original labeling. The task-noise
+            # likelihood requires the same contiguous indices as the kernel.
+            task_values = model.train_inputs[0][..., model._task_feature].long()
+            likelihood_inputs = (map_tasks(task_values).unsqueeze(-1),)
+        output = model.likelihood(output, *likelihood_inputs)
         mll = output.log_prob(model.train_targets)
         # compute average MLL over MCMC samples if the model is fully bayesian
         mll_scalar = mll.mean().item()
