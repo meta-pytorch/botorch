@@ -190,7 +190,9 @@ class MVNXPB:
             Phi_i = Phi(ub) - Phi(lb)
             small = Phi_i <= i * eps
             y[..., i] = case_dispatcher(  # used to select next pivot
-                out=(phi(lb) - phi(ub)) / Phi_i,
+                # ``small`` entries are overwritten below. We divide them by one
+                # rather than by ``Phi_i``, which may be zero, to avoid NaN gradients.
+                out=(phi(lb) - phi(ub)) / torch.where(small, 1, Phi_i),
                 cases=(  # fallback cases for enhanced numerical stability
                     (
                         lambda small=small, lb=lb: small & (lb < -9),
@@ -228,10 +230,15 @@ class MVNXPB:
                 )
                 blk_corr = Lhh * Lih * istds.prod(-1)
                 blk_prob = bvn(blk_corr, *blk_lower, *blk_upper)
-                zh, zi = bvnmom(blk_corr, *blk_lower, *blk_upper, p=blk_prob)
+                # The moments are undefined if ``blk_prob = 0``. We pass ``p = 1`` for
+                # these entries (which are masked out below) since non-finite values
+                # would give NaN gradients even where they are masked out.
+                mask = blk_prob > 0
+                zh, zi = bvnmom(
+                    blk_corr, *blk_lower, *blk_upper, p=torch.where(mask, blk_prob, 1)
+                )
 
                 # Replace 1D expectations with 2D ones ``L[blk, blk]^{-1} y[..., blk]``
-                mask = blk_prob > 0
                 y[..., h] = torch.where(mask, zh, 0)
                 y[..., i] = torch.where(mask, inv_Lii * (std_i * zi - Lih * zh), 0)
 

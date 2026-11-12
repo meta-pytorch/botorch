@@ -209,9 +209,13 @@ def _bvnu_taylor(r: Tensor, h: Tensor, k: Tensor, num_points: int = 20) -> Tenso
     _a1 = c * (1 - d * b2) / 3.0
     _a2 = 1 - b2 * _a1
     abs_b = b.abs()
+    Phi_b = Phi(safe_div(-abs_b, a))
+    # ``exp(-skh / 2)`` can only overflow where ``Phi(-|b| / a)`` underflows to zero,
+    # where we mask ``skh`` to avoid NaN gradients (``0 * inf``).
+    exp_skh = safe_exp(-0.5 * torch.where(Phi_b > 0, skh, 0))
     analytic_part = torch.subtract(  # analytic part of solution
         a * (_a2 + comp_r2 * _a1 + c * d * comp_r2.square()) * safe_exp(_a0),
-        _sqrt_2pi * Phi(safe_div(-abs_b, a)) * abs_b * _a2 * safe_exp(-0.5 * skh),
+        _sqrt_2pi * Phi_b * abs_b * _a2 * exp_skh,
     )
 
     # Quadrature part
@@ -224,12 +228,14 @@ def _bvnu_taylor(r: Tensor, h: Tensor, k: Tensor, num_points: int = 20) -> Tenso
     _b2 = b2.unsqueeze(-1)
     _c = c.unsqueeze(-1)
     _d = d.unsqueeze(-1)
+    # Only evaluate the integrand where it is not negligible. Elsewhere, ``_t2`` can
+    # overflow (e.g. for ``|h|`` close to ``STANDARDIZED_RANGE``), so that zeroing out
+    # the integrand after the fact would give NaN gradients (``0 * inf``).
+    mask = _q2 > -100
+    _skh = torch.where(mask, _skh, 0)
     _t1 = 1 + _c * _q0 * (1 + 5 * _d * _q0)
     _t2 = safe_exp(-0.5 * _q0 / (1 + _q1).square() * _skh) / _q1
-    vals = safe_exp(_q2) * torch.subtract(_t1, _t2)
-    mask = _q2 > -100
-    if not mask.all():
-        vals[~mask] = 0
+    vals = torch.where(mask, safe_exp(_q2) * torch.subtract(_t1, _t2), 0)
     quadrature_part = -0.5 * a * (vals @ w)
 
     # Return ``P(x > h, y > k)``

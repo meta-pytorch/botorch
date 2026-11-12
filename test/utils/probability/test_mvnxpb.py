@@ -177,6 +177,24 @@ class TestMVNXPB(BotorchTestCase):
 
                 self.assertAllClose(est, prob, rtol=0, atol=atol)
 
+    def test_solve_gradients_zero_probability(self):
+        # Gradients must not be NaN if (conditional) probabilities underflow to zero.
+        cov = torch.tensor(
+            [[1.0, 0.3, 0.1], [0.3, 1.0, 0.2], [0.1, 0.2, 1.0]], **self.tkwargs
+        )
+        for upper in ([-40.0, -40.0, -40.0], [-40.0, 1.0, 0.5], [1.0, 0.5, -40.0]):
+            upper = torch.tensor(upper, **self.tkwargs)
+            bounds = torch.stack([torch.full_like(upper, -float("inf")), upper], -1)
+            _cov = cov.clone().requires_grad_(True)
+            bounds.requires_grad_(True)
+            log_prob = MVNXPB(_cov, bounds).solve()
+            self.assertTrue(log_prob.isfinite())
+            grad_cov, grad_bounds = torch.autograd.grad(log_prob, (_cov, bounds))
+            self.assertTrue(grad_cov.isfinite().all())
+            self.assertTrue(grad_bounds.isfinite().all())
+            # the probability of the first variable underflows
+            self.assertEqual(grad_bounds[upper == -40.0].abs().sum().item(), 0.0)
+
     def test_solve_batch(self):
         ndim = 3
         batch_shape = (3, 4)
