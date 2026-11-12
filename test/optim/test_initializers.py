@@ -10,6 +10,12 @@ from itertools import product
 from random import random
 from unittest import mock
 
+# ``botorch`` imports its submodules lazily. Import ``botorch.optim.optimize`` here,
+# before any test patches ``botorch.optim.initializers.gen_batch_initial_conditions``.
+# If its first import happened inside such a patch, ``botorch.optim.optimize`` would
+# keep the mock as its ``gen_batch_initial_conditions``, and later ``optimize_acqf``
+# calls in the same test session would use the mock to generate initial conditions.
+import botorch.optim.optimize
 import torch
 from botorch.acquisition.analytic import PosteriorMean
 from botorch.acquisition.fixed_feature import FixedFeatureAcquisitionFunction
@@ -1153,6 +1159,13 @@ class TestGenOneShotKGInitialConditions(BotorchTestCase):
                             )
                         )
                         self.assertTrue(torch.all(ics[..., -n_value:, :] == 1))
+        # The patches above must not leak into the default initial condition
+        # generator of ``optimize_acqf`` (see the import of ``botorch.optim.optimize``
+        # at the top of this file).
+        self.assertIs(
+            botorch.optim.optimize.gen_batch_initial_conditions,
+            gen_batch_initial_conditions,
+        )
 
 
 class TestGenOneShotHVKGInitialConditions(BotorchTestCase):
