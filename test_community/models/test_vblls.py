@@ -5,10 +5,14 @@
 # LICENSE file in the root directory of this source tree.
 
 import copy
+import itertools
 from unittest.mock import patch
 
 import numpy as np
 import torch
+from botorch.acquisition.monte_carlo import qSimpleRegret
+from botorch.acquisition.objective import ScalarizedPosteriorTransform
+from botorch.sampling.normal import SobolQMCNormalSampler
 from botorch.utils.testing import BotorchTestCase
 from botorch_community.models.blls import AbstractBLLModel
 from botorch_community.models.vblls import VBLLModel
@@ -180,6 +184,20 @@ class TestVBLLModel(BotorchTestCase):
         with self.assertRaises(ValueError):
             _ = VBLLModel(backbone=test_backbone, hidden_features=num_hidden)
 
+    def test_backbone_on_model_device(self) -> None:
+        # A provided backbone must be stored on the same device as the VBLL head.
+        # The meta device allows checking this without a GPU.
+        test_backbone = torch.nn.Sequential(
+            torch.nn.Linear(2, 3),
+            torch.nn.ReLU(),
+            torch.nn.Linear(3, 3),
+        ).to(dtype=torch.float64)
+        device = torch.device("meta")
+        model = VBLLModel(backbone=test_backbone, hidden_features=3, device=device)
+        self.assertEqual(model.device, device)
+        for name, param in model.model.named_parameters():
+            self.assertEqual(param.device, device, f"{name} is on {param.device}.")
+
     def test_training(self) -> None:
         d, num_hidden = 4, 4
         # test for all parameterizations of the VBLL head
@@ -232,6 +250,38 @@ class TestVBLLModel(BotorchTestCase):
                         f"(Parameterization: {covar_type})",
                     )
 
+    def test_frozen_backbone_gradient_clipping(self) -> None:
+        d = 4
+        X, y = _reg_data_singletask(d)
+        model = VBLLModel(
+            in_features=d,
+            hidden_features=4,
+            out_features=1,
+            num_layers=1,
+            device=self.device,
+        )
+        # reference model whose backbone is excluded from autograd altogether
+        model_ref = copy.deepcopy(model)
+        for param in model_ref.backbone.parameters():
+            param.requires_grad_(False)
+        optim_settings = {
+            "num_epochs": 3,
+            "batch_size": 4,
+            "freeze_backbone": True,
+            "optimizer_class": torch.optim.SGD,
+            "lr": 0.1,
+            "clip_val": 0.1,
+        }
+        for m in (model, model_ref):
+            torch.manual_seed(0)  # identical minibatches
+            m.fit(X, y, optimization_settings=optim_settings)
+        # gradients of the frozen backbone must not affect the clipping of the
+        # head gradients, i.e., the head is trained exactly as in the reference
+        for param, param_ref in zip(
+            model.head.parameters(), model_ref.head.parameters()
+        ):
+            self.assertAllClose(param, param_ref)
+
     def test_early_stopping(self) -> None:
         d, num_hidden = 4, 4
         # test for all parameterizations of the VBLL head
@@ -270,6 +320,36 @@ class TestVBLLModel(BotorchTestCase):
                 msg_contained,
                 "Expected early stopping log message not found.",
             )
+
+    def test_early_stopping_restores_best_model(self) -> None:
+        d = 4
+        X, y = _reg_data_singletask(d)
+        model = VBLLModel(
+            in_features=d,
+            hidden_features=4,
+            out_features=1,
+            num_layers=1,
+            device=self.device,
+        )
+        # Gradient ascent increases the training loss in every epoch. Hence, the
+        # first epoch is the best one and early stopping has to restore the
+        # parameters obtained after the first epoch.
+        optim_settings = {
+            "optimizer_class": torch.optim.SGD,
+            "optimizer_kwargs": {"maximize": True},
+            "lr": 1e-2,
+            "batch_size": len(X),
+            "patience": 1,
+        }
+        model_one_epoch = copy.deepcopy(model)
+        model_one_epoch.fit(
+            X, y, optimization_settings={**optim_settings, "num_epochs": 1}
+        )
+        model.fit(X, y, optimization_settings={**optim_settings, "num_epochs": 5})
+        for param, param_one_epoch in zip(
+            model.model.parameters(), model_one_epoch.model.parameters()
+        ):
+            self.assertAllClose(param, param_one_epoch)
 
     def test_initialization_of_model_parameters(self) -> None:
         d, num_hidden = 4, 4
@@ -383,6 +463,63 @@ class TestVBLLModel(BotorchTestCase):
                     f"but got {y_hat.shape}.",
                 )
 
+    def test_sampling_with_batch_shapes(self) -> None:
+        d, num_hidden, n = 4, 5, 3
+        for out_features in (1, 2):
+            model = VBLLModel(
+                in_features=d,
+                hidden_features=num_hidden,
+                out_features=out_features,
+                num_layers=1,
+                device=self.device,
+            )
+            for batch_shape, sample_shape in itertools.product(
+                (torch.Size(), torch.Size([2])),
+                (torch.Size(), torch.Size([2]), torch.Size([2, 3])),
+            ):
+                X = torch.rand(
+                    batch_shape + torch.Size([n, d]),
+                    dtype=torch.float64,
+                    device=self.device,
+                )
+                sample_path = model.sample(sample_shape=sample_shape)
+                y_hat = sample_path(X)
+                self.assertEqual(
+                    y_hat.shape,
+                    sample_shape + batch_shape + torch.Size([n, out_features]),
+                )
+                # each sample is a linear model on the features of the backbone
+                params = sample_path.sampled_params.reshape(
+                    -1, out_features, num_hidden
+                )
+                y_hat = y_hat.reshape(-1, *batch_shape, n, out_features)
+                features = model.backbone(X)
+                for i in range(params.shape[0]):
+                    self.assertAllClose(y_hat[i], features @ params[i].T)
+
+    def test_rsample_batched(self) -> None:
+        d = 4
+        model = VBLLModel(
+            in_features=d,
+            hidden_features=4,
+            out_features=1,
+            num_layers=1,
+            device=self.device,
+        )
+        X = torch.rand(2, 3, d, dtype=torch.float64, device=self.device)
+        posterior = model.posterior(X)
+        sample_shape = torch.Size([5])
+        torch.manual_seed(0)
+        samples = posterior.rsample(sample_shape)
+        self.assertEqual(samples.shape, torch.Size([5, 2, 3, 1]))
+        self.assertEqual(samples.shape, posterior._extended_shape(sample_shape))
+        # the samples of each batch are evaluated at the inputs of that batch
+        for b in range(X.shape[0]):
+            torch.manual_seed(0)
+            self.assertAllClose(
+                samples[:, b], model.posterior(X[b]).rsample(sample_shape)
+            )
+
     def test_shape_of_forward(self) -> None:
         d = 4
         for out_features in (1, 2):
@@ -467,6 +604,129 @@ class TestVBLLModel(BotorchTestCase):
         with self.assertRaises(ValueError):
             _ = model.posterior(X)
 
+    def test_posterior_joint_covariance(self) -> None:
+        d, n = 2, 4
+        for covar_type, out_features in itertools.product(
+            ("diagonal", "dense", "lowrank", "dense_precision"), (1, 2)
+        ):
+            model = VBLLModel(
+                in_features=d,
+                hidden_features=5,
+                out_features=out_features,
+                num_layers=1,
+                parameterization=covar_type,
+                cov_rank=2 if covar_type == "lowrank" else None,
+                device=self.device,
+            )
+            X = torch.rand(2, n, d, dtype=torch.float64, device=self.device)
+            with torch.no_grad():
+                posterior = model.posterior(X)
+                features = model.backbone(X)
+                W = model.head.W()
+
+                def quad_form(b: torch.Tensor) -> torch.Tensor:
+                    # ``b^T S_k b`` for all outputs ``k``: ``... x hidden -> ... x m``
+                    return W.covariance_weighted_inner_prod(b.unsqueeze(-2)[..., None])
+
+                # Cov(f_k(x_i), f_k(x_j)) via the polarization identity
+                f_i, f_j = features.unsqueeze(-2), features.unsqueeze(-3)
+                covar_k = 0.25 * (quad_form(f_i + f_j) - quad_form(f_i - f_j))
+            # the outputs are independent: ``2 x (m * n) x (m * n)`` block diagonal
+            expected_covar = torch.stack(
+                [torch.block_diag(*blocks) for blocks in covar_k.permute(0, 3, 1, 2)]
+            )
+            self.assertFalse(getattr(posterior.distribution, "_interleaved", False))
+            self.assertAllClose(
+                posterior.distribution.covariance_matrix, expected_covar
+            )
+            self.assertAllClose(posterior.mean, features @ W.mean.T)
+            self.assertEqual(posterior.mean.shape, torch.Size([2, n, out_features]))
+            self.assertEqual(posterior.variance.shape, torch.Size([2, n, out_features]))
+            sample_shape = torch.Size([3])
+            self.assertEqual(
+                posterior.rsample(sample_shape).shape,
+                posterior._extended_shape(sample_shape),
+            )
+
+    def test_posterior_samples_at_repeated_points(self) -> None:
+        # The joint posterior has to capture the correlation across points, e.g.,
+        # the MC samples used by acquisition functions coincide at repeated points.
+        model = VBLLModel(
+            in_features=2, hidden_features=8, num_layers=1, device=self.device
+        )
+        x = torch.rand(1, 1, 2, dtype=torch.float64, device=self.device)
+        with torch.no_grad():
+            posterior = model.posterior(torch.cat([x, x], dim=-2))
+            samples = SobolQMCNormalSampler(torch.Size([256]), seed=0)(posterior)
+        self.assertAllClose(samples[..., 0, :], samples[..., 1, :], atol=1e-3, rtol=0)
+        # consequently, MC acquisition values do not change for repeated points
+        acqf = qSimpleRegret(
+            model, sampler=SobolQMCNormalSampler(torch.Size([256]), seed=0)
+        )
+        with torch.no_grad():
+            self.assertAllClose(
+                acqf(torch.cat([x, x], dim=-2)), acqf(x), atol=1e-2, rtol=0
+            )
+
+    def test_posterior_observation_noise(self) -> None:
+        d, n = 2, 3
+        for out_features in (1, 2):
+            model = VBLLModel(
+                in_features=d,
+                hidden_features=4,
+                out_features=out_features,
+                num_layers=1,
+                device=self.device,
+            )
+            X = torch.rand(n, d, dtype=torch.float64, device=self.device)
+            obs_noise = torch.rand(
+                n, out_features, dtype=torch.float64, device=self.device
+            )
+            sample_shape = torch.Size([4096])
+            with torch.no_grad():
+                model.head.noise_logdiag.fill_(0.0)  # unit noise variance
+                noise_var = model.head.noise().var
+                predictive_var = model(X).variance  # includes the observation noise
+                posterior = model.posterior(X)
+                posterior_noisy = model.posterior(X, observation_noise=True)
+                posterior_obs = model.posterior(X, observation_noise=obs_noise)
+                torch.manual_seed(0)
+                samples = posterior.rsample(sample_shape)
+                torch.manual_seed(0)
+                samples_noisy = posterior_noisy.rsample(sample_shape)
+            # by default, the posterior is over the latent function
+            self.assertAllClose(posterior.variance, predictive_var - noise_var)
+            self.assertAllClose(posterior_noisy.variance, predictive_var)
+            self.assertAllClose(posterior_noisy.mean, posterior.mean)
+            self.assertAllClose(posterior_obs.variance, posterior.variance + obs_noise)
+            # samples drawn via the last-layer weights match the posterior variances
+            self.assertAllClose(samples.var(dim=0), posterior.variance, rtol=0.1)
+            self.assertAllClose(
+                samples_noisy.var(dim=0), posterior_noisy.variance, rtol=0.1
+            )
+
+    def test_posterior_transform(self) -> None:
+        d = 2
+        for out_features, weights in ((1, [-1.0]), (2, [0.3, -0.7])):
+            model = VBLLModel(
+                in_features=d,
+                hidden_features=4,
+                out_features=out_features,
+                num_layers=1,
+                device=self.device,
+            )
+            X = torch.rand(2, 3, d, dtype=torch.float64, device=self.device)
+            weights = torch.tensor(weights, dtype=torch.float64, device=self.device)
+            transform = ScalarizedPosteriorTransform(weights=weights)
+            with torch.no_grad():
+                posterior = model.posterior(X)
+                transformed = model.posterior(X, posterior_transform=transform)
+            self.assertAllClose(transformed.mean, posterior.mean @ weights[:, None])
+            # the outputs are independent
+            self.assertAllClose(
+                transformed.variance, posterior.variance @ weights[:, None] ** 2
+            )
+
     def test_validation_loss(self) -> None:
         """Test that the model properly handles validation data during fitting."""
         d, num_hidden = 4, 4
@@ -535,3 +795,29 @@ class TestVBLLModel(BotorchTestCase):
                     val_y=y_val,
                     optimization_settings=optim_settings,
                 )
+
+    def test_validation_loss_uses_validation_data(self) -> None:
+        d = 4
+        model = VBLLModel(
+            in_features=d,
+            hidden_features=4,
+            out_features=1,
+            num_layers=1,
+            device=self.device,
+        )
+        X_train, y_train = _reg_data_singletask(d)
+        # the validation set differs in size from the training batches
+        X_val = torch.rand(7, d, dtype=torch.float64, device=self.device)
+        y_val = torch.rand(7, 1, dtype=torch.float64, device=self.device)
+        with patch.object(
+            model.model, "forward", wraps=model.model.forward
+        ) as mock_forward:
+            model.fit(
+                X_train,
+                y_train,
+                val_X=X_val,
+                val_y=y_val,
+                optimization_settings={"num_epochs": 1},
+            )
+        # the validation loss is computed in the last forward pass of the epoch
+        self.assertTrue(torch.equal(mock_forward.call_args.args[0], X_val))

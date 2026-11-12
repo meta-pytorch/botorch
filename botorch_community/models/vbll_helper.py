@@ -210,7 +210,7 @@ class LowRankNormal(torch.distributions.LowRankMultivariateNormal):
         term1 = torch.log(self.cov_diag).sum(-1)
         arg1 = tp(self.cov_factor) @ (self.cov_factor / self.cov_diag.unsqueeze(-1))
         term2 = torch.linalg.det(
-            arg1 + torch.eye(arg1.shape[-1], dtype=torch.float64)
+            arg1 + torch.eye(arg1.shape[-1], dtype=arg1.dtype, device=arg1.device)
         ).log()
         return term1 + term2
 
@@ -513,9 +513,10 @@ class Regression(nn.Module):
             pred_density = Normal((W.mean @ x[..., None]).squeeze(-1), noise.scale)
             pred_likelihood = pred_density.log_prob(y)
 
+            # The rows w_k ~ N(m_k, S_k) of W are independent. Hence, the expected
+            # log-likelihood of output k includes -0.5 * x^T S_k x / sigma_k^2.
             trace_term = 0.5 * (
-                (W.covariance_weighted_inner_prod(x.unsqueeze(-2)[..., None]))
-                * noise.trace_precision
+                W.covariance_weighted_inner_prod(x.unsqueeze(-2)[..., None]) / noise.var
             )
 
             kl_term = gaussian_kl(W, self.prior_scale)
