@@ -236,6 +236,11 @@ def gen_candidates_scipy(
             num_features=clamped_candidates.shape[-1],
             q=clamped_candidates.shape[1],
         )
+        lbfgsb_options = dict(minimize_options)
+        if "ftol" in lbfgsb_options:
+            # ``fmin_l_bfgs_b_batched`` does not accept ``ftol`` together with
+            # ``factr`` (which has a non-trivial default value).
+            lbfgsb_options["factr"] = None
 
         with threadpool_limits(limits=1, user_api="blas"):
             xs, fs, results = fmin_l_bfgs_b_batched(
@@ -248,7 +253,7 @@ def gen_candidates_scipy(
                 # constraints=constraints,
                 callback=options.get("callback", None),
                 pass_batch_indices=True,
-                **minimize_options,
+                **lbfgsb_options,
             )
         for res in results:
             _process_scipy_result(res=res, options=options)
@@ -538,8 +543,7 @@ def get_reasons_against_fast_path(
     if extra_keys := set(minimize_options.keys()) - {
         "maxiter",
         "disp",
-        "iprint",
-        "max_cor",
+        "maxcor",
         "ftol",
         "pgtol",
         "factr",

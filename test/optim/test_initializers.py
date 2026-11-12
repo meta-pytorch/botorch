@@ -172,6 +172,30 @@ class TestInitializeQBatch(BotorchTestCase):
                 ics, _ = initialize_q_batch(X=X, acq_vals=acq_vals, n=2)
             self.assertEqual(ics.shape, torch.Size([2, *batch_shape, 3, 4]))
 
+            # Samples with non-finite acquisition values are not selected if there
+            # are enough samples with finite values.
+            acq_vals = torch.rand(10, *batch_shape, device=self.device, dtype=dtype)
+            acq_vals[:5] = -torch.inf
+            X = torch.rand(10, *batch_shape, 3, 4, device=self.device, dtype=dtype)
+            for n in (2, 5):
+                with warnings.catch_warnings(record=True) as ws:
+                    ics_X, ics_acq_vals = initialize_q_batch(
+                        X=X, acq_vals=acq_vals, n=n
+                    )
+                self.assertFalse(
+                    any(issubclass(w.category, BadInitialCandidatesWarning) for w in ws)
+                )
+                self.assertEqual(ics_X.shape, torch.Size([n, *batch_shape, 3, 4]))
+                self.assertEqual(ics_acq_vals.shape, torch.Size([n, *batch_shape]))
+                self.assertTrue(ics_acq_vals.isfinite().all())
+                self.assertTrue(
+                    (ics_acq_vals == acq_vals.max(dim=0).values).any(dim=0).all()
+                )
+                # The returned acquisition values belong to the returned samples.
+                idcs = (ics_X.unsqueeze(0) == X.unsqueeze(1)).all(-1).all(-1)
+                idcs = idcs.long().argmax(dim=0)
+                self.assertTrue(torch.equal(ics_acq_vals, acq_vals.gather(0, idcs)))
+
     def test_initialize_q_batch_topn(self):
         for dtype in (torch.float, torch.double):
             # basic test
@@ -459,6 +483,40 @@ class TestGenBatchInitialCandidates(BotorchTestCase):
                     torch.zeros(2, 1, 2, device=self.device, dtype=dtype),
                 )
             )
+
+    def test_gen_batch_initial_conditions_non_finite_acq_vals(self) -> None:
+        # Raw samples with non-finite acquisition values (e.g., -inf values of a
+        # log-acquisition function) must not result in initial conditions being
+        # selected at random after resampling with more raw samples.
+        class InfAcquisitionFunction(MockAcquisitionFunction):
+            def __call__(self, X):
+                super().__call__(X)
+                acq_vals = -(X - 0.7).pow(2).sum(dim=(-1, -2))
+                return acq_vals.masked_fill(X[..., 0, 0] < 0.1, -torch.inf)
+
+        for dtype in (torch.float, torch.double):
+            bounds = torch.tensor([[0, 0], [1, 1]], device=self.device, dtype=dtype)
+            acqf = InfAcquisitionFunction()
+            with warnings.catch_warnings(record=True) as ws:
+                ics = gen_batch_initial_conditions(
+                    acq_function=acqf,
+                    bounds=bounds,
+                    q=1,
+                    num_restarts=4,
+                    raw_samples=64,
+                    options={"seed": 0},
+                )
+            self.assertFalse(
+                any(issubclass(w.category, BadInitialCandidatesWarning) for w in ws)
+            )
+            X_rnd = torch.cat(acqf._call_args["__call__"])
+            self.assertEqual(X_rnd.shape[0], 64)
+            acq_vals = acqf(X_rnd)
+            self.assertFalse(acq_vals.isfinite().all())
+            self.assertTrue(acqf(ics).isfinite().all())
+            # The best raw sample is one of the initial conditions.
+            best_X = X_rnd[acq_vals.argmax()]
+            self.assertTrue((ics == best_X).all(dim=-1).all(dim=-1).any())
 
     def test_gen_batch_initial_conditions_transform_intra_point_constraint(self):
         for dtype in (torch.float, torch.double):
@@ -1154,6 +1212,33 @@ class TestGenOneShotKGInitialConditions(BotorchTestCase):
                         )
                         self.assertTrue(torch.all(ics[..., -n_value:, :] == 1))
 
+            # With a single fantasy, int((1 - frac_random) * 1) = 0 fantasy points are
+            # initialized using the maximizers of the value function.
+            mock_kg_1 = qKnowledgeGradient(model=mm, num_fantasies=1)
+            mock_random_ics = torch.rand(num_restarts, q + 1, 2)
+            with ExitStack() as es:
+                es.enter_context(
+                    mock.patch(
+                        "botorch.optim.initializers.gen_batch_initial_conditions",
+                        return_value=mock_random_ics,
+                    )
+                )
+                mock_optacqf = es.enter_context(
+                    mock.patch(
+                        "botorch.optim.optimize.optimize_acqf",
+                        return_value=(mock_fantasy_cands, mock_fantasy_vals),
+                    )
+                )
+                ics = gen_one_shot_kg_initial_conditions(
+                    acq_function=mock_kg_1,
+                    bounds=bounds,
+                    q=q,
+                    num_restarts=num_restarts,
+                    raw_samples=raw_samples,
+                )
+            mock_optacqf.assert_not_called()
+            self.assertTrue(torch.equal(ics, mock_random_ics))
+
 
 class TestGenOneShotHVKGInitialConditions(BotorchTestCase):
     def test_gen_one_shot_hvkg_initial_conditions(self):
@@ -1519,6 +1604,20 @@ class TestSampleAroundBest(BotorchTestCase):
             self.assertTrue((X_rnd >= 1).all())
             self.assertTrue((X_rnd <= 2).all())
             mock_subset_dims.assert_called_once()
+            # the subset of dimensions is perturbed using ``subset_sigma``
+            self.assertEqual(mock_subset_dims.call_args.kwargs["sigma"], 1e-1)
+            with mock.patch(
+                "botorch.optim.initializers.sample_perturbed_subset_dims",
+                wraps=sample_perturbed_subset_dims,
+            ) as mock_subset_dims:
+                sample_points_around_best(
+                    acq_function=acqf,
+                    n_discrete_points=5,
+                    sigma=1e-3,
+                    bounds=bounds,
+                    subset_sigma=0.2,
+                )
+            self.assertEqual(mock_subset_dims.call_args.kwargs["sigma"], 0.2)
             # test tiny prob_perturb to make sure we perturb at least one dimension
             X_rnd = sample_points_around_best(
                 acq_function=acqf,
