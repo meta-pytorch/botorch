@@ -227,6 +227,94 @@ class TestModelListGP(BotorchTestCase):
                 with self.assertRaises(BotorchTensorDimensionError):
                     model.condition_on_observations(f_x[:1], f_y)
 
+    def test_condition_on_observations_with_transforms(self) -> None:
+        # Conditioning a ModelListGP must be equivalent to conditioning each of the
+        # sub-models, which applies their input and outcome transforms.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        models = [
+            SingleTaskGP(
+                train_X=torch.rand(6, 2, **tkwargs) * 10,
+                train_Y=torch.randn(6, 1, **tkwargs) * 5 + 3,
+                train_Yvar=torch.full((6, 1), 0.5, **tkwargs),
+                input_transform=Normalize(d=2),
+                outcome_transform=Standardize(m=1),
+            )
+            for _ in range(2)
+        ]
+        model = ModelListGP(*models)
+        test_X = torch.rand(4, 2, **tkwargs) * 10
+        model.posterior(test_X)
+        new_X = [torch.rand(3, 2, **tkwargs) * 10 for _ in range(2)]
+        new_Y = torch.randn(3, 2, **tkwargs) * 5 + 3
+        # The noise passed to ModelListGP is in the original outcome space.
+        new_noise = torch.full((3, 2), 0.5, **tkwargs)
+        conditioned_model = model.condition_on_observations(
+            new_X, new_Y, noise=new_noise
+        )
+        posterior = conditioned_model.posterior(test_X)
+        for i, m in enumerate(models):
+            stdvs_sq = m.outcome_transform.stdvs.pow(2)
+            expected = m.condition_on_observations(
+                new_X[i], new_Y[:, i : i + 1], noise=new_noise[:, i : i + 1] / stdvs_sq
+            ).posterior(test_X)
+            self.assertAllClose(posterior.mean[..., i : i + 1], expected.mean)
+            self.assertAllClose(posterior.variance[..., i : i + 1], expected.variance)
+        # The training data remain consistent in train mode.
+        conditioned_model.train()
+        for m in conditioned_model.models:
+            self.assertEqual(m.train_inputs[0].shape, torch.Size([9, 2]))
+            self.assertEqual(m.train_targets.shape, torch.Size([9]))
+
+    def test_condition_on_observations_batched_multi_output(self) -> None:
+        # A batched multi-output sub-model observes all of its outputs at the same
+        # inputs: conditioning the ModelListGP must be equivalent to conditioning
+        # the sub-model on ``n' x num_outputs`` observations.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.rand(6, 2, **tkwargs)
+        train_Y = torch.randn(6, 3, **tkwargs)
+        test_X = torch.rand(4, 2, **tkwargs)
+        new_X = torch.rand(3, 2, **tkwargs)
+        new_Y = torch.randn(3, 3, **tkwargs)
+        for fixed_noise in (False, True):
+            models = [
+                SingleTaskGP(
+                    train_X,
+                    train_Y[:, idcs],
+                    train_Yvar=(
+                        torch.full((6, len(idcs)), 0.1, **tkwargs)
+                        if fixed_noise
+                        else None
+                    ),
+                    outcome_transform=Standardize(m=len(idcs)),
+                )
+                for idcs in ([0, 1], [2])
+            ]
+            model = ModelListGP(*models)
+            model.posterior(test_X)
+            # The noise passed to ModelListGP is in the original outcome space.
+            new_noise = torch.full((3, 3), 0.2, **tkwargs) if fixed_noise else None
+            kwargs = {"noise": new_noise} if fixed_noise else {}
+            conditioned_model = model.condition_on_observations(
+                [new_X] * 3, new_Y, **kwargs
+            )
+            for i, idcs in enumerate(([0, 1], [2])):
+                m = models[i]
+                kwargs = {}
+                if fixed_noise:
+                    stdvs_sq = m.outcome_transform.stdvs.pow(2)
+                    kwargs["noise"] = new_noise[:, idcs] / stdvs_sq
+                expected = m.condition_on_observations(
+                    new_X, new_Y[:, idcs], **kwargs
+                ).posterior(test_X)
+                posterior = conditioned_model.models[i].posterior(test_X)
+                self.assertAllClose(posterior.mean, expected.mean)
+                self.assertAllClose(posterior.variance, expected.variance)
+        # The outputs of a batched multi-output sub-model must share their inputs.
+        with self.assertRaisesRegex(BotorchTensorDimensionError, "must be the same"):
+            model.condition_on_observations(
+                [new_X, torch.rand(3, 2, **tkwargs), new_X], new_Y
+            )
+
     def test_ModelListGP(self) -> None:
         for dtype, outcome_transform in itertools.product(
             (torch.float, torch.double), ("None", "Standardize", "Log", "Chained")
@@ -382,18 +470,11 @@ class TestModelListGP(BotorchTestCase):
         self.assertIsInstance(cm, ModelListGP)
         self.assertEqual(cm.num_outputs, 4)
         self.assertEqual(len(cm.models), 3)
-        # TODO: Figure out why the outcome transform changes the input shape...
-        exp_shape_stgp = (
-            torch.Size([1, 15, 1]) if use_outcome_transform else torch.Size([15, 1])
-        )
-        exp_shape_mtgp = (
-            torch.Size([1, 20, 2]) if use_outcome_transform else torch.Size([20, 2])
-        )
         for i in [0, 2]:
             self.assertIsInstance(cm.models[i], SingleTaskGP)
-            self.assertEqual(cm.models[i].train_inputs[0].shape, exp_shape_stgp)
+            self.assertEqual(cm.models[i].train_inputs[0].shape, torch.Size([15, 1]))
         self.assertIsInstance(cm.models[1], MultiTaskGP)
-        self.assertEqual(cm.models[1].train_inputs[0].shape, exp_shape_mtgp)
+        self.assertEqual(cm.models[1].train_inputs[0].shape, torch.Size([20, 2]))
 
     def test_ModelListGP_multi_task_outcome_transform(self):
         self.test_ModelListGP_multi_task(use_outcome_transform=True)

@@ -10,6 +10,9 @@ import torch
 from botorch.acquisition.joint_entropy_search import qJointEntropySearch
 from botorch.acquisition.objective import ScalarizedPosteriorTransform
 from botorch.models.fully_bayesian import SaasFullyBayesianSingleTaskGP
+from botorch.models.gp_regression import SingleTaskGP
+from botorch.models.model_list_gp_regression import ModelListGP
+from botorch.models.transforms.input import Normalize
 from botorch.sampling.normal import SobolQMCNormalSampler
 from botorch.utils.test_helpers import get_model
 from botorch.utils.testing import BotorchTestCase
@@ -109,3 +112,73 @@ class TestQJointEntropySearch(BotorchTestCase):
                 optimal_outputs=optimal_outputs,
                 estimation_type="LB",
             )
+
+    def test_conditioning_with_input_transform(self):
+        # ``condition_on_observations`` applies the input transform, so the
+        # optimal inputs must not be transformed beforehand.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        torch.manual_seed(0)
+        train_X = 10 * torch.rand(8, 1, **tkwargs)
+        bounds = torch.tensor([[0.0], [10.0]], **tkwargs)
+        model = SingleTaskGP(
+            train_X, torch.sin(train_X), input_transform=Normalize(d=1, bounds=bounds)
+        )
+        model.eval()
+        optimal_inputs = torch.tensor([[2.0], [5.0]], **tkwargs)
+        optimal_outputs = torch.tensor([[1.5], [3.0]], **tkwargs)
+        for condition_noiseless, use_model_list in product(
+            (True, False), (True, False)
+        ):
+            acq = qJointEntropySearch(
+                model=ModelListGP(model) if use_model_list else model,
+                optimal_inputs=optimal_inputs,
+                optimal_outputs=optimal_outputs,
+                condition_noiseless=condition_noiseless,
+            )
+            conditional_model = acq.conditional_model
+            if use_model_list:
+                conditional_model = conditional_model.models[0]
+            self.assertAllClose(
+                conditional_model.train_inputs[0][..., -1, :], optimal_inputs / 10
+            )
+            if not use_model_list:
+                self.assertAllClose(
+                    conditional_model._original_train_inputs[..., -1, :],
+                    optimal_inputs,
+                )
+
+    def test_negating_posterior_transform(self):
+        # Maximizing ``-f`` through a negating posterior transform is equivalent
+        # to maximizing ``g = -f`` with a model of ``-f``.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        torch.manual_seed(0)
+        train_X = torch.rand(8, 1, **tkwargs)
+        train_Y = torch.sin(6 * train_X)
+        model = SingleTaskGP(train_X, train_Y).eval()
+        neg_model = SingleTaskGP(train_X, -train_Y).eval()
+        optimal_inputs = torch.tensor([[0.8], [0.75]], **tkwargs)
+        # Values of ``f`` at the optimal inputs (i.e. the minimizers of ``f``).
+        optimal_outputs = torch.tensor([[-1.3], [-1.2]], **tkwargs)
+        posterior_transform = ScalarizedPosteriorTransform(
+            weights=-torch.ones(1, **tkwargs)
+        )
+        X = torch.rand(5, 1, 1, **tkwargs)
+        for estimation_type in ("LB", "MC"):
+            with self.subTest(estimation_type=estimation_type):
+                torch.manual_seed(1)
+                acq = qJointEntropySearch(
+                    model=model,
+                    optimal_inputs=optimal_inputs,
+                    optimal_outputs=optimal_outputs,
+                    posterior_transform=posterior_transform,
+                    estimation_type=estimation_type,
+                )
+                torch.manual_seed(1)
+                neg_acq = qJointEntropySearch(
+                    model=neg_model,
+                    optimal_inputs=optimal_inputs,
+                    optimal_outputs=-optimal_outputs,
+                    estimation_type=estimation_type,
+                )
+                with torch.no_grad():
+                    self.assertAllClose(acq(X), neg_acq(X))

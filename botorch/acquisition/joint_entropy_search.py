@@ -31,6 +31,7 @@ from botorch.acquisition.acquisition import AcquisitionFunction, MCSamplerMixin
 from botorch.acquisition.objective import PosteriorTransform
 from botorch.models.fully_bayesian import FullyBayesianSingleTaskGP
 from botorch.models.model import Model
+from botorch.models.model_list_gp_regression import ModelListGP
 from botorch.models.utils import check_no_nans, fantasize as fantasize_flag
 from botorch.models.utils.gpytorch_modules import MIN_INFERRED_NOISE_LEVEL
 from botorch.sampling.normal import SobolQMCNormalSampler
@@ -140,6 +141,13 @@ class qJointEntropySearch(AcquisitionFunction, MCSamplerMixin):
                         self.optimal_inputs[:1], observation_noise=False
                     )
 
+                # NOTE: ``condition_on_observations`` applies the input transform.
+                # ``ModelListGP`` expects a list of inputs (one per output).
+                X_opt = (
+                    [self.optimal_inputs] * self.initial_model.num_outputs
+                    if isinstance(self.initial_model, ModelListGP)
+                    else self.optimal_inputs
+                )
                 # This equates to the JES version proposed by Hvarfner et. al.
                 if self.condition_noiseless:
                     opt_noise = torch.full_like(
@@ -149,7 +157,7 @@ class qJointEntropySearch(AcquisitionFunction, MCSamplerMixin):
                     # x num_optima_per_model
                     self.conditional_model = (
                         self.initial_model.condition_on_observations(
-                            X=self.initial_model.transform_inputs(self.optimal_inputs),
+                            X=X_opt,
                             Y=self.optimal_outputs,
                             noise=opt_noise,
                         )
@@ -157,7 +165,7 @@ class qJointEntropySearch(AcquisitionFunction, MCSamplerMixin):
                 else:
                     self.conditional_model = (
                         self.initial_model.condition_on_observations(
-                            X=self.initial_model.transform_inputs(self.optimal_inputs),
+                            X=X_opt,
                             Y=self.optimal_outputs,
                         )
                     )
@@ -342,7 +350,7 @@ class qJointEntropySearch(AcquisitionFunction, MCSamplerMixin):
             torch.ones(1, device=X.device, dtype=X.dtype),
         )
         # prepare max value quantities and re-scale as required
-        normalized_mvs = (self.optimal_outputs - mean_m) / noiseless_var.sqrt()
+        normalized_mvs = (self.optimal_output_values - mean_m) / noiseless_var.sqrt()
         mvs_rescaled_mc = (normalized_mvs - rho * normalized_samples) / (1 - rho**2)
         cdf_mvs = normal.cdf(normalized_mvs).clamp_min(CLAMP_LB)
         cdf_rescaled_mvs = normal.cdf(mvs_rescaled_mc).clamp_min(CLAMP_LB)

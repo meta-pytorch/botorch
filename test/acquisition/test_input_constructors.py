@@ -1964,6 +1964,33 @@ class TestKGandESAcquisitionFunctionInputConstructors(InputConstructorBaseTestCa
         self.assertEqual(len(kwargs["optimal_outputs"].shape), 2)
         qJointEntropySearch(**kwargs)
 
+        # The optimal outputs should be in the model output space, since qJES
+        # conditions the model on them and applies the posterior transform itself.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.linspace(0, 1, 25, **tkwargs).unsqueeze(-1)
+        train_Y = torch.sin(6 * train_X)
+        model = SingleTaskGP(
+            train_X, train_Y, train_Yvar=torch.full_like(train_Y, 1e-6)
+        ).eval()
+        torch.manual_seed(0)
+        kwargs = func(
+            model=model,
+            training_data=self.blockX_blockY,
+            bounds=[(0.0, 1.0)],
+            num_optima=4,
+            # minimize ``f``
+            posterior_transform=ScalarizedPosteriorTransform(
+                weights=-torch.ones(1, **tkwargs)
+            ),
+        )
+        with torch.no_grad():
+            mean = model.posterior(kwargs["optimal_inputs"].unsqueeze(-2)).mean
+        # The minimum of ``sin(6x)`` on ``[0, 1]`` is -1.
+        self.assertAllClose(mean.view(-1), -torch.ones(4, **tkwargs), atol=1e-2)
+        self.assertAllClose(
+            kwargs["optimal_outputs"].detach(), mean.squeeze(-2), atol=1e-2
+        )
+
     def test_construct_inputs_bald(self) -> None:
         func = get_acqf_input_constructor(qBayesianActiveLearningByDisagreement)
         num_samples = 3
