@@ -278,6 +278,12 @@ class MVaR(MultiOutputRiskMeasureMCObjective):
                 in general be much larger than the alternative. See ``forward`` for
                 more details on the return shape.
                 NOTE: this is only relevant if ``expectation=False``.
+                NOTE: The padding repeats MVaR values, which does not change exact
+                hypervolume improvements (e.g., of qEHVI), but changes their smooth
+                approximations (e.g., of qLogEHVI and qLogNEHVI). Unless
+                ``pad_to_n_w=True``, the value of a candidate set under such an
+                acquisition function therefore depends slightly on the sizes of the
+                MVaR sets of the other candidate sets in the same t-batch.
             filter_dominated: If True, returns the non-dominated subset of
                 alpha level points (this is MVaR as defined by [Prekopa2012MVaR]_).
                 Disabling this will make it faster, and may be preferable if
@@ -520,7 +526,7 @@ class MVaR(MultiOutputRiskMeasureMCObjective):
         pad_size = self.n_w if self.pad_to_n_w else max([_.shape[0] for _ in mvar_set])
         padded_mvar_list = []
         for mvar_ in mvar_set:
-            if self.expectation:
+            if self.expectation and not samples.requires_grad:
                 padded_mvar_list.append(mvar_.mean(dim=0))
             else:
                 # Repeat the last entry to make ``mvar_set`` ``pad_size x m``.
@@ -533,6 +539,16 @@ class MVaR(MultiOutputRiskMeasureMCObjective):
             mvars = self.make_differentiable(
                 prepared_samples=prepared_samples, mvars=mvars
             )
+            if self.expectation:
+                # Average each MVaR set, excluding the padding.
+                set_sizes = torch.tensor(
+                    [mvar_.shape[0] for mvar_ in mvar_set], device=mvars.device
+                ).unsqueeze(-1)
+                is_padding = torch.arange(pad_size, device=mvars.device) >= set_sizes
+                mvars = (
+                    mvars.masked_fill(is_padding.unsqueeze(-1), 0.0).sum(dim=-2)
+                    / set_sizes
+                )
         return mvars.view(*batch_shape, -1, m)
 
 
