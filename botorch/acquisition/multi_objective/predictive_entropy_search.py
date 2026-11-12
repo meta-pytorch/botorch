@@ -373,7 +373,7 @@ class qMultiObjectivePredictiveEntropySearch(AcquisitionFunction):
         ) = _initialize_predictive_matrices(
             X=aug_X,
             model=self.model,
-            observation_noise=True,
+            observation_noise=False,
             jitter=self.test_jitter,
             natural=True,
         )
