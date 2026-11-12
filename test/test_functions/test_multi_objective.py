@@ -5,6 +5,7 @@
 # LICENSE file in the root directory of this source tree.
 
 import math
+from itertools import product
 
 import torch
 from botorch.exceptions.errors import InputDataError, UnsupportedError
@@ -271,6 +272,14 @@ class TestGMM(
                 torch.allclose(f_x, expected_f_x.to(dtype=dtype), rtol=1e-4, atol=1e-4)
             )
 
+    def test_dtype(self):
+        # The output dtype follows the input dtype, even without calling ``to``.
+        for dtype, X_dtype in product((torch.float, torch.double), repeat=2):
+            f = GMM(num_objectives=4, dtype=dtype).to(device=self.device)
+            self.assertEqual(f.gmm_pos.dtype, dtype)
+            X = torch.rand(3, 2, device=self.device, dtype=X_dtype)
+            self.assertEqual(f(X).dtype, X_dtype)
+
 
 class TestMW7(
     BotorchTestCase,
@@ -400,6 +409,18 @@ class TestToyRobust(
     @property
     def functions(self) -> list[BaseTestProblem]:
         return [ToyRobust(), ToyRobust(noise_std=[0.1, 0.2])]
+
+    def test_levy_submodule(self):
+        # The Levy function is a submodule of each instance, so that it is moved
+        # along with the problem and not shared across instances.
+        f1, f2 = ToyRobust(), ToyRobust()
+        self.assertIsNot(f1.levy, f2.levy)
+        f1.to(device=self.device, dtype=torch.float)
+        self.assertEqual(f1.levy.bounds.device.type, self.device.type)
+        self.assertEqual(f1.levy.bounds.dtype, torch.float)
+        self.assertEqual(f2.levy.bounds.dtype, torch.double)
+        X = torch.rand(3, 1, device=self.device) * 0.7
+        self.assertEqual(f1.evaluate_true(X).shape, torch.Size([3, 2]))
 
 
 class TestVehicleSafety(
