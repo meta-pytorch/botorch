@@ -195,6 +195,10 @@ class MultiOutputEmpiricalOneDimensionalKernel(Kernel):
         """A Boolean indicating whether the kernel uses the SVD technique."""
         return self._use_svd
 
+    def num_outputs_per_input(self, x1: Tensor, x2: Tensor) -> int:
+        """Advertise the interleaved output count to lazy kernel operators."""
+        return self.num_outputs
+
     def _compute_flattened_basis_matrix(self, x: Tensor) -> Tensor:
         """Compute the flattened basis matrix U(x) for multi-output covariance.
 
