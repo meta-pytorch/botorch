@@ -139,7 +139,13 @@ def coordinate_ascent_em(
         likelihood_noise: Noise variance for observations.
         num_em_iterations: Max EM iterations per coordinate ascent step.
         n_coord_ascent_iterations: Number of outer coordinate ascent iterations.
-        inducing_points: Optional (M, d) inducing point locations.
+        inducing_points: (M, d) inducing point locations (required). The kernel
+            hyperparameters enter the observed-data MLL only through the shift
+            interpolation from these points to the observed inputs. Without
+            inducing points the EM prior is defined directly at the observed
+            inputs, so there is nothing to optimize and a ``ValueError`` is
+            raised; likewise, if the inducing points contain all observed inputs,
+            the MLL does not depend on the kernel hyperparameters.
         optimize_inducing_points: If True, make inducing points learnable.
         use_mean_prior: If True, use kernel prior on μ.
         use_covar_prior: If True, use Inverse-Wishart prior on Σ.
@@ -166,6 +172,13 @@ def coordinate_ascent_em(
         ``container_history`` was provided, it is populated in place with the
         per-step trajectory (its last element equals the returned container).
     """
+    if inducing_points is None:
+        raise ValueError(
+            "coordinate_ascent_em requires `inducing_points`. Without them, the EM "
+            "prior is defined directly at the observed inputs, so the observed-data "
+            "MLL does not depend on the kernel hyperparameters."
+        )
+
     # Local imports to avoid a botorch.fit <-> botorch.models circular import.
     from botorch.fit import fit_gpytorch_mll
     from botorch.optim.fit import fit_gpytorch_mll_torch
