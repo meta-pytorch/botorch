@@ -4,6 +4,8 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+import itertools
+
 import torch
 from botorch.models.kernels.downsampling import DownsamplingKernel
 from botorch.utils.testing import BotorchTestCase
@@ -193,6 +195,22 @@ class TestDownsamplingKernel(BotorchTestCase, BaseKernelTestCase):
         res = kernel(a, b, diag=True)
 
         self.assertLess(torch.linalg.norm(res - torch.diag(actual)), 1e-5)
+
+    def test_diag_multiple_dims(self):
+        # The diagonal of K(x1, x2) for inputs with more than one dimension.
+        for batch_shape, dtype in itertools.product(
+            (torch.Size([]), torch.Size([2])), (torch.float, torch.double)
+        ):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            kernel = DownsamplingKernel(batch_shape=batch_shape).to(**tkwargs)
+            kernel.initialize(power=0.5, offset=0.2)
+            x1 = torch.rand(*batch_shape, 5, 3, **tkwargs)
+            x2 = torch.rand(*batch_shape, 5, 3, **tkwargs)
+            for x2_ in (x1, x2):
+                self.assertAllClose(
+                    kernel(x1, x2_, diag=True),
+                    kernel(x1, x2_).to_dense().diagonal(dim1=-2, dim2=-1),
+                )
 
     def test_initialize_power_prior(self):
         kernel = DownsamplingKernel()
