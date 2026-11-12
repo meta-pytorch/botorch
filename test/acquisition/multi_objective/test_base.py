@@ -15,7 +15,11 @@ from botorch.acquisition.multi_objective.objective import (
 )
 from botorch.acquisition.objective import IdentityMCObjective
 from botorch.exceptions.errors import UnsupportedError
-from botorch.models.transforms.input import InputPerturbation
+from botorch.models.transforms.input import (
+    ChainedInputTransform,
+    InputPerturbation,
+    Normalize,
+)
 from botorch.sampling.normal import SobolQMCNormalSampler
 from botorch.utils.test_helpers import DummyNonScalarizingPosteriorTransform
 from botorch.utils.testing import BotorchTestCase, MockModel, MockPosterior
@@ -94,9 +98,22 @@ class TestBaseMultiObjectiveAcquisitionFunctions(BotorchTestCase):
             DummyMultiObjectiveMCAcquisitionFunction(
                 model=mm, objective=IdentityMCObjective()
             )
-        # test constraints with input perturbation.
-        mm.input_transform = InputPerturbation(perturbation_set=torch.rand(2, 1))
-        with self.assertRaises(UnsupportedError):
-            DummyMultiObjectiveMCAcquisitionFunction(
-                model=mm, constraints=[lambda Z: -100.0 * torch.ones_like(Z[..., -1])]
-            )
+        # test constraints with one-to-many input transforms.
+        for input_transform in (
+            InputPerturbation(perturbation_set=torch.rand(2, 1)),
+            ChainedInputTransform(
+                normalize=Normalize(d=1),
+                perturbation=InputPerturbation(perturbation_set=torch.rand(2, 1)),
+            ),
+        ):
+            mm.input_transform = input_transform
+            with self.assertRaisesRegex(
+                UnsupportedError,
+                "due to sample q-batch shape being different than that of the "
+                "inputs. Use a composite objective that applies feasibility "
+                "weighting to samples",
+            ):
+                DummyMultiObjectiveMCAcquisitionFunction(
+                    model=mm,
+                    constraints=[lambda Z: -100.0 * torch.ones_like(Z[..., -1])],
+                )

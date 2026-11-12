@@ -31,9 +31,11 @@ from botorch.acquisition.objective import (
     IdentityMCObjective,
     ScalarizedPosteriorTransform,
 )
+from botorch.acquisition.risk_measures import CVaR
 from botorch.acquisition.utils import prune_inferior_points
 from botorch.exceptions import BotorchWarning, UnsupportedError
 from botorch.models import SingleTaskGP
+from botorch.models.transforms.input import InputPerturbation
 from botorch.sampling.normal import IIDNormalSampler, SobolQMCNormalSampler
 from botorch.utils.low_rank import sample_cached_cholesky
 from botorch.utils.sampling import draw_sobol_normal_samples
@@ -207,6 +209,37 @@ class TestQNoisyExpectedImprovement(BotorchTestCase):
             self.assertIs(kwargs["constraints"], constraints)
             self.assertTrue(torch.equal(acqf.X_baseline, X_baseline[[-1]]))
             self.assertEqual(kwargs["marginalize_dim"], -3)
+
+    def test_one_to_many_input_transform(self) -> None:
+        # With an ``InputPerturbation``, there are ``n_w`` samples per input, which
+        # the risk measure maps to one objective value per input.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        n, n_w, q = 4, 3, 2
+        X_baseline = torch.rand(n, 2, **tkwargs)
+        model = SingleTaskGP(
+            X_baseline,
+            X_baseline.sum(dim=-1, keepdim=True),
+            input_transform=InputPerturbation(
+                perturbation_set=0.1 * torch.rand(n_w, 2, **tkwargs)
+            ),
+        )
+        objective = CVaR(alpha=0.5, n_w=n_w)
+        X = torch.rand(5, q, 2, **tkwargs)
+        for cache_root in (True, False):
+            acqf = qNoisyExpectedImprovement(
+                model=model,
+                X_baseline=X_baseline,
+                objective=objective,
+                sampler=SobolQMCNormalSampler(sample_shape=torch.Size([4])),
+                prune_baseline=False,
+                cache_root=cache_root,
+            )
+            samples, obj = acqf._get_samples_and_objectives(X)
+            self.assertEqual(samples.shape, torch.Size([4, 5, q * n_w, 1]))
+            self.assertAllClose(obj, objective(samples))
+            self.assertEqual(acqf.baseline_samples.shape[-2], n * n_w)
+            self.assertAllClose(acqf.baseline_obj, objective(acqf.baseline_samples))
+            self.assertTrue(acqf(X).isfinite().all())
 
     def test_cache_root(self):
         self._test_cache_root()
