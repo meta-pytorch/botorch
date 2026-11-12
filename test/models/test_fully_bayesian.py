@@ -1107,6 +1107,22 @@ class TestSaasFullyBayesianSingleTaskGP(BotorchTestCase):
                 torch.Size([num_models, num_train + num_cond, num_dims]),
             )
 
+            if cond_Yvar is not None:
+                # With noise of the same shape as the non-batched Y.
+                cond_model_nobatch = model.condition_on_observations(
+                    cond_X_nobatch, cond_Y_nobatch, noise=cond_Yvar[0]
+                )
+                cond_model_batch = model.condition_on_observations(
+                    cond_X_nobatch.expand(num_models, -1, -1),
+                    cond_Y_nobatch.expand(num_models, -1, -1),
+                    noise=cond_Yvar[0].expand(num_models, -1, -1),
+                )
+                for attr in ("mean", "variance"):
+                    self.assertAllClose(
+                        getattr(cond_model_nobatch.posterior(test_X), attr),
+                        getattr(cond_model_batch.posterior(test_X), attr),
+                    )
+
             # test repeated conditioning
             repeat_cond_X = cond_X + 5
             repeat_cond_model = cond_model.condition_on_observations(
