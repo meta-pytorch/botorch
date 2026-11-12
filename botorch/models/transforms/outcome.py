@@ -547,12 +547,15 @@ class StratifiedStandardize(Standardize):
         OutcomeTransform.__init__(self)
         self._stratification_idx = stratification_idx
         all_task_values = all_task_values.unique(sorted=True)
-        self.strata_mapping = get_task_value_remapping(
+        strata_mapping = get_task_value_remapping(
             all_task_values=all_task_values,
             dtype=dtype,
         )
-        if self.strata_mapping is None:
-            self.strata_mapping = all_task_values
+        if strata_mapping is None:
+            strata_mapping = all_task_values
+        # The mapping is fixed constructor metadata, but must migrate with the
+        # statistics. Keep existing state_dict keys for checkpoint compatibility.
+        self.register_buffer("strata_mapping", strata_mapping, persistent=False)
         n_strata = self.strata_mapping.shape[0]
         self._min_stdv = min_stdv
         self.register_buffer("means", torch.zeros(*batch_shape, n_strata, 1))
