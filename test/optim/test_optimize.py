@@ -163,6 +163,91 @@ class TestCombineInitialConditions(BotorchTestCase):
 
 
 class TestOptimizeAcqf(BotorchTestCase):
+    def test_all_fixed_candidates_check_feasibility(self) -> None:
+        bounds = torch.tensor([[0.0], [1.0]], device=self.device)
+        index = torch.tensor([0], device=self.device)
+        coefficient = torch.tensor([1.0], device=self.device)
+        constraints = [
+            {"inequality_constraints": [(index, coefficient, 0.5)]},
+            {"equality_constraints": [(index, coefficient, 0.5)]},
+            {"nonlinear_inequality_constraints": [(lambda x: x[0] - 0.5, True)]},
+            {
+                "inequality_constraints": [
+                    (
+                        torch.tensor([[0, 0], [1, 0]], device=self.device),
+                        torch.ones(2, device=self.device),
+                        1.0,
+                    )
+                ]
+            },
+        ]
+        for return_values in (False, True):
+            for constraint in constraints:
+                with self.subTest(constraint=constraint, return_values=return_values):
+                    with self.assertRaisesRegex(
+                        CandidateGenerationError, "constraints"
+                    ):
+                        optimize_acqf(
+                            MockAcquisitionFunction(),
+                            bounds,
+                            q=2,
+                            num_restarts=1,
+                            raw_samples=4,
+                            fixed_features={0: 0.0},
+                            ic_generator=mock.Mock(),
+                            return_acq_values=return_values,
+                            **constraint,
+                        )
+        for fixed in (-0.1, 1.1, float("nan")):
+            with (
+                self.subTest(fixed=fixed),
+                self.assertRaisesRegex(CandidateGenerationError, "bounds"),
+            ):
+                optimize_acqf(
+                    MockAcquisitionFunction(),
+                    bounds,
+                    q=1,
+                    num_restarts=1,
+                    raw_samples=4,
+                    fixed_features={0: fixed},
+                )
+        candidates, values = optimize_acqf(
+            MockAcquisitionFunction(),
+            bounds,
+            q=2,
+            num_restarts=1,
+            raw_samples=4,
+            fixed_features={0: 0.5},
+            inequality_constraints=[(index, coefficient, 0.5)],
+            return_best_only=False,
+        )
+        self.assertAllClose(candidates, torch.full((1, 2, 1), 0.5, device=self.device))
+        self.assertAllClose(values, torch.tensor([0.5], device=self.device))
+
+    def test_all_fixed_postprocessing_checked(self) -> None:
+        bounds = torch.tensor([[0.0], [1.0]], device=self.device)
+        with self.assertRaisesRegex(CandidateGenerationError, "bounds"):
+            optimize_acqf(
+                MockAcquisitionFunction(),
+                bounds,
+                q=1,
+                num_restarts=1,
+                raw_samples=4,
+                fixed_features={0: 0.5},
+                post_processing_func=lambda X: X + 1,
+            )
+        candidates, value = optimize_acqf(
+            MockAcquisitionFunction(),
+            bounds,
+            q=1,
+            num_restarts=1,
+            raw_samples=4,
+            fixed_features={0: 0.4},
+            post_processing_func=lambda X: X + 0.1,
+        )
+        self.assertAllClose(candidates, torch.tensor([[0.5]], device=self.device))
+        self.assertAllClose(value, torch.tensor(0.5, device=self.device))
+
     @mock.patch("botorch.generation.gen.gen_candidates_torch")
     @mock.patch("botorch.optim.optimize.gen_batch_initial_conditions")
     @mock.patch("botorch.optim.optimize.gen_candidates_scipy")
