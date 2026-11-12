@@ -48,6 +48,16 @@ from botorch.utils.testing import (
 )
 
 
+def _hypervolume_2d(Y: torch.Tensor, ref_point: torch.Tensor) -> float:
+    r"""Exact hypervolume of the 2-d outcomes ``Y`` (minimization) w.r.t. the
+    reference point, computed with a sweep over the first objective."""
+    Y = Y[(Y < ref_point).all(dim=-1)]
+    Y = Y[Y[:, 0].argsort()]
+    f_1 = Y[:, 1].cummin(dim=0).values
+    widths = torch.cat([Y[1:, 0], ref_point[:1]]) - Y[:, 0]
+    return (widths * (ref_point[1] - f_1)).sum().item()
+
+
 class DummyMOProblem(MultiObjectiveTestProblem):
     _ref_point = [0.0, 0.0]
     _num_objectives = 2
@@ -96,6 +106,24 @@ class TestBraninCurrin(
         for f in self.functions:
             self.assertEqual(f.num_objectives, 2)
             self.assertEqual(f.dim, 2)
+
+    def test_max_hv(self):
+        super().test_max_hv()
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        f = BraninCurrin().to(**tkwargs)
+        # Part of the Pareto front lies on the boundary of the domain.
+        t = torch.linspace(0, 1, 1000, **tkwargs)
+        X = torch.stack(torch.meshgrid(t, t, indexing="ij"), dim=-1).reshape(-1, 2)
+        s = torch.linspace(0, 1, 10**6, **tkwargs)
+        X_edge = torch.cat(
+            [
+                torch.stack([s, torch.ones_like(s)], dim=-1),
+                torch.stack([torch.zeros_like(s), s], dim=-1),
+            ]
+        )
+        hv = _hypervolume_2d(f.evaluate_true(torch.cat([X, X_edge])), f.ref_point)
+        self.assertLessEqual(hv, f.max_hv)
+        self.assertGreater(hv, f.max_hv - 0.02)
 
 
 class TestDH(
@@ -146,6 +174,27 @@ class TestDH(
             actual = f(test_X)
             expected = torch.tensor(self.expected[i], device=self.device)
             self.assertAllClose(actual, expected)
+
+    def test_dh4_max_hv(self):
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        for dim in (3, 4, 5):
+            f = DH4(dim=dim).to(**tkwargs)
+            # Points on the Pareto set: h(x) is minimized at x_0 + x_1 = 0.849894,
+            # and g(x) = 0 where h(x) >= 0, while g(x) is maximized where h(x) < 0
+            # (i.e., for x_0 > 0.985335), which leads to negative values of f_1.
+            x_0 = torch.cat(
+                [
+                    torch.linspace(0, 0.98, 100001, **tkwargs),
+                    torch.linspace(0.98, 1, 20001, **tkwargs),
+                ]
+            )
+            x_1 = (0.849894 - x_0).clamp(-0.15, 1)
+            x_rest = (x_0 > 0.985335).to(x_0).unsqueeze(-1).expand(-1, dim - 2)
+            Y = f.evaluate_true(torch.cat([x_0[:, None], x_1[:, None], x_rest], -1))
+            self.assertLess(Y[:, 1].min().item(), -0.7 * (dim - 2))
+            hv = _hypervolume_2d(Y, f.ref_point)
+            self.assertLessEqual(hv, f.max_hv)
+            self.assertGreater(hv, f.max_hv - 1e-5)
 
 
 class TestDTLZ(
@@ -215,6 +264,35 @@ class TestDTLZ(
                                     ),
                                 )
                             )
+
+    def test_dtlz1_max_hv(self):
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        f = DTLZ1(dim=5, num_objectives=2).to(**tkwargs)
+        # The Pareto front is the segment f_0 + f_1 = 0.5 with f >= 0.
+        self.assertEqual(f.max_hv, 400.0**2 - 0.5**2 / 2)
+        self.assertEqual(DTLZ1(dim=5, num_objectives=3).max_hv, 400.0**3 - 0.5**3 / 6)
+        x_0 = torch.linspace(0, 1, 10001, **tkwargs)
+        X = torch.cat([x_0.unsqueeze(-1), torch.full((10001, 4), 0.5, **tkwargs)], -1)
+        hv = _hypervolume_2d(f.evaluate_true(X), f.ref_point)
+        self.assertLessEqual(hv, f.max_hv)
+        self.assertGreater(hv, f.max_hv - 1e-4)
+
+    def test_dtlz4(self):
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        # DTLZ4 is DTLZ2 with the position variables x_i mapped to x_i^100.
+        X = torch.tensor([0.99, 0.3, 0.5, 0.5, 0.5], **tkwargs)
+        theta = 0.99**100 * math.pi / 2
+        g = (0.3 - 0.5) ** 2
+        expected = torch.tensor([math.cos(theta), math.sin(theta)], **tkwargs)
+        f = DTLZ4(dim=5).to(**tkwargs)
+        self.assertAllClose(f.evaluate_true(X), (1 + g) * expected)
+        for M in (2, 3):
+            X = torch.rand(10, 6, **tkwargs)
+            X_pow = torch.cat([X[:, : M - 1].pow(100), X[:, M - 1 :]], dim=-1)
+            self.assertAllClose(
+                DTLZ4(dim=6, num_objectives=M).to(**tkwargs).evaluate_true(X),
+                DTLZ2(dim=6, num_objectives=M).to(**tkwargs).evaluate_true(X_pow),
+            )
 
 
 class TestGMM(
@@ -368,6 +446,23 @@ class TestZDT(
                             )
                         )
 
+    def test_zdt3(self):
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        f = ZDT3(dim=3).to(**tkwargs)
+        # f_1 = g * h(f_0, g) with g = 1 + 9 * mean(x_1, x_2) = 10.
+        X = torch.tensor([0.5, 1.0, 1.0], **tkwargs)
+        expected = torch.tensor([0.5, 10 * (1 - math.sqrt(0.05))], **tkwargs)
+        self.assertAllClose(f.evaluate_true(X), expected)
+        # The Pareto front is attained at g = 1, i.e., larger values of the
+        # distance variables never decrease the second objective.
+        x_0 = torch.linspace(0, 1, 101, **tkwargs)
+        for x_rest in (0.1, 0.5, 1.0):
+            X_rest = torch.full((101, 2), x_rest, **tkwargs)
+            X_0 = torch.zeros(101, 2, **tkwargs)
+            Y = f.evaluate_true(torch.cat([x_0.unsqueeze(-1), X_rest], dim=-1))
+            Y_0 = f.evaluate_true(torch.cat([x_0.unsqueeze(-1), X_0], dim=-1))
+            self.assertTrue((Y[:, 1] > Y_0[:, 1]).all())
+
 
 # ------------------ Unconstrained Multi-objective test problems ------------------ #
 
@@ -436,6 +531,29 @@ class TestSRN(
     def functions(self) -> list[BaseTestProblem]:
         return [SRN(), SRN(noise_std=[0.1, 0.2])]
 
+    def test_function_values(self):
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        f = SRN().to(**tkwargs)
+        # f_0 = 2 + (x_0 - 2)^2 + (x_1 - 1)^2, f_1 = 9 x_0 - (x_1 - 1)^2
+        X = torch.tensor([1.0, 3.0], **tkwargs)
+        self.assertAllClose(f.evaluate_true(X), torch.tensor([7.0, 5.0], **tkwargs))
+        # c_0 = 225 - x_0^2 - x_1^2, c_1 = 3 x_1 - x_0 - 10
+        X = torch.tensor([-2.5, 10.0], **tkwargs)
+        self.assertAllClose(
+            f.evaluate_slack_true(X), torch.tensor([118.75, 22.5], **tkwargs)
+        )
+        # The Pareto set is x_0 = -2.5, x_1 in [2.5, 14.79].
+        X = torch.stack(
+            [
+                torch.full((11,), -2.5, **tkwargs),
+                torch.linspace(2.5, 14.79, 11, **tkwargs),
+            ],
+            dim=-1,
+        )
+        self.assertTrue(f.is_feasible(X, noise=False).all())
+        X = torch.tensor([-2.5, 15.0], **tkwargs)
+        self.assertFalse(f.is_feasible(X, noise=False).item())
+
 
 class TestCONSTR(
     BotorchTestCase,
@@ -462,6 +580,23 @@ class TestConstrainedBraninCurrin(
             ConstrainedBraninCurrin(constraint_noise_std=0.1),
         ]
 
+    def test_max_hv(self):
+        super().test_max_hv()
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        f = ConstrainedBraninCurrin().to(**tkwargs)
+        # Part of the Pareto front lies on the boundary of the feasible disk with
+        # radius sqrt(50) / 15 around (0.5, 0.5).
+        t = torch.linspace(0, 1, 1000, **tkwargs)
+        X = torch.stack(torch.meshgrid(t, t, indexing="ij"), dim=-1).reshape(-1, 2)
+        phi = torch.linspace(0, 2 * math.pi, 10**6, **tkwargs)
+        r = math.sqrt(50) / 15 * (1 - 1e-12)
+        X_bd = 0.5 + r * torch.stack([phi.cos(), phi.sin()], dim=-1)
+        X = torch.cat([X, X_bd])
+        X = X[f.is_feasible(X, noise=False)]
+        hv = _hypervolume_2d(f.evaluate_true(X), f.ref_point)
+        self.assertLessEqual(hv, f.max_hv)
+        self.assertGreater(hv, f.max_hv - 0.005)
+
 
 class TestC2DTLZ2(
     BotorchTestCase,
@@ -477,10 +612,46 @@ class TestC2DTLZ2(
             C2DTLZ2(dim=3, num_objectives=2, noise_std=[0.1, 0.2]),
         ]
 
-    def test_batch_exception(self):
-        f = C2DTLZ2(dim=3, num_objectives=2)
+    def test_batch_shapes(self):
+        f = C2DTLZ2(dim=3, num_objectives=2).to(device=self.device)
+        X = torch.rand(2, 4, 3, device=self.device, dtype=torch.double)
+        slack = f.evaluate_slack_true(X)
+        self.assertEqual(slack.shape, torch.Size([2, 4, 1]))
+        self.assertAllClose(slack[1, 2], f.evaluate_slack_true(X[1, 2]))
+        self.assertEqual(f.evaluate_slack_true(X[0, 0]).shape, torch.Size([1]))
+
+    def test_constraint(self):
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        for M, r in ((2, 0.2), (3, 0.4), (4, 0.5)):
+            f = C2DTLZ2(dim=M + 2, num_objectives=M).to(**tkwargs)
+            self.assertEqual(f._r, r)
+            X = torch.rand(100, M + 2, **tkwargs)
+            F = f.evaluate_true(X)
+            # feasible iff F is within distance r of e_i or of (1, ..., 1) / sqrt(M)
+            centers = torch.cat(
+                [torch.eye(M, **tkwargs), torch.full((1, M), M**-0.5, **tkwargs)]
+            )
+            min_dist = torch.cdist(F, centers).min(dim=-1).values
+            self.assertAllClose(
+                f.evaluate_slack_true(X).squeeze(-1), r**2 - min_dist.pow(2)
+            )
+        # A point on the Pareto front at distance ~0.25 > r from the center.
+        f = C2DTLZ2(dim=3, num_objectives=2).to(**tkwargs)
+        X = torch.tensor([0.5 + 0.5 / math.pi, 0.5, 0.5], **tkwargs)
+        self.assertFalse(f.is_feasible(X, noise=False).item())
+
+    def test_max_hv(self):
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        f = C2DTLZ2(dim=3, num_objectives=2).to(**tkwargs)
+        # feasible part of the Pareto front (x_1 = x_2 = 0.5)
+        x_0 = torch.linspace(0, 1, 100001, **tkwargs)
+        X = torch.cat([x_0.unsqueeze(-1), torch.full((100001, 2), 0.5, **tkwargs)], -1)
+        X = X[f.is_feasible(X, noise=False)]
+        hv = _hypervolume_2d(f.evaluate_true(X), f.ref_point)
+        self.assertLessEqual(hv, f.max_hv)
+        self.assertGreater(hv, f.max_hv - 1e-5)
         with self.assertRaises(NotImplementedError):
-            f.evaluate_slack_true(torch.rand(1, 1, 3))
+            C2DTLZ2(dim=4, num_objectives=3).max_hv
 
 
 class TestDiscBrake(
@@ -503,6 +674,17 @@ class TestWeldedBeam(
     @property
     def functions(self) -> list[BaseTestProblem]:
         return [WeldedBeam(), WeldedBeam(noise_std=[0.1, 0.2])]
+
+    def test_feasibility(self):
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        f = WeldedBeam().to(**tkwargs)
+        # The minimum-cost design of [Deb1991] is feasible, while the smallest beam
+        # violates the shear stress, bending stress and buckling constraints.
+        X = torch.tensor([[0.2444, 6.2187, 8.2915, 0.2444], [1.0, 1.0, 10.0, 1.0]])
+        self.assertTrue(f.is_feasible(X.to(**tkwargs), noise=False).all())
+        slack = f.evaluate_slack_true(f.bounds[0])
+        self.assertTrue((slack[[0, 1, 3]] < 0).all())
+        self.assertFalse(f.is_feasible(f.bounds[0], noise=False).item())
 
 
 class TestOSY(
