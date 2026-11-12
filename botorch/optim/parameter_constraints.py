@@ -600,7 +600,13 @@ def project_to_equality_constraints(
     b = torch.zeros(n_constraints, dtype=X.dtype, device=X.device)
 
     for i, (indices, coefficients, rhs) in enumerate(intra_constraints):
-        A[i, indices.long()] = coefficients.to(dtype=X.dtype, device=X.device)
+        # The constraint declares a sum of terms. Repeated feature indices
+        # must add their coefficients rather than silently overwrite them.
+        A[i].scatter_add_(
+            0,
+            indices.to(dtype=torch.long, device=X.device),
+            coefficients.to(dtype=X.dtype, device=X.device).expand(indices.shape),
+        )
         b[i] = rhs
 
     # Compute residual = b - A @ x for each point.
