@@ -97,18 +97,29 @@ class TestNonDominatedPartitioning(BotorchTestCase):
             self.assertEqual(partitioning.compute_hypervolume().item(), 0)
 
             Y = torch.rand(3, 10, 2, **tkwargs)
+            # test batched m=2, no pareto points better than the batched reference
+            # point
+            batch_ref_point = Y.max(dim=-2).values + 1
+            partitioning = partitioning_class(ref_point=batch_ref_point, Y=Y)
+            self.assertTrue(torch.equal(partitioning.pareto_Y, Y[:, :0]))
+            self.assertTrue(
+                torch.equal(
+                    partitioning.compute_hypervolume(),
+                    torch.zeros(3, dtype=Y.dtype, device=Y.device),
+                )
+            )
+            # one cell per batch element, bounded by its reference point
+            expected_cell_bounds = torch.stack(
+                [
+                    batch_ref_point.unsqueeze(-2),
+                    torch.full_like(batch_ref_point.unsqueeze(-2), inf),
+                ],
+                dim=0,
+            )
+            self.assertTrue(
+                torch.equal(partitioning.get_hypercell_bounds(), expected_cell_bounds)
+            )
             if partitioning_class == NondominatedPartitioning:
-                # test batched m=2, no pareto points better than the reference point
-                partitioning = partitioning_class(
-                    ref_point=Y.max(dim=-2).values + 1, Y=Y
-                )
-                self.assertTrue(torch.equal(partitioning.pareto_Y, Y[:, :0]))
-                self.assertTrue(
-                    torch.equal(
-                        partitioning.compute_hypervolume(),
-                        torch.zeros(3, dtype=Y.dtype, device=Y.device),
-                    )
-                )
                 # test batched, m=2 basic
                 partitioning = partitioning_class(ref_point=ref_point, Y=Y)
                 cell_bounds = partitioning.get_hypercell_bounds()

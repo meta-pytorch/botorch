@@ -63,8 +63,12 @@ class DominatedPartitioning(FastPartitioning):
 
     def _get_single_cell(self) -> None:
         r"""Set the partitioning to be a single cell in the case of no Pareto points."""
-        # Set lower and upper bounds to be the reference point to define an empty cell
-        cell_bounds = self.ref_point.expand(
-            2, *self._neg_pareto_Y.shape[:-2], 1, self.num_outcomes
-        ).clone()
+        # Set lower and upper bounds to be the reference point to define an empty cell.
+        # The reference point is ``(batch_shape) x m``-dim, the cell bounds are
+        # ``2 x (batch_shape) x 1 x m``-dim.
+        cell_bounds = (
+            self.ref_point.unsqueeze(-2)
+            .expand(2, *self._neg_pareto_Y.shape[:-2], 1, self.num_outcomes)
+            .clone()
+        )
         self.hypercell_bounds = cell_bounds

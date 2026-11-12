@@ -82,6 +82,8 @@ def _pad_batch_pareto_frontier(
     # Note: in the batch case, the Pareto frontier is padded by repeating
     # a Pareto point. This ensures that the padded box-decomposition has
     # the same number of points, which enables fast batch operations.
+    # A single ``m``-dim reference point is shared by all batch elements.
+    ref_point = ref_point.expand(*batch_shape, *ref_point.shape[-2:])
     max_n_pareto = pareto_mask.sum(dim=-1).max().item()
     pareto_Y = torch.empty(*batch_shape, max_n_pareto, Y.shape[-1], **tkwargs)
     for i, pareto_i in enumerate(pareto_mask):

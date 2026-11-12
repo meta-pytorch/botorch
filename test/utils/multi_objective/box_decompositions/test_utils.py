@@ -153,6 +153,31 @@ class TestUtils(BotorchTestCase):
             )
             self.assertTrue(torch.equal(padded_pareto, expected_padded_pareto))
 
+            # test a ``m``-dim reference point shared by all batch elements, where
+            # a batch element other than the first one has no Pareto points
+            for Y_shared, expected_padded_pareto in (
+                (
+                    [[[1.0, 2.0]], [[-1.0, -1.0]]],
+                    [[[1.0, 2.0]], [[0.0, 0.0]]],
+                ),
+                (
+                    [[[-1.0, -1.0]], [[-1.0, -1.0]]],
+                    torch.empty(2, 0, 2),
+                ),
+            ):
+                padded_pareto = _pad_batch_pareto_frontier(
+                    Y=torch.tensor(Y_shared, dtype=dtype, device=self.device),
+                    ref_point=torch.zeros(2, dtype=dtype, device=self.device),
+                )
+                self.assertTrue(
+                    torch.equal(
+                        padded_pareto,
+                        torch.as_tensor(
+                            expected_padded_pareto, dtype=dtype, device=self.device
+                        ),
+                    )
+                )
+
         # test multiple batch dims
         with self.assertRaises(UnsupportedError):
             _pad_batch_pareto_frontier(
