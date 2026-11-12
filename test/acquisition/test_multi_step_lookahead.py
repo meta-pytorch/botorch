@@ -4,6 +4,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+from itertools import product
 
 import torch
 from botorch.acquisition import (
@@ -20,6 +21,61 @@ from botorch.utils.testing import BotorchTestCase
 
 
 class TestMultiStepLookahead(BotorchTestCase):
+    def test_get_multi_step_tree_input_representation(self):
+        d = 2
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        model = SingleTaskGP(torch.rand(4, d, **tkwargs), torch.rand(4, 1, **tkwargs))
+        qMS = qMultiStepLookahead(model=model, batch_sizes=[2, 1], num_fantasies=[2, 3])
+        # q' = q + f_1 q_1 + f_2 f_1 q_2 = 1 + 2 * 2 + 3 * 2 * 1
+        self.assertEqual(qMS.get_augmented_q_batch_size(1), 11)
+        batch_shape = torch.Size([2, 3])
+        X = torch.rand(*batch_shape, 11, d, **tkwargs)
+        X0, X1, X2 = qMS.get_multi_step_tree_input_representation(X)
+        self.assertEqual(X0.shape, torch.Size([2, 3, 1, d]))
+        self.assertEqual(X1.shape, torch.Size([2, 2, 3, 2, d]))
+        self.assertEqual(X2.shape, torch.Size([3, 2, 2, 3, 1, d]))
+        # The points of each node of the tree are taken from the block of the
+        # respective step of the node's own t-batch.
+        for b in product(*(range(s) for s in batch_shape)):
+            self.assertTrue(torch.equal(X0[b], X[b][:1]))
+            for i in range(2):
+                self.assertTrue(torch.equal(X1[(i, *b)], X[b][1 + 2 * i : 3 + 2 * i]))
+                for j in range(3):
+                    k = 5 + 2 * j + i
+                    self.assertTrue(torch.equal(X2[(j, i, *b)], X[b][k : k + 1]))
+
+    def test_qMS_t_batches_are_independent(self):
+        # The value of a t-batch must not depend on the other t-batches: with
+        # batch sizes q_i > 1, the points of each t-batch must be used for its own
+        # fantasy tree, and the base samples must be shared by the t-batches also
+        # if they are not collapsed over the fantasies (here for a single-output
+        # model, whose posteriors have no output dimension).
+        torch.manual_seed(1234)
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.rand(8, 2, **tkwargs)
+        train_Y = torch.sin(6 * train_X).sum(dim=-1, keepdim=True)
+        model = SingleTaskGP(train_X, train_Y).eval()
+        for batch_sizes, collapse in product(([1, 1], [2, 1]), (True, False)):
+            with self.subTest(batch_sizes=batch_sizes, collapse=collapse):
+                qMS = qMultiStepLookahead(
+                    model=model,
+                    batch_sizes=batch_sizes,
+                    num_fantasies=[2, 3],
+                    collapse_fantasy_base_samples=collapse,
+                )
+                q_prime = qMS.get_augmented_q_batch_size(1)
+                X = torch.rand(3, q_prime, 2, **tkwargs)
+                with torch.no_grad():
+                    values = qMS(X)
+                    for i in range(3):
+                        self.assertAllClose(values[i], qMS(X[i : i + 1]).squeeze(0))
+                if not collapse:
+                    # shared by the t-batches, but not by the fantasies of step 1
+                    self.assertEqual(
+                        qMS.samplers[1].base_samples.shape,
+                        torch.Size([3, 2, 1, batch_sizes[0]]),
+                    )
+
     def test_qMS_init(self):
         d = 2
         q = 1
@@ -204,7 +260,7 @@ class TestMultiStepLookahead(BotorchTestCase):
             result = qMS(eval_X)
             self.assertEqual(result.shape, torch.Size(t_batch_size))
             self.assertEqual(
-                qMS.samplers[0]._get_batch_range(model.posterior(eval_X)), (-3, -2)
+                qMS.samplers[0]._get_batch_range(model.posterior(eval_X)), (0, 1)
             )
 
             # get induced fantasy model, without collapse_fantasy_base_samples

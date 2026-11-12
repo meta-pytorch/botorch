@@ -213,12 +213,18 @@ class qMultiStepLookahead(MCAcquisitionFunction, OneShotAcquisitionFunction):
     def _set_samplers_batch_range(self, batch_shape: Size) -> None:
         r"""Set batch_range on samplers.
 
+        The ``i``-th sampler samples the fantasies at ``X_i`` (see
+        ``get_multi_step_tree_input_representation``), from posteriors with base
+        sample shape ``f_i x ... x f_1 x batch_shape x q_i`` (followed by an output
+        dimension for multi-output posteriors). Its batch range is set to the
+        dimensions of ``batch_shape``, so that the base samples are shared by the
+        t-batches but not by the fantasies of the previous steps.
+
         Args:
             batch_shape: The batch shape of the input tensor ``X``.
         """
-        tbatch_dim_start = -2 - len(batch_shape)
-        for s in self.samplers:
-            s.batch_range_override = (tbatch_dim_start, -2)
+        for i, s in enumerate(self.samplers):
+            s.batch_range_override = (i, i + len(batch_shape))
 
     def get_augmented_q_batch_size(self, q: int) -> int:
         r"""Get augmented q batch size for one-shot optimization.
@@ -274,11 +280,15 @@ class qMultiStepLookahead(MCAcquisitionFunction, OneShotAcquisitionFunction):
         # Each X_i in Xsplit has shape batch_shape x qtilde x d with
         # qtilde = f_i * ... * f_1 * q_i
         Xsplit = torch.split(X, sizes, dim=-2)
-        # now reshape (need to permute batch_shape and qtilde dimensions for i > 0)
-        perm = [-2] + list(range(len(batch_shape))) + [-1]
+        # now reshape X_i to batch_shape x f_i x ... x f_1 x q_i x d (for i > 0) and
+        # move the batch dimensions behind the fantasy dimensions
+        n_batch = len(batch_shape)
         X0 = Xsplit[0].reshape(shapes[0])
         Xother = [
-            X.permute(*perm).reshape(shape) for X, shape in zip(Xsplit[1:], shapes[1:])
+            X_i.reshape(*batch_shape, *shape[:i], *shape[-2:]).movedim(
+                tuple(range(n_batch)), tuple(range(i, i + n_batch))
+            )
+            for i, (X_i, shape) in enumerate(zip(Xsplit[1:], shapes[1:]), start=1)
         ]
         # concatenate in pending points
         if self.X_pending is not None:
