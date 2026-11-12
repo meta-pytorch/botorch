@@ -35,6 +35,10 @@ from botorch.models.gpytorch import GPyTorchModel
 from botorch.models.model import FantasizeMixin, Model
 from botorch.models.transforms.input import InputTransform
 from botorch.models.transforms.outcome import OutcomeTransform, Standardize
+from botorch.models.utils import (
+    extract_targets_and_noise_single_output,
+    restore_targets_and_noise_single_output,
+)
 from botorch.posteriors.gpytorch import GPyTorchPosterior
 from botorch.posteriors.latent_kronecker import LatentKroneckerGPPosterior
 from botorch.utils.datasets import SupervisedDataset
@@ -205,6 +209,21 @@ class LatentKroneckerGP(GPyTorchModel, ExactGP, FantasizeMixin):
         input transform machinery, which expects single-input models.
         """
         return self.train_inputs[1]
+
+    def _extract_targets_and_noise(self) -> tuple[Tensor, Tensor | None]:
+        r"""Expose flattened observed grid cells as scalar outcome events.
+
+        ``num_outputs`` counts time locations, while ``train_targets`` has a
+        single trailing axis for all observed cells. State loading must not
+        transpose it as an independent multi-output target batch.
+        """
+        return extract_targets_and_noise_single_output(self)
+
+    def _restore_targets_and_noise(
+        self, Y: Tensor, Yvar: Tensor | None, strict: bool
+    ) -> None:
+        r"""Restore the observed-cell axis after outcome retransformation."""
+        restore_targets_and_noise_single_output(self, Y, Yvar, strict)
 
     def transform_inputs(
         self,
