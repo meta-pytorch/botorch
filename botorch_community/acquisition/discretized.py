@@ -93,11 +93,14 @@ class DiscretizedAcquistionFunction(AcquisitionFunction, ABC):
             A ``(b)``-dim Tensor of the acquisition function at the given
             design points ``X``.
         """
-        discrete_posterior = self.model.posterior(
-            X,
-            pending_X=self.X_pending,
-            negate_train_ys=(not self.maximize) and self.assume_symmetric_posterior,
-        )
+        # Only pass the PFN-specific kwargs when they are needed, so that models
+        # that do not support pending points (e.g. ``PFNModel``) can be used.
+        posterior_kwargs = {}
+        if self.X_pending is not None:
+            posterior_kwargs["pending_X"] = self.X_pending
+        if not self.maximize and self.assume_symmetric_posterior:
+            posterior_kwargs["negate_train_ys"] = True
+        discrete_posterior = self.model.posterior(X, **posterior_kwargs)
         if not self.maximize and not self.assume_symmetric_posterior:
             discrete_posterior.borders = -torch.flip(discrete_posterior.borders, [0])
             discrete_posterior.probabilities = torch.flip(

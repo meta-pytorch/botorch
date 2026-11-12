@@ -222,7 +222,10 @@ class PFNModel(Model):
             A ``BoundedRiemannPosterior``, representing a batch of b? x q?`
             distributions.
         """
-        self.pfn.eval()
+        # Put the whole model (not only the PFN) in eval mode, so that input
+        # transforms are applied with their fitted parameters instead of being
+        # re-fit to the test points.
+        self.eval()
         if output_indices is not None:
             raise UnsupportedError(
                 "output_indices is not None. PFNModel should not "
@@ -369,7 +372,7 @@ class PFNModelWithPendingPoints(PFNModel):
             A ``BoundedRiemannPosterior``, representing a batch of b? x q?`
             distributions.
         """
-        self.pfn.eval()
+        self.eval()  # see ``PFNModel.posterior``
         if output_indices is not None:
             raise UnsupportedError(
                 "output_indices is not None. PFNModel should not "
@@ -388,6 +391,8 @@ class PFNModelWithPendingPoints(PFNModel):
 
         if pending_X is not None:
             assert pending_X.dim() == 2, "pending_X must be 2-dimensional."
+            # Map pending points to the same (transformed) space as train_X and X.
+            pending_X = self.transform_inputs(pending_X)
             pending_X = pending_X[None].repeat(X.shape[0], 1, 1)  # shape (b, n', d)
             train_X = torch.cat([train_X, pending_X], dim=1)  # shape (b, n+n', d)
             train_Y = torch.cat(
@@ -432,6 +437,7 @@ class MultivariatePFNModel(PFNModel):
         output_indices: list[int] | None = None,
         observation_noise: bool | Tensor = False,
         posterior_transform: PosteriorTransform | None = None,
+        negate_train_ys: bool = False,
     ) -> BoundedRiemannPosterior | MultivariateRiemannPosterior:
         """Computes the posterior over model outputs at the provided points.
 
@@ -448,6 +454,8 @@ class MultivariatePFNModel(PFNModel):
             output_indices: **Currently not supported for PFNModel.**
             observation_noise: **Currently not supported for PFNModel**.
             posterior_transform: **Currently not supported for PFNModel**.
+            negate_train_ys: Whether to negate the training Ys. This is useful
+                for minimization.
 
         Returns:
             A posterior representing a batch of b? x q? distributions.
@@ -457,11 +465,14 @@ class MultivariatePFNModel(PFNModel):
             output_indices=output_indices,
             observation_noise=observation_noise,
             posterior_transform=posterior_transform,
+            negate_train_ys=negate_train_ys,
         )
         if len(X.shape) == 1 or X.shape[-2] == 1:
             # No q dimension, or q=1
             return marginals
-        X, train_X, train_Y, orig_X_shape, styles = self._prepare_data(X)
+        X, train_X, train_Y, orig_X_shape, styles = self._prepare_data(
+            X, negate_train_ys=negate_train_ys
+        )
         # Estimate correlation structure, making another forward pass.
         R = self.estimate_correlations(
             X=X,
@@ -552,7 +563,8 @@ class MultivariatePFNModel(PFNModel):
             X: evaluation point, shape (b, q, d)
             train_X: Training X, shape (b, n, d)
             train_Y: Training Y, shape (b, n, 1)
-            styles: dict from name to tensor shaped (b, ns) for any styles.
+            styles: dict from name to tensor shaped (b, ns) for any styles, or
+                (b, 1, ns) / (b, num_features, ns) for a raw ``style`` tensor.
             marginals: A posterior object with marginal posteriors for f(X), but no
                 correlation structure yet added. posterior.probabilities has
                 shape (b?, q, num_buckets).
@@ -578,8 +590,12 @@ class MultivariatePFNModel(PFNModel):
         train_Y = torch.cat((train_Y, cond_Y), dim=-2)  # (b, q, n+1, 1)
         cond_styles = {}
         for name, style in styles.items():
-            ns = style.shape[-1]
-            cond_styles[name] = style.unsqueeze(-2).expand(b, q, ns).reshape(b * q, ns)
+            style_shape = style.shape[1:]
+            cond_styles[name] = (
+                style.unsqueeze(1)
+                .expand(b, q, *style_shape)
+                .reshape(b * q, *style_shape)
+            )
         # Construct eval points
         eval_X = X.unsqueeze(1).expand(b, q, q, d)
         # Squeeze everything into necessary 2 batch dims, and do PFN forward pass

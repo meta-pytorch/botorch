@@ -110,6 +110,29 @@ class TestRiemannPosterior(BotorchTestCase):
             with self.assertRaises(ValueError):
                 posterior.rsample_from_base_samples(torch.Size([10, 4]), base_samples)
 
+    def test_rsample_multi_dim_sample_shape(self):
+        torch.manual_seed(13)
+        for dtype in (torch.float, torch.double):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            borders = torch.linspace(0, 1, 11, **tkwargs)
+            probabilities = torch.rand(4, 1, 10, **tkwargs)
+            probabilities = probabilities / probabilities.sum(-1, keepdim=True)
+            posterior = BoundedRiemannPosterior(borders, probabilities)
+            for sample_shape in (torch.Size([2, 3]), torch.Size([])):
+                samples = posterior.rsample(sample_shape)
+                self.assertEqual(samples.shape, sample_shape + torch.Size([4, 1, 1]))
+            sampler = get_sampler(posterior, torch.Size([2, 8]), seed=0)
+            self.assertEqual(sampler(posterior).shape, torch.Size([2, 8, 4, 1, 1]))
+            # Same samples as with the flattened sample shape.
+            base_samples = torch.randn(2, 8, 4, 1, **tkwargs)
+            samples = posterior.rsample_from_base_samples(
+                torch.Size([2, 8]), base_samples
+            )
+            flat_samples = posterior.rsample_from_base_samples(
+                torch.Size([16]), base_samples.view(16, 4, 1)
+            )
+            self.assertTrue(torch.equal(samples, flat_samples.view(2, 8, 4, 1, 1)))
+
     def test_mean(self):
         for dtype in (torch.float, torch.double):
             tkwargs = {"device": self.device, "dtype": dtype}
@@ -222,6 +245,32 @@ class TestRiemannPosterior(BotorchTestCase):
                 torch.allclose(posterior.icdf(value=value).squeeze(), true_res)
             )
 
+    def test_icdf_edge_cases(self):
+        for dtype in (torch.float, torch.double):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            borders = torch.tensor([0.0, 1.0, 2.0, 3.0], **tkwargs)
+            # Probabilities that sum to slightly less than one (as a float32
+            # softmax can), and values above the total probability mass.
+            posterior = BoundedRiemannPosterior(
+                borders, torch.tensor([[0.3, 0.3, 0.3999]], **tkwargs)
+            )
+            value = torch.tensor([[0.99995], [1.0]], **tkwargs)
+            res = posterior.icdf(value)
+            self.assertAllClose(res, torch.full_like(res, 3.0))
+            # Extreme base samples are mapped to the ends of the support.
+            base_samples = torch.tensor([[-40.0], [40.0]], **tkwargs)
+            samples = posterior.rsample_from_base_samples(torch.Size([2]), base_samples)
+            self.assertAllClose(samples.view(-1), borders[[0, -1]])
+            # A leading bucket without probability mass does not produce NaNs
+            # (values or gradients) for a value of zero.
+            probabilities = torch.tensor([[0.0, 0.5, 0.5]], **tkwargs)
+            probabilities.requires_grad_(True)
+            posterior = BoundedRiemannPosterior(borders, probabilities)
+            res = posterior.icdf(torch.tensor([[0.0], [0.25]], **tkwargs))
+            self.assertAllClose(res.view(-1), torch.tensor([1.0, 1.5], **tkwargs))
+            res.sum().backward()
+            self.assertTrue(probabilities.grad.isfinite().all())
+
 
 class TestMultivariateRiemannPosterior(BotorchTestCase):
     def test_multivariate_rsample(self):
@@ -255,6 +304,17 @@ class TestMultivariateRiemannPosterior(BotorchTestCase):
         self.assertTrue(
             torch.abs(torch.corrcoef(samples[:, 1, :].squeeze().T)[0, 1]).item() > 0.8
         )
+        # Multi-dimensional sample shapes
+        samples = posterior.rsample(torch.Size([4, 5]))
+        self.assertEqual(samples.shape, torch.Size([4, 5, 2, 3, 1]))
+        sampler = get_sampler(posterior, torch.Size([4, 5]), seed=0)
+        self.assertEqual(sampler(posterior).shape, torch.Size([4, 5, 2, 3, 1]))
+        base_samples = torch.randn(4, 5, 2, 3)
+        samples = posterior.rsample_from_base_samples(torch.Size([4, 5]), base_samples)
+        flat_samples = posterior.rsample_from_base_samples(
+            torch.Size([20]), base_samples.view(20, 2, 3)
+        )
+        self.assertAllClose(samples, flat_samples.view(4, 5, 2, 3, 1))
 
 
 class TestGetSamplerRiemann(BotorchTestCase):
