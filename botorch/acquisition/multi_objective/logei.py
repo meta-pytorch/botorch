@@ -125,6 +125,9 @@ class _FusedLogAreas(torch.autograd.Function):
         tau_relu: float,
         tau_max: float,
     ) -> Tensor:
+        # Save the original inputs: views made inside forward do not retain the
+        # input graph needed by a differentiable backward.
+        ctx.save_for_backward(obj_subsets, cell_lower, cell_upper)
         batch_shape = obj_subsets.shape[:-3]
         B = max(1, int(torch.Size(batch_shape).numel()))
         obj_flat = obj_subsets.reshape(B, *obj_subsets.shape[-3:])
@@ -138,7 +141,6 @@ class _FusedLogAreas(torch.autograd.Function):
 
         result = _C.forward(obj_flat, cell_lower, cell_upper, tau_relu, tau_max)
 
-        ctx.save_for_backward(obj_flat, cell_lower, cell_upper)
         ctx.tau_relu = tau_relu
         ctx.tau_max = tau_max
         ctx.orig_shape = obj_subsets.shape
@@ -150,8 +152,61 @@ class _FusedLogAreas(torch.autograd.Function):
         ctx: torch.autograd.function.FunctionCtx,
         grad_output: Tensor,
     ) -> tuple[Tensor | None, ...]:
-        obj_flat, cell_lower, cell_upper = ctx.saved_tensors
-        B = obj_flat.shape[0]
+        obj_subsets, cell_lower, cell_upper = ctx.saved_tensors
+        create_graph = torch.is_grad_enabled()
+        if create_graph or cell_lower.requires_grad or cell_upper.requires_grad:
+            # The raw-pointer C++ backward supplies only first derivatives of
+            # the objective samples. Recompute the same areas in Torch when
+            # cell bounds or higher derivatives are requested.
+            with torch.enable_grad():
+
+                def log_areas(obj: Tensor, lower: Tensor, upper: Tensor) -> Tensor:
+                    batch_shape = obj.shape[:-3]
+                    B = max(1, int(torch.Size(batch_shape).numel()))
+                    nc, m = lower.shape[-2:]
+                    obj = obj.reshape(B, *obj.shape[-3:])
+                    lower = lower.reshape(-1, nc, m)
+                    upper = upper.reshape(-1, nc, m)
+                    improvements = log_fatplus(
+                        obj.unsqueeze(1) - lower.unsqueeze(-2).unsqueeze(-2),
+                        tau=ctx.tau_relu,
+                    )
+                    improvements = fatmin(improvements, dim=-2, tau=ctx.tau_max)
+                    lengths = (
+                        (
+                            upper.clamp_max(
+                                1e10 if upper.dtype == torch.double else 1e8
+                            )
+                            - lower
+                        )
+                        .log()
+                        .unsqueeze(-2)
+                    )
+                    areas = fatmin(
+                        torch.stack(
+                            torch.broadcast_tensors(improvements, lengths), dim=-1
+                        ),
+                        dim=-1,
+                        tau=ctx.tau_max,
+                    ).sum(dim=-1)
+                    return areas.reshape(*batch_shape, nc, areas.shape[-1])
+
+                # Compute partial derivatives for independent argument slots.
+                # Ordinary autograd.grad would also traverse any ancestor
+                # relation between obj and the bounds, double-counting it when
+                # the outer autograd engine later applies the chain rule.
+                _, vjp = torch.func.vjp(log_areas, obj_subsets, cell_lower, cell_upper)
+                gradients = vjp(grad_output)
+            return tuple(
+                (gradient if create_graph else gradient.detach()) if needed else None
+                for gradient, needed in zip(gradients, ctx.needs_input_grad[:3])
+            ) + (None, None)
+
+        B = max(1, int(torch.Size(obj_subsets.shape[:-3]).numel()))
+        obj_flat = obj_subsets.reshape(B, *obj_subsets.shape[-3:])
+        nc, m = cell_lower.shape[-2:]
+        cell_lower = cell_lower.reshape(-1, nc, m)
+        cell_upper = cell_upper.reshape(-1, nc, m)
 
         grad_flat = grad_output.reshape(B, *grad_output.shape[-2:])
 
@@ -165,7 +220,7 @@ class _FusedLogAreas(torch.autograd.Function):
         )
 
         # Gradients for: obj_subsets, cell_lower, cell_upper, tau_relu, tau_max.
-        # Only obj_subsets needs a gradient; the rest are non-differentiable.
+        # The fast path is used only for first-order sample gradients.
         return grad_obj.reshape(ctx.orig_shape), None, None, None, None
 
 
