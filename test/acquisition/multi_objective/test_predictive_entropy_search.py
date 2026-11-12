@@ -4,6 +4,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+from copy import deepcopy
 from itertools import product
 
 import torch
@@ -13,7 +14,9 @@ from botorch.acquisition.multi_objective.predictive_entropy_search import (
     qMultiObjectivePredictiveEntropySearch,
 )
 from botorch.exceptions import UnsupportedError
+from botorch.models.gp_regression import SingleTaskGP
 from botorch.models.model_list_gp_regression import ModelListGP
+from botorch.models.transforms.input import Normalize
 from botorch.utils.test_helpers import get_model
 from botorch.utils.testing import BotorchTestCase
 
@@ -209,3 +212,47 @@ class TestQMultiObjectivePredictiveEntropySearch(BotorchTestCase):
 
             self.assertTrue(torch.equal(omega_f_nat_mean, omega_f_nat_mean_new))
             self.assertTrue(torch.equal(omega_f_nat_cov, omega_f_nat_cov_new))
+
+    def test_moo_predictive_entropy_search_input_transform(self):
+        # EP must use the original training inputs, since the input transform is
+        # applied in ``model.posterior``. In eval mode, ``model.train_inputs`` are
+        # already transformed.
+        torch.manual_seed(0)
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        bounds = torch.tensor([[0.0, 0.0], [10.0, 10.0]], **tkwargs)
+        train_X = 10 * torch.rand(6, 2, **tkwargs)
+        train_Y = torch.stack(
+            [torch.sin(train_X[:, 0]), torch.cos(train_X[:, 1])], dim=-1
+        )
+        pareto_sets = 10 * torch.rand(2, 3, 2, **tkwargs)
+        X = 10 * torch.rand(3, 1, 2, **tkwargs)
+
+        def make_model(X, input_transform, use_model_list):
+            if use_model_list:
+                return ModelListGP(
+                    *(
+                        SingleTaskGP(
+                            X,
+                            train_Y[:, i : i + 1],
+                            input_transform=deepcopy(input_transform),
+                        )
+                        for i in range(2)
+                    )
+                )
+            return SingleTaskGP(X, train_Y, input_transform=input_transform)
+
+        for use_model_list in (False, True):
+            # the same model (default hyperparameters) on normalized inputs
+            ref_model = make_model(train_X / 10, None, use_model_list)
+            model = make_model(train_X, Normalize(d=2, bounds=bounds), use_model_list)
+            model.eval()
+            with torch.no_grad():
+                ref_val = qMultiObjectivePredictiveEntropySearch(
+                    model=ref_model, pareto_sets=pareto_sets / 10
+                )(X / 10)
+                acq = qMultiObjectivePredictiveEntropySearch(
+                    model=model, pareto_sets=pareto_sets
+                )
+                val = acq(X)
+            self.assertAllClose(acq.augmented_X[:, :6], train_X.expand(2, 6, 2))
+            self.assertAllClose(val, ref_val)
