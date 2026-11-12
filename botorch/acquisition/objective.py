@@ -161,15 +161,24 @@ class ExpectationPosteriorTransform(PosteriorTransform):
                 compute a weighted expectation. Weights are normalized before use.
         """
         super().__init__()
+        if not isinstance(n_w, int) or n_w <= 0:
+            raise ValueError("`n_w` must be a positive integer.")
         if weights is not None:
             if weights.dim() != 2 or weights.shape[0] != n_w:
                 raise ValueError("`weights` must be a tensor of size `n_w x m`.")
+            if not torch.isfinite(weights).all():
+                raise ValueError("`weights` must be finite.")
             if torch.any(weights < 0):
                 raise ValueError("`weights` must be non-negative.")
         else:
             weights = torch.ones(n_w, 1)
         # Normalize the weights.
-        weights = weights / weights.sum(dim=0)
+        weight_sums = weights.sum(dim=0)
+        if not (torch.isfinite(weight_sums) & (weight_sums > 0)).all():
+            raise ValueError(
+                "Each column of `weights` must have a finite positive sum."
+            )
+        weights = weights / weight_sums
         self.register_buffer("weights", weights)
         self.n_w = n_w
 
