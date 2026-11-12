@@ -77,7 +77,7 @@ def _reshape_base_samples(
         *peshape[:-2],
         peshape[-1],
         peshape[-2],
-        *sample_shape,
+        sample_shape.numel(),
     )
 
 
@@ -159,6 +159,7 @@ def sample_cached_cholesky(
         .permute(-1, *range(posterior.distribution.loc.dim() - 1), -2, -3)
         .contiguous()
     )
+    res = res.reshape(*sample_shape, *res.shape[1:])
     contains_nans = torch.isnan(res).any()
     contains_infs = torch.isinf(res).any()
     if contains_nans or contains_infs:
