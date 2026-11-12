@@ -41,15 +41,17 @@ class LinearTruncatedFidelityKernel(Kernel):
         ``x_2[..., [f_1, f_2]]``.
 
     Example:
-        >>> x = torch.randn(10, 5)
+        >>> x = torch.rand(10, 5)
         >>> # Non-batch: Simple option
-        >>> covar_module = LinearTruncatedFidelityKernel()
+        >>> covar_module = LinearTruncatedFidelityKernel(fidelity_dims=[4], dimension=5)
         >>> covar = covar_module(x)  # Output: LinearOperator of size (10 x 10)
         >>>
-        >>> batch_x = torch.randn(2, 10, 5)
+        >>> batch_x = torch.rand(2, 10, 5)
         >>> # Batch: Simple option
-        >>> covar_module = LinearTruncatedFidelityKernel(batch_shape = torch.Size([2]))
-        >>> covar = covar_module(x)  # Output: LinearOperator of size (2 x 10 x 10)
+        >>> covar_module = LinearTruncatedFidelityKernel(
+        >>>     fidelity_dims=[4], dimension=5, batch_shape=torch.Size([2])
+        >>> )
+        >>> covar = covar_module(batch_x)  # Output: LinearOperator (2 x 10 x 10)
     """
 
     def __init__(  # noqa C901
@@ -80,11 +82,11 @@ class LinearTruncatedFidelityKernel(Kernel):
                 or 5/2. Unused if both ``covar_module_unbiased`` and
                 ``covar_module_biased`` are specified.
             lengthscale_prior_unbiased: Prior on the lengthscale parameter of Matern
-                kernel ``k_0``. Default is ``Gamma(1.1, 1/20)``.
+                kernel ``k_0``. Default is ``GammaPrior(3, 6)``.
             lengthscale_constraint_unbiased: Constraint on the lengthscale parameter
                 of the Matern kernel ``k_0``. Default is ``Positive``.
             lengthscale_prior_biased: Prior on the lengthscale parameter of Matern
-                kernels ``k_i(i>0)``. Default is ``Gamma(5, 1/20)``.
+                kernels ``k_i(i>0)``. Default is ``GammaPrior(6, 2)``.
             lengthscale_constraint_biased: Constraint on the lengthscale parameter
                 of the Matern kernels ``k_i(i>0)``. Default is ``Positive``.
             covar_module_unbiased: Specify a custom kernel for ``k_0``. If omitted,
