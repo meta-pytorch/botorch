@@ -90,6 +90,46 @@ class NonStationary1DKernelTestMixin:
 
 
 class TestIntegratedWhiteNoiseKernel(NonStationary1DKernelTestMixin, BotorchTestCase):
+    def test_coincident_higher_derivatives(self) -> None:
+        devices = [torch.device("cpu")]
+        if torch.cuda.is_available():
+            devices.append(torch.device("cuda"))
+        for device in devices:
+            for order in (2, 3, 4, 6):
+                with self.subTest(device=device, order=order):
+                    kernel = IntegratedWhiteNoiseKernel(order)
+                    s = torch.tensor(
+                        [[1.0]], dtype=torch.double, device=device, requires_grad=True
+                    )
+                    t = s.detach().clone().requires_grad_()
+                    self.assertTrue(torch.autograd.gradcheck(kernel.forward, (s, t)))
+                    self.assertTrue(
+                        torch.autograd.gradgradcheck(kernel.forward, (s, t))
+                    )
+                    if order == 2:
+                        first = torch.autograd.grad(
+                            kernel(s, t).to_dense().sum(), s, create_graph=True
+                        )[0]
+                        pure, mixed = torch.autograd.grad(first.sum(), (s, t))
+                        self.assertAllClose(
+                            pure, torch.zeros_like(s), atol=1e-15, rtol=0
+                        )
+                        self.assertAllClose(
+                            mixed, torch.ones_like(s), atol=1e-15, rtol=0
+                        )
+                    # The highest smooth mixed derivative recovers Brownian
+                    # covariance, d_s^(p-1) d_t^(p-1) k_p(s,t) = min(s,t).
+                    value = kernel(s, t).to_dense().sum()
+                    for _ in range(order - 1):
+                        value = torch.autograd.grad(value, s, create_graph=True)[
+                            0
+                        ].sum()
+                    for _ in range(order - 1):
+                        value = torch.autograd.grad(value, t, create_graph=True)[
+                            0
+                        ].sum()
+                    self.assertAllClose(value, s.squeeze(), atol=2e-11, rtol=3e-10)
+
     def test_orders(self) -> None:
         """Per-order closed-form values, diagonals, and common properties."""
         for dtype in [torch.float32, torch.float64]:

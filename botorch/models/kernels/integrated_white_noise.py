@@ -168,8 +168,18 @@ class IntegratedWhiteNoiseKernel(Kernel):
         # Compute pairwise min and max with shapes broadcasting to (..., n, m).
         x1_expanded = x1_squeezed.unsqueeze(-1)
         x2_expanded = x2_squeezed.unsqueeze(-2)
-        min_val = torch.minimum(x1_expanded, x2_expanded)
-        max_val = torch.maximum(x1_expanded, x2_expanded)
+        if self.order == 1:
+            # Brownian covariance is nonsmooth at equal independent times;
+            # retain the symmetric first-derivative convention.
+            min_val = torch.minimum(x1_expanded, x2_expanded)
+            max_val = torch.maximum(x1_expanded, x2_expanded)
+        else:
+            # The two polynomial regions agree through derivative order
+            # 2p-2 at the diagonal. Select one consistently: splitting both
+            # min/max gradients at a tie gives an incorrect Hessian.
+            lower_branch = x1_expanded <= x2_expanded
+            min_val = torch.where(lower_branch, x1_expanded, x2_expanded)
+            max_val = torch.where(lower_branch, x2_expanded, x1_expanded)
         diff = max_val - min_val
 
         result = torch.zeros_like(min_val)
