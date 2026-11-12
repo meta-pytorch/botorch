@@ -22,6 +22,12 @@ from linear_operator.operators import DenseLinearOperator
 
 class ComponentModel(Model):
     def __init__(self, model, index):
+        r"""Wrap one ensemble member of `model` as a single model.
+
+        Args:
+            model: The ensemble model.
+            index: The index of the ensemble member.
+        """
         super().__init__()
         self.model, self.index = model, index
 
