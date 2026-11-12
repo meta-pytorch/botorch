@@ -164,8 +164,8 @@ class TestQMultiObjectivePredictiveEntropySearch(BotorchTestCase):
 
         for dtype in (torch.float, torch.double):
             tkwargs["dtype"] = dtype
-            cov_old = torch.ones(1, 2, 2, **tkwargs)
-            cov_new = torch.ones(1, 2, 2, **tkwargs)
+            cov_old = torch.diag(torch.tensor([1.0, -1.0], **tkwargs)).unsqueeze(0)
+            cov_new = cov_old.clone()
             damping_factor = torch.ones(1, **tkwargs)
             jitter = 0.0
 
