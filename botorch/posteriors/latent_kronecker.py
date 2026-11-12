@@ -44,6 +44,8 @@ class LatentKroneckerGPPosterior(GPyTorchPosterior):
         distribution: MultivariateNormal,
         X: Tensor,
         T: Tensor,
+        *,
+        untransform: bool = True,
     ) -> None:
         r"""Initialize LatentKroneckerGPPosterior.
 
@@ -56,18 +58,29 @@ class LatentKroneckerGPPosterior(GPyTorchPosterior):
                 jointly, on which the posterior shall be evaluated.
             T: A ``(batch_shape) x t x 1``-dim Tensor of ``T``-locations at which to
                 evaluate the posterior.
+            untransform: Whether pathwise samples should undo the model's outcome
+                transform. Use False for internal transformed-space wrappers.
         """
         super().__init__(distribution=distribution)
         self._dtype = X.dtype
         self._device = X.device
         self.batch_shape = model.batch_shape
         self.output_batch_shape = torch.broadcast_shapes(
-            model.batch_shape, X.shape[:-2]
+            model.batch_shape, X.shape[:-2], T.shape[:-2]
         )
         self.model = model
         self.X = X
         self.T = T
         self._is_mt = True
+        self._untransform = untransform
+
+    @property
+    def mean(self) -> Tensor:
+        return self.distribution.mean.reshape(self._extended_shape())
+
+    @property
+    def variance(self) -> Tensor:
+        return self.distribution.variance.reshape(self._extended_shape())
 
     @property
     def base_sample_shape(self):
@@ -135,7 +148,9 @@ class LatentKroneckerGPPosterior(GPyTorchPosterior):
                 f"Got {sample_shape=} and {base_samples.shape=}."
             )
 
-        return self.model._rsample_from_base_samples(self.X, self.T, base_samples)
+        return self.model._rsample_from_base_samples(
+            self.X, self.T, base_samples, untransform=self._untransform
+        )
 
     def rsample(
         self,
