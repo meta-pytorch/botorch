@@ -43,11 +43,9 @@ from gpytorch.models import ExactGP
 from gpytorch.priors.torch_priors import MultivariateNormalPrior
 from gpytorch.settings import fast_pred_var, skip_posterior_variances
 from linear_operator.operators import (
-    BatchRepeatLinearOperator,
     DiagLinearOperator,
     KroneckerProductLinearOperator,
     LinearOperator,
-    ZeroLinearOperator,
 )
 from linear_operator.settings import _fast_solves
 from torch import Tensor
@@ -376,18 +374,19 @@ class HigherOrderGP(BatchedMultiOutputGPyTorchModel, ExactGP, FantasizeMixin):
             else:
                 covariance_list.append(cm(param))
 
-        # check batch_shapes
-        if covariance_list[0].batch_shape != covariance_list[1].batch_shape:
-            for i in range(1, len(covariance_list)):
-                cm = covariance_list[i]
-                covariance_list[i] = BatchRepeatLinearOperator(
-                    cm, covariance_list[0].batch_shape
-                )
+        # Broadcast factors to the common batch shape. Repeating an already
+        # batched latent factor multiplies its existing batch dimensions.
+        batch_shape = torch.broadcast_shapes(
+            *(cm.batch_shape for cm in covariance_list)
+        )
+        covariance_list = [
+            cm.expand(*batch_shape, *cm.matrix_shape) for cm in covariance_list
+        ]
         kronecker_covariance = KroneckerProductLinearOperator(*covariance_list)
 
         # TODO: expand options for the mean module via batch shaping?
         mean = torch.zeros(
-            *covariance_list[0].batch_shape,
+            *batch_shape,
             kronecker_covariance.shape[-1],
             device=kronecker_covariance.device,
             dtype=kronecker_covariance.dtype,
@@ -470,6 +469,10 @@ class HigherOrderGP(BatchedMultiOutputGPyTorchModel, ExactGP, FantasizeMixin):
         # input transforms are applied at ``posterior`` in ``eval`` mode, and at
         # ``model.forward()`` at the training time
         X = self.transform_inputs(X)
+        train_inputs = self.train_inputs[0]
+        batch_shape = torch.broadcast_shapes(train_inputs.shape[:-2], X.shape[:-2])
+        train_inputs = train_inputs.expand(*batch_shape, *train_inputs.shape[-2:])
+        X = X.expand(*batch_shape, *X.shape[-2:])
         no_pred_variance = skip_posterior_variances._state
 
         with ExitStack() as es:
@@ -484,41 +487,41 @@ class HigherOrderGP(BatchedMultiOutputGPyTorchModel, ExactGP, FantasizeMixin):
                 # TODO: ensure that this still works for structured noise solves.
                 mvn = self.likelihood(mvn, X)
 
-            # lazy covariance matrix includes the interpolated version of the full
-            # covariance matrix so we can actually grab that instead.
-            if X.ndimension() > self.train_inputs[0].ndimension():
-                X_batch_shape = X.shape[:-2]
-                train_inputs = self.train_inputs[0].reshape(
-                    *[1] * len(X_batch_shape), *self.train_inputs[0].shape
-                )
-                train_inputs = train_inputs.repeat(
-                    *X_batch_shape, *[1] * self.train_inputs[0].ndimension()
-                )
-            else:
-                train_inputs = self.train_inputs[0]
-
-            # we now compute the data covariances for the training data, the testing
-            # data, the joint covariances, and the test train cross-covariance
-            train_train_covar = self.prediction_strategy.lik_train_train_covar.detach()
-            base_train_train_covar = train_train_covar.linear_op
-
-            data_train_covar = base_train_train_covar.linear_ops[0]
+            # Fantasy caches may wrap the training covariance in generic
+            # AddedDiag/BatchRepeat operators. Rebuild only the individual
+            # training factors instead of assuming cache wrapper attributes.
             data_covar = self.covar_modules[0]
-            data_train_test_covar = data_covar(X, train_inputs)
-            data_test_test_covar = data_covar(X)
+            data_train_covar = data_covar(train_inputs).evaluate_kernel().detach()
+            data_train_test_covar = data_covar(X, train_inputs).evaluate_kernel()
+            data_test_test_covar = data_covar(X).evaluate_kernel()
             data_joint_covar = data_train_covar.cat_rows(
                 cross_mat=data_train_test_covar,
                 new_mat=data_test_test_covar,
             )
 
-            # we detach the latents so that they don't cause gradient errors
-            # TODO: Can we enable backprop through the latent covariances?
-            batch_shape = data_train_test_covar.batch_shape
+            # Preserve the existing detached latent-factor inference contract.
             latent_covar_list = []
-            for latent_covar in base_train_train_covar.linear_ops[1:]:
-                if latent_covar.batch_shape != batch_shape:
-                    latent_covar = BatchRepeatLinearOperator(latent_covar, batch_shape)
-                latent_covar_list.append(latent_covar.detach())
+            for cm, param in zip(self.covar_modules[1:], self.latent_parameters):
+                latent_covar = cm(param).evaluate_kernel().detach()
+                latent_covar_list.append(
+                    latent_covar.expand(*batch_shape, *latent_covar.matrix_shape)
+                )
+
+            base_train_covar = KroneckerProductLinearOperator(
+                data_train_covar, *latent_covar_list
+            )
+            train_prior = MultivariateNormal(
+                torch.zeros(
+                    *batch_shape,
+                    base_train_covar.shape[-1],
+                    dtype=X.dtype,
+                    device=X.device,
+                ),
+                base_train_covar,
+            )
+            train_train_covar = self.likelihood(
+                train_prior, train_inputs
+            ).lazy_covariance_matrix.detach()
 
             joint_covar = KroneckerProductLinearOperator(
                 data_joint_covar, *latent_covar_list
@@ -539,9 +542,7 @@ class HigherOrderGP(BatchedMultiOutputGPyTorchModel, ExactGP, FantasizeMixin):
                 new_variance = pred_variance.reshape(*X.shape[:-1], *self.target_shape)
                 new_variance = DiagLinearOperator(new_variance)
             else:
-                new_variance = ZeroLinearOperator(
-                    *X.shape[:-1], *self.target_shape, self.target_shape[-1]
-                )
+                new_variance = DiagLinearOperator(torch.zeros_like(new_mean))
 
             mvn = MultivariateNormal(new_mean, new_variance)
 
