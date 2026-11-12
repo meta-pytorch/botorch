@@ -393,8 +393,8 @@ class qMaxValueEntropy(MaxValueBase, MCSamplerMixin):
         view_shape = torch.Size(
             [
                 self.posterior_max_values.shape[0],
-                # add 1s to broadcast across the batch_shape of X
-                *[1 for _ in range(X.ndim - self.posterior_max_values.ndim)],
+                # Include batch axes added by the posterior, such as MCMC axes.
+                *[1 for _ in range(mean_M.ndim + 1 - self.posterior_max_values.ndim)],
                 *self.posterior_max_values.shape[1:],
             ]
         )  # s_M x batch_shape x num_fantasies x (m)
