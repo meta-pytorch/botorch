@@ -519,6 +519,9 @@ class StratifiedStandardize(Standardize):
     module state (i.e. the mean/std normalizing constants). If in eval mode,
     calling forward simply applies the standardization using the current module
     state.
+
+    Statistics are fitted separately for each batch and stratum. A stratum
+    observed only in other batches uses identity statistics in the missing batch.
     """
 
     def __init__(
@@ -607,6 +610,7 @@ class StratifiedStandardize(Standardize):
                     stdvs >= self._min_stdv, torch.full_like(stdvs, 1.0)
                 )
                 means = Y_strata.nanmean(dim=-2)
+                means = means.masked_fill(mask.all(dim=-1, keepdim=True), 0.0)
                 self.means[..., mapped_strata, :] = means
                 self.stdvs[..., mapped_strata, :] = stdvs
                 self._stdvs_sq[..., mapped_strata, :] = stdvs.pow(2)

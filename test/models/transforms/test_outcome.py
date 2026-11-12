@@ -617,6 +617,67 @@ class TestOutcomeTransforms(BotorchTestCase):
             self.assertEqual(stdvs.item(), 1.0)
             self.assertEqual(stdvs_sq.item(), 1.0)
 
+    def test_stratified_standardize_missing_tasks_per_batch(self) -> None:
+        for dtype in (torch.float, torch.double):
+            with self.subTest(dtype=dtype):
+                X = torch.tensor(
+                    [[0, 1, 0, 1], [0, 0, 0, 0], [1, 1, 1, 1]],
+                    dtype=dtype,
+                    device=self.device,
+                ).unsqueeze(-1)
+                Y = torch.tensor(
+                    [[1, 10, 3, 14], [2, 4, 6, 8], [20, 24, 28, 32]],
+                    dtype=dtype,
+                    device=self.device,
+                ).unsqueeze(-1)
+                Yvar = torch.full_like(Y, 0.25)
+                all_tasks = torch.tensor([0, 1], device=self.device)
+                transform = StratifiedStandardize(
+                    stratification_idx=-1,
+                    all_task_values=all_tasks,
+                    batch_shape=torch.Size([3]),
+                )
+                transformed, noise = transform(Y, Yvar, X)
+                transform.eval()
+                queries = X.new_tensor([0, 1]).view(1, 2, 1).expand(3, 2, 1)
+                mean = Y.new_tensor([[0.2, -0.3], [0.5, 0.9], [-0.4, 0.7]])
+                covariance = Y.new_tensor([[1.0, 0.2], [0.2, 0.7]]).expand(3, 2, 2)
+                posterior = transform.untransform_posterior(
+                    GPyTorchPosterior(MultivariateNormal(mean, covariance)),
+                    X=queries,
+                )
+                restored, restored_noise = transform.untransform(
+                    mean.unsqueeze(-1), Yvar[:, :2], X=queries
+                )
+                for batch in range(3):
+                    independent = StratifiedStandardize(
+                        stratification_idx=-1, all_task_values=all_tasks
+                    )
+                    expected, expected_noise = independent(
+                        Y[batch], Yvar[batch], X[batch]
+                    )
+                    independent.eval()
+                    self.assertAllClose(transformed[batch], expected)
+                    self.assertAllClose(noise[batch], expected_noise)
+                    expected_restored, expected_restored_noise = (
+                        independent.untransform(
+                            mean[batch].unsqueeze(-1), Yvar[batch, :2], X=queries[batch]
+                        )
+                    )
+                    self.assertAllClose(restored[batch], expected_restored)
+                    self.assertAllClose(restored_noise[batch], expected_restored_noise)
+                    expected_posterior = independent.untransform_posterior(
+                        GPyTorchPosterior(
+                            MultivariateNormal(mean[batch], covariance[batch])
+                        ),
+                        X=queries[batch],
+                    )
+                    self.assertAllClose(posterior.mean[batch], expected_posterior.mean)
+                    self.assertAllClose(
+                        posterior.mvn.covariance_matrix[batch],
+                        expected_posterior.mvn.covariance_matrix,
+                    )
+
     def test_log(self):
         ms = (1, 2)
         batch_shapes = (torch.Size(), torch.Size([2]))
