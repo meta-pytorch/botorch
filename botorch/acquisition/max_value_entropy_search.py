@@ -569,7 +569,7 @@ class qLowerBoundMaxValueEntropy(MaxValueBase):
         inner_term = 1 - rhos_squared * ratio * (normalized_mvs + ratio)
         acq = -0.5 * inner_term.clamp_min(CLAMP_LB).log()
         # average over posterior max samples
-        acq = acq.mean(dim=1).unsqueeze(0)
+        acq = acq.mean(dim=-1).unsqueeze(0)
 
         if self.X_pending is None:
             # for q=1, no repulsion term required
@@ -596,7 +596,7 @@ class qLowerBoundMaxValueEntropy(MaxValueBase):
             )
 
         X_batches = torch.cat(
-            [X, self.X_pending.unsqueeze(0).repeat(X.shape[0], 1, 1)], 1
+            [X, self.X_pending.expand(*X.shape[:-2], *self.X_pending.shape[-2:])], -2
         )
         # batch_shape x (1 + m) x d
         # NOTE: This is the blocker for supporting posterior transforms.
@@ -605,7 +605,7 @@ class qLowerBoundMaxValueEntropy(MaxValueBase):
         # the posterior transform onto the resulting object.
         V = self.model(X_batches)
         # Evaluate terms required for A
-        A = V.lazy_covariance_matrix[:, 0, 1:].unsqueeze(1)
+        A = V.lazy_covariance_matrix[..., 0, 1:].unsqueeze(-2)
         # batch_shape x 1 x m
         # Evaluate terms required for B
         B = self.model.posterior(
@@ -616,7 +616,7 @@ class qLowerBoundMaxValueEntropy(MaxValueBase):
         # 1 x m x m
 
         # use determinant of block matrix formula
-        inv_quad_term = inv_quad(B, A.transpose(1, 2)).unsqueeze(1)
+        inv_quad_term = inv_quad(B, A.transpose(-1, -2)).unsqueeze(-1)
         # NOTE: Even when using Cholesky to compute inv_quad, ``V_determinant`` can be
         # negative due to numerical issues. To avoid this, we clamp the variance
         # so that ``V_determinant`` > 0, while still allowing gradients to be
@@ -629,7 +629,7 @@ class qLowerBoundMaxValueEntropy(MaxValueBase):
 
         # Take logs and convert covariances to correlations.
         r = V_determinant.log() - variance_m.log()  # = log(1 - inv_quad / var)
-        r = 0.5 * r.transpose(0, 1)
+        r = 0.5 * r.squeeze(-1).unsqueeze(0)
         return acq + r
 
 
