@@ -104,6 +104,12 @@ class MaxValueBase(AcquisitionFunction, ABC):
                 Not required if the model is an instance of a GPyTorch ExactGP model.
         """
         super().__init__(model=model)
+        if candidate_set.ndim != 2:
+            raise UnsupportedError(
+                "Expected `candidate_set` to be a `n x d` tensor, but got a tensor of "
+                f"shape {tuple(candidate_set.shape)}. Batched candidate sets are not "
+                f"supported by {self.__class__.__name__}."
+            )
 
         # NOTE The _init_model is used to create the fantasy model and draw max-value
         # samples. The self.model is overwritten in qMaxValueEntropy.set_X_pending
