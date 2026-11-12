@@ -44,6 +44,7 @@ from botorch.acquisition.input_constructors import (
     _register_acqf_input_constructor,
     acqf_input_constructor,
     ACQF_INPUT_CONSTRUCTOR_REGISTRY,
+    allow_only_specific_variable_kwargs,
     construct_inputs_mf_base,
     get_acqf_input_constructor,
     get_best_f_analytic,
@@ -339,6 +340,39 @@ class TestInputConstructorUtils(InputConstructorBaseTestCase):
             input_constructor(
                 model=self.mock_model, training_data=self.blockX_blockY, hat="car"
             )
+
+    def test__allow_only_specific_variable_kwargs__var_kwargs(self) -> None:
+        # Constructors that take variable keyword arguments receive the unexpected
+        # keyword arguments, but not the generally allowed ones that they do not
+        # take explicitly (as other constructors).
+        def f(model, training_data, **kwargs):
+            return kwargs
+
+        g = allow_only_specific_variable_kwargs(f)
+        self.assertEqual(
+            g(model=None, training_data=None, X_baseline=None, hat="car"),
+            {"hat": "car"},
+        )
+
+        # e.g. the ``optimize_objective_kwargs`` of the knowledge gradient
+        input_constructor = get_acqf_input_constructor(qKnowledgeGradient)
+        optimizer_options = {"num_restarts": 2, "raw_samples": 8}
+        with mock.patch(
+            target="botorch.acquisition.input_constructors.optimize_objective",
+            return_value=(None, torch.tensor(1.23)),
+        ) as mock_optimize_objective:
+            kwargs = input_constructor(
+                model=mock.Mock(),
+                training_data=self.blockX_blockY,
+                bounds=self.bounds,
+                with_current_value=True,
+                optimizer_options=optimizer_options,
+                X_baseline=torch.rand(3, 2),
+            )
+        self.assertEqual(kwargs["current_value"], torch.tensor(1.23))
+        call_kwargs = mock_optimize_objective.call_args.kwargs
+        self.assertIs(call_kwargs["optimizer_options"], optimizer_options)
+        self.assertNotIn("X_baseline", call_kwargs)
 
     def test__register_acqf_input_constructor(self) -> None:
         with self.assertRaisesRegex(RuntimeError, "not registered"):
