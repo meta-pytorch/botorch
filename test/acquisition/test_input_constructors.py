@@ -37,7 +37,6 @@ from botorch.acquisition.analytic import (
 from botorch.acquisition.bayesian_active_learning import (
     qBayesianActiveLearningByDisagreement,
 )
-from botorch.acquisition.fixed_feature import FixedFeatureAcquisitionFunction
 from botorch.acquisition.input_constructors import (
     _field_is_shared,
     _get_ref_point,
@@ -315,7 +314,7 @@ class TestInputConstructorUtils(InputConstructorBaseTestCase):
                 "botorch.acquisition.input_constructors.optimize_acqf",
                 wraps=optimize_acqf,
             ) as mock_optimize_acqf:
-                _ = optimize_objective(
+                X_opt, _ = optimize_objective(
                     model=model,
                     bounds=bounds,
                     q=1,
@@ -324,11 +323,58 @@ class TestInputConstructorUtils(InputConstructorBaseTestCase):
                 )
 
             kwargs = mock_optimize_acqf.call_args[1]
-            self.assertIsInstance(
-                kwargs["acq_function"], FixedFeatureAcquisitionFunction
+            self.assertIsInstance(kwargs["acq_function"], qSimpleRegret)
+            self.assertTrue(torch.equal(kwargs["bounds"], bounds))
+            self.assertEqual(kwargs["fixed_features"], {0: 0.5})
+            self.assertEqual(X_opt.shape, torch.Size([1, d]))
+            self.assertTrue((X_opt[:, 0] == 0.5).all())
+
+    @mock_optimize
+    def test_optimize_objective_fixed_features_and_constraints(self) -> None:
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        torch.manual_seed(0)
+        d = 4
+        train_X = torch.rand(20, d, **tkwargs)
+        train_Y = train_X @ torch.tensor([[3.0], [1.0], [-2.0], [0.5]], **tkwargs)
+        model = SingleTaskGP(train_X, train_Y).eval()
+        bounds = torch.stack([torch.zeros(d, **tkwargs), torch.ones(d, **tkwargs)])
+
+        with self.subTest("unsorted fixed features"):
+            # The value must not depend on the order of the fixed features.
+            values = []
+            for fixed_features in ({0: 0.1, 2: 0.9}, {2: 0.9, 0: 0.1}):
+                torch.manual_seed(1)
+                X_opt, value = optimize_objective(
+                    model=model, bounds=bounds, q=1, fixed_features=fixed_features
+                )
+                self.assertAllClose(
+                    X_opt[:, [0, 2]], torch.tensor([[0.1, 0.9]], **tkwargs)
+                )
+                values.append(value)
+            self.assertAllClose(values[0], values[1])
+
+        with self.subTest("single variable constraint"):
+            # x_1 <= 0.2
+            A = torch.tensor([[0.0, 1.0, 0.0, 0.0]], **tkwargs)
+            b = torch.tensor([[0.2]], **tkwargs)
+            X_opt, _ = optimize_objective(
+                model=model, bounds=bounds, q=1, linear_constraints=(A, b)
             )
-            self.assertIsInstance(kwargs["acq_function"].acq_func, qSimpleRegret)
-            self.assertTrue(torch.equal(kwargs["bounds"], bounds[:, 1:]))
+            self.assertLessEqual(X_opt[0, 1].item(), 0.2 + 1e-6)
+
+        with self.subTest("constraints with fixed features"):
+            # x_1 + x_2 <= 0.5, where the indices refer to the full input space.
+            A = torch.tensor([[0.0, 1.0, 1.0, 0.0]], **tkwargs)
+            b = torch.tensor([[0.5]], **tkwargs)
+            X_opt, _ = optimize_objective(
+                model=model,
+                bounds=bounds,
+                q=1,
+                linear_constraints=(A, b),
+                fixed_features={0: 0.5},
+            )
+            self.assertEqual(X_opt[0, 0].item(), 0.5)
+            self.assertLessEqual((X_opt[0, 1] + X_opt[0, 2]).item(), 0.5 + 1e-6)
 
     def test__allow_only_specific_variable_kwargs__raises(self) -> None:
         input_constructor = get_acqf_input_constructor(ExpectedImprovement)
@@ -400,13 +446,28 @@ class TestAnalyticAcquisitionFunctionInputConstructors(InputConstructorBaseTestC
                 kwargs = c(
                     model=mock_model, training_data=self.blockX_blockY, maximize=False
                 )
-                best_f_expected = self.blockX_blockY[0].Y.squeeze().max()
+                # The best observed value of a minimization problem is the minimum.
+                best_f_expected = self.blockX_blockY[0].Y.squeeze().min()
                 self.assertIs(kwargs["model"], mock_model)
                 self.assertIsNone(kwargs["posterior_transform"])
                 self.assertEqual(kwargs["best_f"], best_f_expected)
                 self.assertFalse(kwargs["maximize"])
                 acqf = acqf_cls(**kwargs)
                 self.assertIs(acqf.model, mock_model)
+
+                # With a posterior transform, the best value of the transformed
+                # objective is used.
+                pt = ScalarizedPosteriorTransform(weights=torch.tensor([-2.0]))
+                Y = self.blockX_blockY[0].Y.squeeze()
+                for maximize in (True, False):
+                    kwargs = c(
+                        model=mock_model,
+                        training_data=self.blockX_blockY,
+                        posterior_transform=pt,
+                        maximize=maximize,
+                    )
+                    best_f_expected = (-2 * Y).max() if maximize else (-2 * Y).min()
+                    self.assertAllClose(kwargs["best_f"], best_f_expected)
 
                 kwargs = c(
                     model=mock_model, training_data=self.blockX_blockY, best_f=0.1
@@ -481,26 +542,44 @@ class TestAnalyticAcquisitionFunctionInputConstructors(InputConstructorBaseTestC
         mock_model = self.mock_model
         constraints_tuple = [torch.tensor([[0.0, 1.0]]), torch.tensor([[2.0]])]
         constraints = {1: (None, 2.0)}
-        best_f_expected = self.blockX_blockY[0].Y.squeeze().max()
         objective_index = 0
-        # test that best_f is inferred from training data
+        # Outcome 0 is the objective, outcome 1 is constrained to be <= 2, so that
+        # only the last two observations are feasible.
+        X = torch.rand(3, 2)
+        training_data = {
+            0: SupervisedDataset(
+                X,
+                torch.tensor([[0.1], [0.5], [0.9]]),
+                feature_names=["X1", "X2"],
+                outcome_names=["Y1"],
+            ),
+            1: SupervisedDataset(
+                X,
+                torch.tensor([[3.0], [0.0], [1.0]]),
+                feature_names=["X1", "X2"],
+                outcome_names=["Y2"],
+            ),
+        }
+        # test that best_f is inferred from training data as the best feasible
+        # observed value of the objective
         # test constraint tuple
-        kwargs = c(
-            model=mock_model,
-            objective_index=objective_index,
-            training_data=self.blockX_blockY,
-            constraints_tuple=constraints_tuple,
-            maximize=False,
-        )
-        self.assertEqual(
-            set(kwargs.keys()),
-            {"model", "best_f", "objective_index", "constraints", "maximize"},
-        )
-        self.assertIs(kwargs["model"], mock_model)
-        self.assertEqual(kwargs["objective_index"], objective_index)
-        self.assertEqual(kwargs["constraints"], constraints)
-        self.assertEqual(kwargs["best_f"], best_f_expected)
-        self.assertFalse(kwargs["maximize"])
+        for maximize, best_f_expected in ((False, 0.5), (True, 0.9)):
+            kwargs = c(
+                model=mock_model,
+                objective_index=objective_index,
+                training_data=training_data,
+                constraints_tuple=constraints_tuple,
+                maximize=maximize,
+            )
+            self.assertEqual(
+                set(kwargs.keys()),
+                {"model", "best_f", "objective_index", "constraints", "maximize"},
+            )
+            self.assertIs(kwargs["model"], mock_model)
+            self.assertEqual(kwargs["objective_index"], objective_index)
+            self.assertEqual(kwargs["constraints"], constraints)
+            self.assertAllClose(kwargs["best_f"], torch.tensor(best_f_expected))
+            self.assertEqual(kwargs["maximize"], maximize)
         # test that best_f overrides default from training data
         # test that negative constraints work
         constraints_tuple = [torch.tensor([[0.0, -1.0]]), torch.tensor([[-2.0]])]
@@ -538,6 +617,7 @@ class TestAnalyticAcquisitionFunctionInputConstructors(InputConstructorBaseTestC
                 model=mock_model,
                 objective_index=1,
                 training_data=self.blockX_blockY,
+                best_f=0.1,
                 constraints_tuple=[torch.tensor([[0.0, -1.0]]), torch.tensor([[-2.0]])],
             )
             LogConstrainedExpectedImprovement(**kwargs)
@@ -1681,16 +1761,14 @@ class TestKGandESAcquisitionFunctionInputConstructors(InputConstructorBaseTestCa
                 )
 
                 # check that ``optimize_acqf`` is called with the desired value function
-                if acqf_cls == qMultiFidelityHypervolumeKnowledgeGradient:
-                    self.assertIsInstance(
-                        mock_optimize_acqf.call_args.kwargs["acq_function"],
-                        FixedFeatureAcquisitionFunction,
-                    )
-                else:
-                    self.assertEqual(
-                        mock_optimize_acqf.call_args.kwargs["acq_function"],
-                        mock_get_hv_value_function(),
-                    )
+                self.assertEqual(
+                    mock_optimize_acqf.call_args.kwargs["acq_function"],
+                    mock_get_hv_value_function(),
+                )
+                self.assertEqual(
+                    mock_optimize_acqf.call_args.kwargs["fixed_features"],
+                    input_constructor_extra_kwargs.get("target_fidelities"),
+                )
 
             self.assertLessEqual(
                 {
@@ -1890,8 +1968,11 @@ class TestKGandESAcquisitionFunctionInputConstructors(InputConstructorBaseTestCa
             mock_optimize_acqf_kwargs = mock_optimize_acqf.call_args.kwargs
 
             self.assertIsInstance(
-                mock_optimize_acqf_kwargs["acq_function"],
-                FixedFeatureAcquisitionFunction,
+                mock_optimize_acqf_kwargs["acq_function"], PosteriorMean
+            )
+            self.assertEqual(
+                mock_optimize_acqf_kwargs["fixed_features"],
+                constructor_args["target_fidelities"],
             )
             self.assertLessEqual(
                 {

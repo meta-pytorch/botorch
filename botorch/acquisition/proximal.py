@@ -150,7 +150,8 @@ class ProximalAcquisitionFunction(AcquisitionFunction):
         else:
             base_acqf = torch.nn.functional.softplus(base_acqf, beta=self.beta)
 
-        return base_acqf * proximal_acq_weight.flatten()
+        # remove the q-dimension (q=1) to match the batch_shape of ``base_acqf``
+        return base_acqf * proximal_acq_weight.squeeze(-1)
 
 
 def _validate_model(model: Model, proximal_weights: Tensor) -> None:

@@ -35,7 +35,6 @@ from botorch.acquisition.bayesian_active_learning import (
     qBayesianActiveLearningByDisagreement,
 )
 from botorch.acquisition.cost_aware import InverseCostWeightedUtility
-from botorch.acquisition.fixed_feature import FixedFeatureAcquisitionFunction
 from botorch.acquisition.joint_entropy_search import qJointEntropySearch
 from botorch.acquisition.knowledge_gradient import (
     qKnowledgeGradient,
@@ -80,6 +79,7 @@ from botorch.acquisition.multi_objective.parego import qLogNParEGO
 from botorch.acquisition.multi_objective.utils import get_default_partitioning_alpha
 from botorch.acquisition.objective import (
     ConstrainedMCObjective,
+    GenericMCObjective,
     IdentityMCObjective,
     LearnedObjective,
     MCAcquisitionObjective,
@@ -106,6 +106,7 @@ from botorch.models.model import Model
 from botorch.optim.optimize import optimize_acqf
 from botorch.sampling.base import MCSampler
 from botorch.sampling.normal import IIDNormalSampler, SobolQMCNormalSampler
+from botorch.utils.constraints import get_outcome_constraint_transforms
 from botorch.utils.containers import BotorchContainer
 from botorch.utils.datasets import SupervisedDataset
 from botorch.utils.multi_objective.box_decompositions.non_dominated import (
@@ -339,6 +340,7 @@ def construct_inputs_best_f(
         best_f = get_best_f_analytic(
             training_data=training_data,
             posterior_transform=posterior_transform,
+            maximize=maximize,
         )
 
     return {
@@ -401,17 +403,21 @@ def construct_inputs_logcei(
         A dict mapping kwarg names of the constructor to values.
     """
 
-    # If no best_f provided, compute it from the training data
-    # For LogCEI, posterior_transform is not used.
-    if best_f is None:
-        best_f = get_best_f_analytic(
-            training_data=training_data,
-        )
-
     # Construct a constraint dictionary from constraint_tuple
     constraints_dict = _construct_constraint_dict_from_tuple(
         constraints_tuple, LogConstrainedExpectedImprovement
     )
+
+    # If no best_f provided, compute it from the training data as the best feasible
+    # observed value of the objective. For LogCEI, posterior_transform is not used.
+    if best_f is None:
+        sign = 1.0 if maximize else -1.0
+        best_f = sign * get_best_f_mc(
+            training_data=training_data,
+            objective=GenericMCObjective(lambda Y, X: sign * Y[..., objective_index]),
+            constraints=get_outcome_constraint_transforms(constraints_tuple),
+            model=model,
+        )
 
     return {
         "model": model,
@@ -1754,6 +1760,7 @@ def construct_inputs_qeubo(
 def get_best_f_analytic(
     training_data: MaybeDict[SupervisedDataset],
     posterior_transform: PosteriorTransform | None = None,
+    maximize: bool = True,
 ) -> Tensor:
     if isinstance(training_data, dict) and not _field_is_shared(
         training_data, fieldname="X"
@@ -1767,13 +1774,14 @@ def get_best_f_analytic(
     )
 
     if posterior_transform is not None:
-        return posterior_transform.evaluate(Y=Y, X=None).max(-1).values
+        Y = posterior_transform.evaluate(Y=Y, X=None)
+        return Y.amax(dim=-1) if maximize else Y.amin(dim=-1)
     if Y.shape[-1] > 1:
         raise NotImplementedError(
             "Analytic acquisition functions currently only work with "
             "multi-output models if provided with a `ScalarizedObjective`."
         )
-    return Y.max(-2).values.squeeze(-1)
+    return (Y.amax(dim=-2) if maximize else Y.amin(dim=-2)).squeeze(-1)
 
 
 def get_best_f_mc(
@@ -1914,18 +1922,6 @@ def optimize_objective(
                 ),
             )
 
-    if fixed_features:
-        acq_function = FixedFeatureAcquisitionFunction(
-            acq_function=acq_function,
-            d=bounds.shape[-1],
-            columns=list(fixed_features.keys()),
-            values=list(fixed_features.values()),
-        )
-        free_feature_dims = list(range(bounds.shape[1]) - fixed_features.keys())
-        free_feature_bounds = bounds[:, free_feature_dims]  # (2, d' <= d)
-    else:
-        free_feature_bounds = bounds
-
     if linear_constraints is None:
         inequality_constraints = None
     else:
@@ -1933,7 +1929,7 @@ def optimize_objective(
         inequality_constraints = []
         k, d = A.shape
         for i in range(k):
-            indices = A[i, :].nonzero(as_tuple=False).squeeze()
+            indices = A[i, :].nonzero(as_tuple=False).view(-1)
             coefficients = -A[i, indices]
             rhs = -b[i, 0]
             inequality_constraints.append((indices, coefficients, rhs))
@@ -1948,13 +1944,14 @@ def optimize_objective(
 
     return optimize_acqf(
         acq_function=acq_function,
-        bounds=free_feature_bounds,
+        bounds=bounds,
         q=q,
         num_restarts=optimizer_options.get("num_restarts", 60),
         raw_samples=optimizer_options.get("raw_samples", 1024),
         options=options,
         inequality_constraints=inequality_constraints,
-        fixed_features=None,  # handled inside the acquisition function
+        # ``optimize_acqf`` maps the constraints to the space of free features.
+        fixed_features=fixed_features,
         post_processing_func=post_processing_func,
         batch_initial_conditions=batch_initial_conditions,
         return_best_only=True,

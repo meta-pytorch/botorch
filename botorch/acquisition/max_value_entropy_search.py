@@ -116,7 +116,12 @@ class MaxValueBase(AcquisitionFunction, ABC):
                 f"Multi-output models are not supported by {self.__class__.__name__}."
             )
         if train_inputs is None and hasattr(model, "train_inputs"):
-            train_inputs = model.train_inputs[0]
+            # ``candidate_set`` is in the original input space and is transformed
+            # in ``model.posterior``, so we need the untransformed train inputs.
+            if getattr(model, "_has_transformed_inputs", False):
+                train_inputs = model._original_train_inputs
+            else:
+                train_inputs = model.train_inputs[0]
         if train_inputs is not None:
             if train_inputs.ndim > 2:
                 raise NotImplementedError(
@@ -304,9 +309,9 @@ class qMaxValueEntropy(MaxValueBase, MCSamplerMixin):
     def set_X_pending(self, X_pending: Tensor | None = None) -> None:
         r"""Set pending points.
 
-        Informs the acquisition function about pending design points,
-        fantasizes the model on the pending points and draws max-value samples
-        from the fantasized model posterior.
+        Informs the acquisition function about pending design points and
+        fantasizes the model on the pending points. The max-value samples are
+        not redrawn; they are drawn once at initialization.
 
         Args:
             X_pending: ``m x d`` Tensor with ``m`` ``d``-dim design points that have
@@ -599,21 +604,21 @@ class qLowerBoundMaxValueEntropy(MaxValueBase):
             [X, self.X_pending.unsqueeze(0).repeat(X.shape[0], 1, 1)], 1
         )
         # batch_shape x (1 + m) x d
-        # NOTE: This is the blocker for supporting posterior transforms.
-        # We would have to process this MVN, applying whatever operations
-        # are typically applied for the corresponding posterior, then applying
-        # the posterior transform onto the resulting object.
-        V = self.model(X_batches)
-        # Evaluate terms required for A
-        A = V.lazy_covariance_matrix[:, 0, 1:].unsqueeze(1)
-        # batch_shape x 1 x m
-        # Evaluate terms required for B
-        B = self.model.posterior(
-            self.X_pending,
+        # NOTE: We use the posterior (rather than calling the model directly) so
+        # that input and outcome transforms are applied, consistent with
+        # ``variance_m`` above.
+        V = self.model.posterior(
+            X_batches,
             observation_noise=True,
             posterior_transform=self.posterior_transform,
-        ).distribution.covariance_matrix.unsqueeze(0)
-        # 1 x m x m
+        ).distribution.covariance_matrix
+        # batch_shape x (1 + m) x (1 + m)
+        # Evaluate terms required for A
+        A = V[:, :1, 1:]
+        # batch_shape x 1 x m
+        # Evaluate terms required for B
+        B = V[:, 1:, 1:]
+        # batch_shape x m x m
 
         # use determinant of block matrix formula
         inv_quad_term = inv_quad(B, A.transpose(1, 2)).unsqueeze(1)
@@ -880,6 +885,7 @@ class qMultiFidelityLowerBoundMaxValueEntropy(qMultiFidelityMaxValueEntropy):
             posterior_transform=posterior_transform,
             use_gumbel=use_gumbel,
             maximize=maximize,
+            X_pending=X_pending,
             cost_aware_utility=cost_aware_utility,
             project=project,
         )

@@ -890,6 +890,28 @@ class TestAnalyticAcquisitionFunction(BotorchTestCase):
         acqf = DummyAnalyticAcquisitionFunction(model=mm, posterior_transform=transform)
         self.assertIsNotNone(acqf)
 
+    def test_evaluation_does_not_convert_model(self) -> None:
+        """Evaluating on inputs of a different dtype must not convert the model."""
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.rand(8, 2, **tkwargs)
+        train_Y = torch.sin(6 * train_X).sum(dim=-1, keepdim=True)
+        model = SingleTaskGP(train_X, train_Y).eval()
+        X = torch.rand(5, 1, 2, **tkwargs)
+        for acqf in (
+            UpperConfidenceBound(model=model, beta=0.1),
+            LogExpectedImprovement(model=model, best_f=0.5),
+            ScalarizedPosteriorMean(model=model, weights=torch.ones(1)),
+        ):
+            with self.subTest(acqf=type(acqf).__name__):
+                expected = acqf(X)
+                # The model accepts float32 inputs (as with MC acquisition functions).
+                acqf(X.float())
+                self.assertTrue(
+                    all(p.dtype == torch.double for p in model.parameters())
+                )
+                self.assertEqual(model.train_inputs[0].dtype, torch.double)
+                self.assertTrue(torch.equal(acqf(X), expected))
+
 
 class TestPosteriorMean(BotorchTestCase):
     """Test PosteriorMean value correctness."""

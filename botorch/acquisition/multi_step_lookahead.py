@@ -676,4 +676,11 @@ def warmstart_multistep(
 
 def make_best_f(model: Model, X: Tensor) -> dict[str, Any]:
     r"""Extract the best observed training input from the model."""
-    return {"best_f": model.train_targets.max(dim=-1).values}
+    Y = model.train_targets  # batch_shape x (m) x n
+    if hasattr(model, "outcome_transform"):
+        # The train targets are in the transformed outcome space.
+        single_output = model.num_outputs == 1
+        Y = Y.unsqueeze(-1) if single_output else Y.transpose(-1, -2)
+        Y, _ = model.outcome_transform.untransform(Y)
+        Y = Y.squeeze(-1) if single_output else Y.transpose(-1, -2)
+    return {"best_f": Y.max(dim=-1).values}

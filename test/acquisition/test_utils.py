@@ -286,6 +286,16 @@ class TestPruneInferiorPoints(BotorchTestCase):
                     torch.sort(X[:2], stable=True).values,
                 )
             )
+            # test that max_frac limiting keeps the points that are most often
+            # the best point (points 4 and 3; points 0 and 1 are never the best)
+            X5 = torch.arange(5, device=self.device, dtype=dtype).unsqueeze(-1)
+            samples5 = torch.zeros(6, 5, 1, device=self.device, dtype=dtype)
+            for i, best in enumerate([4, 4, 4, 3, 3, 2]):
+                samples5[i, best] = 1.0
+            with mock.patch.object(MockPosterior, "rsample", return_value=samples5):
+                mm = MockModel(MockPosterior(samples=samples5))
+                X_pruned = prune_inferior_points(model=mm, X=X5, max_frac=2 / 5)
+            self.assertTrue(torch.equal(X_pruned, X5[[4, 3]]))
             # test that zero-probability is in fact pruned
             samples[2, 0, 0] = 10
             with mock.patch.object(MockPosterior, "rsample", return_value=samples):

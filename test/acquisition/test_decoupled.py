@@ -129,3 +129,22 @@ class TestDecoupledAcquisitionFunction(BotorchTestCase):
         self.assertTrue(
             torch.equal(af.construct_evaluation_mask(X=X), af.X_evaluation_mask)
         )
+
+    def test_set_X_pending_without_mask(self):
+        # Pending points set without a mask are evaluated on all outcomes, so the
+        # mask of previously set pending points must not be kept.
+        m = SingleTaskGP(
+            torch.rand(1, 3, device=self.device), torch.rand(1, 1, device=self.device)
+        )
+        af = DummyDecoupledAcquisitionFunction(model=ModelListGP(m, m))
+        af.set_X_pending(
+            X_pending=torch.rand(1, 3, device=self.device),
+            X_pending_evaluation_mask=torch.tensor([[True, False]], device=self.device),
+        )
+        X_pending = torch.rand(3, 3, device=self.device)
+        af.set_X_pending(X_pending=X_pending)
+        self.assertTrue(torch.equal(af.X_pending, X_pending))
+        self.assertIsNone(af.X_pending_evaluation_mask)
+        self.assertIsNone(
+            af.construct_evaluation_mask(X=torch.rand(2, 3, device=self.device))
+        )

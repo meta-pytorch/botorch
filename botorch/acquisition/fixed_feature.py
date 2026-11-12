@@ -131,12 +131,13 @@ class FixedFeatureAcquisitionFunction(AcquisitionFunction):
 
         self.register_buffer("values", new_values)
         # build selector for _construct_X_full
+        columns = list(columns)
         self._selector = []
-        idx_X, idx_f = 0, d - new_values.shape[-1]
+        idx_X, d_prime = 0, d - new_values.shape[-1]
         for i in range(self.d):
             if i in columns:
-                self._selector.append(idx_f)
-                idx_f += 1
+                # ``values`` are ordered as ``columns``, which need not be sorted.
+                self._selector.append(d_prime + columns.index(i))
             else:
                 self._selector.append(idx_X)
                 idx_X += 1
@@ -169,10 +170,12 @@ class FixedFeatureAcquisitionFunction(AcquisitionFunction):
     @X_pending.setter
     def X_pending(self, X_pending: Tensor | None):
         r"""Sets the ``X_pending`` of the base acquisition function."""
+        # Use ``set_X_pending`` so that the base acquisition function can update
+        # any state that depends on the pending points.
         if X_pending is not None:
-            self.acq_func.X_pending = self._construct_X_full(X_pending)
+            self.acq_func.set_X_pending(self._construct_X_full(X_pending))
         else:
-            self.acq_func.X_pending = X_pending
+            self.acq_func.set_X_pending(X_pending)
 
     def _construct_X_full(self, X: Tensor) -> Tensor:
         r"""Constructs the full input for the base acquisition function.
@@ -183,8 +186,8 @@ class FixedFeatureAcquisitionFunction(AcquisitionFunction):
 
         Returns:
             Tensor ``X_full`` of shape ``batch_shape x q x d``, where
-            ``X_full[..., i] = values[..., i]`` if ``i in columns``,
-            and ``X_full[..., i] = X[..., j]``, with
+            ``X_full[..., columns[k]] = values[..., k]``,
+            and ``X_full[..., i] = X[..., j]`` if ``i not in columns``, with
             ``j = i - sum_{l<=i} 1_{l in fixed_columns}``.
         """
         d_prime, d_f = X.shape[-1], self.values.shape[-1]
