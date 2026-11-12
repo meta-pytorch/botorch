@@ -237,27 +237,69 @@ def optimize_acqf_homotopy(
     if q > 1:
         base_X_pending = acq_function.X_pending
 
-    for _ in range(q):
-        candidates = batch_initial_conditions
-        q_raw_samples = raw_samples
-        homotopy.restart()
+    failed = False
+    try:
+        for _ in range(q):
+            candidates = batch_initial_conditions
+            q_raw_samples = raw_samples
+            homotopy.restart()
 
-        while not homotopy.should_stop:
+            while not homotopy.should_stop:
+                if use_mixed_alternating:
+                    # optimize_acqf_mixed_alternating handles its own initialization
+                    # and always returns best only, so we get shape (1, d).
+                    candidates, acq_values = optimization_fn(
+                        acq_function=acq_function,
+                        bounds=bounds,
+                        q=1,
+                        options=options,
+                        raw_samples=q_raw_samples or raw_samples,
+                        post_processing_func=post_processing_func,
+                        **fixed_features_kwargs,
+                        **shared_optimize_acqf_kwargs,
+                    )
+                    # Reshape to (1, 1, d) to match optimize_acqf output shape and
+                    # ensure acq_values is 1-d for prune_candidates.
+                    candidates = candidates.unsqueeze(0)
+                    acq_values = acq_values.view(-1)
+                else:
+                    candidates, acq_values = optimization_fn(
+                        acq_function=acq_function,
+                        bounds=bounds,
+                        q=1,
+                        options=options,
+                        batch_initial_conditions=candidates,
+                        raw_samples=q_raw_samples,
+                        **fixed_features_kwargs,
+                        **shared_optimize_acqf_kwargs,
+                    )
+
+                homotopy.step()
+
+                # Set raw_samples to None such that pruned restarts are not repopulated
+                # at each step in the homotopy.
+                q_raw_samples = None
+
+                # Prune candidates
+                candidates = prune_candidates(
+                    candidates=candidates.squeeze(1),
+                    acq_values=acq_values,
+                    prune_tolerance=prune_tolerance,
+                ).unsqueeze(1)
+
+            # Optimize one more time with the final options
             if use_mixed_alternating:
-                # optimize_acqf_mixed_alternating handles its own initialization
-                # and always returns best only, so we get shape (1, d).
                 candidates, acq_values = optimization_fn(
                     acq_function=acq_function,
                     bounds=bounds,
                     q=1,
-                    options=options,
-                    raw_samples=q_raw_samples or raw_samples,
+                    options=final_options,
+                    raw_samples=raw_samples,
                     post_processing_func=post_processing_func,
                     **fixed_features_kwargs,
                     **shared_optimize_acqf_kwargs,
                 )
-                # Reshape to (1, 1, d) to match optimize_acqf output shape and
-                # ensure acq_values is 1-d for prune_candidates.
+                # Reshape to (1, 1, d) to match optimize_acqf output shape.
                 candidates = candidates.unsqueeze(0)
                 acq_values = acq_values.view(-1)
             else:
@@ -265,81 +307,54 @@ def optimize_acqf_homotopy(
                     acq_function=acq_function,
                     bounds=bounds,
                     q=1,
-                    options=options,
-                    batch_initial_conditions=candidates,
+                    options=final_options,
                     raw_samples=q_raw_samples,
+                    batch_initial_conditions=candidates,
                     **fixed_features_kwargs,
                     **shared_optimize_acqf_kwargs,
                 )
 
-            homotopy.step()
+            # Post-process the candidates and grab the best candidate
+            # Note: post_processing_func is already applied within
+            # optimize_acqf_mixed_alternating, so we skip it here in that case.
+            if post_processing_func is not None and not use_mixed_alternating:
+                candidates = post_processing_func(candidates)
+                acq_values = acq_function(candidates)
 
-            # Set raw_samples to None such that pruned restarts are not repopulated
-            # at each step in the homotopy.
-            q_raw_samples = None
+            best = torch.argmax(acq_values.view(-1), dim=0)
+            candidate = candidates[best]
+            acq_value = acq_values[best] if return_acq_values else None
 
-            # Prune candidates
-            candidates = prune_candidates(
-                candidates=candidates.squeeze(1),
-                acq_values=acq_values,
-                prune_tolerance=prune_tolerance,
-            ).unsqueeze(1)
+            # Keep the new candidate and update the pending points
+            candidate_list.append(candidate)
+            if return_acq_values:
+                acq_value_list.append(acq_value)
+            selected_candidates = torch.cat(candidate_list, dim=-2)
 
-        # Optimize one more time with the final options
-        if use_mixed_alternating:
-            candidates, acq_values = optimization_fn(
-                acq_function=acq_function,
-                bounds=bounds,
-                q=1,
-                options=final_options,
-                raw_samples=raw_samples,
-                post_processing_func=post_processing_func,
-                **fixed_features_kwargs,
-                **shared_optimize_acqf_kwargs,
-            )
-            # Reshape to (1, 1, d) to match optimize_acqf output shape.
-            candidates = candidates.unsqueeze(0)
-            acq_values = acq_values.view(-1)
-        else:
-            candidates, acq_values = optimization_fn(
-                acq_function=acq_function,
-                bounds=bounds,
-                q=1,
-                options=final_options,
-                raw_samples=q_raw_samples,
-                batch_initial_conditions=candidates,
-                **fixed_features_kwargs,
-                **shared_optimize_acqf_kwargs,
-            )
+            if q > 1:
+                acq_function.set_X_pending(
+                    torch.cat([base_X_pending, selected_candidates], dim=-2)
+                    if base_X_pending is not None
+                    else selected_candidates
+                )
 
-        # Post-process the candidates and grab the best candidate
-        # Note: post_processing_func is already applied within
-        # optimize_acqf_mixed_alternating, so we skip it here in that case.
-        if post_processing_func is not None and not use_mixed_alternating:
-            candidates = post_processing_func(candidates)
-            acq_values = acq_function(candidates)
-
-        best = torch.argmax(acq_values.view(-1), dim=0)
-        candidate = candidates[best]
-        acq_value = acq_values[best] if return_acq_values else None
-
-        # Keep the new candidate and update the pending points
-        candidate_list.append(candidate)
-        if return_acq_values:
-            acq_value_list.append(acq_value)
-        selected_candidates = torch.cat(candidate_list, dim=-2)
-
+    except BaseException:
+        failed = True
+        raise
+    finally:
+        cleanup_error = None
         if q > 1:
-            acq_function.set_X_pending(
-                torch.cat([base_X_pending, selected_candidates], dim=-2)
-                if base_X_pending is not None
-                else selected_candidates
-            )
-
-    if q > 1:  # Reset acq_function to previous X_pending state
-        acq_function.set_X_pending(base_X_pending)
-
-    homotopy.reset()  # Reset the homotopy parameters
+            try:
+                acq_function.set_X_pending(base_X_pending)
+            except Exception as error:
+                cleanup_error = error
+        try:
+            homotopy.reset()
+        except Exception as error:
+            if cleanup_error is None:
+                cleanup_error = error
+        if cleanup_error is not None and not failed:
+            raise cleanup_error
 
     if not return_acq_values:
         return selected_candidates, None
