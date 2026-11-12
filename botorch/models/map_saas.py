@@ -13,7 +13,7 @@ References
 """
 
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Self
 
 import torch
 from botorch.acquisition.objective import PosteriorTransform
@@ -593,6 +593,29 @@ class EnsembleMapSaasSingleTaskGP(SingleTaskGP):
             **kwargs,
         )
         return GaussianMixturePosterior(distribution=posterior.distribution)
+
+    def condition_on_observations(self, X: Tensor, Y: Tensor, **kwargs: Any) -> Self:
+        r"""Condition the model on new observations.
+
+        Args:
+            X: A ``batch_shape x n' x d``-dim Tensor, where ``d`` is the dimension of
+                the feature space and ``n'`` is the number of points per batch.
+            Y: A ``batch_shape' x n' x 1``-dim Tensor of observations. If
+                ``batch_shape'`` ends with ``batch_shape x num_taus``, as for the
+                samples from ``posterior(X)`` that ``fantasize`` conditions on, each
+                member of the ensemble is conditioned on its own observations.
+                Otherwise, see ``SingleTaskGP.condition_on_observations``.
+            kwargs: Passed to ``SingleTaskGP.condition_on_observations``.
+
+        Returns:
+            The conditioned model.
+        """
+        # ``posterior`` evaluates each member at ``X`` by inserting the ensemble
+        # dimension into ``X``. Do the same here for observations with that dimension.
+        ensemble_batch_shape = X.shape[:-2] + self.taus.shape
+        if Y.shape[:-2][-len(ensemble_batch_shape) :] == ensemble_batch_shape:
+            X = X.unsqueeze(MCMC_DIM).expand(ensemble_batch_shape + X.shape[-2:])
+        return super().condition_on_observations(X=X, Y=Y, **kwargs)
 
     @classmethod
     def construct_inputs(
