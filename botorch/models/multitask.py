@@ -54,6 +54,7 @@ from gpytorch.distributions.multitask_multivariate_normal import (
     MultitaskMultivariateNormal,
 )
 from gpytorch.distributions.multivariate_normal import MultivariateNormal
+from gpytorch.kernels.kernel import ProductKernel
 from gpytorch.kernels.multitask_kernel import MultitaskKernel
 from gpytorch.likelihoods.gaussian_likelihood import FixedNoiseGaussianLikelihood
 from gpytorch.likelihoods.hadamard_gaussian_likelihood import HadamardGaussianLikelihood
@@ -341,7 +342,9 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
             active_dims=[task_feature],
         )
 
-        self.covar_module = data_covar_module * task_covar_module
+        # Use ``ProductKernel`` rather than ``*``, which would flatten a
+        # ``ProductKernel`` ``data_covar_module`` and drop its ``active_dims``.
+        self.covar_module = ProductKernel(data_covar_module, task_covar_module)
         task_mapper = get_task_value_remapping(
             all_task_values=torch.tensor(
                 sorted(all_tasks), dtype=torch.long, device=train_X.device
