@@ -112,8 +112,10 @@ class OrthogonalAdditiveKernel(Kernel):
         # integration nodes, weights for [0, 1]
         tkwargs = {"dtype": dtype, "device": device}
         z, w = leggauss(deg=quad_deg, a=0, b=1, **tkwargs)
-        self.z = z.unsqueeze(-1).expand(quad_deg, dim)  # deg x dim
-        self.w = w.unsqueeze(-1)
+        self.register_buffer(
+            "z", z.unsqueeze(-1).expand(quad_deg, dim), persistent=False
+        )  # deg x dim
+        self.register_buffer("w", w.unsqueeze(-1), persistent=False)
         self.register_parameter(
             name="raw_offset",
             parameter=nn.Parameter(torch.zeros(self.batch_shape, **tkwargs)),
@@ -161,15 +163,17 @@ class OrthogonalAdditiveKernel(Kernel):
         # For second order interactions, we only store d*(d-1)/2 upper-triangular
         # coefficients. Pre-compute indices for reconstructing the full d x d matrix.
         if second_order:
-            self._rev_triu_indices = torch.tensor(
-                _reverse_triu_indices(dim),
-                device=device,
-                dtype=int,
+            self.register_buffer(
+                "_rev_triu_indices",
+                torch.tensor(_reverse_triu_indices(dim), device=device, dtype=int),
             )
             # zero tensor for construction of upper-triangular coefficient matrix
-            self._quad_zero = torch.zeros(
-                tuple(1 for _ in range(len(self.batch_shape) + 1)), **tkwargs
-            ).expand(*self.batch_shape, 1)
+            self.register_buffer(
+                "_quad_zero",
+                torch.zeros(
+                    tuple(1 for _ in range(len(self.batch_shape) + 1)), **tkwargs
+                ).expand(*self.batch_shape, 1),
+            )
         self.coeff_constraint = coeff_constraint
         self.dim = dim
 
