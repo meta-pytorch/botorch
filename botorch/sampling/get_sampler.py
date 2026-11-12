@@ -112,12 +112,15 @@ def _get_sampler_list(
     NOTE: Does not dispatch to Sobol sampling for normal posteriors due to
     correlations between samplers. Instead uses ``IIDNormalSampler``. See the following
     issue for details: https://github.com/meta-pytorch/botorch/issues/2658
+    If a ``seed`` is given, the i-th sampler is seeded with ``seed + i``, since
+    sharing a seed would produce identical (perfectly correlated) base samples.
     """
     samplers = []
-    for p in posterior.posteriors:
-        sampler = get_sampler(posterior=p, sample_shape=sample_shape, seed=seed)
+    for i, p in enumerate(posterior.posteriors):
+        seed_i = None if seed is None else seed + i
+        sampler = get_sampler(posterior=p, sample_shape=sample_shape, seed=seed_i)
         if isinstance(sampler, SobolQMCNormalSampler):
-            sampler = IIDNormalSampler(sample_shape=sample_shape, seed=seed)
+            sampler = IIDNormalSampler(sample_shape=sample_shape, seed=seed_i)
         samplers.append(sampler)
 
     return ListSampler(*samplers)

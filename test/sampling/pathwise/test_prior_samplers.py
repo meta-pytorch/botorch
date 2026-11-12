@@ -9,11 +9,11 @@ from __future__ import annotations
 from collections import defaultdict
 from copy import deepcopy
 from itertools import product
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import torch
 from botorch.models import ModelListGP, SingleTaskGP, SingleTaskVariationalGP
-from botorch.models.transforms.input import Normalize
+from botorch.models.transforms.input import FilterFeatures, Normalize
 from botorch.models.transforms.outcome import Standardize
 from botorch.sampling.pathwise import (
     draw_kernel_feature_paths,
@@ -26,6 +26,7 @@ from botorch.utils.testing import BotorchTestCase
 from gpytorch.kernels import MaternKernel, RBFKernel, ScaleKernel
 from torch import Size
 from torch.nn.functional import pad
+from torch.quasirandom import SobolEngine
 
 
 class TestPriorSamplers(BotorchTestCase):
@@ -145,6 +146,41 @@ class TestPriorSamplers(BotorchTestCase):
                 weight_generator=weight_generator,
             )
             weight_generator.assert_called_once_with(expected_weight_shape)
+
+    def test_draw_kernel_feature_paths_input_transforms(self):
+        tkwargs = {"device": self.device, "dtype": torch.float64}
+        X = 10 * torch.rand(8, 3, **tkwargs)
+        Y = X.sum(dim=-1, keepdim=True)
+        with self.subTest("dimension_changing_input_transform"):
+            indices = torch.tensor([0, 2], device=self.device)
+            model = SingleTaskGP(
+                X, Y, input_transform=FilterFeatures(feature_indices=indices)
+            ).eval()
+            paths = draw_kernel_feature_paths(
+                model=model, sample_shape=Size([4]), num_features=self.num_features
+            )
+            self.assertEqual(paths(X).shape, Size([4, 8]))
+
+        with self.subTest("learned_input_transform_in_train_mode"):
+            model = SingleTaskGP(X, Y, input_transform=Normalize(d=3))
+            self.assertTrue(model.training)
+            coefficient = model.input_transform.coefficient.clone()
+            paths = draw_kernel_feature_paths(
+                model=model, sample_shape=Size([4]), num_features=self.num_features
+            )
+            # Evaluating the paths at test inputs must not re-learn the bounds.
+            samples = paths(X[:2] / 10)
+            self.assertAllClose(model.input_transform.coefficient, coefficient)
+            self.assertTrue(model.input_transform.training)
+            model.eval()
+            self.assertAllClose(paths(X[:2] / 10), samples)
+
+        with self.subTest("num_features_above_sobol_maxdim"):
+            with patch.object(SobolEngine, "MAXDIM", 16):
+                paths = draw_kernel_feature_paths(
+                    model=model, sample_shape=Size([4]), num_features=32
+                )
+            self.assertEqual(paths.weight.shape, Size([4, 32]))
 
     def _test_draw_kernel_feature_paths(self, model, paths, sample_shape, atol=3):
         (train_X,) = get_train_inputs(model, transformed=False)

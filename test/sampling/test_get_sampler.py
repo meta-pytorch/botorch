@@ -77,14 +77,18 @@ class TestGetSampler(BotorchTestCase):
         mvns = [MultivariateNormal(mean, covar) for _ in range(2)]
         post_list = PosteriorList(*[GPyTorchPosterior(mvn) for mvn in mvns])
         # need large enough sample shape to estimate correlation
-        list_sampler = get_sampler(posterior=post_list, sample_shape=torch.Size([1024]))
-        # need to set separate seeds for each sampler
-        for count, sampler in enumerate(list_sampler.samplers):
-            sampler.seed = count
-        samples = list_sampler(post_list).squeeze()
-        correlation = torch.corrcoef(samples.squeeze().T)[0][1]
-        # check that correlation is close to zero
-        self.assertLess(torch.abs(correlation).item(), 0.1)
+        for seed in (None, 0):
+            list_sampler = get_sampler(
+                posterior=post_list, sample_shape=torch.Size([1024]), seed=seed
+            )
+            seeds = [sampler.seed for sampler in list_sampler.samplers]
+            self.assertEqual(len(set(seeds)), len(seeds))
+            if seed is not None:
+                self.assertEqual(seeds, [seed, seed + 1])
+            samples = list_sampler(post_list).squeeze()
+            correlation = torch.corrcoef(samples.squeeze().T)[0][1]
+            # check that correlation is close to zero
+            self.assertLess(torch.abs(correlation).item(), 0.1)
 
         # Unknown torch posterior.
         posterior = TorchPosterior(distribution=Gamma(torch.rand(2), torch.rand(2)))

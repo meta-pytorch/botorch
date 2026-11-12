@@ -44,3 +44,26 @@ class TestIndexSampler(BotorchTestCase):
         sampler = IndexSampler(sample_shape=torch.Size((4, 128)), seed=42)
         sampler._construct_base_samples(posterior=posterior)
         self.assertAllClose(base_samples, sampler.base_samples)
+
+    def test_index_sampler_collapses_batch_dims(self):
+        # The same candidate replicated across t-batches must produce the same
+        # samples, and the samples must not depend on the t-batch size.
+        values = torch.randn(8, 1, 1, device=self.device)
+        sampler = IndexSampler(sample_shape=torch.Size((16,)), seed=0)
+        samples = sampler(EnsemblePosterior(values=values.expand(4, 8, 1, 1)))
+        self.assertEqual(samples.shape, torch.Size((16, 4, 1, 1)))
+        self.assertTrue((samples == samples[:, :1]).all())
+        samples_2 = sampler(EnsemblePosterior(values=values.expand(2, 3, 8, 1, 1)))
+        self.assertEqual(samples_2.shape, torch.Size((16, 2, 3, 1, 1)))
+        self.assertTrue((samples_2 == samples[:, :1].unsqueeze(1)).all())
+        # Batched (per-batch) ensemble weights are sampled per batch.
+        weights = torch.tensor([[1.0, 0.0], [0.0, 1.0]], device=self.device)
+        posterior = EnsemblePosterior(
+            values=torch.stack([torch.zeros(2, 1, 1), torch.ones(2, 1, 1)], dim=1).to(
+                self.device
+            ),
+            weights=weights,
+        )
+        samples_w = IndexSampler(sample_shape=torch.Size((8,)), seed=0)(posterior)
+        self.assertTrue((samples_w[:, 0] == 0).all())
+        self.assertTrue((samples_w[:, 1] == 1).all())
