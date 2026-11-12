@@ -14,6 +14,39 @@ from botorch.utils.testing import BotorchTestCase
 
 
 class TestBatchedLBFGSB(BotorchTestCase):
+    def test_failed_line_search_restores_objective(self) -> None:
+        def rosenbrock(x, batch_indices=None):
+            residual = x[:, 1] - x[:, 0] ** 2
+            values = 100 * residual**2 + (1 - x[:, 0]) ** 2
+            gradients = np.stack(
+                [
+                    -400 * x[:, 0] * residual - 2 * (1 - x[:, 0]),
+                    200 * residual,
+                ],
+                axis=-1,
+            )
+            return values, gradients
+
+        x0 = np.array([[-1.2, 1.0], [2.0, 2.0]])
+        for pass_indices in (False, True):
+            for bounds in (None, [(0.0, 0.8), (0.0, 0.7)]):
+                for maxls in (1, 2):
+                    with self.subTest(
+                        pass_indices=pass_indices, bounds=bounds, maxls=maxls
+                    ):
+                        xs, fs, results = fmin_l_bfgs_b_batched(
+                            rosenbrock,
+                            x0,
+                            bounds=bounds,
+                            maxls=maxls,
+                            pass_batch_indices=pass_indices,
+                        )
+                        actual_f, actual_g = rosenbrock(xs)
+                        np.testing.assert_allclose(fs, actual_f)
+                        for i, result in enumerate(results):
+                            np.testing.assert_allclose(result.fun, actual_f[i])
+                            np.testing.assert_allclose(result.jac, actual_g[i])
+
     @staticmethod
     def quadratic_toy_func(x, batch_indices=None):
         f = np.sum(x**2, axis=-1)

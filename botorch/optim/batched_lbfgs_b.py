@@ -150,6 +150,7 @@ class OptimState:
 
         self.n_iterations = 0
         self.fun_calls = 0
+        self.accepted_f = None
 
         if bounds is not None:
             for i in range(0, n):
@@ -541,6 +542,7 @@ def _minimize_lbfgsb(
                 ):
                     # new iteration
                     state.n_iterations += 1
+                    state.accepted_f = float(state.f)
 
                     intermediate_result = OptimizeResult(x=state.x, fun=state.f)
                     if _call_callback_maybe_halt(callback, intermediate_result):
@@ -574,6 +576,8 @@ def _minimize_lbfgsb(
                 do_forward.nonzero()[0]
             ):  # taking the 0 as we are interested in the first (and only) dim
                 states[i].f = total_f[func_i]
+                if states[i].fun_calls == 0:
+                    states[i].accepted_f = float(total_f[func_i])
                 states[i].g = total_g[func_i]
                 states[i].fun_calls += 1
 
@@ -585,6 +589,15 @@ def _minimize_lbfgsb(
     results = []
 
     for state in states:
+        # The C wrapper receives f by value, so its internal restoration of
+        # f on line-search failure is not reflected in the Python state.
+        abnormal = (
+            state.task[0] == 8
+            if uses_c_implementation
+            else state.task.tobytes().startswith(b"ABNORMAL")
+        )
+        if abnormal and state.accepted_f is not None:
+            state.f = state.accepted_f
         if not uses_c_implementation:  # pragma: no cover
             task_str = state.task.tobytes().strip(b"\x00").strip()
         if (
