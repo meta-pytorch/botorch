@@ -131,7 +131,6 @@ def bvnu(r: Tensor, h: Tensor, k: Tensor) -> Tensor:
             (lambda: x_free & y_free, lambda mask: 1),
             (lambda: x_free, lambda mask: Phi(-k[mask])),
             (lambda: y_free, lambda mask: Phi(-h[mask])),
-            (lambda: r == 0, lambda mask: Phi(-h[mask]) * Phi(-k[mask])),
             (  # For |r| >= 0.925, use a Taylor approximation
                 lambda: r.abs() >= 0.925,
                 lambda m: _bvnu_taylor(r[m], h[m], k[m]),
