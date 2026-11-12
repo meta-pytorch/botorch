@@ -880,7 +880,6 @@ class PairwiseGP(Model, GP, FantasizeMixin):
         # D is batch_size x m x n or num_comparison x num_datapoints.
         # D_k_i is the s_k(x_i) value as in equation (6) in [Chu2005preference]_
         # D will usually be very sparse as well
-        # TODO swap out scatter_ so that comparisons could be int instead of long
         # TODO: make D a sparse matrix once pytorch has better support for
         #       sparse tensors
         D_size = torch.Size((*(self.batch_shape), self.m, self.n))
@@ -889,8 +888,9 @@ class PairwiseGP(Model, GP, FantasizeMixin):
         )
         comp_view = self.comparisons.view(-1, self.m, 2).long().to(self.D.device)
         for i, sub_D in enumerate(self.D.view(-1, self.m, self.n)):
-            sub_D.scatter_(1, comp_view[i, :, [0]], 1)
-            sub_D.scatter_(1, comp_view[i, :, [1]], -1)
+            values = sub_D.new_ones(self.m, 1)
+            sub_D.scatter_add_(1, comp_view[i, :, [0]], values)
+            sub_D.scatter_add_(1, comp_view[i, :, [1]], -values)
         self.DT = self.D.transpose(-1, -2)
 
         if update_model:

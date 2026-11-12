@@ -19,6 +19,42 @@ from torch.distributions import Bernoulli
 
 
 class TestPairwiseLikelihood(BotorchTestCase):
+    def test_logit_zero_rows_and_large_common_shift(self):
+        devices = [torch.device("cpu")]
+        if torch.cuda.is_available():
+            devices.append(torch.device("cuda"))
+        for device, dtype in itertools.product(devices, (torch.float, torch.double)):
+            with self.subTest(device=device, dtype=dtype):
+                utility = torch.tensor(
+                    [[0.2, 0.7], [0.4, -0.3]], device=device, dtype=dtype
+                )
+                D = utility.new_tensor([[[1, -1], [0, 0]], [[0, 0], [-1, 1]]])
+                likelihood = PairwiseLogitLikelihood()
+                expected_gradient = likelihood.negative_log_gradient_sum(utility, D)
+                expected_hessian = likelihood.negative_log_hessian_sum(utility, D)
+                self.assertTrue(torch.isfinite(expected_gradient).all())
+                self.assertTrue(torch.isfinite(expected_hessian).all())
+                shifted = (utility + 1000).requires_grad_()
+                # The zero comparison contributes log(2), with no utility
+                # information, and a common offset cannot change preferences.
+                loss = torch.nn.functional.softplus(
+                    -(D @ shifted.unsqueeze(-1)).squeeze(-1)
+                ).sum()
+                gradient = torch.autograd.grad(loss, shifted, create_graph=True)[0]
+                actual = likelihood.negative_log_gradient_sum(shifted, D)
+                self.assertAllClose(actual, gradient)
+                self.assertAllClose(actual, expected_gradient, atol=3e-5)
+                hessian = likelihood.negative_log_hessian_sum(shifted, D)
+                for batch in range(2):
+                    dense = torch.autograd.functional.hessian(
+                        lambda value: torch.nn.functional.softplus(
+                            -(D[batch] @ value)
+                        ).sum(),
+                        shifted[batch],
+                    )
+                    self.assertAllClose(hessian[batch], dense)
+                self.assertAllClose(hessian, expected_hessian, atol=3e-5)
+
     def test_pairwise_likelihood(self):
         # Test subclassing
         class BadCustomLikelihood(PairwiseLikelihood):
