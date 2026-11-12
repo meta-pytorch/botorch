@@ -37,7 +37,7 @@ from botorch.acquisition.objective import (
 )
 from botorch.exceptions import UnsupportedError
 from botorch.exceptions.warnings import NumericsWarning
-from botorch.models import ModelListGP, SingleTaskGP
+from botorch.models import EnsembleMapSaasSingleTaskGP, ModelListGP, SingleTaskGP
 from botorch.models.transforms import ChainedOutcomeTransform, Normalize, Standardize
 from botorch.posteriors import GPyTorchPosterior
 from botorch.sampling.pathwise.utils import get_train_inputs
@@ -934,6 +934,35 @@ class TestPosteriorStandardDeviation(BotorchTestCase):
             acqf = PosteriorStandardDeviation(model=mm)
             result = acqf(X)
             self.assertTrue(torch.equal(result, std.view(-1)))
+
+    def test_posterior_stddev_ensemble(self) -> None:
+        """For ensemble models, the members' standard deviations are averaged."""
+        for dtype, maximize in itertools.product(
+            (torch.float, torch.double), (True, False)
+        ):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            # The posterior of an ensemble model is ``b x num_models x q x m``-dim.
+            mean = torch.rand(3, 2, 1, 1, **tkwargs)
+            std = torch.rand(3, 2, 1, 1, **tkwargs)
+            mm = MockModel(MockPosterior(mean=mean, variance=std.square()))
+            mm._is_ensemble = True
+            X = torch.empty(3, 1, 1, **tkwargs)
+            acqf = PosteriorStandardDeviation(model=mm, maximize=maximize)
+            expected = std.view(3, 2).mean(dim=-1)
+            self.assertAllClose(acqf(X), expected if maximize else -expected)
+
+            # Ensemble of SingleTaskGPs.
+            model = EnsembleMapSaasSingleTaskGP(
+                train_X=torch.rand(8, 3, **tkwargs),
+                train_Y=torch.rand(8, 1, **tkwargs),
+                num_taus=2,
+            )
+            acqf = PosteriorStandardDeviation(model=model, maximize=maximize)
+            X = torch.rand(4, 5, 1, 3, **tkwargs)
+            # The members' posteriors are ``4 x 5 x 2 x 1 x 1``-dim.
+            member_posterior = SingleTaskGP.posterior(model, X.unsqueeze(-3))
+            expected = member_posterior.variance.sqrt().view(4, 5, 2).mean(dim=-1)
+            self.assertAllClose(acqf(X), expected if maximize else -expected)
 
 
 class TestUpperConfidenceBound(BotorchTestCase):

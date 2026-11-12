@@ -1165,10 +1165,10 @@ class PosteriorStandardDeviation(AnalyticAcquisitionFunction):
             A ``(b1 x ... bk)``-dim tensor of Posterior Standard Deviation values at
                 the given design points ``X``.
         """
-        _, std = self._mean_and_sigma(X)
+        _, std = self._mean_and_sigma(X)  # (b1 x ... x bk) x 1
         if not self.maximize:
             std = -std
-        return std.view(X.shape[:-2])
+        return std.squeeze(-1)
 
 
 # --------------- Helper functions for analytic acquisition functions. ---------------
