@@ -665,6 +665,25 @@ class TestMCAcquisitionFunctionInputConstructors(InputConstructorBaseTestCase):
         self.assertIs(acqf.objective.constraints, constraints)
         self.assertEqual(acqf.objective.infeasible_cost.item(), 2.0)
 
+        # constraints without an objective: the model output is the objective
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.rand(8, 2, **tkwargs)
+        model = SingleTaskGP(train_X, torch.sin(6 * train_X).sum(-1, keepdim=True))
+        X = torch.rand(3, 2, 2, **tkwargs)
+        values = []
+        for objective in (None, IdentityMCObjective()):
+            kwargs = c(
+                model=model,
+                training_data=self.blockX_blockY,
+                objective=objective,
+                constraints=constraints,
+                X_baseline=train_X,
+                sampler=SobolQMCNormalSampler(torch.Size([16]), seed=0),
+            )
+            self.assertIsInstance(kwargs["objective"].objective, IdentityMCObjective)
+            values.append(qSimpleRegret(**kwargs)(X))
+        self.assertAllClose(values[0], values[1])
+
         # TODO: Test passing through of sampler
 
     def test_construct_inputs_qLogPOF(self) -> None:
