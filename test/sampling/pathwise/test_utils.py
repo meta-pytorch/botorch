@@ -14,6 +14,7 @@ from botorch.models.model_list_gp_regression import ModelListGP
 from botorch.models.transforms.input import Normalize
 from botorch.models.transforms.outcome import Standardize
 from botorch.sampling.pathwise.utils import (
+    FeatureSelector,
     get_input_transform,
     get_output_transform,
     get_train_inputs,
@@ -27,6 +28,35 @@ from gpytorch.kernels import MaternKernel, ScaleKernel
 
 
 class TestTransforms(BotorchTestCase):
+    def test_feature_selector_empty_iterables(self):
+        devices = [torch.device("cpu")]
+        if torch.cuda.is_available():
+            devices.append(torch.device("cuda"))
+        for device in devices:
+            for dtype in (torch.float32, torch.float64):
+                for name, indices in (
+                    ("list", []),
+                    ("tuple", ()),
+                    ("iterator", iter(())),
+                ):
+                    with self.subTest(device=device, dtype=dtype, container=name):
+                        values = torch.ones(
+                            2, 3, dtype=dtype, device=device, requires_grad=True
+                        )
+                        selector = FeatureSelector(indices).to(device)
+                        self.assertEqual(selector.indices.dtype, torch.long)
+                        selected = selector(values)
+                        self.assertEqual(selected.shape, torch.Size([2, 0]))
+                        self.assertEqual(selected.dtype, values.dtype)
+                        self.assertEqual(selected.device, values.device)
+                        gradient = torch.autograd.grad(selected.sum(), values)[0]
+                        self.assertAllClose(gradient, torch.zeros_like(values))
+
+    def test_feature_selector_generator_preserves_order_and_repetition(self):
+        selector = FeatureSelector(iter([2, 0, 2])).to(self.device)
+        values = torch.arange(6.0, device=self.device).reshape(2, 3)
+        self.assertTrue(selector(values).equal(values[..., [2, 0, 2]]))
+
     def test_inverse_lengthscale_transform(self):
         tkwargs = {"device": self.device, "dtype": torch.float64}
         kernel = MaternKernel(nu=2.5, ard_num_dims=3).to(**tkwargs)

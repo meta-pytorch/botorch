@@ -153,7 +153,10 @@ class FeatureSelector(TensorTransform):
         super().__init__()
         self.register_buffer("dim", dim if torch.is_tensor(dim) else torch.tensor(dim))
         self.register_buffer(
-            "indices", indices if torch.is_tensor(indices) else torch.tensor(indices)
+            "indices",
+            indices
+            if torch.is_tensor(indices)
+            else torch.tensor(list(indices), dtype=torch.long),
         )
 
     def forward(self, values: Tensor) -> Tensor:
