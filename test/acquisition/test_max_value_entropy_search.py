@@ -4,6 +4,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+import math
 from collections.abc import Callable
 from unittest import mock
 
@@ -26,6 +27,7 @@ from botorch.models.gp_regression_fidelity import SingleTaskMultiFidelityGP
 from botorch.models.model_list_gp_regression import ModelListGP
 from botorch.sampling.normal import SobolQMCNormalSampler
 from botorch.utils.testing import BotorchTestCase
+from scipy.optimize import brentq
 
 
 class TestMaxValueEntropySearch(BotorchTestCase):
@@ -448,6 +450,38 @@ class TestMaxValueEntropySearch(BotorchTestCase):
             expected = torch.stack(loop_samples, dim=-1).reshape(5, 2, 3)
 
             self.assertAllClose(batched_samples, expected)
+
+    def test_sample_max_value_Gumbel_double_precision(self):
+        # The quantiles found by ``brentq`` must not be rounded to float32.
+        torch.manual_seed(7)
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        model = SingleTaskGP(
+            train_X=torch.rand(10, 2, **tkwargs), train_Y=torch.rand(10, 1, **tkwargs)
+        )
+        candidate_set = torch.rand(10, 2, **tkwargs)
+        quantiles = []
+
+        def brentq_wrapper(*args, **kwargs):
+            quantiles.append(brentq(*args, **kwargs))
+            return quantiles[-1]
+
+        torch.manual_seed(11)
+        with mock.patch(
+            "botorch.acquisition.max_value_entropy_search.brentq",
+            side_effect=brentq_wrapper,
+        ):
+            samples = _sample_max_value_Gumbel(
+                model=model, candidate_set=candidate_set, num_samples=5
+            )
+        # Fit the Gumbel distribution to the 25%, 50% and 75% quantiles.
+        q25, q50, q75 = quantiles
+        b = (q25 - q75) / (math.log(math.log(4.0 / 3.0)) - math.log(math.log(4.0)))
+        a = q50 + b * math.log(math.log(2.0))
+        torch.manual_seed(11)
+        eps = torch.rand(5, 1, **tkwargs)
+        self.assertAllClose(
+            samples, a - b * eps.log().mul(-1.0).log(), atol=0.0, rtol=1e-13
+        )
 
     def test_sample_max_value_Thompson(self):
         self._test_max_value_sampler_base(sampler=_sample_max_value_Thompson)
