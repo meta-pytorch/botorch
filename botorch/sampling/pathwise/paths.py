@@ -212,8 +212,8 @@ class GeneralizedLinearPath(SamplePath):
         self.is_ensemble = is_ensemble
         self.ensemble_as_batch = ensemble_as_batch
 
-    def forward(self, x: Tensor, **kwargs) -> Tensor:
-        """Evaluates the path.
+    def __call__(self, x: Tensor, **kwargs: Any) -> Tensor:
+        """Evaluates the path, including its input and output transforms.
 
         Args:
             x: The input tensor of shape ``batch_shape x [num_ensemble x] q x d``,
@@ -230,8 +230,26 @@ class GeneralizedLinearPath(SamplePath):
         """
         if self.is_ensemble and not self.ensemble_as_batch:
             # assuming that the ensembling dimension is added after (n, d), but
-            # before the other batch dimensions, starting from the left.
+            # before the other batch dimensions, starting from the left. This is
+            # done before applying the input transform, which may be batched over
+            # the ensemble members (e.g. the input warping of fully Bayesian models).
             x = x.unsqueeze(-3)
+        return super().__call__(x, **kwargs)
+
+    def forward(self, x: Tensor, **kwargs) -> Tensor:
+        """Evaluates the path without its input and output transforms.
+
+        Args:
+            x: The (transformed) input tensor of shape
+                ``batch_shape x [num_ensemble x] q x d``. If ``is_ensemble=True``,
+                the batch shape must be broadcastable with the ensemble dimension,
+                e.g. ``n x d``-dim or ``num_ensemble x n x d``-dim training inputs.
+                ``__call__`` inserts the ensemble dimension into its inputs.
+            kwargs: Additional keyword arguments passed to the feature map.
+
+        Returns:
+            A tensor of shape ``batch_shape x [num_ensemble x] q x m``.
+        """
         feat = self.feature_map(x, **kwargs)
         out = (feat @ self.weight.unsqueeze(-1)).squeeze(-1)
         return out if self.bias_module is None else out + self.bias_module(x)

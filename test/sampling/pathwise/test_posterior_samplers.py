@@ -7,12 +7,15 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from itertools import product
 from typing import Any
 
 import torch
 from botorch.exceptions.errors import UnsupportedError
 from botorch.models import ModelListGP, SingleTaskGP, SingleTaskVariationalGP
 from botorch.models.deterministic import MatheronPathModel
+from botorch.models.fully_bayesian import SaasFullyBayesianSingleTaskGP
+from botorch.models.map_saas import EnsembleMapSaasSingleTaskGP
 from botorch.models.transforms.input import Normalize
 from botorch.models.transforms.outcome import Standardize
 from botorch.sampling.pathwise import draw_matheron_paths, MatheronPath, PathList
@@ -211,3 +214,56 @@ class TestPosteriorSamplers(BotorchTestCase):
                 fully_bayesian_model.posterior(X).mean.shape,
                 fully_bayesian_path_model.posterior(X).mean.shape,
             )
+
+    def test_draw_matheron_paths_ensemble_batched_train_inputs(self) -> None:
+        # Ensembles whose (transformed) training inputs are batched over the
+        # ensemble members: an ``EnsembleMapSaasSingleTaskGP``, and a fully Bayesian
+        # GP with input warping (a ``Warp`` batched over the ensemble members).
+        tkwargs = {"device": self.device, "dtype": torch.float64}
+        n, d, num_members = 6, 2, 3
+        train_X = torch.rand(n, d, **tkwargs)
+        train_Y = torch.sin(6 * train_X).sum(dim=-1, keepdim=True)
+        map_saas_model = EnsembleMapSaasSingleTaskGP(
+            train_X=train_X,
+            train_Y=train_Y,
+            train_Yvar=torch.full_like(train_Y, 1e-6),
+            num_taus=num_members,
+            outcome_transform=None,
+        )
+        warped_model = SaasFullyBayesianSingleTaskGP(
+            train_X=train_X,
+            train_Y=train_Y,
+            train_Yvar=torch.full_like(train_Y, 1e-6),
+            use_input_warping=True,
+        )
+        warped_model.load_mcmc_samples(
+            {
+                "mean": torch.zeros(num_members, **tkwargs),
+                "outputscale": torch.ones(num_members, **tkwargs),
+                "lengthscale": torch.full((num_members, d), 0.3, **tkwargs),
+                "c0": 0.5 + torch.rand(num_members, d, **tkwargs),
+                "c1": 0.5 + torch.rand(num_members, d, **tkwargs),
+            }
+        )
+        test_X = torch.rand(4, d, **tkwargs)
+        for model, sample_shape in product(
+            (map_saas_model.eval(), warped_model.eval()), (Size([2]), Size([3]))
+        ):
+            with self.subTest(model=type(model).__name__, sample_shape=sample_shape):
+                self.assertEqual(get_train_inputs(model, transformed=True)[0].ndim, 3)
+                paths = draw_matheron_paths(model, sample_shape=sample_shape)
+                # With (almost) noiseless observations, each path of each member
+                # interpolates the training data.
+                values = paths(train_X)
+                self.assertEqual(values.shape, sample_shape + Size([num_members, n]))
+                self.assertAllClose(
+                    values, train_Y.squeeze(-1).expand_as(values), atol=0.05
+                )
+                # Each member is evaluated with its own input transform, as when
+                # the inputs are explicitly batched over the ensemble members.
+                values = paths(test_X)
+                self.assertEqual(values.shape, sample_shape + Size([num_members, 4]))
+                paths.set_ensemble_as_batch(True)
+                expected = paths(test_X.expand(num_members, -1, -1))
+                paths.set_ensemble_as_batch(False)
+                self.assertAllClose(values, expected)
