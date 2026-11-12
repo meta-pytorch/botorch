@@ -11,7 +11,12 @@ from random import random
 from unittest import mock
 
 import torch
-from botorch.acquisition.analytic import PosteriorMean
+from botorch.acquisition.analytic import (
+    ConstrainedExpectedImprovement,
+    LogConstrainedExpectedImprovement,
+    LogProbabilityOfFeasibility,
+    PosteriorMean,
+)
 from botorch.acquisition.fixed_feature import FixedFeatureAcquisitionFunction
 from botorch.acquisition.knowledge_gradient import qKnowledgeGradient
 from botorch.acquisition.monte_carlo import (
@@ -1530,3 +1535,57 @@ class TestSampleAroundBest(BotorchTestCase):
             self.assertTrue(
                 ((X_rnd.unsqueeze(0) == X_train.unsqueeze(1)).all(dim=-1)).sum() == 0
             )
+
+    def test_sample_points_around_best_analytic_constraints(self):
+        # Analytic constrained acquisition functions specify the objective by its
+        # output index and the constraints as bounds on other outputs.
+        for dtype in (torch.float, torch.double):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            bounds = torch.zeros(2, 2, **tkwargs)
+            bounds[1] = 1
+            X_train = torch.rand(20, 2, **tkwargs)
+            # output 1 is the objective, output 0 is feasible if <= 0
+            obj = X_train.sum(dim=-1)
+            con = X_train[:, 0] - 0.5
+            model = MockModel(MockPosterior(mean=torch.stack([con, obj], dim=-1)))
+            model.train_inputs = (X_train,)
+            for acqf_class, maximize, upper in product(
+                (ConstrainedExpectedImprovement, LogConstrainedExpectedImprovement),
+                (True, False),
+                (0.0, -1.0),  # with and without feasible points
+            ):
+                acqf = acqf_class(
+                    model,
+                    best_f=0.0,
+                    objective_index=1,
+                    constraints={0: (None, upper)},
+                    maximize=maximize,
+                )
+                X_rnd = sample_points_around_best(
+                    acq_function=acqf,
+                    n_discrete_points=4,
+                    sigma=0.0,
+                    bounds=bounds,
+                    best_pct=1e-8,  # only use the best point
+                )
+                feas = con <= upper
+                if feas.any():
+                    # the best feasible point w.r.t. the objective
+                    f = obj if maximize else -obj
+                    best = f.masked_fill(~feas, float("-inf")).argmax()
+                else:
+                    # the point with the smallest constraint violation
+                    best = con.argmin()
+                self.assertTrue((X_rnd == X_train[best]).all())
+            # LogProbabilityOfFeasibility has no objective: use a feasible point
+            acqf = LogProbabilityOfFeasibility(model, constraints={0: (-0.25, 0.0)})
+            X_rnd = sample_points_around_best(
+                acq_function=acqf,
+                n_discrete_points=4,
+                sigma=0.0,
+                bounds=bounds,
+                best_pct=1e-8,
+            )
+            feas = (con >= -0.25) & (con <= 0.0)
+            is_train = (X_rnd.unsqueeze(1) == X_train.unsqueeze(0)).all(dim=-1)
+            self.assertTrue(is_train[:, feas].any(dim=-1).all())
