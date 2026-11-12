@@ -72,7 +72,7 @@ class ExponentialDecayKernel(Kernel):
                 lambda m: m.power,
                 lambda m, v: m._set_power(v),
             )
-        self.register_constraint("raw_power", offset_constraint)
+        self.register_constraint("raw_power", power_constraint)
 
         if offset_prior is not None:
             self.register_prior(

@@ -205,6 +205,30 @@ class ContextualKernelTest(BotorchTestCase):
             context_covar6.shape, torch.Size([3, num_contexts, num_contexts])
         )
 
+    def test_LCEAKernel_batch_multiple_categorical_features(self):
+        # In batch mode, the embedding of each categorical feature must be looked
+        # up with the values of that feature, as in the non-batch mode.
+        kwargs = {
+            "decomposition": {"a": [0, 1], "b": [2, 3], "c": [4, 5]},
+            "cat_feature_dict": {"a": [0, 1], "b": [1, 0], "c": [2, 1]},
+            "embs_dim_list": [1, 2],
+        }
+        kernel = LCEAKernel(batch_shape=torch.Size([]), **kwargs)
+        batch_kernel = LCEAKernel(batch_shape=torch.Size([2]), **kwargs)
+        with torch.no_grad():
+            for emb_layer, emb_weight_matrix in zip(
+                kernel.emb_layers, batch_kernel.emb_weight_matrix_list
+            ):
+                # Use weights with norms below the max_norm of the embedding layers.
+                emb_layer.weight.copy_(0.5 * torch.rand_like(emb_layer.weight))
+                emb_weight_matrix.copy_(emb_layer.weight.expand_as(emb_weight_matrix))
+        embeddings = kernel._task_embeddings()
+        batch_embeddings = batch_kernel._task_embeddings_batch()
+        self.assertEqual(batch_embeddings.shape, torch.Size([2, 3, 3]))
+        self.assertAllClose(batch_embeddings, embeddings.expand(2, 3, 3))
+        context_covar = batch_kernel._eval_context_covar()
+        self.assertEqual(context_covar.shape, torch.Size([2, 3, 3]))
+
     def test_get_permutation(self):
         decomp = {"a": [0, 1], "b": [2, 3]}
         permutation = get_permutation(decomp)

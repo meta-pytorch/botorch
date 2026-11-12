@@ -328,30 +328,18 @@ class LCEAKernel(Kernel):
             posterior samples; n_embs is the sum of embedding dimensions i.e.
             sum(embs_dim_list).
         """
-        context_features = torch.cat(
-            [
-                self.context_cat_feature[i, :].unsqueeze(0)
-                for i in range(self.num_contexts)
-            ]
+        context_features = self.context_cat_feature.to(
+            dtype=torch.long, device=self.device
         )
-        embeddings = []
-        for b in range(self.batch_shape.numel()):  # pyre-ignore
-            for i in range(len(self.emb_weight_matrix_list)):
-                # loop over emb layer and concat embs from each layer
-                embeddings.append(
-                    torch.cat(
-                        [
-                            torch.nn.functional.embedding(
-                                context_features[:, 0].to(
-                                    dtype=torch.long, device=self.device
-                                ),
-                                self.emb_weight_matrix_list[i][b, :],
-                            ).unsqueeze(0)
-                        ],
-                        dim=1,
-                    )
-                )
-        embeddings = torch.cat(embeddings, dim=0)
+        # concatenate the embeddings of the categorical features along the last
+        # dimension, each of shape (ns) x num_contexts x emb_dim
+        embeddings = torch.cat(
+            [
+                emb_weight_matrix[..., context_features[:, i], :]
+                for i, emb_weight_matrix in enumerate(self.emb_weight_matrix_list)
+            ],
+            dim=-1,
+        )
         # add given embeddings if any
         if self.context_emb_feature is not None:
             embeddings = torch.cat(

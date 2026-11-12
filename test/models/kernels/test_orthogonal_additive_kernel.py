@@ -8,9 +8,9 @@ import itertools
 import warnings
 
 import torch
-from botorch.exceptions.errors import UnsupportedError
+from botorch.exceptions.errors import BotorchTensorDimensionError, UnsupportedError
 from botorch.fit import fit_gpytorch_mll
-from botorch.models import SingleTaskGP
+from botorch.models import SingleTaskGP, SingleTaskVariationalGP
 from botorch.models.kernels.orthogonal_additive_kernel import (
     OrthogonalAdditiveKernel,
     SECOND_ORDER_PRIOR_ERROR_MSG,
@@ -19,6 +19,7 @@ from botorch.utils.testing import BotorchTestCase
 from gpytorch.constraints import Positive
 from gpytorch.kernels import MaternKernel, RBFKernel
 from gpytorch.lazy import LazyEvaluatedKernelTensor
+from gpytorch.mlls import VariationalELBO
 from gpytorch.mlls.exact_marginal_log_likelihood import ExactMarginalLogLikelihood
 from gpytorch.priors import LogNormalPrior
 from gpytorch.priors.torch_priors import GammaPrior, HalfCauchyPrior, UniformPrior
@@ -36,6 +37,8 @@ class TestOrthogonalAdditiveKernel(BotorchTestCase):
         self._test_normalizer_preserves_eval_mode()
         self._test_repeated_backward_through_eval_kernel()
         self._test_component_indices()
+        self._test_dtype_and_device_conversion()
+        self._test_approximate_gp()
 
     def _test_kernel(self):
         n, d = 3, 5
@@ -112,9 +115,17 @@ class TestOrthogonalAdditiveKernel(BotorchTestCase):
                     self.assertEqual(K.shape, (*batch_shape, n, n))
                     self.assertTrue(K.isfinite().all())
 
+                # diag=True with distinct x1 and x2 is the diagonal of K(x1, x2)
                 X2 = torch.rand(*batch_shape, n, d, **tkwargs)
-                with self.assertRaisesRegex(UnsupportedError, "diag=True"):
-                    oak.forward(x1=X, x2=X2, diag=True)
+                self.assertAllClose(
+                    oak.forward(x1=X, x2=X2, diag=True),
+                    torch.diagonal(oak.forward(x1=X, x2=X2), dim1=-2, dim2=-1),
+                    atol=1e-5,
+                )
+                with self.assertRaisesRegex(
+                    BotorchTensorDimensionError, "same number of points"
+                ):
+                    oak.forward(x1=X, x2=X2[..., :-1, :], diag=True)
 
                 oak_2nd = OrthogonalAdditiveKernel(
                     d,
@@ -139,6 +150,11 @@ class TestOrthogonalAdditiveKernel(BotorchTestCase):
                 self.assertAllClose(
                     K_diag_2nd,
                     torch.diagonal(KM2, dim1=-2, dim2=-1),
+                    atol=1e-5,
+                )
+                self.assertAllClose(
+                    oak_2nd.forward(X, X2, diag=True),
+                    torch.diagonal(oak_2nd.forward(X, X2), dim1=-2, dim2=-1),
                     atol=1e-5,
                 )
 
@@ -251,10 +267,26 @@ class TestOrthogonalAdditiveKernel(BotorchTestCase):
         self.assertTrue(isposdef(K_shared))
 
         # --- 4. per_dim_lengthscales=False WITH batch_shape ---
-        oak_shared_batch = OrthogonalAdditiveKernel(
-            dim=d, per_dim_lengthscales=False, batch_shape=(2,), **tkwargs
-        )
-        self.assertEqual(oak_shared_batch.base_kernel.batch_shape, torch.Size([2]))
+        # The shared lengthscale of each batch gets a singleton dim that broadcasts
+        # over the d components; compare with unbatched kernels for batch sizes
+        # that differ from and are equal to d.
+        for batch_size in (2, d):
+            oak_shared_batch = OrthogonalAdditiveKernel(
+                dim=d, per_dim_lengthscales=False, batch_shape=(batch_size,), **tkwargs
+            )
+            self.assertEqual(
+                oak_shared_batch.base_kernel.batch_shape, torch.Size([batch_size, 1])
+            )
+            lengthscales = torch.linspace(0.1, 1.0, batch_size, **tkwargs)
+            oak_shared_batch.base_kernel.lengthscale = lengthscales.view(-1, 1, 1, 1)
+            X_batch = torch.rand(batch_size, n, d, **tkwargs)
+            K_batch = oak_shared_batch(X_batch).to_dense()
+            for i, lengthscale in enumerate(lengthscales):
+                oak_i = OrthogonalAdditiveKernel(
+                    dim=d, per_dim_lengthscales=False, **tkwargs
+                )
+                oak_i.base_kernel.lengthscale = lengthscale
+                self.assertAllClose(K_batch[i], oak_i(X_batch[i]).to_dense())
 
         # --- 5. Explicit base_kernel, per_dim_lengthscales=False (no warning) ---
         explicit_rbf = RBFKernel()
@@ -691,6 +723,68 @@ class TestOrthogonalAdditiveKernel(BotorchTestCase):
             oak_2nd.get_component_index("second_order", 0)  # non-tuple dim_index
         with self.assertRaises(IndexError):
             oak_2nd.get_component_index("second_order", (0, d))  # j >= d
+
+    def _test_dtype_and_device_conversion(self):
+        """The quadrature tensors and the normalizer cache follow `.to()`."""
+        d = 3
+        tkwargs = {"dtype": torch.double, "device": self.device}
+        train_X = torch.rand(8, d, **tkwargs)
+        train_Y = train_X.sum(dim=-1, keepdim=True)
+        for second_order in (False, True):
+            # Constructed with the default dtype and device, then moved to those of
+            # the training data by the model.
+            oak = OrthogonalAdditiveKernel(dim=d, second_order=second_order)
+            model = SingleTaskGP(train_X=train_X, train_Y=train_Y, covar_module=oak)
+            buffers = [oak.z, oak.w] + ([oak._quad_zero] if second_order else [])
+            for buffer in buffers:
+                self.assertEqual(buffer.dtype, torch.double)
+                self.assertEqual(buffer.device.type, self.device.type)
+            if second_order:
+                self.assertEqual(oak._rev_triu_indices.dtype, torch.long)
+                self.assertEqual(oak._rev_triu_indices.device.type, self.device.type)
+            # The buffers are not saved, so the state dict is unchanged.
+            self.assertEqual(
+                {name.split(".")[-1] for name in oak.state_dict()}
+                & {"z", "w", "_rev_triu_indices", "_quad_zero"},
+                set(),
+            )
+            fit_gpytorch_mll(
+                ExactMarginalLogLikelihood(model.likelihood, model),
+                optimizer_kwargs={"options": {"maxiter": 2}},
+            )
+            self.assertEqual(model.posterior(train_X[:2]).mean.dtype, torch.double)
+
+        # Converting an eval-mode kernel invalidates its cached normalizer.
+        oak = OrthogonalAdditiveKernel(dim=d).eval()
+        self.assertEqual(oak.normalizer().dtype, torch.float)
+        oak = oak.to(**tkwargs)
+        self.assertEqual(oak.normalizer().dtype, torch.double)
+        self.assertEqual(oak.normalizer().device.type, self.device.type)
+        self.assertEqual(oak(train_X).to_dense().dtype, torch.double)
+
+    def _test_approximate_gp(self):
+        """OAK in an approximate GP, whose variational strategy evaluates the
+        diagonal of the kernel on slices of its inputs, i.e. on distinct tensors."""
+        d = 3
+        tkwargs = {"dtype": torch.double, "device": self.device}
+        train_X = torch.rand(10, d, **tkwargs)
+        train_Y = train_X.sum(dim=-1, keepdim=True)
+        model = SingleTaskVariationalGP(
+            train_X=train_X,
+            train_Y=train_Y,
+            covar_module=OrthogonalAdditiveKernel(dim=d, **tkwargs),
+            inducing_points=4,
+        )
+        mll = VariationalELBO(model.likelihood, model.model, num_data=10)
+        loss = -mll(model(train_X), train_Y.squeeze(-1))
+        loss.backward()
+        self.assertTrue(loss.isfinite())
+        model.eval()
+        posterior = model.posterior(train_X[:3])
+        self.assertAllClose(
+            posterior.variance.squeeze(-1),
+            posterior.distribution.covariance_matrix.diagonal(dim1=-2, dim2=-1),
+        )
 
 
 def isposdef(A: Tensor) -> bool:

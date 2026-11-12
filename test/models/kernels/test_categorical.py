@@ -94,13 +94,33 @@ class TestCategoricalKernel(BotorchTestCase, BaseKernelTestCase):
         self.assertAllClose(res, actual)
 
         # batch_dims
-        actual = torch.exp(-sc_dists).transpose(-1, -3)
+        actual = torch.exp(-sc_dists).movedim(-1, -3)
         res = kernel(x1, x2, last_dim_is_batch=True).to_dense()
         self.assertAllClose(res, actual)
 
         # batch_dims + diag
         res = kernel(x1, x2, last_dim_is_batch=True).diagonal()
         self.assertAllClose(res, torch.diagonal(actual, dim1=-1, dim2=-2))
+
+    def test_last_dim_is_batch(self):
+        # The per-dimension kernels `d x n1 x n2` of non-square, distinct inputs.
+        kernel = CategoricalKernel(ard_num_dims=3).to(dtype=torch.double)
+        with torch.no_grad():
+            kernel.raw_lengthscale.copy_(torch.rand_like(kernel.raw_lengthscale))
+        lengthscales = kernel.lengthscale.view(-1)
+        for n1, n2 in [(4, 2), (3, 3)]:
+            with self.subTest(n1=n1, n2=n2):
+                x1 = torch.randint(3, size=(n1, 3)).to(dtype=torch.double)
+                x2 = torch.randint(3, size=(n2, 3)).to(dtype=torch.double)
+                expected = torch.stack(
+                    [
+                        torch.exp(-((x1[:, i, None] != x2[None, :, i]) / ls))
+                        for i, ls in enumerate(lengthscales)
+                    ]
+                )
+                res = kernel.forward(x1, x2, last_dim_is_batch=True)
+                self.assertEqual(res.shape, torch.Size([3, n1, n2]))
+                self.assertAllClose(res, expected)
 
     def test_diag_matches_dense_diagonal(self):
         cases = {
@@ -204,7 +224,7 @@ class TestCategoricalKernel(BotorchTestCase, BaseKernelTestCase):
         self.assertAllClose(res, actual)
 
         # batch_dims
-        actual = torch.exp(-sc_dists).transpose(-1, -3)
+        actual = torch.exp(-sc_dists).movedim(-1, -3)
         res = kernel(x1, x2, last_dim_is_batch=True).to_dense()
         self.assertAllClose(res, actual)
 
