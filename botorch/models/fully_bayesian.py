@@ -402,7 +402,7 @@ class PyroModel:
                 "Y",
                 numpyro_dist.Normal(
                     loc=self.f_prior_sample,
-                    scale=jnp.sqrt(noise),
+                    scale=jnp.sqrt(noise).reshape(-1),
                 ),
             )
         else:
