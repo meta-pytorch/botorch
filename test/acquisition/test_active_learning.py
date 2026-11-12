@@ -15,6 +15,7 @@ from botorch.acquisition.objective import (
     GenericMCObjective,
     ScalarizedPosteriorTransform,
 )
+from botorch.models.gp_regression import SingleTaskGP
 from botorch.models.pairwise_gp import PairwiseGP
 from botorch.posteriors.gpytorch import GPyTorchPosterior
 from botorch.sampling.normal import IIDNormalSampler, SobolQMCNormalSampler
@@ -155,6 +156,49 @@ class TestQNegIntegratedPosteriorVariance(BotorchTestCase):
                     val = qNIPV(X)
                     val_exp = -variance.mean(dim=-2).squeeze(-1).squeeze(0)
                     self.assertAllClose(val, val_exp, atol=1e-4)
+
+    def test_q_neg_int_post_variance_gradients(self):
+        # The posterior variance of the fantasy model depends on X through the
+        # training inputs of the fantasy model, so the gradient w.r.t. X must
+        # account for it.
+        torch.manual_seed(1234)
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.rand(8, 2, **tkwargs)
+        train_Y = torch.sin(6 * train_X).sum(dim=-1, keepdim=True)
+        mc_points = torch.rand(16, 2, **tkwargs)
+        weights = torch.tensor([0.5, 0.5], **tkwargs)
+        for multi_output, X_pending in (
+            (False, None),
+            (False, torch.rand(2, 2, **tkwargs)),
+            (True, None),
+        ):
+            if multi_output:
+                model = SingleTaskGP(train_X, torch.cat([train_Y, -train_Y], dim=-1))
+                posterior_transform = ScalarizedPosteriorTransform(weights=weights)
+            else:
+                model = SingleTaskGP(train_X, train_Y)
+                posterior_transform = None
+            acqf = qNegIntegratedPosteriorVariance(
+                model=model,
+                mc_points=mc_points,
+                posterior_transform=posterior_transform,
+                X_pending=X_pending,
+            )
+            X = torch.rand(2, 2, 2, **tkwargs, requires_grad=True)
+            (grad,) = torch.autograd.grad(acqf(X).sum(), X)
+            # central finite differences
+            X = X.detach()
+            eps = 1e-6
+            fd_grad = torch.zeros_like(X)
+            with torch.no_grad():
+                for i in range(X.numel()):
+                    delta = torch.zeros(X.numel(), **tkwargs)
+                    delta[i] = eps
+                    delta = delta.view_as(X)
+                    fd_grad.view(-1)[i] = (acqf(X + delta) - acqf(X - delta)).sum() / (
+                        2 * eps
+                    )
+            self.assertAllClose(grad, fd_grad, atol=1e-6, rtol=1e-4)
 
 
 class TestPairwiseMCPosteriorVariance(BotorchTestCase):

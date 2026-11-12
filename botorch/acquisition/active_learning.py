@@ -40,6 +40,7 @@ from botorch.utils.transforms import (
     concatenate_pending_points,
     t_batch_mode_transform,
 )
+from gpytorch.settings import fast_pred_var
 from torch import Tensor
 
 
@@ -118,7 +119,12 @@ class qNegIntegratedPosteriorVariance(AcquisitionFunction):
             mc_points = self.mc_points.view(*bdims, -1, X.size(-1))
 
         # evaluate the posterior at the grid points
-        with settings.propagate_grads(True):
+        # NOTE: The posterior covariance must not be computed from GPyTorch's
+        # precomputed covariance cache (``fast_pred_var``): the cache of the fantasy
+        # model is computed (and detached) when the fantasy model is constructed, so
+        # the gradient w.r.t. ``X`` would miss the dependence of the posterior
+        # variance on the fantasy model's training inputs.
+        with settings.propagate_grads(True), fast_pred_var(False):
             posterior = fantasy_model.posterior(
                 mc_points, posterior_transform=self.posterior_transform
             )
