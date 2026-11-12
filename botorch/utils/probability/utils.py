@@ -159,7 +159,7 @@ def log_erfc(x: Tensor) -> Tensor:
     x_neg = x.masked_fill(is_pos, 0)
     return torch.where(
         is_pos,
-        torch.log(torch.special.erfcx(x_pos)) - x_pos.square(),
+        log_erfcx(x_pos) - x_pos.square(),
         torch.log(torch.special.erfc(x_neg)),
     )
 
@@ -176,12 +176,26 @@ def log_erfcx(x: Tensor) -> Tensor:
         A tensor of values of the same type and shape as x containing log(erfcx(x)).
     """
     is_pos = x > 0
-    x_pos = x.masked_fill(~is_pos, 0)
+    # erfcx's backward subtracts nearly equal terms in the positive tail.
+    # Differentiate a log-space asymptotic expansion there instead, retaining
+    # first and higher derivatives even when x**2 would overflow.
+    cutoff = 8 if x.dtype == torch.float32 else 20
+    is_tail = x > cutoff
+    x_pos = x.masked_fill(~is_pos | is_tail, 0)
+    x_tail = x.masked_fill(~is_tail, cutoff)
+    inverse_square = x_tail.reciprocal().square()
+    term = torch.ones_like(x_tail)
+    correction = torch.zeros_like(x_tail)
+    for order in range(1, 13):
+        term = term * (-(2 * order - 1) / 2) * inverse_square
+        correction = correction + term
+    tail = -x_tail.log() - math.log(math.pi) / 2 + correction.log1p()
+    positive = torch.where(is_tail, tail, torch.special.erfcx(x_pos).log())
     x_neg = x.masked_fill(is_pos, 0)
     return torch.where(
         is_pos,
-        torch.special.erfcx(x_pos).log(),
-        torch.special.erfc(x_neg).log() + x.square(),
+        positive,
+        torch.special.erfc(x_neg).log() + x_neg.square(),
     )
 
 

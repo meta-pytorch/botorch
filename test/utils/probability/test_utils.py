@@ -27,6 +27,67 @@ from scipy.stats import percentileofscore as percentile_of_score_scipy
 
 
 class TestProbabilityUtils(BotorchTestCase):
+    def test_log_erfcx_derived_tail_curvatures(self) -> None:
+        for function, point, first, second in (
+            (log_erfc, 1e50, -2e50, -2.0),
+            (log_ndtr, -1e50, 1e50, -1.0),
+            (standard_normal_log_hazard, 1e50, 1e-50, -1e-100),
+        ):
+            with self.subTest(function=function.__name__):
+                x = torch.tensor(
+                    point, dtype=torch.double, device=self.device, requires_grad=True
+                )
+                gradient = torch.autograd.grad(function(x), x, create_graph=True)[0]
+                curvature = torch.autograd.grad(gradient, x)[0]
+                self.assertAllClose(gradient, x.new_tensor(first), atol=0, rtol=3e-14)
+                self.assertAllClose(curvature, x.new_tensor(second), atol=0, rtol=3e-14)
+
+    def test_log_erfcx_tail_derivatives(self) -> None:
+        # Independent 250-digit evaluations of log(exp(x**2) * erfc(x))
+        # and its first two derivatives. Relative comparisons matter here:
+        # the true derivatives can be much smaller than usual absolute atol.
+        for dtype in (torch.float, torch.double):
+            points = [8.5, 21.0, 1000.0, 1e15]
+            values = [
+                -2.7192356885726458,
+                -3.6180179716455763,
+                -7.480120721906212,
+                -35.111141337835385,
+            ]
+            gradients = [
+                -0.11607236066719292,
+                -0.047511674968101945,
+                -0.0009999990000025,
+                -1e-15,
+            ]
+            curvatures = [
+                0.013297075746865462,
+                0.0022522920814437253,
+                0.0000009999970000125,
+                1e-30,
+            ]
+            if dtype == torch.double:
+                points.append(1e50)
+                values.append(-115.70161959262698)
+                gradients.append(-1e-50)
+                curvatures.append(1e-100)
+            with self.subTest(dtype=dtype):
+                x = torch.tensor(
+                    points, dtype=dtype, device=self.device, requires_grad=True
+                )
+                value = log_erfcx(x)
+                gradient = torch.autograd.grad(value.sum(), x, create_graph=True)[0]
+                curvature = torch.autograd.grad(gradient.sum(), x)[0]
+                rtol = 3e-5 if dtype == torch.float else 3e-10
+                for actual, expected in (
+                    (value, values),
+                    (gradient, gradients),
+                    (curvature, curvatures),
+                ):
+                    self.assertAllClose(
+                        actual, x.new_tensor(expected), atol=0, rtol=rtol
+                    )
+
     def test_case_dispatcher(self):
         with torch.random.fork_rng():
             torch.random.manual_seed(0)
