@@ -21,6 +21,7 @@ References
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from itertools import product
 
 import torch
 from botorch.exceptions.errors import UnsupportedError
@@ -79,7 +80,15 @@ class InducingPointAllocator(ABC):
         with torch.no_grad():
             # Evaluate lazily because this may only be needed to figure out what
             # case we are in
-            possibly_lazy_kernel = covar_module(inputs)
+            kernel_inputs = inputs
+            if (
+                len(input_batch_shape) > 0
+                and len(covar_module.batch_shape) > len(input_batch_shape)
+                and inputs.ndim == len(input_batch_shape) + 2
+            ):
+                # Broadcast data batches over independent output kernels.
+                kernel_inputs = inputs.unsqueeze(-3)
+            possibly_lazy_kernel = covar_module(kernel_inputs)
 
         base_case = possibly_lazy_kernel.ndimension() == 2
         multi_task_case = (
@@ -112,27 +121,24 @@ class InducingPointAllocator(ABC):
             return inducing_points
 
         # batched input cases
-        batched_inputs = (
-            inputs.expand(*input_batch_shape, -1, -1)
-            if inputs.ndimension() == 2
-            else inputs
-        )
+        batched_inputs = inputs.expand(*input_batch_shape, -1, -1)
         reshaped_inputs = batched_inputs.flatten(end_dim=-3)
+        with torch.no_grad():
+            batched_kernel = possibly_lazy_kernel.evaluate_kernel()
+        if batched_kernel.ndim == len(input_batch_shape) + 3:
+            # All independent outputs share inducing locations, selected using
+            # the first output's covariance within each model batch.
+            batched_kernel = batched_kernel[..., 0, :, :]
+        batched_kernel = batched_kernel.expand(
+            *input_batch_shape, inputs.size(-2), inputs.size(-2)
+        )
         inducing_points = []
-        for input_element in reshaped_inputs:
-            # the extra kernel evals are a little wasteful but make it
-            # easier to infer the task batch size
-            # We use 'no_grad' here because ``inducing_points`` are not
-            # auto-differentiable with respect to the kernel hyper-parameters,
-            # because ``_pivoted_cholesky_init`` does in-place operations.
-            with torch.no_grad():
-                kernel_element = covar_module(input_element).evaluate_kernel()
-            # handle extra task batch dimension
-            kernel_element = (
-                kernel_element[0]
-                if kernel_element.ndimension() == 3
-                else kernel_element
-            )
+        for batch_index, input_element in zip(
+            product(*(range(size) for size in input_batch_shape)),
+            reshaped_inputs,
+            strict=True,
+        ):
+            kernel_element = batched_kernel[batch_index]
             quality_scores = quality_function(input_element)
             inducing_points.append(
                 _pivoted_cholesky_init(

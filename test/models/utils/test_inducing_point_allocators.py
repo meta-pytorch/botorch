@@ -17,7 +17,7 @@ from botorch.models.utils.inducing_point_allocators import (
     UnitQualityFunction,
 )
 from botorch.utils.testing import BotorchTestCase
-from gpytorch.kernels import MaternKernel, ScaleKernel
+from gpytorch.kernels import MaternKernel, RBFKernel, ScaleKernel
 from gpytorch.likelihoods import GaussianLikelihood
 from gpytorch.mlls import VariationalELBO
 
@@ -112,6 +112,79 @@ class TestGreedyVarianceReduction(BotorchTestCase):
 
     def test_initialization(self):
         self.assertIsInstance(self.ipa, GreedyVarianceReduction)
+
+    def test_batched_covariances(self) -> None:
+        for dtype in (torch.float, torch.double):
+            for batch_shape in (torch.Size([2]), torch.Size([2, 2])):
+                for broadcast_inputs in (False, True):
+                    with self.subTest(
+                        dtype=dtype,
+                        batch_shape=batch_shape,
+                        broadcast_inputs=broadcast_inputs,
+                    ):
+                        inputs = torch.tensor(
+                            [
+                                [0.1, 0.6],
+                                [0.3, 0.2],
+                                [0.8, 0.4],
+                                [0.2, 0.9],
+                                [0.9, 0.8],
+                                [0.5, 0.3],
+                            ],
+                            dtype=dtype,
+                            device=self.device,
+                        )
+                        kernel = RBFKernel(ard_num_dims=2, batch_shape=batch_shape).to(
+                            inputs
+                        )
+                        lengthscale = inputs.new_tensor(
+                            [[[0.1, 2.0]], [[2.0, 0.1]]]
+                        ).expand(*batch_shape, 1, 2)
+                        kernel.lengthscale = lengthscale
+                        batched_inputs = inputs.expand(*batch_shape, -1, -1)
+                        actual = self.ipa.allocate_inducing_points(
+                            inputs if broadcast_inputs else batched_inputs,
+                            kernel,
+                            3,
+                            batch_shape,
+                        )
+                        with torch.no_grad():
+                            covariances = kernel(batched_inputs).to_dense()
+                        expected = torch.stack(
+                            [
+                                _pivoted_cholesky_init(x, covariance, 3, x.new_ones(6))
+                                for x, covariance in zip(
+                                    batched_inputs.reshape(-1, 6, 2),
+                                    covariances.reshape(-1, 6, 6),
+                                    strict=True,
+                                )
+                            ]
+                        ).view(*batch_shape, 3, 2)
+                        self.assertAllClose(actual, expected, atol=0, rtol=0)
+                        self.assertFalse(
+                            torch.equal(expected[..., 0, :, :], expected[..., 1, :, :])
+                        )
+
+    def test_batched_independent_outputs(self) -> None:
+        inputs = torch.tensor(
+            [[0.1, 0.6], [0.3, 0.2], [0.8, 0.4], [0.2, 0.9], [0.9, 0.8], [0.5, 0.3]],
+            dtype=torch.double,
+            device=self.device,
+        ).expand(2, -1, -1)
+        kernel = RBFKernel(ard_num_dims=2, batch_shape=torch.Size([2, 3])).to(inputs)
+        kernel.lengthscale = inputs.new_tensor([[[[0.1, 2.0]]], [[[2.0, 0.1]]]]).expand(
+            2, 3, 1, 2
+        )
+        actual = self.ipa.allocate_inducing_points(inputs, kernel, 3, torch.Size([2]))
+        with torch.no_grad():
+            covariances = kernel(inputs.unsqueeze(-3)).to_dense()[:, 0]
+        expected = torch.stack(
+            [
+                _pivoted_cholesky_init(x, covariance, 3, x.new_ones(6))
+                for x, covariance in zip(inputs, covariances, strict=True)
+            ]
+        )
+        self.assertAllClose(actual, expected, atol=0, rtol=0)
 
     def test_allocate_inducing_points_doesnt_leak(self) -> None:
         """
