@@ -1336,7 +1336,7 @@ class ConstrainedBraninCurrin(BraninCurrin, ConstrainedBaseTestProblem):
 class C2DTLZ2(DTLZ2, ConstrainedBaseTestProblem):
     r"""C2-DTLZ2 test problem from [Jain2014]_.
 
-    This is DTLZ2 with the constraint
+    This is DTLZ2 with the constraint::
 
         c(x) = -min(
             min_i [(f_i(x) - 1)^2 + \sum_{j != i} f_j(x)^2 - r^2],
