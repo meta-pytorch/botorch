@@ -649,3 +649,30 @@ class TestMARS(BotorchTestCase):
             self.assertEqual(mars_vals.shape, torch.Size([5, 3]))
             self.assertEqual(mars_vals.dtype, dtype)
             self.assertEqual(mars_vals.device.type, self.device.type)
+
+    def test_chebyshev_weights_and_ref_point_precision(self):
+        # Python-float weights/ref_point inputs and double-Tensor inputs must
+        # produce identical buffers; the scalars used to be rounded through
+        # the default dtype.
+        previous_dtype = torch.get_default_dtype()
+        try:
+            torch.set_default_dtype(torch.float)
+            weights = [1.0 + 1e-9, 0.499999999999999]
+            ref_point = [0.1 + 1e-10, 0.2]
+            mars_scalar = MARS(
+                alpha=0.5, n_w=2, chebyshev_weights=weights, ref_point=ref_point
+            )
+            mars_tensor = MARS(
+                alpha=0.5,
+                n_w=2,
+                chebyshev_weights=torch.tensor(weights, dtype=torch.double),
+                ref_point=torch.tensor(ref_point, dtype=torch.double),
+            )
+            self.assertTrue(
+                torch.equal(
+                    mars_scalar.chebyshev_weights, mars_tensor.chebyshev_weights
+                )
+            )
+            self.assertTrue(torch.equal(mars_scalar.ref_point, mars_tensor.ref_point))
+        finally:
+            torch.set_default_dtype(previous_dtype)

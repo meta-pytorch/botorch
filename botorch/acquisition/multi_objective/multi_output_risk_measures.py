@@ -585,10 +585,13 @@ class MARS(VaR, MultiOutputRiskMeasureMCObjective):
             n_w=n_w,
             preprocessing_function=preprocessing_function,
         )
-        self.chebyshev_weights = torch.as_tensor(chebyshev_weights)
+        self.chebyshev_weights = torch.as_tensor(chebyshev_weights, dtype=torch.double)
         self.baseline_Y = baseline_Y
         self.register_buffer(
-            "ref_point", torch.as_tensor(ref_point) if ref_point is not None else None
+            "ref_point",
+            torch.as_tensor(ref_point, dtype=torch.double)
+            if ref_point is not None
+            else None,
         )
         self.mvar = MVaR(n_w=self.n_w, alpha=self.alpha)
         self._chebyshev_objective = None
@@ -647,7 +650,7 @@ class MARS(VaR, MultiOutputRiskMeasureMCObjective):
                 support minimization objectives.
         """
         self._chebyshev_objective = None
-        chebyshev_weights = torch.as_tensor(chebyshev_weights)
+        chebyshev_weights = torch.as_tensor(chebyshev_weights, dtype=torch.double)
         if torch.any(chebyshev_weights < 0):
             raise UnsupportedError("Negative weights are not supported in MARS.")
         if chebyshev_weights.dim() != 1:
