@@ -453,6 +453,40 @@ class TestMultiTaskGP(BotorchTestCase):
             self.assertIsInstance(
                 task_covar_module.IndexKernelPrior, LKJCovariancePrior
             )
+            # The LKJ prior is evaluated on the task covariance matrix.
+            mll = ExactMarginalLogLikelihood(model.likelihood, model)
+            train_X = model.train_inputs[0]
+            self.assertTrue(
+                torch.isfinite(mll(model(train_X), model.train_targets, train_X))
+            )
+            _, _, _, closure, _ = next(iter(task_covar_module.named_priors()))
+            covar_matrix = task_covar_module.covar_matrix
+            self.assertAllClose(closure(task_covar_module), covar_matrix)
+
+    def test_construct_inputs_lkj_prior(self) -> None:
+        # The LKJ prior is for the number of distinct task values in the task
+        # column, which differs from the number of columns here.
+        for dtype in (torch.float, torch.double):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            train_X = torch.rand(12, 4, **tkwargs)
+            train_X[:, 1] = torch.arange(3, **tkwargs).repeat(4)
+            dataset = SupervisedDataset(
+                X=train_X,
+                Y=torch.randn(12, 1, **tkwargs),
+                feature_names=["x0", "task", "x1", "x2"],
+                outcome_names=["y"],
+            )
+            data_dict = MultiTaskGP.construct_inputs(
+                dataset, task_feature=1, prior_config={"use_LKJ_prior": True}
+            )
+            task_covar_prior = data_dict["task_covar_prior"]
+            self.assertIsInstance(task_covar_prior, LKJCovariancePrior)
+            self.assertEqual(task_covar_prior.correlation_prior.n, 3)
+            model = MultiTaskGP(**data_dict)
+            mll = ExactMarginalLogLikelihood(model.likelihood, model)
+            self.assertTrue(
+                torch.isfinite(mll(model(train_X), model.train_targets, train_X))
+            )
 
     def test_MultiTaskGP_given_covar_module(self) -> None:
         for dtype in (torch.float, torch.double):

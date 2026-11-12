@@ -4,12 +4,21 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+from copy import deepcopy
+
 import torch
 from botorch.models.kernels.positive_index import PositiveIndexKernel
 from botorch.models.utils.priors import BetaPrior
 from botorch.optim.utils import sample_all_priors
 from botorch.utils.testing import BotorchTestCase
-from gpytorch.priors import NormalPrior, UniformPrior
+from gpytorch.priors import (
+    GammaPrior,
+    LKJCholeskyFactorPrior,
+    LKJCovariancePrior,
+    LKJPrior,
+    NormalPrior,
+    UniformPrior,
+)
 
 
 class TestPositiveIndexKernel(BotorchTestCase):
@@ -352,3 +361,53 @@ class TestPositiveIndexKernel(BotorchTestCase):
                 covar = kernel.covar_matrix
                 eigvals = torch.linalg.eigvalsh(covar)
                 self.assertTrue((eigvals > 0).all())
+
+    def test_lkj_priors(self):
+        # LKJ priors are evaluated on (the Cholesky factor of) the task covariance
+        # or correlation matrix, and their samples set the correlations.
+        num_tasks = 3
+        for dtype in (torch.float32, torch.float64):
+            tkwargs = {"dtype": dtype, "device": self.device}
+            eta = torch.tensor(1.5, **tkwargs)
+            target_corr = torch.tensor(
+                [[1.0, 0.3, 0.2], [0.3, 1.0, 0.5], [0.2, 0.5, 1.0]], **tkwargs
+            )
+            sd = torch.tensor([1.0, 2.0, 0.5], **tkwargs)
+            target_covar = sd.unsqueeze(-1) * target_corr * sd
+            for prior, get_input, sample in (
+                (
+                    LKJCovariancePrior(num_tasks, eta, GammaPrior(2.0, 1.5)),
+                    lambda k: k.covar_matrix,
+                    target_covar,
+                ),
+                (LKJPrior(num_tasks, eta), lambda k: k._corr_matrix, target_corr),
+                (
+                    LKJCholeskyFactorPrior(num_tasks, eta),
+                    lambda k: torch.linalg.cholesky(k._corr_matrix),
+                    torch.linalg.cholesky(target_corr),
+                ),
+            ):
+                with self.subTest(prior=type(prior).__name__, dtype=dtype):
+                    kernel = PositiveIndexKernel(
+                        num_tasks=num_tasks, rank=num_tasks, task_prior=prior
+                    ).to(**tkwargs)
+                    _, _, task_prior, closure, setting_closure = next(
+                        iter(kernel.named_priors())
+                    )
+                    self.assertIs(task_prior, prior)
+                    prior_input = closure(kernel)
+                    self.assertEqual(prior_input.shape, (num_tasks, num_tasks))
+                    self.assertAllClose(prior_input, get_input(kernel))
+                    self.assertTrue(torch.isfinite(prior.log_prob(prior_input)).all())
+                    # The setting closure sets the correlations of the sample.
+                    expected_kernel = deepcopy(kernel)
+                    lower_row, lower_col = torch.tril_indices(
+                        num_tasks, num_tasks, offset=-1
+                    )
+                    expected_kernel._set_lower_triangle_corr(
+                        target_corr[lower_row, lower_col]
+                    )
+                    setting_closure(kernel, sample)
+                    self.assertAllClose(
+                        kernel.covar_factor, expected_kernel.covar_factor
+                    )
