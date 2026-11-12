@@ -1288,7 +1288,7 @@ def optimize_acqf_mixed(
 
     if q == 1:
         timeout_sec = timeout_sec / len(fixed_features_list) if timeout_sec else None
-        ff_candidate_list, ff_acq_value_list = [], []
+        ff_candidate_list, ff_acq_value_list, ff_selection_value_list = [], [], []
         num_candidate_generation_failures = 0
         for fixed_features in fixed_features_list:
             try:
@@ -1322,6 +1322,19 @@ def optimize_acqf_mixed(
                 continue
             ff_candidate_list.append(candidates)
             ff_acq_value_list.append(acq_values)
+            # With ``return_best_only=False``, ``optimize_acqf`` also returns the
+            # restarts that are still infeasible after the projection onto the
+            # feasible set. Exclude them from the selection of the best candidate,
+            # as ``optimize_acqf`` does with ``return_best_only=True``.
+            is_feasible = evaluate_feasibility(
+                X=candidates,
+                inequality_constraints=inequality_constraints,
+                equality_constraints=equality_constraints,
+                nonlinear_inequality_constraints=nonlinear_inequality_constraints,
+            )
+            ff_selection_value_list.append(
+                acq_values.masked_fill(~is_feasible, float("-inf"))
+            )
 
         if len(ff_candidate_list) == 0:
             raise CandidateGenerationError(
@@ -1337,7 +1350,7 @@ def optimize_acqf_mixed(
                 stacklevel=3,
             )
 
-        ff_acq_values = torch.stack(ff_acq_value_list)
+        ff_acq_values = torch.stack(ff_selection_value_list)
         max_res = torch.max(ff_acq_values, dim=-1)
         best_batch_idx = torch.argmax(max_res.values)
         best_batch_candidates = ff_candidate_list[best_batch_idx]
