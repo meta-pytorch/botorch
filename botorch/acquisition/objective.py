@@ -472,7 +472,14 @@ class ConstrainedMCObjective(GenericMCObjective):
             A ``sample_shape x batch_shape x q``-dim Tensor of objective values
             weighted by feasibility (assuming maximization).
         """
-        obj = super().forward(samples=samples)
+        obj = super().forward(samples=samples, X=X)
+        if obj.ndim and obj.shape[0] != samples.shape[0]:
+            # Learned objectives flatten preference draws into the leading
+            # sample dimension. Constraints must use the corresponding outcome
+            # sample for each draw, in the same repeat (not interleave) order.
+            from botorch.acquisition.utils import repeat_to_match_aug_dim
+
+            samples = repeat_to_match_aug_dim(samples, obj)
         return apply_constraints(
             obj=obj,
             constraints=self.constraints,
