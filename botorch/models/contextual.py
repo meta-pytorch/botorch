@@ -58,6 +58,7 @@ class SACGP(SingleTaskGP):
         base_inputs = super().construct_inputs(training_data=training_data)
         return {
             **base_inputs,
+            "train_Yvar": training_data.Yvar,
             "decomposition": decomposition,
         }
 
@@ -157,6 +158,7 @@ class LCEAGP(SingleTaskGP):
         }
         return {
             **base_inputs,
+            "train_Yvar": training_data.Yvar,
             "decomposition": index_decomp,
             "train_embedding": train_embedding,
             "cat_feature_dict": cat_feature_dict,

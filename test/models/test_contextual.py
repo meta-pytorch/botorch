@@ -44,6 +44,21 @@ def _gen_datasets(
 
 
 class TestContextualGP(BotorchTestCase):
+    def test_construct_without_observed_noise(self) -> None:
+        dataset, _ = _gen_datasets(
+            infer_noise=True, device=self.device, dtype=torch.double
+        )
+        for cls, decomposition in [
+            (SACGP, {"a": [0, 1], "b": [2, 3]}),
+            (LCEAGP, {"a": ["x0", "x1"], "b": ["x2", "x3"]}),
+        ]:
+            with self.subTest(model=cls.__name__):
+                kwargs = cls.construct_inputs(dataset, decomposition=decomposition)
+                self.assertIn("train_Yvar", kwargs)
+                self.assertIsNone(kwargs["train_Yvar"])
+                model = cls(**kwargs)
+                self.assertTrue(model.posterior(dataset.X[:1]).mean.isfinite().all())
+
     def test_SACGP(self):
         for dtype, infer_noise in ((torch.float, False), (torch.double, True)):
             tkwargs = {"device": self.device, "dtype": dtype}
