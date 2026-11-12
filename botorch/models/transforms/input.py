@@ -38,7 +38,7 @@ from gpytorch import Module as GPyTorchModule
 from gpytorch.constraints import GreaterThan, Interval
 from gpytorch.priors import Prior
 from torch import LongTensor, nn, Tensor
-from torch.nn import Module, ModuleDict
+from torch.nn import Module, ModuleDict, ModuleList
 from torch.nn.functional import one_hot
 
 
@@ -126,15 +126,16 @@ class InputTransform(Module, ABC):
         Returns:
             A boolean indicating if the other transform is equivalent.
         """
+        state_dict = self.state_dict()
         other_state_dict = other.state_dict()
         return (
             type(self) is type(other)
             and (self.transform_on_train == other.transform_on_train)
             and (self.transform_on_eval == other.transform_on_eval)
             and (self.transform_on_fantasize == other.transform_on_fantasize)
+            and state_dict.keys() == other_state_dict.keys()
             and all(
-                _allclose(v, other_state_dict[k].to(v))
-                for k, v in self.state_dict().items()
+                _allclose(v, other_state_dict[k].to(v)) for k, v in state_dict.items()
             )
         )
 
@@ -193,7 +194,9 @@ class BatchBroadcastedInputTransform(InputTransform, ModuleDict):
         self.transform_on_train = False
         self.transform_on_eval = False
         self.transform_on_fantasize = False
-        self.transforms = transforms
+        # Register the transforms as submodules, so that e.g. ``eval``, ``to`` and
+        # ``state_dict`` are applied to them.
+        self.transforms = ModuleList(transforms)
         if broadcast_index in (-2, -1):
             raise ValueError(
                 "The broadcast index cannot be -2 and -1, as these indices are reserved"
@@ -773,7 +776,8 @@ class Normalize(AffineInputTransform):
         return {
             "d": self._d,
             "indices": getattr(self, "indices", None),
-            "bounds": self.bounds,
+            # ``self.bounds`` is shifted by ``(0.5 - center) * coefficient``.
+            "bounds": self.bounds - (0.5 - self.center) * self.coefficient,
             "batch_shape": self.batch_shape,
             "transform_on_train": self.transform_on_train,
             "transform_on_eval": self.transform_on_eval,
@@ -781,6 +785,7 @@ class Normalize(AffineInputTransform):
             "reverse": self.reverse,
             "min_range": self.min_range,
             "learn_bounds": self.learn_bounds,
+            "center": self.center,
         }
 
 
@@ -858,7 +863,8 @@ class InputStandardize(AffineInputTransform):
             values.unsqueeze(-2)
             for values in torch.std_mean(X, dim=reduce_dims, unbiased=True)
         )
-        almost_zero = coefficient < self.min_std
+        # The std is NaN for a single observation, which is treated as zero spread.
+        almost_zero = ~(coefficient >= self.min_std)
         self._coefficient = torch.where(almost_zero, 1.0, coefficient)
         self._offset = torch.where(almost_zero, 0.0, offset)
 
@@ -1242,6 +1248,21 @@ class Warp(ReversibleInputTransform, GPyTorchModule):
         """
         return inv_kumaraswamy_warp(
             X=X, c0=self.concentration0, c1=self.concentration1, eps=self._eps
+        )
+
+    def equals(self, other: InputTransform) -> bool:
+        r"""Check if another input transform is equivalent.
+
+        Args:
+            other: Another input transform.
+
+        Returns:
+            A boolean indicating if the other transform is equivalent.
+        """
+        return (
+            super().equals(other=other)
+            and self._eps == other._eps
+            and self._normalize.equals(other._normalize)
         )
 
 
@@ -1638,6 +1659,36 @@ class InputPerturbation(InputTransform):
         else:
             p = p(X) if self.indices is None else p(X[..., self.indices])
         return p.transpose(-3, -2)  # p is batch_shape x n_p x n x d
+
+    def equals(self, other: InputTransform) -> bool:
+        r"""Check if another input transform is equivalent.
+
+        The perturbations cached by ``transform``, which depend on the inputs that
+        the transform was last applied to, are not compared.
+
+        Args:
+            other: Another input transform.
+
+        Returns:
+            A boolean indicating if the other transform is equivalent.
+        """
+        if not (
+            type(self) is type(other)
+            and (self.transform_on_train == other.transform_on_train)
+            and (self.transform_on_eval == other.transform_on_eval)
+            and (self.transform_on_fantasize == other.transform_on_fantasize)
+            and self.indices == other.indices
+            and self.multiplicative == other.multiplicative
+        ):
+            return False
+        for name in ("perturbation_set", "bounds"):
+            value, other_value = getattr(self, name), getattr(other, name)
+            if isinstance(value, Tensor) and isinstance(other_value, Tensor):
+                if not _allclose(value, other_value.to(value)):
+                    return False
+            elif value is not other_value:  # callables or None
+                return False
+        return True
 
 
 class NumericToCategoricalEncoding(InputTransform):
@@ -2108,27 +2159,15 @@ class LearnedFeatureImputation(InputTransform, GPyTorchModule):
                 f"{self.d + 1} (with task column), got {x_dim}."
             )
 
-        X_new = X.clone()
-
-        task_ids = X_new[..., -1].long()
-        imputation_vals = self.imputation_values
-
-        # For each task, replace unobserved feature columns with learned values.
-        # torch.where with task_mask ensures rows belonging to other tasks are
-        # left untouched, even if the same column is observed for those tasks.
-        for task_pos in range(self.num_tasks):
-            task_value = self._task_values[task_pos]
-            task_mask = task_ids == task_value
-            if not task_mask.any():
-                continue
-            missing_cols = (
-                self.missing_mask[task_pos].nonzero(as_tuple=False).squeeze(-1)
-            )
-            if missing_cols.numel() == 0:
-                continue
-            X_new[..., missing_cols] = torch.where(
-                task_mask.unsqueeze(-1),
-                imputation_vals[task_pos, missing_cols],
-                X_new[..., missing_cols],
-            )
-        return X_new
+        if self.num_tasks == 0:
+            return X.clone()
+        task_ids = X[..., -1].long()
+        # Map the task values of the rows to their positions in the (sorted)
+        # ``_task_values``. Rows with other task values are left untouched.
+        task_pos = torch.searchsorted(self._task_values, task_ids).clamp(
+            max=self.num_tasks - 1
+        )
+        is_known_task = self._task_values[task_pos] == task_ids
+        is_missing = self.missing_mask[task_pos] & is_known_task.unsqueeze(-1)
+        # Replace the unobserved features of each row with the learned values.
+        return torch.where(is_missing, self.imputation_values[task_pos].to(X), X)
