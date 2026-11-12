@@ -5,12 +5,13 @@
 # LICENSE file in the root directory of this source tree.
 
 import time
+import warnings
 
 import numpy as np
 import numpy.typing as npt
 from botorch.optim.utils.timeout import minimize_with_timeout
 from botorch.utils.testing import BotorchTestCase
-from scipy.optimize import OptimizeResult
+from scipy.optimize import minimize, OptimizeResult
 
 
 class TestMinimizeWithTimeout(BotorchTestCase):
@@ -102,3 +103,39 @@ class TestMinimizeWithTimeout(BotorchTestCase):
                     callback=callback,
                     timeout_sec=1e-4,
                 )
+
+        with self.subTest("test w/ binding timeout and without gradient"):
+
+            def f(x: npt.NDArray, sleep_sec: float = 0.0) -> float:
+                time.sleep(sleep_sec)
+                return float((x**2).sum())
+
+            res = minimize_with_timeout(
+                **{**base_kwargs, "fun": f, "jac": None},
+                args=(1e-2,),
+                timeout_sec=1e-4,
+            )
+            self.assertFalse(res.success)
+            self.assertIn("Optimization timed out", res.message)
+            self.assertEqual(res.fun, f(res.x))
+
+    def test_minimize_with_timeout_warning_filters(self):
+        # Warnings about methods that cannot handle bounds or constraints are raised
+        # as errors within ``minimize_with_timeout``, without modifying the warning
+        # filters outside of it.
+        filters = list(warnings.filters)
+        minimize_with_timeout(
+            fun=lambda x: float((x**2).sum()), x0=np.array([1.0]), method="L-BFGS-B"
+        )
+        self.assertEqual(warnings.filters, filters)
+        kwargs = {
+            "fun": lambda x: float((x**2).sum()),
+            "x0": np.array([1.0]),
+            "method": "Nelder-Mead",
+            "constraints": [{"type": "ineq", "fun": lambda x: x[0]}],
+        }
+        with self.assertRaisesRegex(RuntimeWarning, "cannot handle constraints"):
+            minimize_with_timeout(**kwargs)
+        self.assertEqual(warnings.filters, filters)
+        with self.assertWarnsRegex(RuntimeWarning, "cannot handle constraints"):
+            minimize(**kwargs)
