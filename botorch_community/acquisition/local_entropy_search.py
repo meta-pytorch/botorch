@@ -55,6 +55,7 @@ from botorch.sampling.pathwise.posterior_samplers import (
     MatheronPath,
 )
 from botorch.utils.transforms import t_batch_mode_transform
+from gpytorch.likelihoods import FixedNoiseGaussianLikelihood
 from gpytorch.models import ExactGP
 from torch import Tensor
 from torch.nn import ModuleList
@@ -437,9 +438,31 @@ class LocalEntropySearch(AcquisitionFunction):
         return entropy - conditional_entropy_mean
 
     def _predictive_entropy(self, model: Model, X: Tensor) -> Tensor:
-        posterior = model.posterior(X=X, observation_noise=True)
+        posterior = model.posterior(
+            X=X, observation_noise=self._get_observation_noise(X=X)
+        )
         variance = (
             posterior.variance.squeeze(-1).squeeze(-1).clamp_min(self.min_variance)
         )
         factor = variance.new_tensor(2.0 * torch.pi * torch.e)
         return 0.5 * torch.log(factor * variance)
+
+    def _get_observation_noise(self, X: Tensor) -> bool | Tensor:
+        r"""Get the observation noise of the base model at ``X``.
+
+        The same observation noise has to be used for the base and the conditional
+        models. With a fixed noise likelihood, the conditional models' noise also
+        contains the (tiny) noise of the virtual observations, which would lower
+        the (average) noise that is used for predictions. Hence, the base model's
+        noise is passed explicitly in this case.
+
+        Args:
+            X: A ``batch_shape x 1 x d`` tensor of query points.
+
+        Returns:
+            True, or a ``batch_shape x 1 x 1`` tensor of observation noise variances.
+        """
+        if isinstance(self.model.likelihood, FixedNoiseGaussianLikelihood):
+            noise = self.model.likelihood.noise.mean(dim=-1, keepdim=True)
+            return noise.expand(*X.shape[:-1], 1)
+        return True

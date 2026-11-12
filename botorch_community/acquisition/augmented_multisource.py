@@ -45,7 +45,8 @@ class AugmentedUpperConfidenceBound(UpperConfidenceBound):
     / (c(s) (1 + abs(mu(x) - mu_s(x))))`,
     where ``mu`` and ``sigma`` are the posterior mean and standard deviation of the AGP,
     ``mu_s`` is the posterior mean of the GP modelling the s-th source and
-    c(s) is the cost of the source s.
+    c(s) is the cost of the source s. For minimization, the numerator is
+    ``y^+ - (mu(x) - sqrt(beta) * sigma(x))``.
     """
 
     def __init__(
@@ -95,10 +96,13 @@ class AugmentedUpperConfidenceBound(UpperConfidenceBound):
             A ``(b1 x ... bk)``-dim tensor of Augmented Upper Confidence Bound values at
             the given design points ``X``.
         """
+        batch_shape = X.shape[:-2]
+        X = X.reshape(-1, *X.shape[-2:])  # flatten the batch dimensions
         alpha = torch.zeros(X.shape[0], dtype=X.dtype, device=X.device)
         agp_mean, agp_sigma = self._mean_and_sigma(X[..., :-1])
-        cb = (self.best_f if self.maximize else -self.best_f) + (
-            (agp_mean if self.maximize else -agp_mean) + self.beta.sqrt() * agp_sigma
+        # optimistic improvement over the best observed value
+        cb = (agp_mean - self.best_f if self.maximize else self.best_f - agp_mean) + (
+            self.beta.sqrt() * agp_sigma
         )
         source_idxs = {
             s.item(): torch.where(torch.round(X[..., -1], decimals=0) == s)[0]
@@ -108,12 +112,10 @@ class AugmentedUpperConfidenceBound(UpperConfidenceBound):
             mean, sigma = self._mean_and_sigma(
                 X[source_idxs[s], :, :-1], self.model.models[s]
             )
-            alpha[source_idxs[s]] = (
-                cb[source_idxs[s]]
-                / self.cost[s]
-                * (1 + torch.abs(agp_mean[source_idxs[s]] - mean))
+            alpha[source_idxs[s]] = cb[source_idxs[s]] / (
+                self.cost[s] * (1 + torch.abs(agp_mean[source_idxs[s]] - mean))
             )
-        return alpha
+        return alpha.view(batch_shape)
 
     def _mean_and_sigma(
         self,
