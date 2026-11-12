@@ -208,7 +208,13 @@ class SingleTaskGP(BatchedMultiOutputGPyTorchModel, ExactGP, FantasizeMixin):
 
     def forward(self, x: Tensor) -> MultivariateNormal:
         if self.training:
-            x = self.transform_inputs(x)
+            # The training inputs of multi-output models have an output dimension,
+            # unlike other inputs (e.g., when evaluating the prior at test points).
+            train_X = self.train_inputs[0]
+            if x is train_X or torch.equal(x, train_X):
+                x = self._transform_train_inputs(x)
+            else:
+                x = self.transform_inputs(x)
         mean_x = self.mean_module(x)
         covar_x = self.covar_module(x)
         return MultivariateNormal(mean_x, covar_x)

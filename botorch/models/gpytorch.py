@@ -247,10 +247,11 @@ class GPyTorchModel(Model, ABC):
             >>> new_Y = torch.sin(new_X[:, :1]) + torch.cos(new_X[:, 1:])
             >>> model = model.condition_on_observations(X=new_X, Y=new_Y)
         """
-        # pass the transformed data to get_fantasy_model below
-        # (unless we've already transformed if BatchedMultiOutputGPyTorchModel)
+        # pass the transformed data to get_fantasy_model below. ``X`` is in the
+        # format of the training inputs (e.g., with an output dimension for
+        # multi-output ``BatchedMultiOutputGPyTorchModel``s).
         X_original = X.clone()
-        X = self.transform_inputs(X)
+        X = self._transform_train_inputs(X)
 
         Yvar = noise
         if hasattr(self, "outcome_transform"):
@@ -490,6 +491,34 @@ class BatchedMultiOutputGPyTorchModel(GPyTorchModel):
                 train_X=X, train_Y=Y, train_Yvar=Yvar, num_outputs=self._num_outputs
             )
         return X, Y.squeeze(-1), None if Yvar is None else Yvar.squeeze(-1)
+
+    def _transform_train_inputs(self, X: Tensor, preprocess: bool = False) -> Tensor:
+        r"""Transform inputs that are in the format of the training inputs.
+
+        For multi-output models, the training inputs are stored as an
+        ``input_batch_shape x m x n x d``-dim tensor with the same inputs for all
+        outputs (see ``_transform_tensor_args``). Since input transforms expect
+        ``input_batch_shape x n x d``-dim inputs, the transform is applied before
+        the output dimension is added, as for the inputs to ``posterior``.
+        Otherwise, the parameters of transforms with a ``batch_shape`` (e.g. the
+        bounds of ``Normalize``) would be aligned with the output dimension rather
+        than with the input batch dimensions.
+
+        Args:
+            X: An ``input_batch_shape x m x n x d``-dim tensor of inputs (or an
+                ``input_batch_shape x n x d``-dim tensor for single-output models).
+            preprocess: If True, apply ``self.input_transform.preprocess_transform``
+                rather than ``self.transform_inputs``.
+
+        Returns:
+            A tensor of transformed inputs in the same format as ``X``.
+        """
+        if self._num_outputs == 1:
+            return super()._transform_train_inputs(X=X, preprocess=preprocess)
+        X_tf = super()._transform_train_inputs(X=X[..., 0, :, :], preprocess=preprocess)
+        return X_tf.unsqueeze(-3).expand(
+            *X_tf.shape[:-2], self._num_outputs, *X_tf.shape[-2:]
+        )
 
     def _apply_noise(
         self,

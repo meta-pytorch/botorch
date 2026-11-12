@@ -233,3 +233,19 @@ class TestHigherOrderGP(BotorchTestCase):
                     self.model.latent_parameters[1].shape,
                     torch.Size((5, latent_dim_sizes[1])),
                 )
+
+    def test_batched_input_transform(self):
+        # Unlike other batched multi-output models, the training inputs of
+        # HigherOrderGP do not have an output dimension (even though its
+        # ``num_outputs`` is the batch size), so they must be transformed as is.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_x = torch.rand(2, 10, 1, **tkwargs)
+        train_x[1] = 10 + 5 * train_x[1]
+        bounds = torch.stack([train_x.amin(dim=-2), train_x.amax(dim=-2)], dim=-2)
+        intf = Normalize(d=1, bounds=bounds)  # Separate bounds for each batch.
+        model = HigherOrderGP(
+            train_x, torch.randn(2, 10, 3, 5, **tkwargs), input_transform=intf
+        )
+        self.assertEqual(model.num_outputs, 2)
+        model.eval()
+        self.assertAllClose(model.train_inputs[0], intf(train_x))

@@ -173,6 +173,34 @@ class TestLossClosures(BotorchTestCase):
         with self.assertRaisesRegex(TypeError, "Expected .* a batch of tensors"):
             closure()
 
+    def test_with_batched_input_transform_and_multiple_outputs(self) -> None:
+        # The training inputs of batched multi-output models have an output
+        # dimension, which must not be aligned with the batch dimension of the input
+        # transform when transforming the inputs that are passed to the likelihood.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.rand(2, 10, 1, **tkwargs)
+        train_X[1] = 10 + 5 * train_X[1]
+        mins = train_X.amin(dim=-2, keepdim=True)
+        maxs = train_X.amax(dim=-2, keepdim=True)
+        for m in (2, 3):
+            model = SingleTaskGP(
+                train_X=train_X,
+                train_Y=torch.randn(2, 10, m, **tkwargs),
+                input_transform=Normalize(d=1, batch_shape=torch.Size([2])),
+            )
+            model.likelihood = WrapperLikelihood(model.likelihood)
+            mll = ExactMarginalLogLikelihood(model.likelihood, model)
+            mll.train()
+            get_loss_closure(mll)()
+            # The bounds learned in train mode are those of the respective batch.
+            self.assertAllClose(
+                model.input_transform.bounds, torch.cat([mins, maxs], dim=-2)
+            )
+            self.assertAllClose(
+                model.likelihood.call_args[0],
+                ((train_X - mins) / (maxs - mins)).unsqueeze(-3).expand(2, m, 10, 1),
+            )
+
     def test_with_input_transforms(self) -> None:
         # This test reproduces the bug reported in issue #2515.
         train_X, mlls = _get_mlls(device=self.device, wrap_likelihood=True)
