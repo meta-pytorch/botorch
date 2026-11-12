@@ -215,7 +215,10 @@ class BoltzmannSampling(SamplingStrategy):
         acqval = self.acq_func(X_eval)  # N x batch_shape
         # now move the ``N`` dimension back (this is the number of categories)
         acqval = acqval.permute(*range(1, X.ndim - 1), 0)  # batch_shape x N
-        weights = torch.exp(self.eta * standardize(acqval))  # batch_shape x N
+        # Standardize over the ``N`` points of each batch. Since ``standardize``
+        # operates on dim -2 for inputs with two or more dimensions, add a trailing dim.
+        acqval = standardize(acqval.unsqueeze(-1)).squeeze(-1)
+        weights = torch.exp(self.eta * acqval)  # batch_shape x N
         idcs = batched_multinomial(
             weights=weights, num_samples=num_samples, replacement=self.replacement
         )
