@@ -6,6 +6,7 @@
 
 from itertools import zip_longest
 from math import pi
+from unittest.mock import MagicMock
 
 import torch
 from botorch.models import ModelListGP, SingleTaskGP
@@ -172,6 +173,29 @@ class TestLossClosures(BotorchTestCase):
         closure = get_loss_closure_with_grads(mll, params, data_loader=loader)
         with self.assertRaisesRegex(TypeError, "Expected .* a batch of tensors"):
             closure()
+
+    def test_empty_data_loader(self) -> None:
+        # Bound the number of iterator requests so a regression cannot hang.
+        loader = MagicMock(spec=DataLoader)
+        loader.__iter__.side_effect = [
+            iter(()),
+            iter(()),
+            AssertionError("Retried an empty loader more than once."),
+        ]
+        mll = _get_mlls(device=self.device)[1][0]
+        closure = get_loss_closure(mll, data_loader=loader)
+        with self.assertRaisesRegex(ValueError, "at least one minibatch"):
+            closure()
+        self.assertEqual(loader.__iter__.call_count, 2)
+
+    def test_data_loader_restarts(self) -> None:
+        mll = _get_mlls(device=self.device)[1][0]
+        dataset = TensorDataset(*mll.model.train_inputs, mll.model.train_targets)
+        loader = DataLoader(dataset, batch_size=len(dataset))
+        closure = get_loss_closure(mll, data_loader=loader)
+        expected = get_loss_closure(mll)()
+        for _ in range(3):
+            self.assertAllClose(closure(), expected)
 
     def test_with_input_transforms(self) -> None:
         # This test reproduces the bug reported in issue #2515.
