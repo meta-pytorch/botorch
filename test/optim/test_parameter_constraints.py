@@ -574,6 +574,21 @@ class TestParameterConstraints(BotorchTestCase):
                 new_nlc[0](torch.tensor([[4.0]], device=self.device)),
             )
 
+        # test that the result does not depend on the order of the fixed features
+        def nlc3(x):
+            return x
+
+        for fixed_features in ({0: 0.1, 2: 0.9}, {2: 0.9, 0: 0.1}):
+            (new_nlc3,) = _generate_unfixed_nonlin_constraints(
+                constraints=[(nlc3, True)],
+                fixed_features=fixed_features,
+                dimension=3,
+            )
+            self.assertAllClose(
+                new_nlc3[0](torch.tensor([[0.5]], device=self.device)),
+                torch.tensor([[0.1, 0.5, 0.9]], device=self.device),
+            )
+
     def test_generate_unfixed_lin_constraints(self):
         # Case 1: some fixed features are in the indices
         indices = [
@@ -663,6 +678,38 @@ class TestParameterConstraints(BotorchTestCase):
                     constraints=[(indices[1], coefficients[1], rhs[1])],
                     fixed_features=fixed_features,
                     dimension=dimension,
+                    eq=eq,
+                )
+        # Case 3c: the fixed features satisfy the constraint up to floating point
+        # errors, e.g. x0 + x1 = 1 with 1.0 - 0.7 - 0.3 = 5.55e-17.
+        for eq, dtype in product(
+            [False, True], [torch.float, torch.double, torch.long]
+        ):
+            new_constraints = _generate_unfixed_lin_constraints(
+                constraints=[
+                    (
+                        torch.tensor([0, 1], device=self.device),
+                        torch.tensor([1, 1], device=self.device, dtype=dtype),
+                        1.0,
+                    )
+                ],
+                fixed_features={0: 0.7, 1: 0.3},
+                dimension=3,
+                eq=eq,
+            )
+            self.assertEqual(new_constraints, [])
+            # Actual violations still raise an error.
+            with self.assertRaises(CandidateGenerationError):
+                _generate_unfixed_lin_constraints(
+                    constraints=[
+                        (
+                            torch.tensor([0, 1], device=self.device),
+                            torch.tensor([1, 1], device=self.device, dtype=dtype),
+                            1.0,
+                        )
+                    ],
+                    fixed_features={0: 0.7, 1: 0.29},
+                    dimension=3,
                     eq=eq,
                 )
 

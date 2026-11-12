@@ -7,6 +7,7 @@
 import math
 import re
 import warnings
+from itertools import product
 from unittest import mock
 
 import torch
@@ -256,6 +257,35 @@ class TestGenCandidates(TestBaseCandidateGeneration):
                 timeout_sec=1e-4,
             )
         self.assertTrue(any("Optimization timed out" in o for o in logs.output))
+
+    def test_gen_candidates_torch_with_non_trailing_fixed_features(self):
+        # The fixed features must be inserted at their positions, also if they are
+        # not the last features, and must be removed from tensor-valued bounds.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        target = torch.tensor([0.2, 0.5, 0.7], **tkwargs)
+
+        def acqf(X):
+            return -(X - target).pow(2).sum(dim=(-1, -2))
+
+        ics = torch.tensor([0.3, 0.4, 0.6], **tkwargs).expand(2, 1, 3)
+        bounds = torch.tensor([[0.0] * 3, [1.0] * 3], **tkwargs)
+        for fixed_features, (lower_bounds, upper_bounds) in product(
+            ({0: 0.25}, {1: 0.25}, {2: 0.25}, {0: 0.25, 2: 0.75}),
+            ((0.0, 1.0), (bounds[0], bounds[1])),
+        ):
+            candidates, acq_values = gen_candidates_torch(
+                initial_conditions=ics,
+                acquisition_function=acqf,
+                lower_bounds=lower_bounds,
+                upper_bounds=upper_bounds,
+                fixed_features=fixed_features,
+                options={"stopping_criterion_options": {"maxiter": 500}},
+            )
+            expected = target.clone()
+            for i, value in fixed_features.items():
+                expected[i] = value
+            self.assertAllClose(candidates, expected.expand(2, 1, 3), atol=1e-2)
+            self.assertAllClose(acq_values, acqf(candidates))
 
     def test_gen_candidates_scipy_with_fixed_features_inequality_constraints(self):
         options = {"maxiter": 5}

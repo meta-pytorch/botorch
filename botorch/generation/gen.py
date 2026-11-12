@@ -630,13 +630,20 @@ def gen_candidates_torch(
     # the 1st order optimizers implemented in this method.
     # Here, it does not matter whether one combines multiple optimizations into
     # one or not.
-    _clamp = partial(columnwise_clamp, lower=lower_bounds, upper=upper_bounds)
-    clamped_candidates = _clamp(initial_conditions)
+    clamped_candidates = columnwise_clamp(
+        X=initial_conditions, lower=lower_bounds, upper=upper_bounds
+    )
     if fixed_features:
-        clamped_candidates = clamped_candidates[
-            ...,
-            [i for i in range(clamped_candidates.shape[-1]) if i not in fixed_features],
+        # Only optimize the features that are not fixed.
+        unfixed_indices = [
+            i for i in range(clamped_candidates.shape[-1]) if i not in fixed_features
         ]
+        clamped_candidates = clamped_candidates[..., unfixed_indices]
+        if isinstance(lower_bounds, Tensor):
+            lower_bounds = lower_bounds[..., unfixed_indices]
+        if isinstance(upper_bounds, Tensor):
+            upper_bounds = upper_bounds[..., unfixed_indices]
+    _clamp = partial(columnwise_clamp, lower=lower_bounds, upper=upper_bounds)
     clamped_candidates = clamped_candidates.requires_grad_(True)
 
     # Extract optimizer-specific options from the options dict
@@ -667,7 +674,9 @@ def gen_candidates_torch(
         with torch.no_grad():
             X = _clamp(clamped_candidates).requires_grad_(True)
 
-        loss = -acquisition_function(fix_features(X, fixed_features)).sum()
+        loss = -acquisition_function(
+            fix_features(X, fixed_features, replace_current_value=False)
+        ).sum()
         grad = torch.autograd.grad(loss, X)[0]
         if callback:
             callback(i, loss, grad)
@@ -686,7 +695,9 @@ def gen_candidates_torch(
                 logger.info(f"Optimization timed out after {runtime} seconds.")
 
     clamped_candidates = _clamp(clamped_candidates)
-    clamped_candidates = fix_features(clamped_candidates, fixed_features)
+    clamped_candidates = fix_features(
+        clamped_candidates, fixed_features, replace_current_value=False
+    )
     with torch.no_grad():
         batch_acquisition = acquisition_function(clamped_candidates)
 
