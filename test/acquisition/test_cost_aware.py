@@ -12,7 +12,7 @@ from botorch.acquisition.cost_aware import (
     InverseCostWeightedUtility,
 )
 from botorch.models.deterministic import GenericDeterministicModel
-from botorch.sampling import IIDNormalSampler
+from botorch.sampling import IIDNormalSampler, ListSampler
 from botorch.utils.testing import BotorchTestCase, MockModel, MockPosterior
 
 
@@ -31,6 +31,13 @@ class TestCostAwareUtilities(BotorchTestCase):
             deltas = torch.rand(5, 3, device=self.device, dtype=dtype)
             self.assertIsInstance(u, GenericCostAwareUtility)
             self.assertTrue(torch.equal(u(X, deltas), cost(X, deltas)))
+            # X_evaluation_mask (passed by qHVKG) is ignored
+            X_evaluation_mask = torch.ones(3, 2, dtype=torch.bool, device=self.device)
+            self.assertTrue(
+                torch.equal(
+                    u(X, deltas, X_evaluation_mask=X_evaluation_mask), cost(X, deltas)
+                )
+            )
             X = torch.rand(4, 3, 2, device=self.device, dtype=dtype)
             deltas = torch.rand(5, 4, 3, device=self.device, dtype=dtype)
             self.assertIsInstance(u, GenericCostAwareUtility)
@@ -123,6 +130,25 @@ class TestCostAwareUtilities(BotorchTestCase):
                 self.assertTrue(
                     torch.equal(ratios, deltas / samples.squeeze(-1).sum(dim=-1))
                 )
+                # a ``ListSampler`` (as used by qHVKG) samples a posterior that is not
+                # a ``PosteriorList`` with its first sampler
+                list_sampler = ListSampler(
+                    IIDNormalSampler(sample_shape=torch.Size([4])),
+                    IIDNormalSampler(sample_shape=torch.Size([4])),
+                )
+                ratios = icwu(X, deltas, sampler=list_sampler)
+                self.assertTrue(
+                    torch.equal(ratios, deltas / samples.squeeze(-1).sum(dim=-1))
+                )
+                # the samples of a deterministic cost model are its values
+                dm = GenericDeterministicModel(f=lambda X, m=mean: m)
+                icwu = InverseCostWeightedUtility(dm, use_mean=False)
+                for sampler in (
+                    IIDNormalSampler(sample_shape=torch.Size([4])),
+                    list_sampler,
+                ):
+                    ratios = icwu(X, deltas, sampler=sampler)
+                    self.assertAllClose(ratios, deltas / mean.squeeze(-1).sum(dim=-1))
 
                 # test log cost
                 mm = MockModel(MockPosterior(mean=mean))

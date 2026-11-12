@@ -22,7 +22,9 @@ from botorch.acquisition.objective import (
 )
 from botorch.models.deterministic import DeterministicModel
 from botorch.models.gpytorch import GPyTorchModel
+from botorch.posteriors.posterior_list import PosteriorList
 from botorch.sampling.base import MCSampler
+from botorch.sampling.list_sampler import ListSampler
 from pyre_extensions import none_throws
 from torch import Tensor
 from torch.nn import Module
@@ -33,7 +35,11 @@ class CostAwareUtility(Module, ABC):
 
     @abstractmethod
     def forward(
-        self, X: Tensor, deltas: Tensor, sampler: MCSampler | None = None
+        self,
+        X: Tensor,
+        deltas: Tensor,
+        sampler: MCSampler | None = None,
+        X_evaluation_mask: Tensor | None = None,
     ) -> Tensor:
         r"""Evaluate the cost-aware utility on the candidates and improvements.
 
@@ -45,6 +51,11 @@ class CostAwareUtility(Module, ABC):
                 current state at ``X`` for each t-batch.
             sampler: A sampler used for sampling from the posterior of the cost
                 model. Some subclasses ignore this argument.
+            X_evaluation_mask: A ``q x m``-dim boolean tensor indicating which
+                outcomes are evaluated for each design in the batch (passed by
+                decoupled acquisition functions such as
+                ``qHypervolumeKnowledgeGradient``). Some subclasses ignore this
+                argument.
 
         Returns:
             A ``num_fantasies x batch_shape``-dim Tensor of cost-transformed utilities.
@@ -65,7 +76,11 @@ class GenericCostAwareUtility(CostAwareUtility):
         self._cost_callable: Callable[[Tensor, Tensor], Tensor] = cost
 
     def forward(
-        self, X: Tensor, deltas: Tensor, sampler: MCSampler | None = None
+        self,
+        X: Tensor,
+        deltas: Tensor,
+        sampler: MCSampler | None = None,
+        X_evaluation_mask: Tensor | None = None,
     ) -> Tensor:
         r"""Evaluate the cost function on the candidates and improvements.
 
@@ -76,6 +91,8 @@ class GenericCostAwareUtility(CostAwareUtility):
                 samples from the marginal improvement in utility over the
                 current state at ``X`` for each t-batch.
             sampler: Ignored.
+            X_evaluation_mask: Ignored. The cost callable is responsible for the
+                cost of the outcomes that are evaluated.
 
         Returns:
             A ``num_fantasies x batch_shape``-dim Tensor of cost-weighted utilities.
@@ -194,11 +211,21 @@ class InverseCostWeightedUtility(CostAwareUtility):
         else:
             output_indices = None
         cost_posterior = self.cost_model.posterior(X, output_indices=output_indices)
-        if self._use_mean:
+        if self._use_mean or isinstance(self.cost_model, DeterministicModel):
+            # the samples of a deterministic model are its posterior mean
             cost = cost_posterior.mean  # batch_shape x q x m'
         else:
+            sampler = none_throws(sampler)
+            if isinstance(sampler, ListSampler) and not isinstance(
+                cost_posterior, PosteriorList
+            ):
+                # A ``ListSampler`` (e.g. a copy of the fantasy sampler of
+                # ``qHypervolumeKnowledgeGradient``) can only sample from a
+                # ``PosteriorList``. Sample other posteriors with its first sampler,
+                # which has the same sample shape.
+                sampler = sampler.samplers[0]
             # This will be of shape num_fantasies x batch_shape x q x m'
-            cost = none_throws(sampler)(cost_posterior)
+            cost = sampler(cost_posterior)
         cost = self.cost_objective(cost)
 
         # Ensure that costs are positive

@@ -20,6 +20,9 @@ from botorch.acquisition.multi_objective.hypervolume_knowledge_gradient import (
     qHypervolumeKnowledgeGradient,
     qMultiFidelityHypervolumeKnowledgeGradient,
 )
+from botorch.acquisition.multi_objective.monte_carlo import (
+    qExpectedHypervolumeImprovement,
+)
 from botorch.acquisition.multi_objective.objective import (
     GenericMCMultiOutputObjective,
     IdentityMCMultiOutputObjective,
@@ -169,6 +172,85 @@ class TestHypervolumeKnowledgeGradient(BotorchTestCase):
                         expand=lambda X: X,
                         **mf_kwargs,
                     )
+                # test custom value functions raise exception
+                for valfunc_kwargs in (
+                    {"valfunc_cls": qExpectedHypervolumeImprovement},
+                    {"valfunc_argfac": lambda model: {}},
+                ):
+                    with self.assertRaisesRegex(
+                        NotImplementedError,
+                        "Custom value functions .* are not currently supported",
+                    ):
+                        acqf_class(
+                            model=model,
+                            ref_point=ref_point,
+                            **valfunc_kwargs,
+                            **mf_kwargs,
+                        )
+
+    def test_evaluate_q_hvkg_cost_aware_utilities(self):
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.rand(8, 2, **tkwargs)
+        train_Y = torch.stack([train_X.sum(-1), (1 - train_X).prod(-1)], dim=-1)
+        model = ModelListGP(
+            *(SingleTaskGP(train_X, train_Y[:, i : i + 1]) for i in range(2))
+        )
+
+        def cost(X):
+            # the cost of evaluating ``X`` on each of the two objectives
+            return (1.0 + X[..., -1:]).expand(*X.shape[:-1], 2)
+
+        cost_model = GenericDeterministicModel(cost, num_outputs=2)
+        X = torch.rand(3, 1 + 2 * 2, 2, **tkwargs)
+        expected_cost = cost(X[..., :1, :]).sum(dim=(-1, -2))
+        for acqf_class, X_evaluation_mask in product(
+            (qHypervolumeKnowledgeGradient, qMultiFidelityHypervolumeKnowledgeGradient),
+            (None, torch.ones(1, 2, dtype=torch.bool, device=self.device)),
+        ):
+            if acqf_class == qMultiFidelityHypervolumeKnowledgeGradient:
+                mf_kwargs = {"target_fidelities": {-1: 1.0}}
+            else:
+                mf_kwargs = {}
+            sampler = ListSampler(
+                SobolQMCNormalSampler(sample_shape=torch.Size([2]), seed=0),
+                SobolQMCNormalSampler(sample_shape=torch.Size([2]), seed=1),
+            )
+            kwargs = {
+                "model": model,
+                "ref_point": torch.zeros(2, **tkwargs),
+                "num_fantasies": 2,
+                "num_pareto": 2,
+                "sampler": sampler,
+                "X_evaluation_mask": X_evaluation_mask,
+                "current_value": torch.tensor(0.0, **tkwargs),
+                **mf_kwargs,
+            }
+            with torch.no_grad():
+                val = acqf_class(**kwargs)(X)
+            utilities = [
+                # qHVKG passes ``X_evaluation_mask`` to the cost-aware utility
+                GenericCostAwareUtility(
+                    cost=lambda X, deltas: deltas / cost(X).sum(dim=(-1, -2))
+                ),
+                # the cost sampler is a copy of the fantasy sampler, a ListSampler
+                InverseCostWeightedUtility(cost_model=cost_model, use_mean=False),
+            ]
+            for cost_aware_utility in utilities:
+                acqf = acqf_class(**kwargs, cost_aware_utility=cost_aware_utility)
+                with torch.no_grad():
+                    self.assertAllClose(acqf(X), val / expected_cost)
+            # stochastic cost model
+            cost_gp = SingleTaskGP(train_X, cost(train_X))
+            acqf = acqf_class(
+                **kwargs,
+                cost_aware_utility=InverseCostWeightedUtility(
+                    cost_model=cost_gp, use_mean=False
+                ),
+            )
+            with torch.no_grad():
+                cost_val = acqf(X)
+            self.assertEqual(cost_val.shape, torch.Size([3]))
+            self.assertTrue(torch.isfinite(cost_val).all())
 
     def test_evaluate_q_hvkg(self):
         torch.manual_seed(torch.randint(low=0, high=10, size=(1,)).item())
