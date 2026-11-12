@@ -1,0 +1,120 @@
+"""Schmitt et al. (2022), equations 8--13, on finite objective tensors."""
+
+from __future__ import annotations
+
+import math
+from collections.abc import Sequence
+
+import torch
+from torch import Tensor
+
+
+def _validate_y(Y: Tensor) -> None:
+    if not isinstance(Y, Tensor) or not Y.is_floating_point():
+        raise TypeError("Y must be a floating point torch.Tensor.")
+    if Y.ndim < 2 or Y.numel() == 0:
+        raise ValueError("Y must have nonempty shape (..., n, m).")
+    if not torch.isfinite(Y).all():
+        raise ValueError("Y must contain only finite values.")
+
+
+def _alpha(alpha: float) -> float:
+    if isinstance(alpha, bool) or not isinstance(alpha, (int, float)):
+        raise TypeError("alpha must be a number in [0, 1].")
+    if not math.isfinite(alpha) or not 0 <= alpha <= 1:
+        raise ValueError("alpha must be in [0, 1].")
+    return float(alpha)
+
+
+def _pareto(costs: Tensor) -> Tensor:
+    # Bound temporary pairwise storage; unlike a full n*n*m broadcast this
+    # also works for a large candidate catalog. Keep the first exact duplicate.
+    n, m = costs.shape
+    chunk = max(1, min(n, 5_000_000 // max(n * m, 1)))
+    result = torch.ones(n, dtype=torch.bool, device=costs.device)
+    positions = torch.arange(n, device=costs.device)
+    for start in range(0, n, chunk):
+        end = min(start + chunk, n)
+        other = costs[start:end]
+        le = (costs[:, None, :] <= other[None, :, :]).all(-1)
+        strict = (costs[:, None, :] < other[None, :, :]).any(-1)
+        earlier = positions[:, None] < positions[None, start:end]
+        result[start:end] = ~(le & (strict | earlier)).any(0)
+    return result
+
+
+def _prepare(Y: Tensor, alpha: float, maximize: bool) -> tuple[Tensor, Tensor]:
+    _validate_y(Y)
+    alpha = _alpha(alpha)
+    if not isinstance(maximize, bool):
+        raise TypeError("maximize must be a bool.")
+    costs = -Y if maximize else Y
+    rows = costs.reshape(-1, Y.shape[-2], Y.shape[-1])
+    masks, normalized = [], []
+    for batch in rows:
+        pareto = _pareto(batch)
+        front = batch[pareto]
+        lower, upper = front.amin(0), front.amax(0)
+        # Avoid overflow when valid finite endpoints have opposite signs near
+        # the dtype limit. Scaling is algebraically equivalent to equation 8.
+        scale = torch.maximum(lower.abs(), upper.abs()).clamp_min(1)
+        lower_s, upper_s = lower / scale, upper / scale
+        span = upper_s - lower_s
+        # A flat objective carries no geometric information, rather than NaN.
+        Z = (batch / scale - lower_s) / torch.where(
+            span > 0, span, torch.ones_like(span)
+        )
+        Z = torch.where(span > 0, Z, torch.zeros_like(Z))
+        front_Z = Z[pareto]
+        q = torch.linalg.vector_norm(front_Z, dim=-1).argmax()
+        distances = (front_Z[q].sum() - front_Z.sum(-1)) / math.sqrt(Y.shape[-1])
+        knee = torch.zeros_like(pareto)
+        knee[pareto] = distances >= alpha * distances.max()
+        masks.append(knee)
+        normalized.append(Z)
+    return (
+        torch.stack(masks).reshape(Y.shape[:-1]),
+        torch.stack(normalized).reshape(Y.shape),
+    )
+
+
+def knee_region(Y: Tensor, *, alpha: float = 0.5, maximize: bool = True) -> Tensor:
+    """Return the paper's knee region as an original-row boolean mask.
+
+    ``Y`` has shape ``(..., n, m)``; objectives are maximized by default.
+    Dominated rows are excluded before range normalization. The signed
+    distance in equation 10 is used, so ``alpha=0`` need not retain the entire
+    Pareto front. Flat columns map to zero. Duplicate rows keep their first
+    occurrence; exact selection ties retain input order.
+    """
+    return _prepare(Y, alpha, maximize)[0]
+
+
+def select_preferred(
+    Y: Tensor,
+    preferences: Tensor | Sequence[float],
+    *,
+    alpha: float = 0.5,
+    maximize: bool = True,
+) -> Tensor:
+    """Select a knee-region row by its preference hyperplane (equation 13).
+
+    Nonnegative, nonzero ``preferences`` have shape ``(..., m)`` and may
+    broadcast across ``Y``'s batch dimensions. Return int64 original row
+    indices of shape ``Y.shape[:-2]`` on ``Y.device``. Preference scale is
+    irrelevant; equal scores select the earliest input row.
+    """
+    mask, Z = _prepare(Y, alpha, maximize)
+    p = torch.as_tensor(preferences, device=Y.device, dtype=Y.dtype)
+    if p.ndim == 0 or p.shape[-1] != Y.shape[-1]:
+        raise ValueError("preferences must have shape (..., m).")
+    if not torch.isfinite(p).all() or (p < 0).any() or (p.sum(-1) <= 0).any():
+        raise ValueError("preferences must be finite, nonnegative, and nonzero.")
+    try:
+        p = torch.broadcast_to(p, (*Y.shape[:-2], Y.shape[-1]))
+    except RuntimeError as exc:
+        raise ValueError("preferences do not broadcast to Y's batch shape.") from exc
+    # Rescale first to avoid overflow for otherwise valid very large weights.
+    p = p / p.amax(-1, keepdim=True)
+    scores = (Z * p.unsqueeze(-2)).sum(-1).masked_fill(~mask, float("inf"))
+    return scores.argmin(-1)

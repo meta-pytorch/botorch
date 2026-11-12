@@ -1,0 +1,8 @@
+...........                                                              [100%]
+============================== warnings summary ===============================
+<runtime-dependencies>\Lib\site-packages\torch\jit\_script.py:1485
+  <user>\Desktop\openbo\.venv\Lib\site-packages\torch\jit\_script.py:1485: FutureWarning: `torch.jit.script` is not supported in Python 3.14+ and may break. Please switch to `torch.compile` or `torch.export`.
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+11 passed, 1 warning in 4.66s

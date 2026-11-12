@@ -1,0 +1,64 @@
+{
+  "packaging_note": "Sanitized metadata copy. Path strings changed; original file bytes were not edited. The original metadata SHA256 below is not this sanitized file's hash.",
+  "original_metadata_sha256": "9a0395b9a4282786f5b97a1f8913ddb85e46556918eafaeeeb6c0fba8e4cb34f",
+  "record": {
+    "created_utc": "2026-10-21T19:55:00.499970+00:00",
+    "python": "3.14.6",
+    "platform": "Windows-11-10.0.26300-SP0",
+    "processor": "Intel64 Family 6 Model 170 Stepping 4, GenuineIntel",
+    "versions": {
+      "torch": "2.14.1",
+      "botorch": "0.18.1",
+      "gpytorch": "1.15.2",
+      "numpy": "2.5.4",
+      "scipy": "1.18.1",
+      "pymoo": "0.6.2"
+    },
+    "torch_threads": 1,
+    "git_revision": "2057d1a9cb4299b2bc8393b163a2081f91abc1c9",
+    "git_status": [
+      " M README.md",
+      "?? docs/decision-making.md",
+      "?? docs/fpbi-benchmark.md",
+      "?? examples/",
+      "?? scripts/benchmark_fpbi.py",
+      "?? src/openbo/decision_making/",
+      "?? tests/test_decision_making.py",
+      "?? tests/test_fpbi_benchmark.py"
+    ],
+    "source_sha256": {
+      "scripts/benchmark_fpbi.py": "6dabd7bb4ee07ad2033e7001b50ea5e9600d83b411a375fdd6fb7808e4b24bd7",
+      "src/openbo/decision_making/__init__.py": "6b81b92bc21694fa5df95185f6f129de55e7ad2cb9261a4f15cd9aa8925e9005",
+      "src/openbo/decision_making/_fpbi.py": "0a02ef50340bdf722d427f7f8fafb0c723ff60819f08cdc0389faec1b11b271d",
+      "src/openbo/decision_making/_selection.py": "fb66f8ed50fee41c213f13005de4b0cb4507c0eebad14da8eef35edde5b5a7c3"
+    },
+    "upstream_signature": "(acq_function: 'MultiOutputAcquisitionFunction', bounds: 'Tensor', num_objectives: 'int', q: 'int | None' = None, ref_point: 'list[float] | Tensor | None' = None, objective: 'MCMultiOutputObjective | None' = None, constraints: 'list[Callable[[Tensor], Tensor]] | None' = None, inequality_constraints: 'list[tuple[Tensor, Tensor, float]] | None' = None, population_size: 'int' = 250, max_gen: 'int | None' = None, seed: 'int | None' = None, fixed_features: 'dict[int, float] | None' = None, max_attempts: 'int' = 2, discrete_choices: 'dict[int, list[float]] | None' = None, post_processing_func: 'Callable[[Tensor], Tensor] | None' = None) -> 'tuple[Tensor, Tensor]'",
+    "upstream_documentation": "https://botorch.readthedocs.io/en/stable/utils.html",
+    "config": {
+      "output_dir": "<RESEARCH_WORKSPACE>/outputs/fpbi-benchmark",
+      "seeds": [
+        0,
+        1,
+        2
+      ],
+      "cases": [
+        "convex_2d",
+        "concave_2d",
+        "constrained_2d",
+        "sphere_3d"
+      ],
+      "steps_2d": 5,
+      "steps_3d": 3,
+      "restarts": 2,
+      "maxiter": 100,
+      "population": 32,
+      "output_generations": 20,
+      "max_budget_generations": 300,
+      "fpbi_api": "model",
+      "skip_plots": false,
+      "feasibility_tol": 1e-06,
+      "dtype": "torch.float64",
+      "device": "cpu"
+    }
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "packaging_note": "Sanitized metadata copy. Path strings changed; original file bytes were not edited. The original metadata SHA256 below is not this sanitized file's hash.",
+  "original_metadata_sha256": "f6d9826c493ed77c24ff7e0da723b6165116254cb2996ae1bdfc16d9a5fc6a45",
+  "record": {
+    "recorded_utc": "2026-10-21T20:06:54.726943+00:00",
+    "cases": [
+      [
+        1,
+        64,
+        2
+      ],
+      [
+        1,
+        256,
+        3
+      ],
+      [
+        32,
+        64,
+        3
+      ],
+      [
+        32,
+        256,
+        3
+      ],
+      [
+        32,
+        256,
+        5
+      ],
+      [
+        1,
+        1024,
+        3
+      ]
+    ],
+    "functions": [
+      "knee_region",
+      "select_preferred"
+    ],
+    "seed": 17,
+    "devices": [
+      "cpu",
+      "cuda"
+    ],
+    "dtypes": [
+      "float32",
+      "float64"
+    ],
+    "warmups": 2,
+    "repeats": 5,
+    "threads": 1,
+    "alpha": 0.5,
+    "maximize": true,
+    "timing": "synchronized perf_counter, full public functions",
+    "input_generation": "CPU float64 normal Y and uniform+0.1 batched preferences, cast/transfer before timing",
+    "order": "before/after counterbalanced by case+dtype+device+function index parity",
+    "conditions": "Own HITL full suite completed before timing; independent botorch-rs reference-free tests observed before timing. Other chat workloads were not controlled; no isolated-machine or robust speedup claim. No process or affinity changes.",
+    "command": "python scripts/benchmark_selector.py --before <RESEARCH_WORKSPACE>/work/selection_before.py --after <RESEARCH_WORKSPACE>/work/botorch-contribution/botorch_community/utils/multi_objective/decision_making.py --output-dir <RESEARCH_WORKSPACE>/outputs/selector-benchmark --conditions \"Own HITL full suite completed before timing; independent botorch-rs reference-free tests observed before timing. Other chat workloads were not controlled; no isolated-machine or robust speedup claim. No process or affinity changes.\""
+  }
+}

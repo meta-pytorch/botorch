@@ -1,0 +1,44 @@
+{
+  "config": {
+    "seeds": [
+      0,
+      1,
+      2
+    ],
+    "cases": [
+      "convex_2d",
+      "concave_2d",
+      "constrained_2d",
+      "sphere_3d"
+    ],
+    "train_2d": 24,
+    "train_3d": 48,
+    "noise_sd": 0.02,
+    "fit_maxiter": 75,
+    "steps_2d": 5,
+    "steps_3d": 3,
+    "restarts": 2,
+    "maxiter": 100,
+    "population": 32,
+    "generations": 20
+  },
+  "versions": {
+    "botorch": "0.18.1",
+    "torch": "2.14.1",
+    "gpytorch": "1.15.2",
+    "numpy": "2.5.4",
+    "scipy": "1.18.1",
+    "pymoo": "0.6.2"
+  },
+  "source_sha256": {
+    "notebooks_community\\pareto_decision_making\\experiments\\benchmark_gp_fpbi.py": "efa809a2c9319a583b93d687fccc3f2e82930040c51fa06f4f908e15f586719d",
+    "notebooks_community\\pareto_decision_making\\experiments\\benchmark_fpbi.py": "0333cc93992e4f5d945701af946c8e4db824ee1619f9505969006ef3389dd438",
+    "botorch_community\\utils\\multi_objective\\fpbi.py": "2296e1e87264431d52e712af82f6ef008d10935bd8147d11c5ee3b647b2697e4",
+    "botorch_community\\utils\\multi_objective\\decision_making.py": "1bb1e1caef43b0d91520ca2ad5d0c8bb8209023c8a32413602c6b66215ec01b7"
+  },
+  "model": "Shared SingleTaskGP, Standardize outcomes, known fixed observation variances, CPU double",
+  "noise": "Independent Gaussian, SD is a fraction of known analytic Pareto outcome ranges",
+  "arms": "FPBI; NSGA-II fixed generations; NSGA-II generations rounded to FPBI queried decision-vector count (cap 300)",
+  "audit": "Common output cap selected using posterior means; true analytic values and uncertainty audited outside generation timing/counters",
+  "limitations": "Four analytic cases, three seeds, one machine with concurrent work; no BO trajectory, human-benefit or calibrated-safety claim. Known analytic ranges are used for benchmark normalization/capping."
+}

@@ -1,0 +1,64 @@
+{
+  "scope": "Later upstream FPBI port and runnable experiment harnesses; functional validation separately from historical measurements",
+  "combined_cpu_check": {
+    "passed_test_functions": 36,
+    "cuda_skipped_test_functions": 10,
+    "collected_test_functions": 46,
+    "passed_subtests": 10,
+    "coverage": [
+      "community selector",
+      "community FPBI",
+      "12 benchmark harness unit/reference/accounting tests"
+    ]
+  },
+  "dedicated_fpbi_cuda_boundary_test": {
+    "passed": 1
+  },
+  "existing_selector_cpu_cuda_suite": {
+    "passed": 18
+  },
+  "new_cli_functional_smokes": [
+    {
+      "harness": "experiments/benchmark_fpbi.py",
+      "case": "convex_2d",
+      "seed": 19,
+      "arms_completed": 3
+    },
+    {
+      "harness": "experiments/benchmark_selector.py",
+      "cpu_function_configurations": 12,
+      "all_parity_checks_passed": true
+    }
+  ],
+  "record_source": "Task orchestrator's completed validation report; FPBI module's original detailed record is retained separately as fpbi-port-validation.json.",
+  "limits": [
+    "These are correctness/accounting smokes, not new headline performance measurements.",
+    "Historical FPBI and replay numerical measurements used the archived OpenBO implementation.",
+    "The selector timing candidate is the actual upstream vectorized selector; its archived hash matched the current module at packaging.",
+    "The dedicated CUDA FPBI test checks callback/output device handling, not GPU-native SLSQP."
+  ],
+  "final_source_sha256": {
+    "botorch_community/utils/multi_objective/fpbi.py": "2296e1e87264431d52e712af82f6ef008d10935bd8147d11c5ee3b647b2697e4",
+    "test_community/utils/multi_objective/test_fpbi.py": "0a7cde1f32e3abf7eff324dd5f9fed4e5c5239962072b9a04bb3b041e2cb65cc",
+    "botorch_community/utils/multi_objective/decision_making.py": "6634aabaf017067c8197cf5df30a92202b48166334f46dc52fd4f33029585f0d",
+    "notebooks_community/pareto_decision_making/experiments/benchmark_fpbi.py": "0333cc93992e4f5d945701af946c8e4db824ee1619f9505969006ef3389dd438",
+    "notebooks_community/pareto_decision_making/experiments/benchmark_selector.py": "25cb4fcd0efa16a0b4ebbf64724186a1734cfca3557fa1881795028295bc8b24",
+    "test_community/utils/multi_objective/test_fpbi_benchmark.py": "a3d9078fa788898442cb84f2a72479df11eba998c0bb714e0cba80e4bbb5d43a",
+    "test_community/utils/multi_objective/test_selector_benchmark.py": "f4258b1bcd96bd6ac1ae10d04b4331f60a6f60e8490d3fd0500838b69fedc789"
+  },
+  "final_style_note": "After the focused FPBI record, upstream style conformance added Protocol docstrings, wrapped an unchanged error string and formatted the test source. Algorithm semantics are unchanged. Current hashes above identify the published files; the earlier detailed validation record retains its original source hashes. The ported FPBI CLI report now refers to the argv field it actually records.",
+  "upstream_style_checks": {
+    "ufmt": "passed",
+    "flake8": "passed"
+  },
+  "ci_style_import_audit_2026_10_22": {
+    "command": "pytest test_community/ -q",
+    "candidate_package": "staged independently of the repository root on PYTHONPATH, simulating installed package imports",
+    "repository_root_on_sys_path": false,
+    "passed_test_functions": 36,
+    "cuda_skipped_test_functions": 10,
+    "passed_subtests": 10,
+    "fix": "Load notebook experiment files explicitly by path; those files are not installed package modules.",
+    "limits": "Single Windows CPU environment; full upstream CI operating-system/Python matrix is not claimed."
+  }
+}

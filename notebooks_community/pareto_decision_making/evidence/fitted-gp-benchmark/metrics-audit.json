@@ -1,0 +1,50 @@
+{
+  "status": "passed",
+  "recorded_runs": 36,
+  "fit_case_seed_pairs": 12,
+  "shared_training_hashes_per_case_seed": true,
+  "source_hashes_unchanged": true,
+  "true_outcomes_match_recorded_designs": true,
+  "independent_2d_hv_recomputations": 54,
+  "common_output_caps_verified": true,
+  "fpbi_solver_attempts": 369,
+  "fpbi_rejected_attempts": 0,
+  "fpbi_failed_rays": 0,
+  "fpbi_nominal_rays": 72,
+  "max_returned_constraint_violation": 1.1102230246251565e-16,
+  "per_case": {
+    "convex_2d": {
+      "solver_attempts": 72,
+      "rejected_attempts": 0,
+      "failed_rays": 0,
+      "nominal_rays": 15,
+      "median_heldout_normalized_rmse": 0.010067754137572204,
+      "median_heldout_latent_95_coverage": 0.9052734375
+    },
+    "concave_2d": {
+      "solver_attempts": 72,
+      "rejected_attempts": 0,
+      "failed_rays": 0,
+      "nominal_rays": 15,
+      "median_heldout_normalized_rmse": 0.016576013893635635,
+      "median_heldout_latent_95_coverage": 0.84375
+    },
+    "constrained_2d": {
+      "solver_attempts": 72,
+      "rejected_attempts": 0,
+      "failed_rays": 0,
+      "nominal_rays": 15,
+      "median_heldout_normalized_rmse": 0.009724719972210227,
+      "median_heldout_latent_95_coverage": 0.9013671875
+    },
+    "sphere_3d": {
+      "solver_attempts": 153,
+      "rejected_attempts": 0,
+      "failed_rays": 0,
+      "nominal_rays": 27,
+      "median_heldout_normalized_rmse": 0.019273416067198505,
+      "median_heldout_latent_95_coverage": 0.9296875
+    }
+  },
+  "no_refits_or_front_generations_during_audit": true
+}

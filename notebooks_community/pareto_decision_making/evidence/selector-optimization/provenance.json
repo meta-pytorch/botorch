@@ -1,0 +1,36 @@
+{
+  "publication_note": "Sanitized copy; original measurement metadata unchanged locally.",
+  "original_sha256": "1f6d6d6f90619e52eae9709e96689a803991f0928fc5fbb767f4040b7dedd677",
+  "data": {
+    "created_utc": "2026-10-22T07:05:17.866483+00:00",
+    "python": "3.13.12",
+    "executable": "<cuda-python>",
+    "platform": "Windows-11-10.0.26300-SP0",
+    "processor": "Intel64 Family 6 Model 170 Stepping 4, GenuineIntel",
+    "versions": {
+      "torch": "2.13.0+cu132",
+      "botorch": "0.18.1",
+      "numpy": "2.5.2"
+    },
+    "torch_threads": 1,
+    "torch_interop_threads": 1,
+    "cuda_runtime": "13.2",
+    "cuda_available": true,
+    "cuda_device": "NVIDIA GeForce RTX 4050 Laptop GPU",
+    "original_sources": {
+      "before": "<workspace>\\work\\selector-before-gpu-tiling.py",
+      "after": "<workspace>\\work\\botorch-contribution\\botorch_community\\utils\\multi_objective\\decision_making.py"
+    },
+    "source_sha256": {
+      "after.py": "1bb1e1caef43b0d91520ca2ad5d0c8bb8209023c8a32413602c6b66215ec01b7",
+      "before.py": "6634aabaf017067c8197cf5df30a92202b48166334f46dc52fd4f33029585f0d",
+      "benchmark_selector.py": "25cb4fcd0efa16a0b4ebbf64724186a1734cfca3557fa1881795028295bc8b24"
+    },
+    "settings": {
+      "seed": 17,
+      "warmups": 2,
+      "repeats": 5
+    },
+    "conditions": "Post-audit GPU tiling candidate; old protocol/source preserved. Rust wheel packaging and documentation preparation run concurrently; no machine isolation or universal speedup claim."
+  }
+}

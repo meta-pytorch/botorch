@@ -1,0 +1,102 @@
+{
+  "packaging_note": "Sanitized metadata copy. Path strings changed; original file bytes were not edited. The original metadata SHA256 below is not this sanitized file's hash.",
+  "original_metadata_sha256": "5e436a12ced1ea2169f19999358879908d65a7f453375706ac53e865a5185106",
+  "record": {
+    "scope": "Standalone experimental community FPBI port, including geometry, dataclasses, constrained local SLSQP, model adapter and source-derived tests",
+    "source_root": "<RESEARCH_WORKSPACE>/work/botorch-contribution",
+    "source_sha256": {
+      "botorch_community/utils/multi_objective/fpbi.py": "27da7684d1e2915e5adea4cfae9dc915fc9538e5e7f1edf56fb81f5e86a4e2f2",
+      "test_community/utils/multi_objective/test_fpbi.py": "4b6f5e8119173ba4f25422177ddd2b45b42dbfac595296c5804eb20a4278ee7b"
+    },
+    "public_imports": [
+      "FPBIGeometry",
+      "FPBIResult",
+      "SolverDiagnostic",
+      "fpbi_geometry",
+      "sample_fpbi",
+      "sample_model_fpbi"
+    ],
+    "checks": [
+      {
+        "name": "focused_cpu_tests",
+        "interpreter": "<OPENBO_CHECKOUT>/.venv/Scripts/python.exe",
+        "python": "3.14.6",
+        "torch": "2.14.1",
+        "botorch": "0.18.1",
+        "environment": "PYTHONPATH=source_root",
+        "command": "python -m pytest test_community/utils/multi_objective/test_fpbi.py -q -k 'not CUDA'",
+        "passed": 15,
+        "deselected": 1,
+        "subtests_passed": 10,
+        "seconds": 7.87,
+        "warnings": [
+          "One pre-existing Torch jit.script FutureWarning under Python 3.14"
+        ]
+      },
+      {
+        "name": "focused_cuda_boundary_test",
+        "interpreter": "python",
+        "python": "3.13.12",
+        "torch": "2.13.0+cu132",
+        "botorch": "0.18.1",
+        "device": "NVIDIA GeForce RTX 4050 Laptop GPU",
+        "environment": "PYTHONPATH=source_root",
+        "command": "python -m pytest test_community/utils/multi_objective/test_fpbi.py -q -k CUDA",
+        "passed": 1,
+        "deselected": 15,
+        "seconds": 8.08,
+        "warnings": [
+          "Two pre-existing Torch jit.script deprecation warnings"
+        ]
+      },
+      {
+        "name": "ruff",
+        "command": "python -m ruff check --select E,F,I,UP,B --ignore E501 botorch_community/utils/multi_objective/fpbi.py test_community/utils/multi_objective/test_fpbi.py",
+        "result": "All checks passed"
+      },
+      {
+        "name": "format",
+        "command": "python -m ruff format --check botorch_community/utils/multi_objective/fpbi.py test_community/utils/multi_objective/test_fpbi.py",
+        "result": "2 files already formatted"
+      },
+      {
+        "name": "mypy",
+        "command": "python -m mypy --follow-imports=skip --ignore-missing-imports botorch_community/utils/multi_objective/fpbi.py",
+        "result": "Success: no issues found in 1 source file"
+      },
+      {
+        "name": "port_semantic_parity",
+        "reference": "<OPENBO_CHECKOUT>/src/openbo/decision_making/_fpbi.py",
+        "result": "Identical geometry tensor fields on a flat-axis fixture; identical constrained quadratic X, Y, extrema, ray flags and every per-attempt diagnostic under the same environment and options"
+      },
+      {
+        "name": "standalone_dependencies",
+        "result": "No openbo or botorch_rs references in the new module or tests. Only standard library, NumPy, SciPy, Torch, BoTorch and the sibling community selector helper are used."
+      }
+    ],
+    "source_derived_cases": [
+      "Exact asymmetric FPBI grid and unnormalized focus direction; maximize/minimize orientation",
+      "Batched geometry, flat axes, coincident extrema, duplicate rays and rank-deficient cross-product fallback",
+      "Dominated and duplicate extreme filtering before normalization",
+      "Actual constrained scalar solves, float32/float64 quadratic front and analytic kappa=0.5",
+      "Two-sided decision constraints on extrema and rays; analytic constrained kappa=0.3",
+      "Concave front requiring unrestricted negative kappa=1-sqrt(2)",
+      "Equality constraints and a real BoTorch GenericDeterministicModel",
+      "Explicit selection of a posterior model batch",
+      "Failed extreme raises; failed rays remain diagnosed and are omitted",
+      "Independently checked infeasibility overrides an injected successful optimizer flag",
+      "Nonfinite objectives/constraints, changing output dimension, invalid options and numeric overflow guards"
+    ],
+    "resolved_static_issues": [
+      "Added explicit NumPy NDArray annotations for ray_ok and the ray start vector; no algorithm change",
+      "Normalized import ordering and formatting"
+    ],
+    "limits": [
+      "The optimizer and geometry execute on CPU; CUDA callbacks and returned tensors preserve device but this is not a GPU-native SLSQP implementation.",
+      "The dedicated CUDA test is a small two-objective float64 boundary check, not a CUDA coverage or performance study.",
+      "Local convergence does not prove globally optimal extrema, globally Pareto outcomes or good front coverage.",
+      "The original small FPBI/NSGA-II comparison favored NSGA-II on its four cases and retained unequal actual output cardinalities under a common cap; no performance superiority is claimed.",
+      "Failure injection tests are expected rejection paths, not unresolved failures in the final test run."
+    ]
+  }
+}

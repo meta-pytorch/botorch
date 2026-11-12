@@ -13,6 +13,7 @@ import subprocess
 import uuid
 from pathlib import Path
 from typing import Union
+from urllib.parse import quote
 
 import mdformat
 import nbformat
@@ -27,7 +28,7 @@ DOCS_DIR = LIB_DIR.joinpath("docs")
 TUTORIALS_DIR = DOCS_DIR.joinpath("tutorials")
 NOTEBOOKS_COMMUNITY_DIR = DOCS_DIR.joinpath("notebooks_community")
 
-ORGANIZATION = "pytorch"
+ORGANIZATION = "meta-pytorch"
 PROJECT = "botorch"
 
 # Data display priority. Below lists the priority for displaying data from cell outputs.
@@ -151,8 +152,8 @@ def create_frontmatter(path: Path, nb_metadata: dict[str, dict[str, str]]) -> st
     frontmatter = [
         f'"{key}": "{value}"'
         for key, value in {
-            "title": metadata["title"],
-            "sidebar_label": metadata["title"],
+            "title": nb_metadata["title"],
+            "sidebar_label": nb_metadata["title"],
         }.items()
     ]
     frontmatter = "\n".join(frontmatter_delimiter + frontmatter + frontmatter_delimiter)
@@ -198,19 +199,24 @@ def get_current_git_tag() -> str | None:
 
 def create_buttons(
     nb_metadata: dict[str, dict[str, str]],
+    is_community: bool = False,
 ) -> str:
     """
     Create buttons that link to Colab and GitHub for the tutorial.
 
     Args:
-        nb_metadata (Dict[str, Dict[str, str]]): Metadata for the tutorial.
+        nb_metadata (Dict[str, Dict[str, str]]): Metadata for the notebook.
+        is_community: Whether the notebook is under ``notebooks_community``.
 
     Returns:
         str: MDX formatted buttons.
     """
-    version = get_current_git_tag() or "main"
+    # Untagged checkouts, including feature branches, link to main. Exact
+    # release tags retain the corresponding notebook version.
+    version = quote(get_current_git_tag() or "main", safe="")
+    notebook_dir = "notebooks_community" if is_community else "tutorials"
     github_path = (
-        f"{ORGANIZATION}/{PROJECT}/blob/{version}/tutorials/"
+        f"{ORGANIZATION}/{PROJECT}/blob/{version}/{notebook_dir}/"
         f"{nb_metadata['id']}/{nb_metadata['id']}.ipynb"
     )
     github_url = f"https://github.com/{github_path}"
@@ -1000,7 +1006,7 @@ def transform_notebook(path: Path, nb_metadata: object, is_community: bool) -> s
     mdx = ""
     mdx += create_frontmatter(path, nb_metadata)
     mdx += create_imports()
-    mdx += create_buttons(nb_metadata)
+    mdx += create_buttons(nb_metadata, is_community=is_community)
     for cell in nb["cells"]:
         cell_type = cell["cell_type"]
 

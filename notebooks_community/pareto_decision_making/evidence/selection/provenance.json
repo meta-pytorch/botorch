@@ -1,0 +1,422 @@
+{
+  "packaging_note": "Sanitized metadata copy. Path strings changed; original file bytes were not edited. The original metadata SHA256 below is not this sanitized file's hash.",
+  "original_metadata_sha256": "d7f702059dd9de445e5a15ca30471eec0e61084eea2cfc8b828791d53978dfcb",
+  "record": {
+    "python": "3.15.0 (tags/v3.15.0:d220409, Oct  9 2026, 11:55:56) [MSC v.1951 64 bit (AMD64)]",
+    "versions": {
+      "torch": "2.14.1+cpu",
+      "botorch": "0.18.1",
+      "numpy": "2.5.4",
+      "pandas": "3.0.6",
+      "scipy": "1.18.1"
+    },
+    "script_sha256": "c5931fb08021c2807f942c989e0f292ed8da05e13cab7a40fa85c7cdc174f571",
+    "selector_source_sha256": {
+      "__init__.py": "6b81b92bc21694fa5df95185f6f129de55e7ad2cb9261a4f15cd9aa8925e9005",
+      "_fpbi.py": "0a02ef50340bdf722d427f7f8fafb0c723ff60819f08cdc0389faec1b11b271d",
+      "_selection.py": "fb66f8ed50fee41c213f13005de4b0cb4507c0eebad14da8eef35edde5b5a7c3"
+    },
+    "inputs": [
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/branincurrin/bo_sensor_error_branincurrin_multi_objective_qlognehvi_seed12_baseline_exact.csv",
+        "sha256": "1a4deeaed73c647d485a4f89017826bdf0b52ffee15a061b90efe556101fa89d"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/branincurrin/bo_sensor_error_branincurrin_multi_objective_qlognehvi_seed12_jittered_exact_gaussian_jit0_std1.0.csv",
+        "sha256": "92678f51f030c5f3fff75dfd79799eaf1e6e655dd9683cfba178bf0ba644106a"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/branincurrin/bo_sensor_error_branincurrin_multi_objective_qlognehvi_seed12_jittered_exact_gaussian_jit0_std1.0_xc0.85.csv",
+        "sha256": "e33bab4ae0da63f0d6071b647e4b88812fed71b5f9cc1791b4de05f981c1a0cb"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/branincurrin/bo_sensor_error_branincurrin_multi_objective_qlognehvi_seed12_jittered_exact_gaussian_jit20_std1.0.csv",
+        "sha256": "4fadda3255f45d2fff1cbd73d8bb0f4bda929e992913b7a24b79d3cb0f31bcaa"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/branincurrin/bo_sensor_error_branincurrin_multi_objective_qlognehvi_seed12_jittered_exact_gaussian_jit20_std1.0_xc0.85.csv",
+        "sha256": "ab50381baa76555040ee917e1a723285511a9e73a8f5e584850ed5fd0ab1afa2"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/branincurrin/bo_sensor_error_branincurrin_multi_objective_qlognehvi_seed13_baseline_exact.csv",
+        "sha256": "4e5f7708ac809e8a3288b4a3acb5fd2a1901ea631aa1f552e6d65367de597a5b"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/branincurrin/bo_sensor_error_branincurrin_multi_objective_qlognehvi_seed13_jittered_exact_gaussian_jit0_std1.0.csv",
+        "sha256": "e6841075de9662a50e32de5132d5b64fa46a41a39d44f2fe4bedb11620e783e6"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/branincurrin/bo_sensor_error_branincurrin_multi_objective_qlognehvi_seed13_jittered_exact_gaussian_jit0_std1.0_xc0.85.csv",
+        "sha256": "a578c284fc5227e25791f713565fc3bcd86b47b551bec7d32d7cca53ce5e555a"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/branincurrin/bo_sensor_error_branincurrin_multi_objective_qlognehvi_seed13_jittered_exact_gaussian_jit20_std1.0.csv",
+        "sha256": "a7c0f5090fed93eff9391df43f2a6ffacd9d9ef52ac064c25cbcf9b221b471d9"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/branincurrin/bo_sensor_error_branincurrin_multi_objective_qlognehvi_seed13_jittered_exact_gaussian_jit20_std1.0_xc0.85.csv",
+        "sha256": "ecee6adf491ba3fc4ce32398bb87fc0e9149b48dc2b01b8291294dbb834e1b8e"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/branincurrin/bo_sensor_error_branincurrin_multi_objective_qlognehvi_seed14_baseline_exact.csv",
+        "sha256": "8e71977b80d8acc168dd778fd7daabdfde0857d984025da0b68f2a77b2226dcf"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/branincurrin/bo_sensor_error_branincurrin_multi_objective_qlognehvi_seed14_jittered_exact_gaussian_jit0_std1.0.csv",
+        "sha256": "d4d99dac2f629664522884b38f16f12e343b383b47e45f2cb35bc96213aae1e0"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/branincurrin/bo_sensor_error_branincurrin_multi_objective_qlognehvi_seed14_jittered_exact_gaussian_jit0_std1.0_xc0.85.csv",
+        "sha256": "18169a701b483738460e3fbffa72113099402b502093822f0b8eed5c9a769d1e"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/branincurrin/bo_sensor_error_branincurrin_multi_objective_qlognehvi_seed14_jittered_exact_gaussian_jit20_std1.0.csv",
+        "sha256": "0e261cc578d69e9789d273d6f7c8afb439ab5366deb5101922190f2bf77d8c62"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/branincurrin/bo_sensor_error_branincurrin_multi_objective_qlognehvi_seed14_jittered_exact_gaussian_jit20_std1.0_xc0.85.csv",
+        "sha256": "669cd10d8eab7868de0ce4c49da50c63028b14769a4bb8a5feed195687eb58b9"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/branincurrin/bo_sensor_error_branincurrin_multi_objective_qlognehvi_seed15_baseline_exact.csv",
+        "sha256": "5dbff41628f5a821dcf3f44d3f09be6c17f885e088005098a924de330be7149a"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/branincurrin/bo_sensor_error_branincurrin_multi_objective_qlognehvi_seed15_jittered_exact_gaussian_jit0_std1.0.csv",
+        "sha256": "08f5b6f9fb58e45d3b4682b77cd37c27b08881c050d13ee9a9692421e85f5dbb"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/branincurrin/bo_sensor_error_branincurrin_multi_objective_qlognehvi_seed15_jittered_exact_gaussian_jit0_std1.0_xc0.85.csv",
+        "sha256": "e036a6d40c99277a12518c4eca5114292a8a32faaac4eb9b12282e5dfa86186e"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/branincurrin/bo_sensor_error_branincurrin_multi_objective_qlognehvi_seed15_jittered_exact_gaussian_jit20_std1.0.csv",
+        "sha256": "19e211e8dc2ed28f87016aff50bdf590fb7224362538490d4a3de2f6a3b471ea"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/branincurrin/bo_sensor_error_branincurrin_multi_objective_qlognehvi_seed15_jittered_exact_gaussian_jit20_std1.0_xc0.85.csv",
+        "sha256": "201a9ba1b7479807122077614f16f8c055371cba5e80cbef05d9a5d2b2d5229f"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/branincurrin/bo_sensor_error_branincurrin_multi_objective_qlognehvi_seed16_baseline_exact.csv",
+        "sha256": "f19e64dab12fb7eba6b56dfec0eba062c6c2eb2faeccf07aec926298e1ec12eb"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/branincurrin/bo_sensor_error_branincurrin_multi_objective_qlognehvi_seed16_jittered_exact_gaussian_jit0_std1.0.csv",
+        "sha256": "18eab257136ddf2cd74365b1a1368cc57ba5ba7042ed1ccb758e6f59d92a7110"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/branincurrin/bo_sensor_error_branincurrin_multi_objective_qlognehvi_seed16_jittered_exact_gaussian_jit0_std1.0_xc0.85.csv",
+        "sha256": "480551f25958765848055a1007022e1bd86f92278179089eb3c33661d32a2fe5"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/branincurrin/bo_sensor_error_branincurrin_multi_objective_qlognehvi_seed16_jittered_exact_gaussian_jit20_std1.0.csv",
+        "sha256": "baff809877f9e9685c5b40649e194821af1440dec9ed3adeadf32b90dbb4d4f6"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/branincurrin/bo_sensor_error_branincurrin_multi_objective_qlognehvi_seed16_jittered_exact_gaussian_jit20_std1.0_xc0.85.csv",
+        "sha256": "0cc3e40877106eed8716ace2527c643cdb031544b642aa190eda5929962d2027"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/dtlz2/bo_sensor_error_dtlz2_multi_objective_qlognehvi_seed12_baseline_exact.csv",
+        "sha256": "970edc99d2eca08b77dd510bfa5d4bf8e798d29f0d3d9e4b57e769d64efa4397"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/dtlz2/bo_sensor_error_dtlz2_multi_objective_qlognehvi_seed12_jittered_exact_gaussian_jit0_std1.0.csv",
+        "sha256": "7665e4787a8d8640644b85e2a07cbdfcdd8d81827299a957ea19fdc45fc07a8f"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/dtlz2/bo_sensor_error_dtlz2_multi_objective_qlognehvi_seed12_jittered_exact_gaussian_jit0_std1.0_xc0.85.csv",
+        "sha256": "a9bbd79e80745beb61094b669eccd52f2a656d39934a081dd7be179b43bb46ae"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/dtlz2/bo_sensor_error_dtlz2_multi_objective_qlognehvi_seed12_jittered_exact_gaussian_jit20_std1.0.csv",
+        "sha256": "a7b282bc4baf2be66b16e3281f0646b7543d601582dc907c877bef9dc77ae750"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/dtlz2/bo_sensor_error_dtlz2_multi_objective_qlognehvi_seed12_jittered_exact_gaussian_jit20_std1.0_xc0.85.csv",
+        "sha256": "16ff71633f9fc7e90a6964dbe83dae2c2f9705d835c2a9856c2fcd2a1cc31c1b"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/dtlz2/bo_sensor_error_dtlz2_multi_objective_qlognehvi_seed13_baseline_exact.csv",
+        "sha256": "1a4d54fc5be10e6b663f001d908f4b175af26694dcfbf323d420f35b50713a4c"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/dtlz2/bo_sensor_error_dtlz2_multi_objective_qlognehvi_seed13_jittered_exact_gaussian_jit0_std1.0.csv",
+        "sha256": "3443c89fd063c10edb3977ac91cca3bab6af707fe91db60facd5534d0f67e3b3"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/dtlz2/bo_sensor_error_dtlz2_multi_objective_qlognehvi_seed13_jittered_exact_gaussian_jit0_std1.0_xc0.85.csv",
+        "sha256": "5b2b8f5dd923ee6aa71b822cf2f4f3db6189e8aef0a8874c6c62488baa05d3ef"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/dtlz2/bo_sensor_error_dtlz2_multi_objective_qlognehvi_seed13_jittered_exact_gaussian_jit20_std1.0.csv",
+        "sha256": "b7133cf0e644cca1366a7d22eaec92ab86b3b0d1109535afac673c4a573c09f9"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/dtlz2/bo_sensor_error_dtlz2_multi_objective_qlognehvi_seed13_jittered_exact_gaussian_jit20_std1.0_xc0.85.csv",
+        "sha256": "29ff74e7acadef552766f62820d79db088a02d9b2ae10558a3feecde19c01b85"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/dtlz2/bo_sensor_error_dtlz2_multi_objective_qlognehvi_seed14_baseline_exact.csv",
+        "sha256": "a5393077af4c9045719071430b0cf318b3c0eef4cf1ce81c56ba6025079a9610"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/dtlz2/bo_sensor_error_dtlz2_multi_objective_qlognehvi_seed14_jittered_exact_gaussian_jit0_std1.0.csv",
+        "sha256": "c870cd275eb119ea685449d172a2a669707c20414e2a19e4c313969e4978fd58"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/dtlz2/bo_sensor_error_dtlz2_multi_objective_qlognehvi_seed14_jittered_exact_gaussian_jit0_std1.0_xc0.85.csv",
+        "sha256": "80ba72907e5602274de2698ae993e0b85234295d59c10cd32f2db9537b4d17ed"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/dtlz2/bo_sensor_error_dtlz2_multi_objective_qlognehvi_seed14_jittered_exact_gaussian_jit20_std1.0.csv",
+        "sha256": "73f156a04e0cfdbbc9788e41b09a526bb5af6cce70fb121a31a93ca67e205871"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/dtlz2/bo_sensor_error_dtlz2_multi_objective_qlognehvi_seed14_jittered_exact_gaussian_jit20_std1.0_xc0.85.csv",
+        "sha256": "f1634cf1268083d6ebea0a9dc5f1b158224456f6faec674aa4b8c02aa28c2736"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/dtlz2/bo_sensor_error_dtlz2_multi_objective_qlognehvi_seed15_baseline_exact.csv",
+        "sha256": "4f4e3c4001282efd8fc79ed5a27e6358410738eeb0b9e38e2276cb2c37c77d6a"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/dtlz2/bo_sensor_error_dtlz2_multi_objective_qlognehvi_seed15_jittered_exact_gaussian_jit0_std1.0.csv",
+        "sha256": "ba74a7e0a4856e371be19c456ccf71251ab5a5604582484473075f2b09368f09"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/dtlz2/bo_sensor_error_dtlz2_multi_objective_qlognehvi_seed15_jittered_exact_gaussian_jit0_std1.0_xc0.85.csv",
+        "sha256": "2af481023841c143fbed4112ab3884228ad93c1ea42bf9acd51369a707cd26e2"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/dtlz2/bo_sensor_error_dtlz2_multi_objective_qlognehvi_seed15_jittered_exact_gaussian_jit20_std1.0.csv",
+        "sha256": "2cd2cea24a139963465d8c4ed0bdd0e88441c8fb48e26a3c4cb4ecce467169fb"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/dtlz2/bo_sensor_error_dtlz2_multi_objective_qlognehvi_seed15_jittered_exact_gaussian_jit20_std1.0_xc0.85.csv",
+        "sha256": "567c3d273686921947872896d78d5999bd87daf05f232ba82c0e9c3e8aa97bca"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/dtlz2/bo_sensor_error_dtlz2_multi_objective_qlognehvi_seed16_baseline_exact.csv",
+        "sha256": "3aabda09565b44b2ee833fcf545e4527fe40c4674056e64c262e8da1a473504a"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/dtlz2/bo_sensor_error_dtlz2_multi_objective_qlognehvi_seed16_jittered_exact_gaussian_jit0_std1.0.csv",
+        "sha256": "20bb4ea7bf0e6c3e6fccbbbc774ac75fd757654251d364cdc05af744ea44d74d"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/dtlz2/bo_sensor_error_dtlz2_multi_objective_qlognehvi_seed16_jittered_exact_gaussian_jit0_std1.0_xc0.85.csv",
+        "sha256": "e22587d6cb1b1bc0ab4bcbb0a95825afb4df9f69abc412a22ade32efae92ff62"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/dtlz2/bo_sensor_error_dtlz2_multi_objective_qlognehvi_seed16_jittered_exact_gaussian_jit20_std1.0.csv",
+        "sha256": "fab617255d7d7e7bea3965440207e45b3c437c36274a46461048a7f6dcf64c68"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/dtlz2/bo_sensor_error_dtlz2_multi_objective_qlognehvi_seed16_jittered_exact_gaussian_jit20_std1.0_xc0.85.csv",
+        "sha256": "281c045ffdff72fa0972a2888c72cc26810ebb41f943baf475d75934d9850e74"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/vehiclesafety/bo_sensor_error_vehiclesafety_multi_objective_qlognehvi_seed12_baseline_exact.csv",
+        "sha256": "0d4f6cd7433b027c51164ec6b40aedc0944bdb715bbbf1bd448167afad923e41"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/vehiclesafety/bo_sensor_error_vehiclesafety_multi_objective_qlognehvi_seed12_jittered_exact_gaussian_jit0_std1.0.csv",
+        "sha256": "8f8cdfc093791b61ea1ecaedd6af46e5414d346441548fcb1ad924f6ce1f4b03"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/vehiclesafety/bo_sensor_error_vehiclesafety_multi_objective_qlognehvi_seed12_jittered_exact_gaussian_jit0_std1.0_xc0.85.csv",
+        "sha256": "0ce6bf722ee68c1353ec67a3d1e999402a72a9d9d0f63edef0f0e295fdadb7da"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/vehiclesafety/bo_sensor_error_vehiclesafety_multi_objective_qlognehvi_seed12_jittered_exact_gaussian_jit20_std1.0.csv",
+        "sha256": "ce9c6a6bf99286d98b9f4009ffab19a3ae3c2cbbc157ede907ed5c31c0b751f5"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/vehiclesafety/bo_sensor_error_vehiclesafety_multi_objective_qlognehvi_seed12_jittered_exact_gaussian_jit20_std1.0_xc0.85.csv",
+        "sha256": "c50214d00af87b31b0313c92982781c53ebc5fea0d58f4114685b2841b309d39"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/vehiclesafety/bo_sensor_error_vehiclesafety_multi_objective_qlognehvi_seed13_baseline_exact.csv",
+        "sha256": "a2ed0082d802980ba9fa3e2deff8ecc89d23f8fd347ea99844ae1f213cc6cecd"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/vehiclesafety/bo_sensor_error_vehiclesafety_multi_objective_qlognehvi_seed13_jittered_exact_gaussian_jit0_std1.0.csv",
+        "sha256": "6b5e0191d65807c5d52aa1ab994f546d63fb5f2bca70c16db574103a8e8daf4c"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/vehiclesafety/bo_sensor_error_vehiclesafety_multi_objective_qlognehvi_seed13_jittered_exact_gaussian_jit0_std1.0_xc0.85.csv",
+        "sha256": "3f2fe3edf15a1453955df769a8e54a2932053d10ae80004afef1f1fe733ff9ba"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/vehiclesafety/bo_sensor_error_vehiclesafety_multi_objective_qlognehvi_seed13_jittered_exact_gaussian_jit20_std1.0.csv",
+        "sha256": "2b81117876604b771ffd03a6da66a9d1f6393a5d608ca6d364dfcf9fad91acca"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/vehiclesafety/bo_sensor_error_vehiclesafety_multi_objective_qlognehvi_seed13_jittered_exact_gaussian_jit20_std1.0_xc0.85.csv",
+        "sha256": "0360e6f88c35728a2e7e9b70c62d02fab0fe276d656f986ef11024c6511a6940"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/vehiclesafety/bo_sensor_error_vehiclesafety_multi_objective_qlognehvi_seed14_baseline_exact.csv",
+        "sha256": "a6ad1f72166b4c11f52be795cbf9870d163147edb6fb8adfbb0acbc845fbebf7"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/vehiclesafety/bo_sensor_error_vehiclesafety_multi_objective_qlognehvi_seed14_jittered_exact_gaussian_jit0_std1.0.csv",
+        "sha256": "2ad9b25fb7571b51e54519b0a5f553feda4e86d7a5546627875511757af2cd80"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/vehiclesafety/bo_sensor_error_vehiclesafety_multi_objective_qlognehvi_seed14_jittered_exact_gaussian_jit0_std1.0_xc0.85.csv",
+        "sha256": "96e6f81415c40ff45ff019b476deb11a5be2011eebd8f14b6eac71b590e79d35"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/vehiclesafety/bo_sensor_error_vehiclesafety_multi_objective_qlognehvi_seed14_jittered_exact_gaussian_jit20_std1.0.csv",
+        "sha256": "ba89a727b08ff48cbe15252a3db499e17d7c6afd0b7808507dc52bdc428569d4"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/vehiclesafety/bo_sensor_error_vehiclesafety_multi_objective_qlognehvi_seed14_jittered_exact_gaussian_jit20_std1.0_xc0.85.csv",
+        "sha256": "c94353b58d520ffbe39df5043a7e72c54545421f75dfcf0fc5e69760a2c9c938"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/vehiclesafety/bo_sensor_error_vehiclesafety_multi_objective_qlognehvi_seed15_baseline_exact.csv",
+        "sha256": "8f5e408a5f6e0cb754ce4c8208951367ba0b6a70589e3a1451ca2e5abe4e5c86"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/vehiclesafety/bo_sensor_error_vehiclesafety_multi_objective_qlognehvi_seed15_jittered_exact_gaussian_jit0_std1.0.csv",
+        "sha256": "899f446ea5169e5a1c2c1035574aa34052af28213f7b75206cd97387c0e27ee1"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/vehiclesafety/bo_sensor_error_vehiclesafety_multi_objective_qlognehvi_seed15_jittered_exact_gaussian_jit0_std1.0_xc0.85.csv",
+        "sha256": "2c230195c8f8364071efd8b97bbaa2dec840fa12c6782d101d1b7383af318ba6"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/vehiclesafety/bo_sensor_error_vehiclesafety_multi_objective_qlognehvi_seed15_jittered_exact_gaussian_jit20_std1.0.csv",
+        "sha256": "68c5f972e9a6410b49b9be09d6da66730a6749e1fbf5e95b41c25b899eae4e38"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/vehiclesafety/bo_sensor_error_vehiclesafety_multi_objective_qlognehvi_seed15_jittered_exact_gaussian_jit20_std1.0_xc0.85.csv",
+        "sha256": "e86bcc8e24225b3d36a846c2570d9a0e43c85c3ca21a114bfa6c0d173b3bf86a"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/vehiclesafety/bo_sensor_error_vehiclesafety_multi_objective_qlognehvi_seed16_baseline_exact.csv",
+        "sha256": "b21749e2cbda8fad803c69c91e16c8b0dace7abeda1d620f9483e063e776e700"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/vehiclesafety/bo_sensor_error_vehiclesafety_multi_objective_qlognehvi_seed16_jittered_exact_gaussian_jit0_std1.0.csv",
+        "sha256": "de28b5efe756811c656693f847c7fb46ac2f703fafd595b940e3738dd9b2671c"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/vehiclesafety/bo_sensor_error_vehiclesafety_multi_objective_qlognehvi_seed16_jittered_exact_gaussian_jit0_std1.0_xc0.85.csv",
+        "sha256": "47b83c4ef37f12c5694e6b6b96e5555c2baa1b7ccb64ebfcf40d041551d28902"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/vehiclesafety/bo_sensor_error_vehiclesafety_multi_objective_qlognehvi_seed16_jittered_exact_gaussian_jit20_std1.0.csv",
+        "sha256": "7759bb211d17f8deaa9a3e0e4855de95c59c7d9417ba45cc3670f86e595e21b8"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/vehiclesafety/bo_sensor_error_vehiclesafety_multi_objective_qlognehvi_seed16_jittered_exact_gaussian_jit20_std1.0_xc0.85.csv",
+        "sha256": "eaf4fe697894e96c25d61cf4f395bbc9e955599f4432359045b27d9bc0bc3758"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/zdt1/bo_sensor_error_zdt1_multi_objective_qlognehvi_seed12_baseline_exact.csv",
+        "sha256": "956107735cbaf20257962f58aa4a1ccd199853dc15240f02bc71ef2332eca078"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/zdt1/bo_sensor_error_zdt1_multi_objective_qlognehvi_seed12_jittered_exact_gaussian_jit0_std1.0.csv",
+        "sha256": "acf37c10607676038480bffaef0041aca8603e5fb730b8add7056f67be0c7f39"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/zdt1/bo_sensor_error_zdt1_multi_objective_qlognehvi_seed12_jittered_exact_gaussian_jit0_std1.0_xc0.85.csv",
+        "sha256": "d1d964ff38278ecab5050e560efe17ac0ae3df722ce7b0926158acf7c2c8f2e6"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/zdt1/bo_sensor_error_zdt1_multi_objective_qlognehvi_seed12_jittered_exact_gaussian_jit20_std1.0.csv",
+        "sha256": "03c17c4e29f1c019033bc3c4aadbbaf79a989bd6eb84e97cbbd107033cf07b45"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/zdt1/bo_sensor_error_zdt1_multi_objective_qlognehvi_seed12_jittered_exact_gaussian_jit20_std1.0_xc0.85.csv",
+        "sha256": "0c9aa4bae466902721f98c2d097f52a162c2131b17fb3d8507ce516f0df0124b"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/zdt1/bo_sensor_error_zdt1_multi_objective_qlognehvi_seed13_baseline_exact.csv",
+        "sha256": "3e149cedaa16fe7ce11e295b8b44528842eb5b97f5acd26dc870f6c858d0f4ae"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/zdt1/bo_sensor_error_zdt1_multi_objective_qlognehvi_seed13_jittered_exact_gaussian_jit0_std1.0.csv",
+        "sha256": "3d68d0fc48264e63542cb6fabc7f72d1b7ccba672592f0c70c327210a411a1d0"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/zdt1/bo_sensor_error_zdt1_multi_objective_qlognehvi_seed13_jittered_exact_gaussian_jit0_std1.0_xc0.85.csv",
+        "sha256": "f0ef858ee5452194b4f883363e0e4ada4371a8bd64819ad9d1633d61657ea34c"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/zdt1/bo_sensor_error_zdt1_multi_objective_qlognehvi_seed13_jittered_exact_gaussian_jit20_std1.0.csv",
+        "sha256": "7cc7cf71fdde15e84b3e4a0a58f400673f5c7e3b9a9c982f035d1f0aa0170c8e"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/zdt1/bo_sensor_error_zdt1_multi_objective_qlognehvi_seed13_jittered_exact_gaussian_jit20_std1.0_xc0.85.csv",
+        "sha256": "65c367d868f87bf55dd541d521eae223745b3d2c2429e9a468d76ea21026a12a"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/zdt1/bo_sensor_error_zdt1_multi_objective_qlognehvi_seed14_baseline_exact.csv",
+        "sha256": "53c2617496df2c10faf2c5948867e5c9f5e6207c28a1a90fcf9afaefa42c8975"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/zdt1/bo_sensor_error_zdt1_multi_objective_qlognehvi_seed14_jittered_exact_gaussian_jit0_std1.0.csv",
+        "sha256": "dc55c924d0a3cf9f970e811b720ca76c61025c14d3a68e6339b0afdf6a1ca3a1"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/zdt1/bo_sensor_error_zdt1_multi_objective_qlognehvi_seed14_jittered_exact_gaussian_jit0_std1.0_xc0.85.csv",
+        "sha256": "24f308003fcd093e428c3b5a99f81b3c623e6ef30f061b6f058a89862b832c38"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/zdt1/bo_sensor_error_zdt1_multi_objective_qlognehvi_seed14_jittered_exact_gaussian_jit20_std1.0.csv",
+        "sha256": "392c709745843b5e0e0c852f73cb657f0554e45d424fcd902c9c7610b9245e58"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/zdt1/bo_sensor_error_zdt1_multi_objective_qlognehvi_seed14_jittered_exact_gaussian_jit20_std1.0_xc0.85.csv",
+        "sha256": "d4feb8c7da8d7d341d59018e7169324bb828ec7a5ac9dcf98df5672398f0671c"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/zdt1/bo_sensor_error_zdt1_multi_objective_qlognehvi_seed15_baseline_exact.csv",
+        "sha256": "ee307bdbb4790674af5e4978aecd8e66dd28ffdad9619d2677d4eb8c194f7f18"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/zdt1/bo_sensor_error_zdt1_multi_objective_qlognehvi_seed15_jittered_exact_gaussian_jit0_std1.0.csv",
+        "sha256": "02998428fa3032e927b370a7e15ab23fc2f480be54056a03ac9b95ac663b5370"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/zdt1/bo_sensor_error_zdt1_multi_objective_qlognehvi_seed15_jittered_exact_gaussian_jit0_std1.0_xc0.85.csv",
+        "sha256": "f76ca412664fbc483fda7a98e5a56297752f416885fc71e88b70e91f78e34347"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/zdt1/bo_sensor_error_zdt1_multi_objective_qlognehvi_seed15_jittered_exact_gaussian_jit20_std1.0.csv",
+        "sha256": "0f894aef07c528b78fd1cc156816555eeddb40b97314c48249d337be64055967"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/zdt1/bo_sensor_error_zdt1_multi_objective_qlognehvi_seed15_jittered_exact_gaussian_jit20_std1.0_xc0.85.csv",
+        "sha256": "b900ffaa25e21a6b4af5c82e6f1a9c568358dcb1316206fafa0c25a5639bfef1"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/zdt1/bo_sensor_error_zdt1_multi_objective_qlognehvi_seed16_baseline_exact.csv",
+        "sha256": "c69d9996638391587d189edd3d24107684f69eb8d193a2b261666d82c29ccb6f"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/zdt1/bo_sensor_error_zdt1_multi_objective_qlognehvi_seed16_jittered_exact_gaussian_jit0_std1.0.csv",
+        "sha256": "1ba390fc7d62e23f1d6cb3e50318a47a96c3e319932fd9e6a9d1bc8dab4381ce"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/zdt1/bo_sensor_error_zdt1_multi_objective_qlognehvi_seed16_jittered_exact_gaussian_jit0_std1.0_xc0.85.csv",
+        "sha256": "d47b7011d3394fe1f7fdf6198baebca36ceb67b8052fe678ad63c13d3b4b15cc"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/zdt1/bo_sensor_error_zdt1_multi_objective_qlognehvi_seed16_jittered_exact_gaussian_jit20_std1.0.csv",
+        "sha256": "4f8b6cfb71ec8f3787b551f21b40063f48725dc5aa9e12489deedb3e0e69c3c8"
+      },
+      {
+        "path": "<HITL_CHECKOUT>/output-boba-mo-halo/zdt1/bo_sensor_error_zdt1_multi_objective_qlognehvi_seed16_jittered_exact_gaussian_jit20_std1.0_xc0.85.csv",
+        "sha256": "caa63181b1acee005727ef274ef5f7a3d33133bd43c8a09599d2ed4ada9510a0"
+      }
+    ]
+  }
+}
