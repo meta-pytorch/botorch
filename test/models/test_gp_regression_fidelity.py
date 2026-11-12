@@ -103,6 +103,29 @@ class TestSingleTaskMultiFidelityGP(BotorchTestCase):
                     train_X, train_Y, linear_truncated=lin_truncated, data_fidelities=[]
                 )
 
+    def test_empty_data_fidelities(self) -> None:
+        # ``data_fidelities=[]`` is equivalent to ``data_fidelities=None``.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        for iteration_fidelity, lin_truncated in itertools.product(
+            (1, -1), (True, False)
+        ):
+            model, model_kwargs = self._get_model_and_data(
+                iteration_fidelity=iteration_fidelity,
+                data_fidelities=None,
+                batch_shape=torch.Size(),
+                m=2,
+                lin_truncated=lin_truncated,
+                **tkwargs,
+            )
+            model_empty = SingleTaskMultiFidelityGP(**model_kwargs, data_fidelities=[])
+            self.assertEqual(model_empty._subset_batch_dict, model._subset_batch_dict)
+            model_empty.load_state_dict(model.state_dict())
+            X = torch.rand(3, 2, **tkwargs)
+            posterior = model.posterior(X)
+            posterior_empty = model_empty.posterior(X)
+            self.assertAllClose(posterior_empty.mean, posterior.mean)
+            self.assertAllClose(posterior_empty.variance, posterior.variance)
+
     def test_gp(self) -> None:
         for iteration_fidelity, data_fidelities in self.FIDELITY_TEST_PAIRS:
             num_dim = 1 + (iteration_fidelity is not None)

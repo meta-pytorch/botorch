@@ -233,6 +233,9 @@ def _setup_multifidelity_covar_module(
 
     if iteration_fidelity is not None and iteration_fidelity < 0:
         iteration_fidelity = dim + iteration_fidelity
+    # An empty list of data fidelities means that there are no data fidelities.
+    if data_fidelities is not None and len(data_fidelities) == 0:
+        data_fidelities = None
     if data_fidelities is not None:
         data_fidelities = list(data_fidelities)
         for i in range(len(data_fidelities)):
