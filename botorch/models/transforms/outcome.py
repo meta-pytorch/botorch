@@ -1033,6 +1033,21 @@ class Power(OutcomeTransform):
         )
 
 
+def _bilog(Y: Tensor, inverse: bool = False) -> Tensor:
+    """Bilog and its inverse with the correct C1 derivative at zero.
+
+    Mask inactive branches before evaluation, avoiding invalid logarithms.
+    Scalar clamp tie gradients vary by Torch version, so use explicit masks.
+    The second derivative at zero is undefined; autograd selects the positive
+    branch there, consistently with the forward selection.
+    """
+    positive = Y.masked_fill(Y < 0, 0)
+    negative = (-Y).masked_fill(Y > 0, 0)
+    if inverse:
+        return torch.where(Y >= 0, positive.expm1(), -negative.expm1())
+    return torch.where(Y >= 0, positive.log1p(), -negative.log1p())
+
+
 class Bilog(OutcomeTransform):
     r"""Bilog-transform outcomes.
 
@@ -1091,7 +1106,7 @@ class Bilog(OutcomeTransform):
             - The transformed outcome observations.
             - The transformed observation noise (if applicable).
         """
-        Y_tf = Y.sign() * (Y.abs() + 1.0).log()
+        Y_tf = _bilog(Y)
         outputs = normalize_indices(self._outputs, d=Y.size(-1))
         if outputs is not None:
             Y_tf = torch.stack(
@@ -1126,7 +1141,7 @@ class Bilog(OutcomeTransform):
             - The un-transformed outcome observations.
             - The un-transformed observation noise (if applicable).
         """
-        Y_utf = Y.sign() * Y.abs().expm1()
+        Y_utf = _bilog(Y, inverse=True)
         outputs = normalize_indices(self._outputs, d=Y.size(-1))
         if outputs is not None:
             Y_utf = torch.stack(
@@ -1162,5 +1177,5 @@ class Bilog(OutcomeTransform):
             )
         return TransformedPosterior(
             posterior=posterior,
-            sample_transform=lambda x: x.sign() * x.abs().expm1(),
+            sample_transform=lambda x: _bilog(x, inverse=True),
         )

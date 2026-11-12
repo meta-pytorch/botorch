@@ -1024,7 +1024,7 @@ class TestOutcomeTransforms(BotorchTestCase):
             Y = torch.rand(*batch_shape, 3, m, device=self.device, dtype=dtype)
             Y_tf, Yvar_tf = tf(Y, None)
             self.assertTrue(tf.training)
-            self.assertAllClose(Y_tf, Y.sign() * (Y.abs() + 1).log())
+            self.assertAllClose(Y_tf, Y.sign() * Y.abs().log1p())
             self.assertIsNone(Yvar_tf)
             tf.eval()
             self.assertFalse(tf.training)
@@ -1084,9 +1084,7 @@ class TestOutcomeTransforms(BotorchTestCase):
             Y_tf, Yvar_tf = tf(Y, None)
             self.assertTrue(tf.training)
             self.assertTrue(
-                torch.allclose(
-                    Y_tf[..., 1], Y[..., 1].sign() * (Y[..., 1].abs() + 1).log()
-                )
+                torch.allclose(Y_tf[..., 1], Y[..., 1].sign() * Y[..., 1].abs().log1p())
             )
             self.assertAllClose(Y_tf[..., 0], Y[..., 0])
             self.assertIsNone(Yvar_tf)
