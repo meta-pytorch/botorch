@@ -61,6 +61,19 @@ class TestPathwiseThompsonSampling(BotorchTestCase):
         acq_val = acqf(test_X)
         acq_val_2 = acqf(test_X)
         self.assertAllClose(acq_val, acq_val_2)
+        # one value per t-batch, the scalarized sample at the (q = 1) point
+        self.assertEqual(acq_val.shape, test_X.shape[:-2])
+        samples = acqf.samples(test_X.unsqueeze(-2)).squeeze(-2)
+        self.assertAllClose(acq_val, (samples @ weigths).sum(dim=-1))
+        # q > 1
+        acqf = PathwiseThompsonSampling(
+            model=model, posterior_transform=posterior_transform
+        )
+        test_X = torch.rand(4, 3, input_dim, **tkwargs)
+        acq_val = acqf(test_X)
+        self.assertEqual(acq_val.shape, test_X.shape[:-2])
+        samples = acqf.samples(test_X.unsqueeze(-2)).squeeze(-2)
+        self.assertAllClose(acq_val, (samples @ weigths).sum(dim=-1))
 
         posterior_transform.scalarize = False
         with self.assertRaisesRegex(

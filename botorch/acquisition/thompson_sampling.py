@@ -149,9 +149,15 @@ class PathwiseThompsonSampling(AcquisitionFunction):
         posterior_values = self.select_from_ensemble_models(values=posterior_values)
 
         if self.posterior_transform:
+            Y_dim = posterior_values.dim()
             posterior_values = self.posterior_transform.evaluate(
                 Y=posterior_values, X=X
             )
+            # A scalarizing transform removes the ``m`` dimension. We restore it,
+            # since the objective removes it (and would otherwise remove the ``q``
+            # dimension if ``q = 1``).
+            if posterior_values.dim() < Y_dim:
+                posterior_values = posterior_values.unsqueeze(-1)
         # objective removes the ``m`` dimension
         objective_values = self.objective(posterior_values)  # batch_shape x q
         return objective_values
