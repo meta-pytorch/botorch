@@ -627,7 +627,8 @@ class TestMCAcquisitionFunctionWithConstraints(BotorchTestCase):
 
                 with self.assertRaisesRegex(
                     ValueError,
-                    "ConstrainedMCObjective as well as constraints passed",
+                    "ConstrainedMCObjective as well as constraints passed to "
+                    "constructor. Choose one or the other, preferably the latter.",
                 ):
                     acqf_constructor(
                         constraints=[feasible_con],
