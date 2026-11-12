@@ -20,11 +20,36 @@ from botorch.models.empirical_gps.em_empirical_gp import (
 from botorch.models.empirical_gps.utils import ExperimentDataset
 from botorch.utils.testing import BotorchTestCase
 from gpytorch.kernels import MaternKernel, RBFKernel, ScaleKernel
-from gpytorch.means import ConstantMean, Mean
+from gpytorch.means import ConstantMean, Mean, ZeroMean
 
 
 class TestEMCoordinateAscent(BotorchTestCase):
     """Tests for the coordinate-ascent and KL-fit EM utilities."""
+
+    def test_noninducing_constant_mll_step(self) -> None:
+        X = torch.tensor(
+            [[0.0], [0.2], [0.45], [0.7], [1.0]], device=self.device, dtype=torch.double
+        )
+        datasets = [
+            ExperimentDataset(X=X, Y=0.4 * j + ((1.2 + 0.2 * j) * X).sin() - 0.15 * X)
+            for j in range(4)
+        ]
+        for use_adam in (False, True):
+            with self.subTest(use_adam=use_adam):
+                kernel = RBFKernel().to(X)
+                before = kernel.raw_lengthscale.detach().clone()
+                prior = coordinate_ascent_em(
+                    datasets,
+                    ZeroMean().to(X),
+                    kernel,
+                    likelihood_noise=0.035,
+                    num_em_iterations=3,
+                    mll_max_iter=1,
+                    mll_use_adam=use_adam,
+                    mll_adam_steps=1,
+                )
+                self.assertAllClose(kernel.raw_lengthscale, before)
+                self.assertTrue(prior.Sigma_inducing.isfinite().all())
 
     def _make_em_setup(self, tkwargs, d=3, K=5, n_i=20, M=10, seed=42):
         """Create EM setup with inducing points for testing."""

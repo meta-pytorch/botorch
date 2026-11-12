@@ -42,7 +42,8 @@ class ForwardBackwardClosure:
     def __call__(self, **kwargs: Any) -> tuple[Tensor, tuple[Tensor | None, ...]]:
         with zero_grad_ctx(parameters=self.parameters):
             value = self.forward(**kwargs).sum()
-            value.backward()
+            if value.requires_grad:
+                value.backward()
 
             grads = tuple(param.grad for param in self.parameters.values())
             return value, grads
@@ -247,7 +248,8 @@ class BatchedNDarrayOptimizationClosure:
             with zero_grad_ctx(parameters=self.parameters):
                 per_batch_values = self.forward(**kwargs)
                 scalar = per_batch_values.sum()
-                scalar.backward()
+                if scalar.requires_grad:
+                    scalar.backward()
 
                 values = as_ndarray(
                     per_batch_values.detach().reshape(self.batch_size),
