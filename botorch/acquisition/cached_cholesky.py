@@ -15,6 +15,7 @@ import warnings
 
 import torch
 from botorch.acquisition.acquisition import MCSamplerMixin
+from botorch.acquisition.objective import GenericMCObjective, LearnedObjective
 from botorch.exceptions.warnings import BotorchWarning
 from botorch.models.gpytorch import GPyTorchModel
 from botorch.models.higher_order_gp import HigherOrderGP
@@ -84,6 +85,18 @@ class CachedCholeskyMCSamplerMixin(MCSamplerMixin):
             sampler: An optional MCSampler object.
         """
         MCSamplerMixin.__init__(self, sampler=sampler)
+        objective = getattr(self, "objective", None)
+        while isinstance(objective, GenericMCObjective):
+            objective = objective.objective
+        if isinstance(objective, LearnedObjective) and objective.sampler is not None:
+            if cache_root:
+                warnings.warn(
+                    "Stochastic LearnedObjective values must be sampled jointly over "
+                    "baseline and candidate outcomes. Setting `cache_root = False`.",
+                    RuntimeWarning,
+                    stacklevel=3,
+                )
+            cache_root = False
         if cache_root is None:
             cache_root = supports_cache_root(model)
         elif cache_root and not supports_cache_root(model):
