@@ -18,6 +18,7 @@ References:
 
 import warnings
 from collections.abc import Callable
+from contextlib import nullcontext
 from copy import deepcopy
 from typing import Any
 
@@ -53,6 +54,7 @@ from botorch.utils.transforms import (
     match_batch_shape,
     t_batch_mode_transform,
 )
+from gpytorch.settings import fast_pred_var
 from torch import Tensor
 
 
@@ -252,8 +254,16 @@ class qHypervolumeKnowledgeGradient(
             log=self._log,
         )
 
-        # make sure to propagate gradients to the fantasy model train inputs
-        with settings.propagate_grads(True):
+        # Make sure to propagate gradients to the fantasy model train inputs. If
+        # ``use_posterior_mean=False``, the value function also uses the posterior
+        # covariance of the fantasy model. GPyTorch's precomputed covariance cache
+        # (used with ``fast_pred_var``) is detached from ``X_actual`` when the
+        # fantasy model is constructed (``detach_test_caches``), so compute the
+        # covariance without it to get the correct gradient w.r.t. ``X_actual``.
+        with (
+            settings.propagate_grads(True),
+            fast_pred_var(False) if not self.use_posterior_mean else nullcontext(),
+        ):
             # X_fantasies is num_pseudo_points x batch_shape x 1 x d
             # Reshape it into num_fantasies x batch_shape x num_pareto x d
             shape = torch.Size(
@@ -489,8 +499,12 @@ class qMultiFidelityHypervolumeKnowledgeGradient(qHypervolumeKnowledgeGradient):
             log=self._log,
         )
 
-        # make sure to propagate gradients to the fantasy model train inputs
-        with settings.propagate_grads(True):
+        # make sure to propagate gradients to the fantasy model train inputs (see
+        # ``qHypervolumeKnowledgeGradient.forward`` for ``fast_pred_var``)
+        with (
+            settings.propagate_grads(True),
+            fast_pred_var(False) if not self.use_posterior_mean else nullcontext(),
+        ):
             # X_fantasies is num_pseudo_points  x batch_shape x 1 x d
             # Reshape it into num_fantasies x batch_shape x num_pareto x d
             shape = torch.Size(

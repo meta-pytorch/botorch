@@ -550,3 +550,47 @@ class TestHypervolumeKnowledgeGradient(BotorchTestCase):
         )
         with self.assertRaisesRegex(ValueError, msg):
             _split_hvkg_fantasy_points(X=X, n_f=n_f, num_pareto=num_pareto)
+
+    def test_gradients(self):
+        # The gradient w.r.t. the candidates must also be correct with posterior
+        # samples, where the value function uses the posterior covariance of the
+        # fantasy models, which depends on the candidates.
+        torch.manual_seed(1234)
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.rand(8, 2, **tkwargs)
+        train_Y = torch.stack([train_X.sum(-1), (1 - train_X).prod(-1)], dim=-1)
+        model = ModelListGP(
+            *(SingleTaskGP(train_X, train_Y[:, i : i + 1]) for i in range(2))
+        )
+        eps = 1e-6
+        for acqf_class, use_posterior_mean in product(
+            (qHypervolumeKnowledgeGradient, qMultiFidelityHypervolumeKnowledgeGradient),
+            (True, False),
+        ):
+            if acqf_class == qMultiFidelityHypervolumeKnowledgeGradient:
+                mf_kwargs = {"target_fidelities": {-1: 1.0}}
+            else:
+                mf_kwargs = {}
+            acqf = acqf_class(
+                model=model,
+                ref_point=torch.zeros(2, **tkwargs),
+                num_fantasies=2,
+                num_pareto=2,
+                use_posterior_mean=use_posterior_mean,
+                **mf_kwargs,
+            )
+            X = torch.rand(1, 1 + acqf.num_pseudo_points, 2, **tkwargs)
+            X.requires_grad_(True)
+            (grad,) = torch.autograd.grad(acqf(X).sum(), X)
+            # central finite differences
+            X = X.detach()
+            fd_grad = torch.zeros_like(X)
+            with torch.no_grad():
+                for i in range(X.numel()):
+                    delta = torch.zeros(X.numel(), **tkwargs)
+                    delta[i] = eps
+                    delta = delta.view_as(X)
+                    fd_grad.view(-1)[i] = (acqf(X + delta) - acqf(X - delta)).sum() / (
+                        2 * eps
+                    )
+            self.assertAllClose(grad, fd_grad, atol=1e-6, rtol=1e-4)
