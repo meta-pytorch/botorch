@@ -10,7 +10,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import nbformat
+try:
+    import mdformat  # noqa: F401
+    import nbformat
+except ImportError as e:  # pragma: no cover
+    # The converter needs the `tutorials` extras, which the `test` extras used
+    # by the main test workflow do not include.
+    raise unittest.SkipTest(f"Notebook converter dependencies missing: {e}")
 
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts/convert_ipynb_to_mdx.py"
 SPEC = importlib.util.spec_from_file_location("notebook_converter_under_test", SCRIPT)
