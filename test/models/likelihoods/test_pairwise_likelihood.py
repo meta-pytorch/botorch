@@ -88,3 +88,29 @@ class TestPairwiseLikelihood(BotorchTestCase):
             self.assertEqual(
                 hess_sum.shape, torch.Size((*batch_shape, n_datapoints, n_datapoints))
             )
+
+            # the gradient and hessian only depend on utility differences, also
+            # for large utilities, for which exp(utility) overflows
+            for shift in (800.0, -800.0):
+                self.assertAllClose(
+                    likelihood.negative_log_gradient_sum(utility=utility + shift, D=D),
+                    grad_sum,
+                )
+                self.assertAllClose(
+                    likelihood.negative_log_hessian_sum(utility=utility + shift, D=D),
+                    hess_sum,
+                )
+
+    def test_logit_negative_log_gradient_sum(self):
+        likelihood = PairwiseLogitLikelihood()
+        # item 0 is preferred over item 1, and item 1 over item 2
+        D = torch.tensor([[1.0, -1.0, 0.0], [0.0, 1.0, -1.0]], dtype=torch.double)
+        # gradient of -log(sigmoid(f_w - f_l)) summed over the comparisons, at
+        # f_0 - f_1 = 0.5 and f_1 - f_2 = -2
+        s0, s1 = torch.sigmoid(torch.tensor([-0.5, 2.0], dtype=torch.double))
+        expected = torch.stack([-s0, s0 - s1, s1])
+        for offset in (0.0, 800.0, -800.0):
+            utility = torch.tensor([0.5, 0.0, 2.0], dtype=torch.double) + offset
+            grad = likelihood.negative_log_gradient_sum(utility=utility, D=D)
+            self.assertFalse(grad.isnan().any())
+            self.assertAllClose(grad, expected)
