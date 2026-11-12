@@ -78,9 +78,14 @@ class BetaPrior(Prior, Beta):
 
     def expand(self, batch_shape: torch.Size) -> "BetaPrior":
         batch_shape = torch.Size(batch_shape)
-        return BetaPrior(
+        expanded = BetaPrior(
             self.concentration1.expand(batch_shape),
             self.concentration0.expand(batch_shape),
-            validate_args=self._validate_args,
+            validate_args=False,
             transform=self._transform,
         )
+        # As in Beta.expand, existing parameters are already validated.
+        # Revalidating an empty Dirichlet batch attempts an ambiguous reshape.
+        expanded._validate_args = self._validate_args
+        expanded._dirichlet._validate_args = self._dirichlet._validate_args
+        return expanded
