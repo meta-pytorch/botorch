@@ -688,7 +688,14 @@ def project_psd(A: Tensor, min_eigval: float = 0.0) -> Tensor:
     if torch.is_grad_enabled() and A.requires_grad:
         from botorch.models.empirical_gps._spectral import smooth_psd_floor
 
-        return smooth_psd_floor(A, min_eigval).to(original_dtype)
+        try:
+            return smooth_psd_floor(A, min_eigval).to(original_dtype)
+        except ValueError:
+            # The projection is not differentiable when an eigenvalue lies at the
+            # clipping threshold, e.g. when re-projecting a matrix that was
+            # already projected with the same floor. Fall back to clamping the
+            # eigenvalues below, as for value-only evaluation.
+            pass
 
     # Eigendecomposition for value-only evaluation.
     eigvals, eigvecs = torch.linalg.eigh(A)

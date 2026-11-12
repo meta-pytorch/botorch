@@ -169,6 +169,20 @@ def test_gap_projector_retains_explicit_nondifferentiable_threshold_error(device
 
 
 @pytest.mark.parametrize("device", DEVICES)
+def test_public_projection_clamps_at_threshold(device):
+    # Eigenvalues at the floor, e.g. from re-projecting a projected matrix, make
+    # the smooth projector undefined. The public projection clamps instead.
+    value = torch.diag(
+        torch.tensor([0.1, -1.0, 2.0], dtype=torch.double, device=device)
+    ).requires_grad_()
+    result = psd_projection(value, 0.1)
+    expected = torch.tensor([0.1, 0.1, 2.0], dtype=torch.double, device=device)
+    torch.testing.assert_close(result.detach(), torch.diag(expected))
+    result.sum().backward()
+    assert bool(torch.isfinite(value.grad).all())
+
+
+@pytest.mark.parametrize("device", DEVICES)
 @pytest.mark.parametrize("sign", [-1.0, 1.0])
 @pytest.mark.parametrize("differentiable", [False, True])
 def test_float32_public_projection_classifies_promoted_matrix(
