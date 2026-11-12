@@ -11,6 +11,100 @@ from gpytorch.test.base_kernel_test_case import BaseKernelTestCase
 
 
 class TestInfiniteWidthBNNKernel(BotorchTestCase, BaseKernelTestCase):
+    def test_coincident_values_and_full_derivatives(self):
+        devices = [self.device]
+        if torch.cuda.is_available():
+            devices.append(torch.device("cuda"))
+        for device in devices:
+            for depth in (1, 3, 7):
+                for eps in (0.0, 1e-7, 1e-2):
+                    with self.subTest(device=device, depth=depth, eps=eps):
+                        kernel = InfiniteWidthBNNKernel(
+                            depth,
+                            batch_shape=torch.Size([2]),
+                            active_dims=(2, 0),
+                            acos_eps=eps,
+                        ).to(dtype=torch.double, device=device)
+                        x = torch.tensor(
+                            [[0.2, 2.0, 0.7], [0.4, 3.0, 0.5], [0.2, 2.0, 0.7]],
+                            dtype=torch.double,
+                            device=device,
+                            requires_grad=True,
+                        )
+                        full = kernel(x).to_dense()
+                        diagonal = kernel(x, diag=True)
+                        self.assertAllClose(full.diagonal(dim1=-2, dim2=-1), diagonal)
+                        # Duplicate off-diagonal rows have the same exact law.
+                        self.assertAllClose(full[..., 0, 2], diagonal[..., 0])
+                        inputs = (x, *kernel.parameters())
+                        actual = torch.autograd.grad(
+                            full.diagonal(dim1=-2, dim2=-1).sum(),
+                            inputs,
+                            create_graph=True,
+                        )
+                        expected = torch.autograd.grad(
+                            diagonal.sum(), inputs, create_graph=True
+                        )
+                        for a, b in zip(actual, expected):
+                            self.assertAllClose(a, b)
+                        actual_second = torch.autograd.grad(
+                            sum(g.square().sum() for g in actual), inputs
+                        )
+                        expected_second = torch.autograd.grad(
+                            sum(g.square().sum() for g in expected), inputs
+                        )
+                        for a, b in zip(actual_second, expected_second):
+                            self.assertTrue(torch.isfinite(a).all())
+                            self.assertAllClose(a, b)
+
+    def test_coincident_distinct_arguments_and_large_variances(self):
+        devices = [self.device]
+        if torch.cuda.is_available():
+            devices.append(torch.device("cuda"))
+        for device in devices:
+            for depth in (1, 3):
+                with self.subTest(device=device, depth=depth):
+                    kernel = (
+                        InfiniteWidthBNNKernel(depth, acos_eps=0).double().to(device)
+                    )
+                    left = torch.tensor(
+                        [[0.3, 0.7]],
+                        dtype=torch.double,
+                        device=device,
+                        requires_grad=True,
+                    )
+                    right = left.detach().clone().requires_grad_()
+                    actual = kernel(left, right).to_dense().sum()
+                    expected = (
+                        kernel.weight_var * (left * right).sum() / 2 + kernel.bias_var
+                    )
+                    for _ in range(depth):
+                        expected = kernel.weight_var * expected / 2 + kernel.bias_var
+                    inputs = (left, right, *kernel.parameters())
+                    a = torch.autograd.grad(actual, inputs, create_graph=True)
+                    b = torch.autograd.grad(expected.sum(), inputs, create_graph=True)
+                    for av, bv in zip(a, b):
+                        self.assertAllClose(av, bv)
+                    # Mixed partials must retain both independently supplied inputs.
+                    self.assertAllClose(
+                        torch.autograd.grad(a[0].sum(), right)[0],
+                        torch.autograd.grad(b[0].sum(), right)[0],
+                    )
+                with self.subTest(device=device, depth=depth, large=True):
+                    kernel = InfiniteWidthBNNKernel(depth).double().to(device)
+                    kernel.initialize(weight_var=1.0, bias_var=1.0)
+                    x = torch.tensor(
+                        [[1e100]], dtype=torch.double, device=device, requires_grad=True
+                    )
+                    full = kernel(x).to_dense().sum()
+                    diagonal = kernel(x, diag=True).sum()
+                    self.assertTrue(torch.isfinite(full))
+                    self.assertAllClose(full, diagonal)
+                    self.assertAllClose(
+                        torch.autograd.grad(full, x)[0],
+                        torch.autograd.grad(diagonal, x)[0],
+                    )
+
     def create_kernel_no_ard(self, **kwargs):
         return InfiniteWidthBNNKernel(**kwargs)
 
