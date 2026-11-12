@@ -31,9 +31,9 @@ class MOMFBraninCurrin(MultiObjectiveTestProblem):
 
     Modified Branin function::
 
-        B(x,s) = 21-((
-        15*x_2 - b(s) * (15 * x_1 - 5) ** 2 + c(s) * (15 * x_1 - 5) - 6 ) ** 2
-        + 10 * (1 - t(s)) * cos(15 * x_1 - 5)+10)/22
+        B(x,s) = (21 - (
+        (15 * x_2 - b(s) * (15 * x_1 - 5) ** 2 + c(s) * (15 * x_1 - 5) - r) ** 2
+        + 10 * (1 - t(s)) * cos(15 * x_1 - 5) + 10)) / 22
 
     Here ``b``, ``c``, ``r`` and ``t`` are constants and ``s`` is the fidelity
     parameter, where:
@@ -45,9 +45,11 @@ class MOMFBraninCurrin(MultiObjectiveTestProblem):
 
     Modified Currin function::
 
-        C(x) = 14-((1 - 0.1(1-s)exp(-1 / (2 * x_2))) * (
-        2300 * x_1 ** 3 + 1900 * x_1 ** 2 + 2092 * x_1 + 60
-        ) / 100 * x_1 ** 3 + 500 * x_1 ** 2 + 4 * x_2 + 20)/15
+        C(x,s) = (14 - (1 - 0.1 * (1 - s) * exp(-1 / (2 * x_2)))
+        * (2300 * x_1 ** 3 + 1900 * x_1 ** 2 + 2092 * x_1 + 60)
+        / (100 * x_1 ** 3 + 500 * x_1 ** 2 + 4 * x_1 + 20)) / 15
+
+    The objectives are ``-B(x,s)`` and ``-C(x,s)``.
     """
 
     dim = 3
@@ -100,15 +102,24 @@ class MOMFPark(MultiObjectiveTestProblem):
 
     The second modified Park function is
 
-        P2(x,s)=A*(5-2/3*exp(x1+x2)-x4*sin(x3)*A+x3-B)/4 - 0.7
+        P2(x,s)=A*(5-2/3*exp(x1+x2)+x4*sin(x3)*A-x3+B)/4 - 0.7
 
     Here
 
-        T_1(x,s) = (x1+0.001*(1-s))/2*sqrt(1+(x2+x3**2)*x4/(x1**2))
+        T_1(x,s) = (x1+0.001*(1-s))/2*sqrt(1+(x2+x3**2)*x4/(x1**2+0.0001))
 
         T_2(x, s) = (x1+3*x4)*exp(1+sin(x3))
 
-    and ``A(s)=(0.9+0.1*s)``, ``B(s)=0.1*(1-s)``.
+    and ``A(s)=(0.9+0.1*s)``, ``B(s)=0.1*(1-s)``. The functions are evaluated at
+    the transformed inputs ``[1-2*(x1-0.6)**2, x2, 1-3*(x3-0.5)**2, 1-(x4-0.8)**2]``
+    and the objectives are ``-P1(x,s)`` and ``-P2(x,s)``.
+
+    Note that the signs of the last three terms of ``P2`` differ from the formula
+    printed in [Irshad2021]_, ``A*(5-2/3*exp(x1+x2)-x4*sin(x3)*A+x3-B)/4 - 0.7``.
+    This implementation, which was contributed together with the MOMF acquisition
+    function and on which ``_max_hv`` is based, subtracts the Park 2 function
+    ``2/3*exp(x1+x2)-x4*sin(x3)+x3`` (with fidelity terms) from 5, i.e.,
+    ``P2(x,s)=A*(5-(2/3*exp(x1+x2)-x4*sin(x3)*A+x3-B))/4 - 0.7``.
     """
 
     dim = 5
