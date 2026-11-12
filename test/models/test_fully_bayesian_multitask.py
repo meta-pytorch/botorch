@@ -9,6 +9,7 @@ import itertools
 from unittest.mock import patch
 
 import jax.numpy as jnp
+import numpy as np
 import numpyro.handlers
 import torch
 from botorch.acquisition.analytic import (
@@ -47,7 +48,7 @@ from botorch.models.fully_bayesian_multitask import (
     MultitaskSaasPyroModel,
     SaasFullyBayesianMultiTaskGP,
 )
-from botorch.models.transforms.input import Normalize
+from botorch.models.transforms.input import ChainedInputTransform, Normalize, Warp
 from botorch.models.transforms.outcome import Standardize
 from botorch.posteriors.fully_bayesian import GaussianMixturePosterior
 from botorch.sampling.get_sampler import get_sampler
@@ -894,6 +895,89 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
                     train_Yvar_tf.clamp(MIN_INFERRED_NOISE_LEVEL),
                 )
             )
+
+    def test_input_warping(self) -> None:
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        n, d = 8, 2
+        X = torch.rand(n, d, **tkwargs)
+        tasks = torch.tensor([0.0, 1.0] * (n // 2), **tkwargs).unsqueeze(-1)
+        train_Y = torch.randn(n, 1, **tkwargs)
+        test_X = torch.rand(3, d, **tkwargs)
+        # c0 == c1, so that this does not depend on which concentration is the
+        # exponent of x in the Kumaraswamy CDF (see #3462).
+        c = torch.tensor([[2.0, 0.5]], **tkwargs)
+        for task_feature, use_normalize in itertools.product((0, -1), (False, True)):
+            data_cols = [1, 2] if task_feature == 0 else [0, 1]
+            train_X = (
+                torch.cat([tasks, X], dim=-1)
+                if task_feature == 0
+                else torch.cat([X, tasks], dim=-1)
+            )
+            input_transform = (
+                Normalize(
+                    d=d + 1,
+                    indices=data_cols,
+                    bounds=torch.tensor([[0.0] * (d + 1), [1.0] * (d + 1)], **tkwargs),
+                )
+                if use_normalize
+                else None
+            )
+            pyro_model = MultitaskSaasPyroModel(use_input_warping=True)
+            model = SaasFullyBayesianMultiTaskGP(
+                train_X=train_X,
+                train_Y=train_Y,
+                task_feature=task_feature,
+                pyro_model=pyro_model,
+                input_transform=input_transform,
+            )
+            mcmc_samples = pyro_model.get_dummy_mcmc_samples(
+                num_mcmc_samples=1, **tkwargs
+            )
+            mcmc_samples["c0"], mcmc_samples["c1"] = c.clone(), c.clone()
+            mcmc_samples["lengthscale"] = torch.full((1, d), 0.5, **tkwargs)
+            # Load the samples twice to check that the transforms are not re-chained.
+            for _ in range(2):
+                model.load_mcmc_samples(mcmc_samples)
+                if use_normalize:
+                    self.assertIsInstance(model.input_transform, ChainedInputTransform)
+                    self.assertIs(model.input_transform["tf0"], input_transform)
+                    warp = model.input_transform["tf1"]
+                else:
+                    warp = model.input_transform
+                self.assertIsInstance(warp, Warp)
+                self.assertEqual(warp.indices.tolist(), data_cols)
+            # The NUTS model warps the same inputs as the loaded model.
+            warped_jax = pyro_model._warp_jax(
+                X=pyro_model.train_X_jax,
+                c0=jnp.asarray(c[0].cpu().numpy()),
+                c1=jnp.asarray(c[0].cpu().numpy()),
+            )
+            self.assertAllClose(
+                torch.tensor(np.array(warped_jax), **tkwargs),
+                model.input_transform(train_X)[0],
+                atol=1e-5,
+            )
+            # The posterior is the posterior of the model on the warped inputs.
+            model.eval()
+            ref_samples = {
+                k: v for k, v in mcmc_samples.items() if k not in ("c0", "c1")
+            }
+            ref_model = SaasFullyBayesianMultiTaskGP(
+                train_X=model.input_transform(train_X)[0],
+                train_Y=train_Y,
+                task_feature=task_feature,
+            )
+            ref_model.load_mcmc_samples(ref_samples)
+            ref_model.eval()
+            test_X_full = (
+                torch.cat([torch.zeros(3, 1, **tkwargs), test_X], dim=-1)
+                if task_feature == 0
+                else torch.cat([test_X, torch.zeros(3, 1, **tkwargs)], dim=-1)
+            )
+            posterior = model.posterior(test_X_full)
+            ref_posterior = ref_model.posterior(model.input_transform(test_X_full)[0])
+            self.assertAllClose(posterior.mean, ref_posterior.mean)
+            self.assertAllClose(posterior.variance, ref_posterior.variance)
 
     def test_construct_inputs(self):
         for dtype, infer_noise in [(torch.float, False), (torch.double, True)]:

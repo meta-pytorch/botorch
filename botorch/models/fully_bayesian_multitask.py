@@ -32,7 +32,7 @@ from botorch.models.gpytorch import (
     MultiTaskGPyTorchModel,
 )
 from botorch.models.multitask import MultiTaskGP
-from botorch.models.transforms.input import InputTransform
+from botorch.models.transforms.input import ChainedInputTransform, InputTransform
 from botorch.models.transforms.outcome import OutcomeTransform
 from botorch.posteriors.fully_bayesian import GaussianMixturePosterior
 from gpytorch.distributions import MultivariateNormal
@@ -92,6 +92,13 @@ class MultiTaskPyroMixin:
         self.num_tasks = len(all_tasks)
         self.task_rank = task_rank or self.num_tasks
         self.ard_num_dims = self.train_X.shape[-1] - 1
+
+    @property
+    def _warp_indices(self) -> list[int]:
+        r"""The indices of the inputs to warp. Defaults to all non-task features."""
+        if self.indices is None:
+            return [i for i in range(self.train_X.shape[-1]) if i != self.task_feature]
+        return self.indices
 
     def sample_mean(self) -> jnp.ndarray:
         r"""Sample per-task mean constants.
@@ -482,8 +489,22 @@ class SaasFullyBayesianMultiTaskGP(MultiTaskGP):
             self.mean_module,
             self.covar_module,
             self.likelihood,
-            _,
+            input_transform,
         ) = self.pyro_model.load_mcmc_samples(mcmc_samples=mcmc_samples)
+        if input_transform is not None:
+            # The input warping is chained with the input transform of the model
+            # without the input warping added by previous calls of this method. It is
+            # stored in a tuple to avoid registering it as an additional submodule.
+            if not hasattr(self, "_input_transform_without_warping"):
+                self._input_transform_without_warping = (
+                    getattr(self, "input_transform", None),
+                )
+            base_input_transform = self._input_transform_without_warping[0]
+            if base_input_transform is not None:
+                input_transform = ChainedInputTransform(
+                    tf0=base_input_transform, tf1=input_transform
+                )
+            self.input_transform = input_transform
 
     def eval(self) -> Self:
         r"""Puts the model in eval mode.
