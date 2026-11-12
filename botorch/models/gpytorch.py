@@ -642,8 +642,10 @@ class BatchedMultiOutputGPyTorchModel(GPyTorchModel):
         noise = kwargs.get("noise")
         if hasattr(self, "outcome_transform"):
             # We need to apply transforms before shifting batch indices around.
-            # ``noise`` is assumed to already be outcome-transformed.
-            Y, _ = self.outcome_transform(Y, X=X)
+            # ``noise`` is assumed to already be outcome-transformed. As in
+            # ``__init__`` and ``posterior``, the outcome transform gets the
+            # transformed inputs (e.g. for ``StratifiedStandardize``).
+            Y, _ = self.outcome_transform(Y, X=self.transform_inputs(X))
         # Do not check shapes when fantasizing as they are not expected to match.
         if fantasize_flag.off():
             self._validate_tensor_args(X=X, Y=Y, Yvar=noise, strict=False)

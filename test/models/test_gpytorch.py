@@ -28,11 +28,13 @@ from botorch.models.model import FantasizeMixin
 from botorch.models.multitask import MultiTaskGP
 from botorch.models.transforms import Standardize
 from botorch.models.transforms.input import (
+    AffineInputTransform,
     ChainedInputTransform,
     InputTransform,
     Normalize,
     NumericToCategoricalEncoding,
 )
+from botorch.models.transforms.outcome import StratifiedStandardize
 from botorch.models.utils import fantasize
 from botorch.posteriors.gpytorch import GPyTorchPosterior
 from botorch.sampling.normal import SobolQMCNormalSampler
@@ -417,6 +419,35 @@ class TestBatchedMultiOutputGPyTorchModel(BotorchTestCase):
             warnings.filterwarnings("always", category=BotorchTensorDimensionWarning)
             model.condition_on_observations(torch.randn(2, 1), torch.randn(5, 2, 1))
         self.assertFalse(any(w.category is BotorchTensorDimensionWarning for w in ws))
+
+    def test_condition_on_observations_stratified_standardize(self):
+        # The new observations are standardized with the strata of the
+        # transformed inputs, as the training data.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.rand(12, 3, **tkwargs)
+        train_X[:, 2] = torch.arange(12, **tkwargs) % 3
+        train_Y = torch.randn(12, 1, **tkwargs) + 3 * train_X[:, 2:]
+        # Doubles the stratification column, so the strata are 0, 2 and 4.
+        input_transform = AffineInputTransform(
+            d=3,
+            coefficient=torch.tensor([1.0, 1.0, 0.5], **tkwargs),
+            offset=torch.zeros(3, **tkwargs),
+        )
+        model = SingleTaskGP(
+            train_X,
+            train_Y,
+            input_transform=input_transform,
+            outcome_transform=StratifiedStandardize(
+                stratification_idx=2, all_task_values=torch.arange(5)
+            ),
+        )
+        model.posterior(train_X[:3])  # evaluate the model to form caches.
+        X = torch.tensor([[0.3, 0.4, 1.0]], **tkwargs)  # stratum 2
+        Y = torch.tensor([[3.5]], **tkwargs)
+        cm = model.condition_on_observations(X, Y)
+        octf = model.outcome_transform
+        expected = (Y - octf.means[2]) / octf.stdvs[2]
+        self.assertAllClose(cm.train_targets[-1:], expected.squeeze(-1))
 
     def test_condition_on_observations_batched(self):
         for dtype in (torch.float, torch.double):
