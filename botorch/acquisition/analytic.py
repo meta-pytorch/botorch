@@ -173,7 +173,8 @@ class LogProbabilityOfImprovement(AnalyticAcquisitionFunction):
                 Improvement values at the given design points ``X``.
         """
         mean, sigma = self._mean_and_sigma(X)  # ``(b1 x ... bk) x 1``
-        u = _scaled_improvement(mean, sigma, self.best_f, self.maximize)
+        # ``best_f`` is a scalar or ``(b1 x ... bk)``-dim: add the output dimension
+        u = _scaled_improvement(mean, sigma, self.best_f.unsqueeze(-1), self.maximize)
         return log_Phi(u.squeeze(-1))
 
 
@@ -229,7 +230,8 @@ class ProbabilityOfImprovement(AnalyticAcquisitionFunction):
                 values at the given design points ``X``.
         """
         mean, sigma = self._mean_and_sigma(X)  # ``(b1 x ... bk) x 1``
-        u = _scaled_improvement(mean, sigma, self.best_f, self.maximize)
+        # ``best_f`` is a scalar or ``(b1 x ... bk)``-dim: add the output dimension
+        u = _scaled_improvement(mean, sigma, self.best_f.unsqueeze(-1), self.maximize)
         return Phi(u.squeeze(-1))
 
 
@@ -361,7 +363,8 @@ class ExpectedImprovement(AnalyticAcquisitionFunction):
             given design points ``X``.
         """
         mean, sigma = self._mean_and_sigma(X)  # ``(b1 x ... bk) x 1``
-        u = _scaled_improvement(mean, sigma, self.best_f, self.maximize)
+        # ``best_f`` is a scalar or ``(b1 x ... bk)``-dim: add the output dimension
+        u = _scaled_improvement(mean, sigma, self.best_f.unsqueeze(-1), self.maximize)
         return (sigma * _ei_helper(u)).squeeze(-1)
 
 
@@ -425,7 +428,8 @@ class LogExpectedImprovement(AnalyticAcquisitionFunction):
                 Expected Improvement values at the given design points ``X``.
         """
         mean, sigma = self._mean_and_sigma(X)  # ``(b1 x ... bk) x 1``
-        u = _scaled_improvement(mean, sigma, self.best_f, self.maximize)
+        # ``best_f`` is a scalar or ``(b1 x ... bk)``-dim: add the output dimension
+        u = _scaled_improvement(mean, sigma, self.best_f.unsqueeze(-1), self.maximize)
         return (_log_ei_helper(u) + sigma.log()).squeeze(-1)
 
 
