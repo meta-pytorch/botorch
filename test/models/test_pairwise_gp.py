@@ -9,6 +9,7 @@ import random
 import warnings
 
 import torch
+from botorch.acquisition.analytic import PosteriorMean
 from botorch.acquisition.objective import ScalarizedPosteriorTransform
 from botorch.exceptions import OptimizationWarning, UnsupportedError
 from botorch.exceptions.warnings import _get_single_precision_warning, InputDataWarning
@@ -19,6 +20,7 @@ from botorch.models.likelihoods.pairwise import (
     PairwiseProbitLikelihood,
 )
 from botorch.models.model import Model
+from botorch.models.model_list_gp_regression import ModelListGP
 from botorch.models.pairwise_gp import (
     _ensure_psd_with_jitter,
     PairwiseGP,
@@ -233,6 +235,15 @@ class TestPairwiseGP(BotorchTestCase):
             # the same datapoints but changed comparison will also raise error
             with self.assertRaises(RuntimeError):
                 model.set_train_data(train_X, changed_train_comp, strict=True)
+
+    def test_prior_model(self) -> None:
+        tkwargs = {"device": self.device, "dtype": self.dtype}
+        model = PairwiseGP(None, None).to(**tkwargs)
+        self.assertEqual(model.num_outputs, 1)
+        self.assertEqual(model.batch_shape, torch.Size())
+        self.assertEqual(ModelListGP(model).num_outputs, 1)
+        X = torch.rand(3, 1, 2, **tkwargs)
+        self.assertAllClose(PosteriorMean(model)(X), torch.zeros(3, **tkwargs))
 
     def test_consolidation(self) -> None:
         for batch_shape, likelihood_cls in itertools.product(

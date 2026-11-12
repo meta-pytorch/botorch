@@ -235,6 +235,7 @@ class PairwiseGP(Model, GP, FantasizeMixin):
         self.train_inputs = []
         self.train_targets = None
         self.utility = None
+        self._num_outputs = 1  # 1 latent utility value per datapoint
 
         self.pred_cov_fac_need_update = True
         self.dim = None
