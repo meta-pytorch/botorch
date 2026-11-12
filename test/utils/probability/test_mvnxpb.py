@@ -200,6 +200,30 @@ class TestMVNXPB(BotorchTestCase):
                 solver.log_prob.item(),
             )
 
+    def test_solve_batch_gradients(self):
+        # The gradients of a batch are those of the individual batch members, also
+        # if the members pivot differently.
+        ndim = 3
+        batch_shape = (3, 4)
+        with torch.random.fork_rng():
+            torch.random.manual_seed(next(self.seed_generator))
+            bounds = self.gen_bounds(ndim, batch_shape, bound_range=(-5.0, +5.0))
+            sqrt_cov = self.gen_covariances(ndim, batch_shape, as_sqrt=True)
+
+        cov = (sqrt_cov @ sqrt_cov.mT).requires_grad_(True)
+        bounds.requires_grad_(True)
+        batched_solver = MVNXPB(cov, bounds)
+        batched_solver.solve()
+        batched_grads = torch.autograd.grad(
+            batched_solver.log_prob.sum(), (cov, bounds)
+        )
+        for idx in product(*map(range, batch_shape)):
+            solver = MVNXPB(cov[idx], bounds[idx])
+            solver.solve()
+            grads = torch.autograd.grad(solver.log_prob, (cov, bounds))
+            for batched_grad, grad in zip(batched_grads, grads):
+                self.assertAllClose(batched_grad[idx], grad[idx])
+
     def test_augment(self):
         r"""Test ``augment``."""
         with torch.random.fork_rng():
