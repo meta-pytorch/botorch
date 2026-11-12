@@ -332,6 +332,37 @@ class TestConstrainedExpectedImprovement(BotorchTestCase):
             with self.subTest(dtype=dtype):
                 self._test_constrained_analytic_acquisition_function_mixin(dtype=dtype)
 
+    def test_constraint_bounds_scalar_precision(self) -> None:
+        # Python-float bounds and double-Tensor bounds must produce the same
+        # buffers and the same feasibility probabilities; the float bounds
+        # used to be rounded through the default dtype.
+        previous_dtype = torch.get_default_dtype()
+        try:
+            torch.set_default_dtype(torch.float)
+            lower, upper = 0.30000000000000004, 0.7000000000000001
+            mixin_scalar = ConstrainedAnalyticAcquisitionFunctionTestHelper(
+                constraints={0: (lower, upper)}
+            )
+            mixin_tensor = ConstrainedAnalyticAcquisitionFunctionTestHelper(
+                constraints={
+                    0: (
+                        torch.tensor(lower, dtype=torch.double),
+                        torch.tensor(upper, dtype=torch.double),
+                    )
+                }
+            )
+            self.assertEqual(
+                mixin_scalar.con_both.tolist(), mixin_tensor.con_both.tolist()
+            )
+            means = torch.tensor([[0.4]], device=self.device, dtype=torch.double)
+            sigmas = torch.tensor([[0.1]], device=self.device, dtype=torch.double)
+            self.assertAllClose(
+                mixin_scalar._compute_log_prob_feas(means=means, sigmas=sigmas),
+                mixin_tensor._compute_log_prob_feas(means=means, sigmas=sigmas),
+            )
+        finally:
+            torch.set_default_dtype(previous_dtype)
+
     def _test_constrained_analytic_acquisition_function_mixin(
         self, dtype: torch.dtype
     ) -> None:
