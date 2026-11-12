@@ -4,6 +4,8 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+import itertools
+
 import torch
 from botorch.exceptions.errors import BotorchError
 from botorch.models.gp_regression import SingleTaskGP
@@ -44,6 +46,43 @@ class TestExtractBatchCovar(BotorchTestCase):
 
 
 class TestSampleCachedCholesky(BotorchTestCase):
+    def test_sample_cached_cholesky_multi_dim_sample_shape(self):
+        torch.manual_seed(0)
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.rand(10, 2, **tkwargs)
+        train_Y = torch.randn(10, 2, **tkwargs)
+        sample_shape = torch.Size([3, 2])
+        q = 2
+        for m, test_batch_shape in itertools.product(
+            (1, 2), (torch.Size([]), torch.Size([4]))
+        ):
+            model = SingleTaskGP(train_X, train_Y[:, :m])
+            sampler = IIDNormalSampler(sample_shape=sample_shape, seed=0)
+            base_sampler = IIDNormalSampler(sample_shape=sample_shape, seed=1)
+            with torch.no_grad():
+                base_posterior = model.posterior(train_X[:-q])
+                lazy_covar = base_posterior.distribution.lazy_covariance_matrix
+                if m == 2:
+                    lazy_covar = lazy_covar.base_linear_op
+                baseline_L = lazy_covar.root_decomposition().root.to_dense()
+                base_sampler(base_posterior)
+                test_X = train_X.expand(test_batch_shape + train_X.shape)
+                new_posterior = model.posterior(test_X)
+                # mimicking ``_set_sampler`` to update the base samples of the sampler
+                sampler._update_base_samples(
+                    posterior=new_posterior, base_sampler=base_sampler
+                )
+                samples = sampler(new_posterior)
+                q_samples = sample_cached_cholesky(
+                    posterior=new_posterior,
+                    baseline_L=baseline_L,
+                    q=q,
+                    base_samples=sampler.base_samples,
+                    sample_shape=sample_shape,
+                )
+            self.assertEqual(q_samples.shape, sample_shape + test_batch_shape + (q, m))
+            self.assertAllClose(q_samples, samples[..., -q:, :])
+
     def test_sample_cached_cholesky(self):
         torch.manual_seed(0)
         tkwargs = {"device": self.device}

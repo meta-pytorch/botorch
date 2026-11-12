@@ -474,6 +474,58 @@ class PolytopeSamplerTestBase(ABC):
                         **self.sampler_kwargs,
                     )
 
+    def test_sample_polytope_with_redundant_eq_constraints(self):
+        for dtype in (torch.float, torch.double):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            bounds = torch.zeros(2, 3, **tkwargs)
+            bounds[1] = 1.0
+            # x_0 + x_1 = 1, stated twice with different scalings, so that C has rank 1
+            # and the feasible set is a two-dimensional polytope
+            C = torch.tensor([[1.0, 1.0, 0.0], [2.0, 2.0, 0.0]], **tkwargs)
+            d = torch.tensor([[1.0], [2.0]], **tkwargs)
+            sampler = self.sampler_class(
+                equality_constraints=(C, d), bounds=bounds, **self.sampler_kwargs
+            )
+            self.assertEqual(sampler.nullC.shape, torch.Size([3, 2]))
+            samples = sampler.draw(n=16)
+            self.assertLessEqual((C @ samples.t() - d).abs().max().item(), 1e-5)
+            self.assertTrue((samples <= bounds[1]).all())
+            self.assertTrue((samples >= bounds[0]).all())
+            # both dimensions of the null space are explored
+            self.assertGreater(samples[:, 0].std().item(), 1e-2)
+            self.assertGreater(samples[:, 2].std().item(), 1e-2)
+
+    def test_interior_point_with_eq_constraints(self):
+        # A feasible interior point is accepted even if, due to round-off errors, it
+        # only satisfies the equality constraints approximately, e.g. after the
+        # normalization of the constraints and the point to the unit cube.
+        for dtype in (torch.float, torch.double):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            bounds = torch.tensor([[0.1, 0.1, 0.1], [0.7, 0.7, 0.7]], **tkwargs)
+            C = torch.ones(1, 3, **tkwargs)
+            d = torch.ones(1, 1, **tkwargs)
+            for x in ([0.3, 0.3, 0.4], [0.25, 0.25, 0.5]):
+                interior_point = torch.tensor(x, **tkwargs).unsqueeze(-1)
+                self.assertTrue(torch.equal(C @ interior_point, d))
+                sampler = self.sampler_class(
+                    equality_constraints=(C, d),
+                    bounds=bounds,
+                    interior_point=interior_point,
+                    **self.sampler_kwargs,
+                )
+                samples = sampler.draw(n=8)
+                self.assertLessEqual((C @ samples.t() - d).abs().max().item(), 1e-5)
+                self.assertTrue((samples <= bounds[1]).all())
+                self.assertTrue((samples >= bounds[0]).all())
+            # infeasible points are still rejected
+            with self.assertRaisesRegex(ValueError, "not feasible"):
+                self.sampler_class(
+                    equality_constraints=(C, d),
+                    bounds=bounds,
+                    interior_point=torch.full((3, 1), 0.3, **tkwargs),
+                    **self.sampler_kwargs,
+                )
+
     def test_sample_polytope_1d(self):
         for dtype in (torch.float, torch.double):
             A = torch.tensor(
@@ -553,6 +605,31 @@ class TestHitAndRunPolytopeSampler(PolytopeSamplerTestBase, BotorchTestCase):
 class TestDelaunayPolytopeSampler(PolytopeSamplerTestBase, BotorchTestCase):
     sampler_class = DelaunayPolytopeSampler
     draw_seed_kwarg = {"seed": 33125612}
+
+    def test_draw_convex_combinations(self):
+        # The samples are convex combinations of the vertices of the sampled simplices
+        for dtype, n in itertools.product((torch.float, torch.double), (1, 64)):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            bounds, A, b, _ = _get_constraints(**tkwargs)
+            sampler = self.sampler_class(inequality_constraints=(A, b), bounds=bounds)
+            seed = 1234
+            samples = sampler.draw(n=n, seed=seed)
+            # reproduce the random draws of ``draw`` to compute the expected samples
+            generator = torch.Generator(device=self.device)
+            generator.manual_seed(seed)
+            index_rvs = torch.multinomial(
+                sampler._p, num_samples=n, replacement=True, generator=generator
+            )
+            simplex_rvs = sample_simplex(d=sampler.dim + 1, n=n, seed=seed, **tkwargs)
+            expected = torch.stack(
+                [
+                    rv @ sampler._polytopes[idx]
+                    for rv, idx in zip(simplex_rvs, index_rvs)
+                ]
+            )
+            expected = sampler.x0.transpose(-1, -2) + expected @ sampler.nullC.T
+            self.assertEqual(samples.shape, torch.Size([n, 3]))
+            self.assertAllClose(samples, expected)
 
     def test_sample_polytope_unbounded(self):
         A = torch.tensor(
@@ -797,6 +874,28 @@ class TestSamplePerturbedSubsetDims(BotorchTestCase):
                 # check that at least one dimension is perturbed
                 self.assertTrue((20 - max_equal_dims >= 1).all())
 
+    def test_sample_perturbed_subset_dims_multiple_points(self):
+        # Each sample should be a perturbation of a single point in ``X``, rather than
+        # combining the coordinates of different points.
+        d = 30
+        for dtype, qmc in itertools.product((torch.float, torch.double), (True, False)):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            bounds = torch.zeros(2, d, **tkwargs)
+            bounds[1] = 1
+            X = torch.tensor([[0.1] * d, [0.9] * d], **tkwargs)
+            perturbed_X = sample_perturbed_subset_dims(
+                X=X,
+                bounds=bounds,
+                n_discrete_points=64,
+                sigma=1e-3,
+                qmc=qmc,
+                prob_perturb=0.3,
+            )
+            self.assertEqual(perturbed_X.shape, torch.Size([64, d]))
+            # with sigma = 1e-3, all coordinates are close to those of the base point
+            max_dist = (perturbed_X.unsqueeze(-2) - X).abs().amax(dim=-1)
+            self.assertTrue((max_dist.amin(dim=-1) < 1e-2).all())
+
 
 class TestBoltzmannSample(BotorchTestCase):
     def test_boltzmann_sample(self):
@@ -838,3 +937,24 @@ class TestBoltzmannSample(BotorchTestCase):
         large_eta = 1000.0
         result = boltzmann_sample(function_values, num_samples, large_eta)
         self.assertEqual(result.shape, (num_samples,))
+
+    def test_boltzmann_sample_batched(self):
+        # Function values are standardized separately for each batch, so the sampling
+        # weights of each batch are the same as for the corresponding 1-d input.
+        for dtype in (torch.float32, torch.float64):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            function_values = torch.tensor(
+                [[1.0, 2.0, 3.0, 5.0], [101.0, 102.0, 103.0, 105.0], [-3, 0, 1, 30]],
+                **tkwargs,
+            )
+            for fvals in (function_values, function_values[:1].expand(3, -1)):
+                with mock.patch(
+                    "botorch.utils.sampling.batched_multinomial",
+                    wraps=batched_multinomial,
+                ) as mock_multinomial:
+                    result = boltzmann_sample(fvals, num_samples=2, eta=2.0)
+                    for fvals_i in fvals:
+                        boltzmann_sample(fvals_i, num_samples=2, eta=2.0)
+                self.assertEqual(result.shape, torch.Size([3, 2]))
+                weights = [c.kwargs["weights"] for c in mock_multinomial.call_args_list]
+                self.assertAllClose(weights[0], torch.stack(weights[1:]))
