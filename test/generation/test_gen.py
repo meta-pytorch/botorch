@@ -24,6 +24,7 @@ from botorch.generation.gen import (
     get_best_candidates,
 )
 from botorch.models import SingleTaskGP
+from botorch.optim.utils import minimize_with_timeout
 from botorch.utils.testing import BotorchTestCase, MockAcquisitionFunction
 from gpytorch import settings as gpt_settings
 from gpytorch.mlls.exact_marginal_log_likelihood import ExactMarginalLogLikelihood
@@ -356,6 +357,41 @@ class TestGenCandidates(TestBaseCandidateGeneration):
             )
         self.assertFalse(any(issubclass(w.category, OptimizationWarning) for w in ws))
         self.assertTrue("function evaluation limit" in logs.output[-1])
+
+    def test_gen_candidates_scipy_tol(self):
+        # ``tol`` is not an option of scipy's methods. On the serial path, it is the
+        # projected gradient tolerance of L-BFGS-B (as on the parallel path), and
+        # ``scipy.optimize.minimize``'s ``tol`` for other methods.
+        self._setUp(double=True)
+        acqf = LogExpectedImprovement(self.model, best_f=self.f_best)
+        ics = torch.tensor([[[0.2]], [[0.7]]], device=self.device, dtype=torch.double)
+        for method in ("L-BFGS-B", "SLSQP"):
+            with (
+                mock.patch(
+                    "botorch.generation.gen.minimize_with_timeout",
+                    wraps=minimize_with_timeout,
+                ) as mock_minimize,
+                warnings.catch_warnings(record=True) as ws,
+            ):
+                warnings.simplefilter("always")
+                gen_candidates_scipy(
+                    initial_conditions=ics,
+                    acquisition_function=acqf,
+                    lower_bounds=0,
+                    upper_bounds=1,
+                    options={"method": method, "tol": 1e-8, "maxiter": 100},
+                    use_parallel_mode=False,
+                )
+            messages = [str(w.message) for w in ws]
+            self.assertFalse(any("Unknown solver options" in m for m in messages))
+            kwargs = mock_minimize.call_args.kwargs
+            self.assertNotIn("tol", kwargs["options"])
+            if method == "L-BFGS-B":
+                self.assertEqual(kwargs["options"]["gtol"], 1e-8)
+                self.assertIsNone(kwargs["tol"])
+            else:
+                self.assertNotIn("gtol", kwargs["options"])
+                self.assertEqual(kwargs["tol"], 1e-8)
 
     def test_gen_candidates_scipy_timeout_behavior(self):
         # Check that no warnings are raised & log produced on hitting timeout.
