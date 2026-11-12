@@ -786,6 +786,31 @@ class TestAdditiveMapSaasSingleTaskGP(BotorchTestCase):
                 likelihood.noise_covar.raw_noise_constraint.upper_bound.item(), 1.0
             )
 
+    def test_construct_covar_module_placement(self) -> None:
+        devices = [torch.device("cpu")]
+        if torch.cuda.is_available():
+            devices.append(torch.device("cuda"))
+        for device, dtype, batch_shape in itertools.product(
+            devices, (torch.float32, torch.float64), (None, torch.Size([2]))
+        ):
+            with self.subTest(device=device, dtype=dtype, batch_shape=batch_shape):
+                kernel = get_additive_map_saas_covar_module(
+                    ard_num_dims=3,
+                    num_taus=2,
+                    batch_shape=batch_shape,
+                    dtype=dtype,
+                    device=device,
+                )
+                for tensor in itertools.chain(kernel.parameters(), kernel.buffers()):
+                    self.assertEqual(tensor.device.type, device.type)
+                    if tensor.is_floating_point():
+                        self.assertEqual(tensor.dtype, dtype)
+                X = torch.rand(4, 3, dtype=dtype, device=device)
+                covariance = kernel(X).to_dense()
+                self.assertEqual(covariance.dtype, dtype)
+                self.assertEqual(covariance.device.type, device.type)
+                self.assertTrue(torch.isfinite(covariance).all())
+
     def test_construct_covar_module(self) -> None:
         tkwargs = {"device": self.device, "dtype": torch.double}
         for batch_shape in [None, torch.Size([5])]:

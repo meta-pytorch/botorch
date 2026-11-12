@@ -355,7 +355,7 @@ def get_additive_map_saas_covar_module(
             batch_shape=batch_shape,
         )
         kernels.append(scaled_kernel)
-    return AdditiveKernel(*kernels)
+    return AdditiveKernel(*kernels).to(dtype=dtype, device=device)
 
 
 class AdditiveMapSaasSingleTaskGP(SingleTaskGP):
