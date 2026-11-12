@@ -27,6 +27,7 @@ and [Wu2016parallelkg]_.
 from __future__ import annotations
 
 from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
 from copy import deepcopy
 from typing import Any
 
@@ -51,6 +52,7 @@ from botorch.utils.transforms import (
     match_batch_shape,
     t_batch_mode_transform,
 )
+from gpytorch.settings import fast_pred_var
 from torch import Tensor
 
 
@@ -200,7 +202,9 @@ class qKnowledgeGradient(MCAcquisitionFunction, OneShotAcquisitionFunction):
         )
 
         # make sure to propagate gradients to the fantasy model train inputs
-        with settings.propagate_grads(True):
+        # (and to ``X_actual`` through the posterior covariance, see
+        # ``_value_function_settings``)
+        with settings.propagate_grads(True), _value_function_settings(value_function):
             values = value_function(X=X_fantasies)  # num_fantasies x b
 
         if self.current_value is not None:
@@ -476,8 +480,9 @@ class qMultiFidelityKnowledgeGradient(qKnowledgeGradient):
         )
 
         # make sure to propagate gradients to the fantasy model train inputs
-        # project the fantasy points
-        with settings.propagate_grads(True):
+        # (and to ``X_actual`` through the posterior covariance, see
+        # ``_value_function_settings``); project the fantasy points
+        with settings.propagate_grads(True), _value_function_settings(value_function):
             values = value_function(X=X_fantasies)  # num_fantasies x b
 
         if self.current_value is not None:
@@ -562,6 +567,26 @@ def _get_value_function(
             base_value_function=base_value_function,
             project=project,
         )
+
+
+def _value_function_settings(
+    value_function: AcquisitionFunction,
+) -> AbstractContextManager:
+    r"""Settings for evaluating a value function on a fantasy model with gradients.
+
+    A value function that may use the posterior covariance of the fantasy model
+    (anything but the posterior mean, e.g. ``qSimpleRegret`` with an MC objective
+    or a custom ``valfunc_cls``) must not use GPyTorch's precomputed covariance
+    cache (``fast_pred_var``): the cache is computed when the fantasy model is
+    constructed and is detached from the fantasized inputs there
+    (``detach_test_caches``), so the gradient of the value w.r.t. the candidates
+    would miss the dependence of the posterior covariance on them. The posterior
+    mean is not affected (its cache is recomputed under ``propagate_grads``).
+    """
+    base = getattr(value_function, "base_value_function", value_function)
+    if isinstance(base, PosteriorMean):
+        return nullcontext()
+    return fast_pred_var(False)
 
 
 def _split_fantasy_points(X: Tensor, n_f: int) -> tuple[Tensor, Tensor]:
