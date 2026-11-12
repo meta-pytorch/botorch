@@ -74,7 +74,8 @@ class OrthogonalAdditiveKernel(Kernel):
                 negative support.
             coeffs_1_prior: Prior on the parameter main effects. Should be prior with
                 non-negative support.
-            coeffs_2_prior: Prior on the parameter interactions. Should
+            coeffs_2_prior: Prior on the parameter interactions, i.e. on each of
+                the ``dim * (dim - 1) / 2`` second-order coefficients. Should
                 be prior with non-negative support.
             check_hypercube: If True (default), raise on inputs outside [0, 1]^d,
                 where the quadrature no longer enforces orthogonality. Set to
@@ -676,7 +677,9 @@ def _coeffs_1_param(m: Module) -> Tensor:
 
 
 def _coeffs_2_param(m: Module) -> Tensor:
-    return m.coeffs_2
+    # The ``d * (d - 1) / 2`` second-order coefficients, without the zeros on and
+    # below the diagonal of the ``d x d`` matrix ``m.coeffs_2``.
+    return m.coeff_constraint.transform(m.raw_coeffs_2)
 
 
 def _offset_param(m: Module) -> Tensor:
@@ -688,7 +691,8 @@ def _coeffs_1_closure(m: Module, v: Tensor) -> None:
 
 
 def _coeffs_2_closure(m: Module, v: Tensor) -> None:
-    m._set_coeffs_2(v)
+    v = torch.as_tensor(v).to(m.raw_coeffs_2)
+    m.initialize(raw_coeffs_2=m.coeff_constraint.inverse_transform(v))
 
 
 def _offset_closure(m: Module, v: Tensor) -> None:

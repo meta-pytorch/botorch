@@ -280,6 +280,51 @@ class TestOrthogonalAdditiveKernel(BotorchTestCase):
                 **tkwargs,
             )
 
+    def test_second_order_prior(self):
+        # The prior on the second-order coefficients applies to the d * (d - 1) / 2
+        # coefficients, not to the zeros of the d x d matrix ``coeffs_2``.
+        d = 3
+        for dtype, batch_shape in itertools.product(
+            (torch.float, torch.double), (torch.Size([]), torch.Size([2]))
+        ):
+            tkwargs = {"dtype": dtype, "device": self.device}
+            for prior in (GammaPrior(2.0, 1.0), HalfCauchyPrior(1.0)):
+                prior = prior.to(**tkwargs)
+                oak = OrthogonalAdditiveKernel(
+                    d,
+                    RBFKernel(),
+                    second_order=True,
+                    coeffs_2_prior=prior,
+                    batch_shape=batch_shape,
+                    **tkwargs,
+                )
+                oak.coeffs_2 = torch.rand(*batch_shape, d, d, **tkwargs) + 0.5
+                _, closure, setting_closure = oak._priors["coeffs_2_prior"]
+                row, col = torch.triu_indices(d, d, offset=1)
+                coeffs = oak.coeffs_2[..., row, col]
+                self.assertAllClose(closure(oak), coeffs)
+                log_prob = prior.log_prob(closure(oak)).sum()
+                self.assertTrue(log_prob.isfinite())
+                self.assertAllClose(log_prob, prior.log_prob(coeffs).sum())
+                # setting the coefficients through the prior's setting closure
+                setting_closure(oak, coeffs + 1.0)
+                self.assertAllClose(oak.coeffs_2[..., row, col], coeffs + 1.0)
+                self.assertTrue((oak.coeffs_2.tril() == 0).all())
+        # the marginal log likelihood of a GP with a prior without support at zero
+        tkwargs = {"dtype": torch.double, "device": self.device}
+        train_X = torch.rand(8, d, **tkwargs)
+        train_Y = torch.sin(3 * train_X).sum(dim=-1, keepdim=True)
+        oak = OrthogonalAdditiveKernel(
+            d,
+            RBFKernel(),
+            second_order=True,
+            coeffs_2_prior=GammaPrior(2.0, 1.0),
+            **tkwargs,
+        )
+        model = SingleTaskGP(train_X=train_X, train_Y=train_Y, covar_module=oak)
+        mll = ExactMarginalLogLikelihood(model.likelihood, model)
+        self.assertTrue(mll(model(train_X), model.train_targets).isfinite())
+
     def _test_priors(self):
         d = 5
         dtypes = [torch.float, torch.double]
