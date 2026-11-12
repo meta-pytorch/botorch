@@ -1609,7 +1609,9 @@ class InputPerturbation(InputTransform):
         # perturbation_set is a function, we could move this into ``_transform``.
         # Further, we could remove the two ``transpose`` calls below if one were
         # willing to accept a different ordering of the transformed output.
-        self._perturbations = self._expanded_perturbations(X)
+        # Fixed sets are expanded views with overlapping storage. Keep the
+        # registered cache writable for state_dict restoration.
+        self._perturbations = self._expanded_perturbations(X).clone()
         # make space for n_p dimension, switch n_p with n after transform, and flatten.
         return self._transform(X.unsqueeze(-3)).transpose(-3, -2).flatten(-3, -2)
 
