@@ -13,9 +13,58 @@ from botorch.sampling.pathwise.features import KernelEvaluationMap, KernelFeatur
 from botorch.utils.testing import BotorchTestCase
 from gpytorch.kernels import MaternKernel
 from torch import Size
+from torch.nn import Parameter
 
 
 class TestFeatureMaps(BotorchTestCase):
+    def test_kernel_evaluation_map_points_follow_module_conversion(self):
+        devices = [torch.device("cpu")]
+        if torch.cuda.is_available():
+            devices.append(torch.device("cuda"))
+        for device in devices:
+            for parameter in (False, True):
+                with self.subTest(device=device, parameter=parameter):
+                    points = torch.tensor(
+                        [[0.1, 0.3], [0.6, 0.8]],
+                        dtype=torch.float64,
+                        device=device,
+                        requires_grad=True,
+                    )
+                    if parameter:
+                        points = Parameter(points)
+                    kernel = MaternKernel(nu=2.5, ard_num_dims=2).to(points)
+                    feature_map = KernelEvaluationMap(kernel, points)
+                    self.assertIs(feature_map.points, points)
+                    feature_map.float().cpu()
+                    self.assertEqual(feature_map.points.dtype, torch.float32)
+                    self.assertEqual(feature_map.points.device, torch.device("cpu"))
+                    self.assertEqual(
+                        "points" in dict(feature_map.named_parameters()), parameter
+                    )
+                    query = torch.tensor([[0.2, 0.5]], requires_grad=True)
+                    result = feature_map(query).to_dense()
+                    self.assertEqual(result.dtype, torch.float32)
+                    gradients = torch.autograd.grad(
+                        result.square().sum(), (query, feature_map.points)
+                    )
+                    self.assertTrue(all(g.isfinite().all() for g in gradients))
+
+    def test_kernel_evaluation_map_points_state_dict_roundtrip(self):
+        for parameter in (False, True):
+            with self.subTest(parameter=parameter):
+                points = torch.tensor([[0.1], [0.7]], device=self.device)
+                if parameter:
+                    points = Parameter(points)
+                feature_map = KernelEvaluationMap(
+                    MaternKernel(nu=2.5).to(points), points
+                )
+                replacement = KernelEvaluationMap(
+                    MaternKernel(nu=2.5).to(points), torch.zeros_like(points)
+                )
+                self.assertIn("points", feature_map.state_dict())
+                replacement.load_state_dict(feature_map.state_dict())
+                self.assertAllClose(replacement.points, points)
+
     def test_kernel_evaluation_map(self):
         d = 3
         n_points = 7
