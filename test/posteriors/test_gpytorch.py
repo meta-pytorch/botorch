@@ -15,7 +15,7 @@ from botorch.posteriors.gpytorch import GPyTorchPosterior, scalarize_posterior
 from botorch.utils.testing import BotorchTestCase, get_test_posterior
 from gpytorch import settings as gpt_settings
 from gpytorch.distributions import MultitaskMultivariateNormal, MultivariateNormal
-from linear_operator.operators import to_linear_operator
+from linear_operator.operators import InterpolatedLinearOperator, to_linear_operator
 from torch.distributions.normal import Normal
 
 ROOT_DECOMP_PATH = (
@@ -286,3 +286,31 @@ class TestGPyTorchPosterior(BotorchTestCase):
                 scalarize_posterior(posterior, weights[:-1], offset)
             with self.assertRaises(BotorchTensorDimensionError):
                 scalarize_posterior(posterior, weights.unsqueeze(0), offset)
+
+    def test_scalarize_posterior_independent_interpolated(self) -> None:
+        # The covariance blocks of independent outputs were previously indexed one by
+        # one, which errored out for `InterpolatedLinearOperator` blocks (as produced
+        # e.g. for the multi-task sub-models of a `ModelListGP`).
+        for batch_shape, dtype in itertools.product(
+            ([], [3]), (torch.float, torch.double)
+        ):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            q, m = 3, 2
+            mvns = []
+            for _ in range(m):
+                a = torch.rand(*batch_shape, q, q, **tkwargs)
+                covar = a @ a.transpose(-1, -2) + torch.eye(q, **tkwargs)
+                mean = torch.rand(*batch_shape, q, **tkwargs)
+                lazy_covar = InterpolatedLinearOperator(to_linear_operator(covar))
+                mvns.append(MultivariateNormal(mean, lazy_covar))
+            mtmvn = MultitaskMultivariateNormal.from_independent_mvns(mvns)
+            posterior = GPyTorchPosterior(mtmvn)
+            weights = torch.tensor([0.5, -2.0], **tkwargs)
+            offset = 1.0
+            new_posterior = scalarize_posterior(posterior, weights, offset)
+            expected_mean = offset + sum(w * mvn.mean for w, mvn in zip(weights, mvns))
+            expected_covar = sum(
+                w**2 * mvn.covariance_matrix for w, mvn in zip(weights, mvns)
+            )
+            self.assertAllClose(new_posterior.mean.squeeze(-1), expected_mean)
+            self.assertAllClose(new_posterior.covariance_matrix, expected_covar)
