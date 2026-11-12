@@ -112,7 +112,9 @@ class OrthogonalAdditiveKernel(Kernel):
         # integration nodes, weights for [0, 1]
         tkwargs = {"dtype": dtype, "device": device}
         z, w = leggauss(deg=quad_deg, a=0, b=1, **tkwargs)
-        self.register_buffer("z", z.unsqueeze(-1).expand(quad_deg, dim), persistent=False)  # deg x dim
+        self.register_buffer(
+            "z", z.unsqueeze(-1).expand(quad_deg, dim), persistent=False
+        )  # deg x dim
         self.register_buffer("w", w.unsqueeze(-1), persistent=False)
         self.register_parameter(
             name="raw_offset",

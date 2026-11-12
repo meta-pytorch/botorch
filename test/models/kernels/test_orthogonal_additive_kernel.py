@@ -34,9 +34,13 @@ class TestOrthogonalAdditiveKernel(BotorchTestCase):
             with self.subTest(second_order=second_order, device=device):
                 # Construct in default float32 on CPU, then migrate both
                 # precision and device through the standard Module API.
-                kernel = OrthogonalAdditiveKernel(3, quad_deg=8, second_order=second_order)
+                kernel = OrthogonalAdditiveKernel(
+                    3, quad_deg=8, second_order=second_order
+                )
                 kernel.to(device=device, dtype=torch.double)
-                x = torch.rand(3, 3, device=device, dtype=torch.double, requires_grad=True)
+                x = torch.rand(
+                    3, 3, device=device, dtype=torch.double, requires_grad=True
+                )
                 actual = kernel(x).to_dense()
                 self.assertEqual(actual.device.type, device.type)
                 self.assertEqual(actual.dtype, torch.double)
