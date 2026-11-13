@@ -274,14 +274,15 @@ class qJointEntropySearch(AcquisitionFunction, MCSamplerMixin):
 
         Returns:
             A two-element tuple containing:
-            - samples: a num_optima x batch_shape x num_mc_samples x q x 1
-                tensor of samples drawn from the posterior.
-            - samples_log_prob: a num_optima x batch_shape x num_mc_samples x q x 1
-                tensor of associated probabilities.
+            - samples: a num_mc_samples x batch_shape x num_optima x q x 1
+                tensor of samples drawn from the joint posterior.
+            - samples_log_prob: a tensor of the same shape containing the
+                marginal log densities of the samples.
         """
         samples = self.get_posterior_samples(posterior)
-        samples_log_prob = (
-            posterior.mvn.log_prob(samples.squeeze(-1)).unsqueeze(-1).unsqueeze(-1)
+        # Conditional entropy sums pointwise terms, each using a marginal density.
+        samples_log_prob = Normal(posterior.mean, posterior.variance.sqrt()).log_prob(
+            samples
         )
         return samples, samples_log_prob
 
@@ -304,8 +305,9 @@ class qJointEntropySearch(AcquisitionFunction, MCSamplerMixin):
 
         batch_shape = X.shape[:-2]
         sample_dim = len(batch_shape)
-        # We DISREGARD the additional constant term.
-        initial_entropy = MC_ADD_TERM + 0.5 * torch.logdet(
+        # Differential entropy of the q-dimensional joint Gaussian, which
+        # contributes one additive constant per design point.
+        initial_entropy = X.shape[-2] * MC_ADD_TERM + 0.5 * torch.logdet(
             initial_posterior.mvn.lazy_covariance_matrix
         )
 
