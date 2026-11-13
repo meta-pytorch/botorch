@@ -332,6 +332,6 @@ def scalarize_posterior(
         )
 
     new_mean = offset + (mean @ weights).view(*batch_shape, q)
-    new_cov = (posterior.variance @ (weights**2))[:, None]
+    new_cov = (posterior.variance @ (weights**2))[..., None]
     mvn = MultivariateNormal(new_mean, new_cov)
     return GPyTorchPosterior(mvn)

@@ -9,6 +9,7 @@ import torch
 from botorch.acquisition.objective import PosteriorTransform
 from botorch.exceptions.errors import InputDataError
 from botorch.models.deterministic import GenericDeterministicModel
+from botorch.models.gp_regression import SingleTaskGP
 from botorch.models.model import Model, ModelDict, ModelList
 from botorch.models.transforms.input import Normalize
 from botorch.posteriors.ensemble import EnsemblePosterior
@@ -169,6 +170,28 @@ class TestBaseModel(BotorchTestCase):
             "is only supported if all constituent models have the same `batch_shape`",
         ):
             model.batch_shape
+
+    def test_model_list_posterior_with_observation_noise(self) -> None:
+        # The observation noise of the selected outputs must be added to the
+        # posteriors of the respective sub-models.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.rand(8, 2, **tkwargs)
+        model = ModelList(
+            SingleTaskGP(train_X, torch.rand(8, 1, **tkwargs), outcome_transform=None),
+            SingleTaskGP(train_X, torch.rand(8, 2, **tkwargs), outcome_transform=None),
+        )
+        X = torch.rand(3, 2, **tkwargs)
+        observation_noise = torch.tensor([0.1, 0.2, 0.3], **tkwargs).expand(3, 3)
+        variance = torch.cat([p.variance for p in model.posterior(X).posteriors], -1)
+        for output_indices in (None, [1], [2, 0], [2]):
+            posterior = model.posterior(
+                X, output_indices=output_indices, observation_noise=observation_noise
+            )
+            idcs = [0, 1, 2] if output_indices is None else output_indices
+            noisy_variance = torch.cat([p.variance for p in posterior.posteriors], -1)
+            self.assertAllClose(
+                noisy_variance, variance[..., idcs] + observation_noise[..., idcs]
+            )
 
     def test_posterior_transform(self):
         tkwargs = {"device": self.device, "dtype": torch.double}

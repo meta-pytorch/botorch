@@ -136,10 +136,14 @@ class GaussianMixturePosterior(GPyTorchPosterior):
             num_mcmc_samples = self.mean.shape[MCMC_DIM]
             t1 = self._covariance_matrix.sum(dim=MCMC_DIM) / num_mcmc_samples
             mean_diff = self._mean - self.mixture_mean.unsqueeze(MCMC_DIM)
-            t2 = (
-                torch.matmul(mean_diff, mean_diff.transpose(-1, -2)).sum(dim=MCMC_DIM)
-                / num_mcmc_samples
-            )
+            # Flatten the ``q x m`` mean differences in the same order as the rows
+            # of the covariance matrix.
+            if self._is_mt and not self.distribution._interleaved:
+                mean_diff = mean_diff.transpose(-1, -2)
+            mean_diff = mean_diff.reshape(*mean_diff.shape[:-2], -1)
+            t2 = (mean_diff.unsqueeze(-1) * mean_diff.unsqueeze(-2)).sum(
+                dim=MCMC_DIM
+            ) / num_mcmc_samples
             self._mixture_covariance_matrix = t1 + t2
 
         return self._mixture_covariance_matrix

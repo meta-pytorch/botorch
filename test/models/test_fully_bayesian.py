@@ -992,6 +992,31 @@ class TestSaasFullyBayesianSingleTaskGP(BotorchTestCase):
                     self.assertAllClose(warp.concentration0, mcmc_samples["c0"])
                     self.assertAllClose(warp.concentration1, mcmc_samples["c1"])
 
+    def test_load_mcmc_samples_repeatedly(self) -> None:
+        # Loading MCMC samples again (e.g. when re-fitting the model or loading a
+        # state dict) must not chain the input transforms from previous loads.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X, train_Y, _, _ = self._get_data_and_model(infer_noise=True, **tkwargs)
+        test_X = torch.rand(5, train_X.shape[-1], **tkwargs)
+        mcmc_samples = self._get_mcmc_samples(
+            num_samples=3, dim=train_X.shape[-1], infer_noise=True, **tkwargs
+        )
+        for input_transform in (None, Normalize(d=train_X.shape[-1])):
+            model = self.model_cls(
+                train_X=train_X,
+                train_Y=train_Y,
+                input_transform=input_transform,
+                **self.model_kwargs,
+            )
+            model.load_mcmc_samples(mcmc_samples)
+            expected_mean = model.posterior(test_X).mean
+            state_dict = model.state_dict()
+            model.load_mcmc_samples(mcmc_samples)
+            self.assertEqual(model.state_dict().keys(), state_dict.keys())
+            self.assertAllClose(model.posterior(test_X).mean, expected_mean)
+            model.load_state_dict(state_dict)
+            self.assertAllClose(model.posterior(test_X).mean, expected_mean)
+
     def test_construct_inputs(self) -> None:
         for infer_noise, dtype in itertools.product(
             (True, False), (torch.float, torch.double)

@@ -110,6 +110,36 @@ class TestHigherOrderGP(BotorchTestCase):
                         self.assertIsInstance(posterior, GPyTorchPosterior)
                         self.assertLessEqual(posterior.variance.max(), 1e-6)
 
+    def test_posterior_with_observation_noise(self):
+        # The variance and the samples of the posterior must include the
+        # observation noise if ``observation_noise=True``.
+        torch.random.manual_seed(0)
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        model = HigherOrderGP(
+            torch.rand(10, 1, **tkwargs),
+            torch.randn(10, 3, 5, **tkwargs),
+            outcome_transform=None,
+        )
+        model.likelihood.noise = 0.2
+        test_x = torch.rand(4, 1, **tkwargs)
+        posterior = model.posterior(test_x)
+        posterior_noisy = model.posterior(test_x, observation_noise=True)
+        self.assertAllClose(posterior_noisy.mean, posterior.mean)
+        self.assertAllClose(posterior_noisy.variance, posterior.variance + 0.2)
+        # The base samples include samples for the noise at the test points.
+        self.assertEqual(
+            posterior_noisy.base_sample_shape[-1],
+            posterior.base_sample_shape[-1] + 4 * 3 * 5,
+        )
+        samples = posterior_noisy.rsample(sample_shape=torch.Size([5000]))
+        self.assertLess(
+            (samples.var(dim=0) - posterior_noisy.variance).norm()
+            / posterior_noisy.variance.norm(),
+            5e-2,
+        )
+        with self.assertRaisesRegex(NotImplementedError, "observation noise"):
+            model.posterior(test_x, observation_noise=torch.rand(4, 3, 5, **tkwargs))
+
     def test_transforms(self):
         for dtype in [torch.float, torch.double]:
             train_x = torch.rand(10, 3, device=self.device, dtype=dtype)
