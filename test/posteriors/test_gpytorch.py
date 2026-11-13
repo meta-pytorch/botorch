@@ -11,6 +11,8 @@ from unittest import mock
 
 import torch
 from botorch.exceptions import BotorchTensorDimensionError
+from botorch.models.transforms.outcome import Standardize
+from botorch.posteriors.fully_bayesian import GaussianMixturePosterior
 from botorch.posteriors.gpytorch import GPyTorchPosterior, scalarize_posterior
 from botorch.utils.testing import BotorchTestCase, get_test_posterior
 from gpytorch import settings as gpt_settings
@@ -22,6 +24,34 @@ ROOT_DECOMP_PATH = (
     "linear_operator.operators.dense_linear_operator."
     "DenseLinearOperator._root_decomposition"
 )
+
+
+class TestGaussianMixtureVariance(BotorchTestCase):
+    def test_mixture_variance_after_untransform(self) -> None:
+        for dtype, num_samples in itertools.product(
+            (torch.float, torch.double), (1, 3)
+        ):
+            with self.subTest(dtype=dtype, num_samples=num_samples):
+                tkwargs = {"dtype": dtype, "device": self.device}
+                transform = Standardize(m=1)
+                transform(torch.tensor([[-0.1], [0.0], [0.1]], **tkwargs) + 1000)
+                transform.eval()
+                mean = torch.zeros(num_samples, 3, **tkwargs)
+                if num_samples == 3:
+                    mean = mean + torch.tensor([-0.3, 0.0, 0.3], **tkwargs)[:, None]
+                cov = torch.eye(3, **tkwargs).expand(num_samples, 3, 3)
+                posterior = transform.untransform_posterior(
+                    GaussianMixturePosterior(MultivariateNormal(mean, cov))
+                )
+                # Equal component variances and symmetric means give Var(mu)
+                # = 2 * delta^2 / 3; one component has no between-model variance.
+                expected = posterior.variance[0]
+                if num_samples == 3:
+                    delta = posterior.mean[0] - posterior.mean[1]
+                    expected = expected + 2 * delta.square() / 3
+                self.assertAllClose(
+                    posterior.mixture_variance, expected, rtol=1e-5, atol=1e-8
+                )
 
 
 class TestGPyTorchPosterior(BotorchTestCase):
