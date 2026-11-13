@@ -21,12 +21,17 @@ class TestConstants(BotorchTestCase):
         self.assertEqual(const.device.type, tkwargs["device"].type)
         self.assertEqual(const.dtype, tkwargs["dtype"])
 
+        # ``get_constants`` caches its outputs, so ``const`` must be restored exactly
+        # after the in-place modification below. Subtracting 1 again would not
+        # restore it in half precision.
+        const_value = const.clone()
         try:  # test in-place modification
             const.add_(1)
             const2 = constants.get_constants(0.123, **tkwargs)
             self.assertEqual(const2, 1.123)
         finally:
-            const.sub_(1)
+            const.copy_(const_value)
+        self.assertEqual(constants.get_constants(0.123, **tkwargs), 0.123)
 
         # Test fetching of multiple constants
         const_tuple = constants.get_constants(values=(0, 1, 2), **tkwargs)
