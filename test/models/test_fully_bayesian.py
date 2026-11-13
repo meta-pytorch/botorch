@@ -230,7 +230,8 @@ class TestPyroModelWarp(BotorchTestCase):
 
         with self.subTest("basic"):
             n, d = 5, 3
-            X = torch.rand(n, d, **tkwargs)
+            # Inputs very close to 0 would be warped to exactly 0 in floating point.
+            X = torch.rand(n, d, **tkwargs) * 0.98 + 0.01
             c0 = torch.ones(d, **tkwargs) * 2.0
             c1 = torch.ones(d, **tkwargs) * 3.0
             warped = pyro_model.warp(X, c0=c0, c1=c1)
@@ -420,7 +421,11 @@ class TestSaasFullyBayesianSingleTaskGP(BotorchTestCase):
             "mean": torch.randn(num_samples, **tkwargs),
         }
         if infer_noise:
-            mcmc_samples["noise"] = torch.rand(num_samples, 1, **tkwargs)
+            # The noise constraint of the model does not allow noise levels below
+            # ``MIN_INFERRED_NOISE_LEVEL``.
+            mcmc_samples["noise"] = MIN_INFERRED_NOISE_LEVEL + torch.rand(
+                num_samples, 1, **tkwargs
+            )
         if self.model_cls is SaasFullyBayesianSingleTaskGP:
             mcmc_samples["outputscale"] = torch.rand(num_samples, **tkwargs)
         if self.model_kwargs.get("use_input_warping", False):
@@ -1267,7 +1272,11 @@ class TestFullyBayesianLinearSingleTaskGP(TestSaasFullyBayesianSingleTaskGP):
             "mean": torch.randn(num_samples, **tkwargs),
         }
         if infer_noise:
-            mcmc_samples["noise"] = torch.rand(num_samples, 1, **tkwargs)
+            # The noise constraint of the model does not allow noise levels below
+            # ``MIN_INFERRED_NOISE_LEVEL``.
+            mcmc_samples["noise"] = MIN_INFERRED_NOISE_LEVEL + torch.rand(
+                num_samples, 1, **tkwargs
+            )
         if self.model_kwargs["use_input_warping"]:
             for k in ("c0", "c1"):
                 mcmc_samples[k] = torch.rand(num_samples, 1, dim, **tkwargs)
