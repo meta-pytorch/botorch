@@ -314,6 +314,39 @@ class TestGPyTorchModel(BotorchTestCase):
         post = model.posterior(torch.rand(3, 1, **tkwargs), posterior_transform=post_tf)
         self.assertTrue(torch.equal(post.mean, torch.zeros(3, 1, **tkwargs)))
 
+    def test_condition_on_observations_batched_noise(self):
+        # Non-batched inputs with batched observations and noise give the same
+        # model as explicitly batched inputs.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.rand(8, 2, **tkwargs)
+        train_X[:, -1] = torch.tensor([0.0, 1.0] * 4, **tkwargs)
+        X = torch.rand(2, 2, **tkwargs)
+        X[:, -1] = torch.tensor([0.0, 1.0], **tkwargs)
+        test_X = torch.rand(4, 2, **tkwargs)
+        test_X[:, -1] = torch.tensor([0.0, 1.0] * 2, **tkwargs)
+        for m in (1, 2):
+            train_Yvar = torch.full((8, m), 0.01, **tkwargs)
+            models = [SingleTaskGP(train_X, torch.randn(8, m, **tkwargs), train_Yvar)]
+            if m == 1:
+                models.append(
+                    MultiTaskGP(train_X, torch.randn(8, 1, **tkwargs), -1, train_Yvar)
+                )
+            for model in models:
+                with self.subTest(model=type(model).__name__, m=m):
+                    model.eval()
+                    model.posterior(test_X)  # evaluate the model to form caches.
+                    Y = torch.randn(3, 2, m, **tkwargs)
+                    noise = 0.1 * torch.rand(3, 2, m, **tkwargs)
+                    cm = model.condition_on_observations(X, Y, noise=noise)
+                    expected_cm = model.condition_on_observations(
+                        X.expand(3, 2, 2), Y, noise=noise
+                    )
+                    post = cm.posterior(test_X)
+                    expected_post = expected_cm.posterior(test_X)
+                    self.assertEqual(post.mean.shape, torch.Size([3, 4, m]))
+                    self.assertAllClose(post.mean, expected_post.mean)
+                    self.assertAllClose(post.variance, expected_post.variance)
+
     def test_float_warning_and_dtype_error(self):
         with self.assertWarnsRegex(InputDataWarning, "double precision"):
             SimpleGPyTorchModel(torch.rand(5, 1), torch.randn(5, 1))
