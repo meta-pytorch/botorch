@@ -172,7 +172,10 @@ class TestFullyBayesianMultiTaskGP(BotorchTestCase):
 
     def _get_mcmc_samples(self, num_samples: int, dim: int, task_rank: int, **tkwargs):
         mcmc_samples = {
-            "lengthscale": torch.rand(num_samples, 1, dim, **tkwargs),
+            # Very small lengthscales make conditioning on the unnormalized data of
+            # ``test_condition_on_observations`` numerically unstable in single
+            # precision.
+            "lengthscale": 0.1 + torch.rand(num_samples, 1, dim, **tkwargs),
             "outputscale": torch.rand(num_samples, **tkwargs),
             "mean": torch.randn(num_samples, self.num_tasks, **tkwargs),
             "noise": torch.rand(num_samples, 1, **tkwargs),
