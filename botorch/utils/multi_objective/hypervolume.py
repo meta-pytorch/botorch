@@ -17,15 +17,27 @@ References
     H. Ishibuchi, N. Akedo, and Y. Nojima. A many-objective test problem
     for visually examining diversity maintenance behavior in a decision
     space. Proc. 13th Annual Conf. Genetic Evol. Comput., 2011.
+
+.. [While2006]
+    L. While, P. Hingston, L. Barone, and S. Huband. A faster algorithm for
+    calculating hypervolume. IEEE Transactions on Evolutionary Computation,
+    10(1):29-38, 2006.
+
+.. [Beume2009]
+    N. Beume, C. M. Fonseca, M. Lopez-Ibanez, L. Paquete, and J. Vahrenhold.
+    On the complexity of computing the hypervolume indicator. IEEE Transactions
+    on Evolutionary Computation, 13(5):1075-1082, 2009.
 """
 
 from __future__ import annotations
 
 import random
 import warnings
+from bisect import bisect_left
 from collections.abc import Callable
 from copy import deepcopy
 from itertools import combinations
+from operator import itemgetter
 
 import torch
 from botorch.acquisition.cached_cholesky import CachedCholeskyMCSamplerMixin
@@ -151,15 +163,34 @@ def infer_reference_point(
 
 
 class Hypervolume:
-    r"""Hypervolume computation dimension sweep algorithm from [Fonseca2006]_.
+    r"""Exact hypervolume computation.
 
-    Adapted from Simon Wessing's implementation of the algorithm
-    (Variant 3, Version 1.2) in [Fonseca2006]_ in PyMOO:
+    Maximization is assumed. Points that do not weakly dominate the reference
+    point are ignored; dominated and duplicate points are allowed.
+
+    The algorithm depends on the number of objectives ``m``:
+
+    - ``m = 2``: the points are sorted by the first objective and the dominated
+      area is accumulated using a running maximum of the second objective,
+      in ``O(n log n)`` time.
+    - ``m = 3``: a dimension sweep along the last objective that keeps the
+      two-dimensional front of the points swept so far in a sorted list
+      [Fonseca2006]_, [Beume2009]_. This takes ``O(n log n)`` comparisons.
+    - ``m > 3``: the hypervolume is computed by slicing along the last objective
+      [While2006]_, i.e. as the sum of the ``(m - 1)``-dimensional hypervolumes
+      of the slices, recursing down to the three-dimensional sweep. Points
+      that are found to be dominated within a slice are dropped from all
+      subsequent slices.
+
+    The computation is not differentiable. For ``m = 2``, it runs on the device
+    and in the dtype of the inputs. For ``m >= 3``, it runs in Python on a copy of
+    the points, in double precision.
+
+    ``_hv_recursive`` and ``_initialize_multilist`` hold the previous
+    implementation, adapted from Simon Wessing's implementation of the
+    algorithm (Variant 3, Version 1.2) in [Fonseca2006]_ in PyMOO:
     https://github.com/msu-coinlab/pymoo/blob/master/pymoo/vendor/hv.py
-
-    Maximization is assumed.
-
-    TODO: write this in C++ for faster looping.
+    They are no longer used by ``compute``.
     """
 
     def __init__(self, ref_point: Tensor) -> None:
@@ -207,21 +238,26 @@ class Hypervolume:
             raise BotorchTensorDimensionError(
                 f"pareto_Y must have exactly two dimensions, got {pareto_Y.ndim}."
             )
-        # This assumes maximization, but internally flips the sign of the pareto front
-        # and the reference point and computes hypervolume for the minimization problem.
-        pareto_Y = -pareto_Y
-        better_than_ref = (pareto_Y <= self._ref_point).all(dim=-1)
-        pareto_Y = pareto_Y[better_than_ref]
-        # shift the pareto front so that reference point is all zeros
-        pareto_Y = pareto_Y - self._ref_point
-        self._initialize_multilist(pareto_Y)
-        bounds = torch.full_like(self._ref_point, float("-inf"))
-        return self._hv_recursive(
-            i=self._ref_point.shape[0] - 1, n_pareto=pareto_Y.shape[0], bounds=bounds
-        )
+        ref_point = self.ref_point
+        pareto_Y = pareto_Y.detach()
+        better_than_ref = (pareto_Y >= ref_point).all(dim=-1)
+        # shift the points so that the reference point is the origin
+        pareto_Y = pareto_Y[better_than_ref] - ref_point
+        n, m = pareto_Y.shape
+        if n == 0:
+            return 0.0
+        elif m == 1:
+            return pareto_Y.max().item()
+        elif m == 2:
+            return _compute_hypervolume_2d(pareto_Y)
+        points = sorted(pareto_Y.tolist(), key=itemgetter(m - 1), reverse=True)
+        return _hypervolume_sweep(points=points, m=m)
 
     def _hv_recursive(self, i: int, n_pareto: int, bounds: Tensor) -> float:
         r"""Recursive method for hypervolume calculation.
+
+        This is the previous implementation from [Fonseca2006]_, which is no longer
+        used by ``compute``.
 
         This assumes minimization (internally).
 
@@ -321,6 +357,139 @@ class Hypervolume:
         for i in range(m):
             sort_by_dimension(nodes, i)
             self.list.extend(nodes, i)
+
+
+def _compute_hypervolume_2d(Y: Tensor) -> float:
+    r"""Compute the hypervolume of a set of points in two dimensions.
+
+    Args:
+        Y: A ``n x 2``-dim tensor of non-negative points, i.e. the points have
+            been shifted so that the reference point is the origin. The points
+            do not need to be non-dominated.
+
+    Returns:
+        The hypervolume.
+    """
+    # Sort by the first objective in decreasing order. The running maximum of the
+    # second objective is then the height of the dominated region at each point.
+    order = torch.argsort(Y[:, 0], descending=True)
+    y_max = Y[order, 1].cummax(dim=0).values
+    dy = torch.diff(y_max, prepend=y_max.new_zeros(1))
+    return (Y[order, 0] * dy).sum().item()
+
+
+def _hypervolume_sweep_3d(
+    points: list[list[float]], dominated: list[int] | None = None
+) -> float:
+    r"""Compute the hypervolume of a set of points in three dimensions.
+
+    This sweeps along the third objective in decreasing order and keeps the
+    two-dimensional front of the points swept so far in sorted lists, with the
+    first objective increasing and the second objective decreasing
+    [Fonseca2006]_, [Beume2009]_.
+
+    Args:
+        points: A list of ``n`` non-negative points, sorted by their third
+            objective in decreasing order. Only the first three objectives of
+            each point are used.
+        dominated: An optional list. If provided, the indices (in increasing
+            order) of the points that are weakly dominated by a preceding point
+            are appended to it.
+
+    Returns:
+        The hypervolume.
+    """
+    xs: list[float] = []
+    ys: list[float] = []
+    area = 0.0
+    volume = 0.0
+    n = len(points)
+    for i in range(n):
+        point = points[i]
+        x, y = point[0], point[1]
+        # ``j`` is the index of the first point on the front with ``x_j >= x``.
+        # It has the largest ``y`` among those points.
+        j = bisect_left(xs, x)
+        n_front = len(xs)
+        if j < n_front and ys[j] >= y:
+            # the point is weakly dominated and does not change the area
+            if dominated is not None:
+                dominated.append(i)
+        else:
+            # Add the area of the region dominated by the point but not by the
+            # front, walking left over the points on the front that it dominates.
+            height = ys[j] if j < n_front else 0.0
+            # a point with ``x_j == x`` and ``y_j < y`` is dominated, too
+            end = j + 1 if j < n_front and xs[j] == x else j
+            right = x
+            k = j - 1
+            while k >= 0 and ys[k] <= y:
+                area += (right - xs[k]) * (y - height)
+                height = ys[k]
+                right = xs[k]
+                k -= 1
+            area += (right - (xs[k] if k >= 0 else 0.0)) * (y - height)
+            # replace the dominated points on the front with the new point
+            xs[k + 1 : end] = [x]
+            ys[k + 1 : end] = [y]
+        z_next = points[i + 1][2] if i + 1 < n else 0.0
+        volume += area * (point[2] - z_next)
+    return volume
+
+
+def _hypervolume_sweep(
+    points: list[list[float]], m: int, dominated: list[int] | None = None
+) -> float:
+    r"""Compute the hypervolume of a set of points in ``m >= 3`` dimensions.
+
+    This slices along objective ``m - 1`` [While2006]_: the points are swept in
+    decreasing order of that objective, and the hypervolume is the sum of the
+    ``(m - 1)``-dimensional hypervolumes of the points swept so far, each
+    multiplied by the thickness of its slice. The recursion ends with
+    ``_hypervolume_sweep_3d``.
+
+    Args:
+        points: A list of ``n`` non-negative points, sorted by objective ``m - 1``
+            in decreasing order. Only the first ``m`` objectives of each point
+            are used.
+        m: The number of objectives.
+        dominated: An optional list. If provided, the indices (in increasing
+            order) of the points that are weakly dominated by a preceding point
+            are appended to it. Not all such points are necessarily found.
+
+    Returns:
+        The hypervolume.
+    """
+    if m == 3:
+        return _hypervolume_sweep_3d(points=points, dominated=dominated)
+    # The points of the current slice, sorted by objective ``m - 2`` in decreasing
+    # order, the negated values of that objective, and the indices of the points.
+    slice_points: list[list[float]] = []
+    keys: list[float] = []
+    indices: list[int] = []
+    volume = 0.0
+    n = len(points)
+    for i in range(n):
+        point = points[i]
+        key = -point[m - 2]
+        pos = bisect_left(keys, key)
+        slice_points.insert(pos, point)
+        keys.insert(pos, key)
+        indices.insert(pos, i)
+        sub_dominated: list[int] = []
+        area = _hypervolume_sweep(points=slice_points, m=m - 1, dominated=sub_dominated)
+        # A point that is dominated in the first ``m - 1`` objectives by another
+        # point in the slice remains dominated in all subsequent slices.
+        for idx in reversed(sub_dominated):
+            # All other points in the slice are at least as good as the newest
+            # point in objective ``m - 1``, so if that point is dominated in the
+            # first ``m - 1`` objectives, it is dominated in all ``m`` objectives.
+            if dominated is not None and indices[idx] == i:
+                dominated.append(i)
+            del slice_points[idx], keys[idx], indices[idx]
+        z_next = points[i + 1][m - 1] if i + 1 < n else 0.0
+        volume += area * (point[m - 1] - z_next)
+    return volume
 
 
 def sort_by_dimension(nodes: list[Node], i: int) -> None:
