@@ -31,7 +31,9 @@ from botorch.posteriors.gpytorch import scalarize_posterior
 from botorch.utils import apply_constraints
 from botorch.utils.testing import BotorchTestCase, get_test_posterior
 from gpytorch.distributions import MultitaskMultivariateNormal, MultivariateNormal
+from gpytorch.settings import min_variance
 from linear_operator.operators.dense_linear_operator import to_linear_operator
+from linear_operator.utils.warnings import NumericalWarning
 from torch import Tensor
 
 
@@ -125,11 +127,16 @@ class TestInputDependentPosteriorTransform(BotorchTestCase):
 
 class TestScalarizedPosteriorTransform(BotorchTestCase):
     def test_scalarized_posterior_transform(self):
-        for batch_shape, m, dtype in itertools.product(
-            ([], [3]), (1, 2), (torch.float, torch.double)
+        for batch_shape, m, dtype, small_weights in itertools.product(
+            ([], [3]), (1, 2), (torch.float, torch.double), (False, True)
         ):
             offset = torch.rand(1).item()
-            weights = torch.randn(m, device=self.device, dtype=dtype)
+            if small_weights:
+                # These weights make the scalarized variance smaller than the
+                # minimum variance of a GPyTorch ``MultivariateNormal``.
+                weights = torch.full((m,), 1e-6, device=self.device, dtype=dtype)
+            else:
+                weights = torch.randn(m, device=self.device, dtype=dtype)
             obj = ScalarizedPosteriorTransform(weights=weights, offset=offset)
             posterior = get_test_posterior(
                 batch_shape, m=m, device=self.device, dtype=dtype
@@ -143,11 +150,19 @@ class TestScalarizedPosteriorTransform(BotorchTestCase):
             self.assertEqual(new_posterior.mean.shape, exp_size)
             new_mean_exp = offset + mean @ weights
             self.assertAllClose(new_posterior.mean[..., -1], new_mean_exp)
-            self.assertEqual(new_posterior.variance.shape, exp_size)
             new_covar_exp = ((covar @ weights) @ weights).unsqueeze(-1)
-            self.assertTrue(
-                torch.allclose(new_posterior.variance[..., -1], new_covar_exp)
+            # GPyTorch clamps the variance to a minimum (1e-6 in single precision)
+            # and warns when it does so. Check both the raw and the clamped values.
+            raw_variance = new_posterior.distribution.covariance_matrix.diagonal(
+                dim1=-2, dim2=-1
             )
+            self.assertAllClose(raw_variance, new_covar_exp)
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=NumericalWarning)
+                new_variance = new_posterior.variance
+            self.assertEqual(new_variance.shape, exp_size)
+            min_var = min_variance.value(dtype=dtype)
+            self.assertAllClose(new_variance[..., -1], new_covar_exp.clamp(min=min_var))
             # test error
             with self.assertRaises(ValueError):
                 ScalarizedPosteriorTransform(weights=torch.rand(2, m))
