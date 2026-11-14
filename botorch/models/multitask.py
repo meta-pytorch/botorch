@@ -54,6 +54,7 @@ from gpytorch.distributions.multitask_multivariate_normal import (
     MultitaskMultivariateNormal,
 )
 from gpytorch.distributions.multivariate_normal import MultivariateNormal
+from gpytorch.kernels.index_kernel import IndexKernel
 from gpytorch.kernels.multitask_kernel import MultitaskKernel
 from gpytorch.likelihoods.gaussian_likelihood import FixedNoiseGaussianLikelihood
 from gpytorch.likelihoods.hadamard_gaussian_likelihood import HadamardGaussianLikelihood
@@ -83,6 +84,89 @@ from linear_operator.operators import (
 )
 from torch import Tensor
 from typing_extensions import Self
+
+
+def _set_task_covar_matrix(module: IndexKernel, value: Tensor) -> None:
+    """Set a full-rank IndexKernel from a covariance matrix."""
+    if module.covar_factor.shape[-1] != value.shape[-1]:
+        raise NotImplementedError(
+            "Sampling a covariance prior is only supported for full-rank "
+            "IndexKernel instances."
+        )
+
+    eigenvalues, eigenvectors = torch.linalg.eigh(value)
+    min_eigenvalue = eigenvalues[..., :1].clamp_min(torch.finfo(value.dtype).eps)
+    var = min_eigenvalue.expand(value.shape[:-1])
+    factor_eigenvalues = (eigenvalues - min_eigenvalue).clamp_min(0)
+    covar_factor = eigenvectors * factor_eigenvalues.sqrt().unsqueeze(-2)
+    module.initialize(
+        covar_factor=covar_factor,
+        raw_var=module.raw_var_constraint.inverse_transform(var),
+    )
+
+
+def _set_likelihood_task_covar_matrix(
+    module: MultitaskGaussianLikelihood, value: Tensor
+) -> None:
+    """Set a full-rank multitask likelihood from a covariance matrix."""
+    if module.task_noise_covar_factor.shape[-1] != value.shape[-1]:
+        raise NotImplementedError(
+            "Sampling a task covariance prior is only supported for full-rank "
+            "MultitaskGaussianLikelihood instances."
+        )
+
+    eigenvalues, eigenvectors = torch.linalg.eigh(value)
+    noise = eigenvalues[..., :1] / 2 if module.has_global_noise else 0
+    factor_eigenvalues = (eigenvalues - noise).clamp_min(0)
+    task_noise_covar_factor = eigenvectors * factor_eigenvalues.sqrt().unsqueeze(-2)
+    if module.has_global_noise:
+        module._set_noise(noise)
+    module.initialize(task_noise_covar_factor=task_noise_covar_factor)
+
+
+def _get_likelihood_task_covar_matrix(
+    module: MultitaskGaussianLikelihood,
+) -> Tensor:
+    """Get the task covariance, including global noise when present."""
+    covar_factor = module.task_noise_covar_factor
+    task_covar = covar_factor @ covar_factor.transpose(-1, -2)
+    if module.has_global_noise:
+        noise = module.noise.expand(*module.noise.shape[:-1], module.num_tasks)
+        task_covar = task_covar + torch.diag_embed(noise)
+    return task_covar
+
+
+def _register_likelihood_prior_setters(
+    likelihood: MultitaskGaussianLikelihood,
+) -> None:
+    """Add setters to priors registered by MultitaskGaussianLikelihood."""
+    if "raw_task_noises_prior" in likelihood._priors:
+        prior, closure, _ = likelihood._priors["raw_task_noises_prior"]
+        likelihood.register_prior(
+            "raw_task_noises_prior",
+            prior,
+            closure,
+            lambda module, value: module._set_task_noises(value),
+        )
+    if "MultitaskErrorCovariancePrior" in likelihood._priors:
+        prior, _, _ = likelihood._priors["MultitaskErrorCovariancePrior"]
+        if isinstance(prior, LKJCovariancePrior):
+            prior._batch_shape = prior.correlation_prior.batch_shape
+            prior._event_shape = prior.correlation_prior.event_shape
+        likelihood.register_prior(
+            "MultitaskErrorCovariancePrior",
+            prior,
+            _get_likelihood_task_covar_matrix,
+            _set_likelihood_task_covar_matrix,
+        )
+    if "raw_noise_prior" in likelihood._priors:
+        prior, closure, _ = likelihood._priors["raw_noise_prior"]
+        likelihood.register_prior(
+            "raw_noise_prior",
+            prior,
+            closure,
+            lambda module, value: module._set_noise(value),
+        )
 
 
 def _compute_multitask_mean(
@@ -704,6 +788,7 @@ class KroneckerMultiTaskGP(ExactGP, GPyTorchModel, FantasizeMixin):
                 ),
                 rank=kwargs.get("likelihood_rank", 0),
             )
+        _register_likelihood_prior_setters(likelihood=likelihood)
         if task_covar_prior is None:
             task_covar_prior = LKJCovariancePrior(
                 n=num_tasks,
@@ -712,6 +797,14 @@ class KroneckerMultiTaskGP(ExactGP, GPyTorchModel, FantasizeMixin):
                     "sd_prior",
                     SmoothedBoxPrior(math.exp(-6), math.exp(1.25), 0.05),
                 ),
+            )
+        if isinstance(task_covar_prior, LKJCovariancePrior):
+            # LKJCovariancePrior does not initialize its Distribution shapes.
+            task_covar_prior._batch_shape = (
+                task_covar_prior.correlation_prior.batch_shape
+            )
+            task_covar_prior._event_shape = (
+                task_covar_prior.correlation_prior.event_shape
             )
         super().__init__(train_X, train_Y, likelihood)
         self.mean_module = MultitaskMean(
@@ -731,6 +824,12 @@ class KroneckerMultiTaskGP(ExactGP, GPyTorchModel, FantasizeMixin):
             rank=rank,
             batch_shape=batch_shape,
             task_covar_prior=task_covar_prior,
+        )
+        self.covar_module.task_covar_module.register_prior(
+            "IndexKernelPrior",
+            task_covar_prior,
+            lambda module: module._eval_covar_matrix(),
+            _set_task_covar_matrix,
         )
 
         if outcome_transform is not None:
