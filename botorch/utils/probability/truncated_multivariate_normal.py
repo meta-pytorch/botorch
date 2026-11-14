@@ -85,7 +85,9 @@ class TruncatedMultivariateNormal(MultivariateNormal):
                 super().log_prob(value) - self.log_partition,
                 neg_inf,
             )
-        return torch.full(value.shape[: -len(self.event_shape)], neg_inf)
+        return torch.full(
+            inbounds.shape, neg_inf, dtype=value.dtype, device=value.device
+        )
 
     def rsample(self, sample_shape: torch.Size = torch.Size()) -> Tensor:  # noqa: B008
         r"""Draw samples from the Truncated Multivariate Normal.

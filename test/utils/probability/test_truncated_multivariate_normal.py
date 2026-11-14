@@ -136,6 +136,16 @@ class TestTruncatedMultivariateNormal(BotorchTestCase):
                 )
                 self.assertTrue(trunc.log_prob(oob).eq(-float("inf")).all())
 
+                # Test that out of bounds values give the same dtype, device and
+                # shape as in bounds values, with and without a batch shape
+                for dist in (trunc, trunc.expand(torch.Size([2]))):
+                    expected = dist.log_prob(vals.unsqueeze(-2))
+                    actual = dist.log_prob(oob.expand_as(vals).unsqueeze(-2))
+                    self.assertTrue(actual.eq(-float("inf")).all())
+                    self.assertEqual(actual.shape, expected.shape)
+                    self.assertEqual(actual.dtype, expected.dtype)
+                    self.assertEqual(actual.device, expected.device)
+
     def test_rsample_with_batch_shape(self):
         batch_shape = torch.Size([2, 3])
         event_size = 4
