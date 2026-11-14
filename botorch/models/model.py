@@ -25,6 +25,7 @@ from botorch.exceptions.errors import (
     BotorchTensorDimensionError,
     DeprecationError,
     InputDataError,
+    UnsupportedError,
 )
 from botorch.logging import shape_to_str
 from botorch.models.utils.assorted import fantasize as fantasize_flag
@@ -642,34 +643,53 @@ class ModelList(Model):
                 raise ValueError("Decoupled fantasization requires a list of samplers.")
 
         fant_models = []
-        X_i = X
-        if observation_noise is None:
-            observation_noise_i = observation_noise
-        for i in range(self.num_outputs):
-            # get the inputs to fantasize at for output i
+        output_start = 0
+        for i, model in enumerate(self.models):
+            output_end = output_start + model.num_outputs
+            X_i = X
+            observation_noise_i = None
             if evaluation_mask is not None:
-                mask_i = evaluation_mask[:, i]
+                model_mask = evaluation_mask[:, output_start:output_end]
+                if model.num_outputs > 1 and not torch.equal(
+                    model_mask, model_mask[:, :1].expand_as(model_mask)
+                ):
+                    raise UnsupportedError(
+                        "All outputs of a multi-output model must use the same "
+                        "evaluation mask."
+                    )
+                mask_i = model_mask[:, 0]
                 X_i = X[..., mask_i, :]
                 # TODO (T158701749): implement a QMC DecoupledSampler that draws all
                 # samples from a single Sobol sequence or consider requiring that the
                 # sampling is IID to ensure good coverage.
                 sampler_i = sampler.samplers[i]
                 if observation_noise is not None:
-                    observation_noise_i = observation_noise[..., mask_i, i : i + 1]
+                    if observation_noise.shape[-2] == 1:
+                        observation_noise = observation_noise.expand(
+                            *observation_noise.shape[:-2],
+                            X.shape[-2],
+                            observation_noise.shape[-1],
+                        )
+                    observation_noise_i = observation_noise[
+                        ..., mask_i, output_start:output_end
+                    ]
             else:
                 sampler_i = (
                     sampler.samplers[i] if isinstance(sampler, ListSampler) else sampler
                 )
                 if observation_noise is not None:
-                    observation_noise_i = observation_noise[..., i : i + 1]
+                    observation_noise_i = observation_noise[
+                        ..., output_start:output_end
+                    ]
 
-            fant_model = self.models[i].fantasize(
+            fant_model = model.fantasize(
                 X=X_i,
                 sampler=sampler_i,
                 observation_noise=observation_noise_i,
                 **kwargs,
             )
             fant_models.append(fant_model)
+            output_start = output_end
         return self.__class__(*fant_models)
 
 
