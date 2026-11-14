@@ -123,13 +123,16 @@ def prune_inferior_points_multi_objective(
     pareto_mask = is_non_dominated(obj_vals, deduplicate=False) & (
         obj_vals > ref_point
     ).all(dim=-1)
+    # With one-to-many input transforms, each point in ``X`` corresponds to
+    # ``effective_n_w`` consecutive outcomes. A point is pareto optimal in a sample
+    # if any of its outcomes is, so that ``probs`` is indexed like ``X``.
+    effective_n_w = obj_vals.shape[-2] // X.shape[-2]
+    pareto_mask = pareto_mask.unflatten(-1, (X.shape[-2], effective_n_w)).any(dim=-1)
     probs = pareto_mask.to(dtype=X.dtype).mean(dim=0)
     idcs = probs.nonzero().view(-1)
     if idcs.shape[0] > max_points:
         counts, order_idcs = torch.sort(probs, stable=True, descending=True)
-        idcs = order_idcs[:max_points]
-    effective_n_w = obj_vals.shape[-2] // X.shape[-2]
-    idcs = (idcs / effective_n_w).long().unique()
+        idcs = order_idcs[:max_points].sort().values
     return X[idcs]
 
 

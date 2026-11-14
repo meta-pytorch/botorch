@@ -163,6 +163,29 @@ class TestMultiObjectiveUtils(BotorchTestCase):
             )
             self.assertTrue(torch.equal(X_pruned, X[:2]))
 
+            # test one-to-many input transforms (n_w = 2 outcomes per point):
+            # all three points have a pareto optimal outcome, the first point two.
+            samples = torch.tensor(
+                [
+                    [1.0, 5.0],
+                    [2.0, 4.0],
+                    [3.0, 3.0],
+                    [0.5, 0.5],
+                    [4.0, 2.0],
+                    [0.5, 0.5],
+                ],
+                **tkwargs,
+            )
+            mm = MockModel(MockPosterior(samples=samples))
+            X_pruned = prune_inferior_points_multi_objective(
+                model=mm, X=X, ref_point=ref_point
+            )
+            self.assertTrue(torch.equal(X_pruned, X))
+            X_pruned = prune_inferior_points_multi_objective(
+                model=mm, X=X, ref_point=ref_point, max_frac=2 / 3
+            )
+            self.assertTrue(torch.equal(X_pruned, X[:2]))
+
     def test_compute_sample_box_decomposition(self):
         tkwargs = {"device": self.device}
         for dtype, maximize in product((torch.float, torch.double), (True, False)):
