@@ -144,6 +144,11 @@ Sparse Axis-Aligned Subspaces (SAAS) GP Models
 .. automodule:: botorch.models.map_saas
     :members:
 
+Top-Choice GP Models
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.. automodule:: botorch.models.top_choice_gp
+    :members:
+
 Variational GP Models
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 .. automodule:: botorch.models.robust_relevance_pursuit_model
@@ -196,6 +201,9 @@ Likelihoods
     :members:
 
 .. automodule:: botorch.models.likelihoods.sparse_outlier_noise
+    :members:
+
+.. automodule:: botorch.models.likelihoods.top_choice
     :members:
 
 Transforms
