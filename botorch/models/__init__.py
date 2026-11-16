@@ -60,6 +60,10 @@ if TYPE_CHECKING:
     from botorch.models.robust_relevance_pursuit_model import (  # noqa: F401
         RobustRelevancePursuitSingleTaskGP,
     )
+    from botorch.models.top_choice_gp import (  # noqa: F401
+        TopChoiceVariationalELBO,
+        VariationalTopChoiceGP,
+    )
 
 _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
     "ApproximateGPyTorchModel": (".approximate_gp", "ApproximateGPyTorchModel"),
@@ -109,6 +113,8 @@ _LAZY_IMPORTS: dict[str, tuple[str, str]] = {
         ".robust_relevance_pursuit_model",
         "RobustRelevancePursuitSingleTaskGP",
     ),
+    "TopChoiceVariationalELBO": (".top_choice_gp", "TopChoiceVariationalELBO"),
+    "VariationalTopChoiceGP": (".top_choice_gp", "VariationalTopChoiceGP"),
 }
 
 __all__ = list(_LAZY_IMPORTS.keys())

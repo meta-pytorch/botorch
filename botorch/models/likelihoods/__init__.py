@@ -8,9 +8,11 @@ from botorch.models.likelihoods.pairwise import (
     PairwiseLogitLikelihood,
     PairwiseProbitLikelihood,
 )
+from botorch.models.likelihoods.top_choice import TopChoiceSoftmaxLikelihood
 
 
 __all__ = [
     "PairwiseProbitLikelihood",
     "PairwiseLogitLikelihood",
+    "TopChoiceSoftmaxLikelihood",
 ]
