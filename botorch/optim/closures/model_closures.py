@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from functools import partial
-from itertools import chain, repeat
 from typing import Any
 
 from botorch.optim.closures.core import ForwardBackwardClosure
@@ -91,10 +90,20 @@ def _get_loss_closure_fallback_external(
     data_loader: DataLoader,
 ) -> Callable[[], Tensor]:
     r"""Fallback loss closure with externally provided data."""
-    batch_generator = chain.from_iterable(iter(data_loader) for _ in repeat(None))
+    batch_generator = iter(data_loader)
 
     def closure(**kwargs: Any) -> Tensor:
-        batch = next(batch_generator)
+        nonlocal batch_generator
+        try:
+            batch = next(batch_generator)
+        except StopIteration:
+            batch_generator = iter(data_loader)
+            try:
+                batch = next(batch_generator)
+            except StopIteration:
+                raise ValueError(
+                    "data_loader must yield at least one minibatch."
+                ) from None
         if not isinstance(batch, Sequence):
             raise TypeError(
                 "Expected `data_loader` to generate a batch of tensors, "
