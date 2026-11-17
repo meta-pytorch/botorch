@@ -163,6 +163,84 @@ class TestCombineInitialConditions(BotorchTestCase):
 
 
 class TestOptimizeAcqf(BotorchTestCase):
+    def test_sequence_without_primary_acquisition(self) -> None:
+        acquisitions = [MockAcquisitionFunction() for _ in range(2)]
+        bounds = torch.tensor([[0.0], [1.0]], device=self.device)
+        point = torch.tensor([[0.3]], device=self.device)
+        value = torch.tensor(0.7, device=self.device)
+        with mock.patch(
+            "botorch.optim.optimize._optimize_acqf_batch", return_value=(point, value)
+        ) as batch:
+            candidates, values = optimize_acqf(
+                None,
+                bounds,
+                q=2,
+                num_restarts=1,
+                raw_samples=4,
+                sequential=True,
+                acq_function_sequence=acquisitions,
+            )
+        self.assertEqual(batch.call_count, 2)
+        self.assertAllClose(candidates, point.expand(2, 1))
+        self.assertAllClose(values, value.expand(2))
+        self.assertTrue(all(acq.X_pending is None for acq in acquisitions))
+
+    def test_sequential_pending_restored_on_exception(self) -> None:
+        for use_sequence in (False, True):
+            acquisitions = [MockAcquisitionFunction() for _ in range(2)]
+            original = torch.tensor([[0.9]], device=self.device)
+            for acq in acquisitions:
+                acq.X_pending = original
+            bounds = torch.tensor([[0.0], [1.0]], device=self.device)
+            point = torch.tensor([[0.3]], device=self.device)
+            with (
+                mock.patch(
+                    "botorch.optim.optimize._optimize_acqf_batch",
+                    side_effect=[
+                        (point, point.sum()),
+                        RuntimeError("injected failure"),
+                    ],
+                ),
+                self.assertRaisesRegex(RuntimeError, "injected failure"),
+            ):
+                optimize_acqf(
+                    acquisitions[0],
+                    bounds,
+                    q=2,
+                    num_restarts=1,
+                    raw_samples=4,
+                    sequential=True,
+                    acq_function_sequence=acquisitions if use_sequence else None,
+                )
+            for acq in acquisitions:
+                self.assertIs(acq.X_pending, original)
+
+    def test_all_fixed_sequential_acquisition_values(self) -> None:
+        acquisitions = [
+            NegSquaredDistanceAcquisitionFunction(
+                torch.tensor([target], device=self.device)
+            )
+            for target in (0.1, 0.8)
+        ]
+        for acq in acquisitions:
+            acq.set_X_pending(None)
+        bounds = torch.tensor([[0.0], [1.0]], device=self.device)
+        with mock.patch("botorch.optim.optimize._optimize_acqf_batch") as batch:
+            candidates, values = optimize_acqf(
+                None,
+                bounds,
+                q=2,
+                num_restarts=1,
+                raw_samples=4,
+                sequential=True,
+                acq_function_sequence=acquisitions,
+                fixed_features={0: 0.5},
+            )
+        batch.assert_not_called()
+        self.assertAllClose(candidates, torch.full((2, 1), 0.5, device=self.device))
+        self.assertAllClose(values, torch.tensor([-0.16, -0.09], device=self.device))
+        self.assertTrue(all(acq.X_pending is None for acq in acquisitions))
+
     @mock.patch("botorch.generation.gen.gen_candidates_torch")
     @mock.patch("botorch.optim.optimize.gen_batch_initial_conditions")
     @mock.patch("botorch.optim.optimize.gen_candidates_scipy")
