@@ -1028,7 +1028,10 @@ def optimize_acqf_mixed_alternating(
                 f"{upper_bnd} but end at {upper}."
             )
 
-    fixed_features = fixed_features or {}
+    # Negative indices in fixed features
+    fixed_features = {
+        idx % bounds.shape[-1]: val for idx, val in (fixed_features or {}).items()
+    }
     options = options or {}
     if options.get("max_optimization_problem_aggregation_size", 1) != 1:
         raise UnsupportedError(
