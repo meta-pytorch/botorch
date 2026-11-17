@@ -19,6 +19,7 @@ from botorch.utils.probability.bvn import (
     bvnmom,
     bvnu,
     Phi,
+    phi,
 )
 from botorch.utils.testing import BotorchTestCase
 from torch import Tensor
@@ -178,6 +179,25 @@ class TestBVN(BotorchTestCase):
             prob = _bvnu_polar(torch.zeros_like(xl), xl, yl)
             test = Phi(-xl) * Phi(-yl)
             self.assertAllClose(prob, test)
+
+        with self.subTest(msg="gradients_at_clipped_bounds"):
+            # ``bvn`` is evaluated at bounds clipped to ``STANDARDIZED_RANGE``,
+            # e.g. by ``MVNXPB``, where ``exp(-skh / 2)`` overflows. The gradients
+            # must not be NaN (excluding the degenerate case ``|r| = 1``).
+            keep = r.abs() < 1
+            _r = r[keep].expand_as(yl[..., keep]).clone().requires_grad_(True)
+            _yl = yl[..., keep].clone().requires_grad_(True)
+            h = torch.full_like(_yl, -1e6)
+            prob = _bvnu_taylor(_r, h, h)
+            self.assertAllClose(prob, torch.ones_like(prob))
+            (grad_r,) = torch.autograd.grad(prob.sum(), _r)
+            self.assertAllClose(grad_r, torch.zeros_like(grad_r))
+
+            prob = _bvnu_taylor(_r, h, _yl)
+            self.assertAllClose(prob, Phi(-_yl))
+            grad_r, grad_yl = torch.autograd.grad(prob.sum(), (_r, _yl))
+            self.assertAllClose(grad_r, torch.zeros_like(grad_r))
+            self.assertAllClose(grad_yl, -phi(_yl))
 
     def test_bvn(self):
         r"""Monte Carlo unit test for ``bvn``."""
