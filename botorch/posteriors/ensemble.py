@@ -134,7 +134,9 @@ class EnsemblePosterior(Posterior):
         # Add dimensions for query points and outputs to enable broadcasting
         weights = self.weights[..., None, None]
         squared_deviations = (self.values - self.mean.unsqueeze(-3)) ** 2
-        return (weights * squared_deviations).sum(dim=-3) / (1 - (weights**2).sum())
+        return (weights * squared_deviations).sum(dim=-3) / (
+            1 - (weights**2).sum(dim=-3)
+        )
 
     @property
     def mixture_mean(self) -> Tensor:
