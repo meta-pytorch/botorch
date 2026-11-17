@@ -637,7 +637,9 @@ def gen_candidates_torch(
             ...,
             [i for i in range(clamped_candidates.shape[-1]) if i not in fixed_features],
         ]
-    clamped_candidates = clamped_candidates.requires_grad_(True)
+    # Each solve optimizes independent decision variables. In particular, a
+    # previous solve (e.g. a homotopy stage) may return graph-attached starts.
+    clamped_candidates = clamped_candidates.detach().requires_grad_(True)
 
     # Extract optimizer-specific options from the options dict
     optimizer_options = options.get("optimizer_options", {}).copy()
