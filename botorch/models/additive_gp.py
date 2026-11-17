@@ -10,6 +10,7 @@ from contextlib import contextmanager
 from typing import Iterator, TYPE_CHECKING
 
 import torch
+from botorch.exceptions.errors import UnsupportedError
 from botorch.models.gp_regression import SingleTaskGP
 
 if TYPE_CHECKING:
@@ -139,14 +140,39 @@ class OrthogonalAdditiveGP(SingleTaskGP):
         Returns:
             The posterior distribution at X.
         """
-        # Use context manager to set inference mode, then delegate to GPyTorch
+        if (
+            infer_all_components
+            and hasattr(self, "outcome_transform")
+            and not self.outcome_transform._is_linear
+        ):
+            raise UnsupportedError(
+                "Additive components require a linear outcome transform."
+            )
+        # Apply a posterior transform only after assigning the outcome location
+        # to the bias, since a transform may alter or reduce the distribution.
         with self._component_inference_context(infer_all_components):
-            return super().posterior(
+            posterior = super().posterior(
                 X=X,
                 output_indices=output_indices,
                 observation_noise=observation_noise,
-                posterior_transform=posterior_transform,
+                posterior_transform=None,
             )
+        if infer_all_components and hasattr(self, "outcome_transform"):
+            mean = posterior.mean
+            location, _ = self.outcome_transform.untransform(
+                torch.zeros_like(mean), X=X
+            )
+            nonbias = torch.arange(self.num_components, device=mean.device) != 0
+            nonbias = nonbias.view(-1, *[1] * (mean.ndim - 1))
+            posterior = GPyTorchPosterior(
+                MultivariateNormal(
+                    (mean - nonbias * location).squeeze(-1),
+                    posterior.distribution.lazy_covariance_matrix,
+                )
+            )
+        if posterior_transform is not None:
+            posterior = posterior_transform(posterior, X=X)
+        return posterior
 
     def _get_test_prior_mean_and_covariances(
         self,
@@ -220,7 +246,11 @@ class OrthogonalAdditiveGP(SingleTaskGP):
         # can broadcast correctly: (num_components, *input_batch, m, n) @
         # (*input_batch, n, 1) broadcasts on the input_batch dims.
         num_components = self.covar_module.num_components
-        input_batch_shape = X_train.shape[:-2]
+        input_batch_shape = torch.broadcast_shapes(
+            X_train.shape[:-2], X_test.shape[:-2], self.covar_module.batch_shape
+        )
+        X_train = X_train.expand(*input_batch_shape, *X_train.shape[-2:])
+        X_test = X_test.expand(*input_batch_shape, *X_test.shape[-2:])
         batch_shape = torch.Size([num_components]) + input_batch_shape
 
         # The kernel's _non_reduced_forward returns tensors with shape
