@@ -189,10 +189,11 @@ class PyroModel:
         )
         X_warped = X.copy()
         X_sub = X_warped[:, indices]
-        # Clamp to [eps, 1-eps]
-        X_sub = jnp.clip(X_sub, eps, 1 - eps)
-        # Kumaraswamy CDF: 1 - (1 - x^c0)^c1
-        warped = 1 - (1 - X_sub**c0) ** c1
+        # Normalize to [eps, 1-eps] and apply the Kumaraswamy CDF
+        # 1 - (1 - x^c1)^c0, as in ``kumaraswamy_warp``, which is used by the
+        # ``Warp`` transform that the samples of c0 and c1 are loaded into.
+        X_sub = jnp.clip(X_sub * (1 - 2 * eps) + eps, eps, 1 - eps)
+        warped = 1 - (1 - X_sub**c1) ** c0
         X_warped = X_warped.at[:, indices].set(warped)
         return X_warped
 
