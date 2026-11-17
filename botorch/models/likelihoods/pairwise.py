@@ -196,12 +196,9 @@ class PairwiseLogitLikelihood(PairwiseLikelihood):
         return torch.sigmoid(logit)
 
     def negative_log_gradient_sum(self, utility: Tensor, D: Tensor) -> Tensor:
-        indices_shape = utility.shape[:-1] + (-1,)
-        winner_indices = (D == 1).nonzero(as_tuple=True)[-1].reshape(indices_shape)
-        loser_indices = (D == -1).nonzero(as_tuple=True)[-1].reshape(indices_shape)
-        ex = torch.exp(torch.gather(utility, -1, winner_indices))
-        ey = torch.exp(torch.gather(utility, -1, loser_indices))
-        unsigned_grad = ey / (ex + ey)
+        D = D.to(utility)
+        logit = (D @ utility.unsqueeze(-1)).squeeze(-1)
+        unsigned_grad = torch.sigmoid(-logit)
         grad = (unsigned_grad.unsqueeze(-2) @ (-D)).squeeze(-2)
         return grad
 
@@ -209,8 +206,7 @@ class PairwiseLogitLikelihood(PairwiseLikelihood):
         DT = D.transpose(-1, -2)
         # calculating f(v) - f(u) given u > v information in D
         neg_logit = -(D @ utility.unsqueeze(-1)).squeeze(-1)
-        term = torch.sigmoid(neg_logit)
-        mul_factor = term - (term) ** 2
+        mul_factor = torch.sigmoid(neg_logit) * torch.sigmoid(-neg_logit)
         mul_factor = mul_factor.unsqueeze(-2).expand(*DT.size())
         # multiply the hessian value by preference signs
         # (+1 if preferred or -1 otherwise) and sum over the m dimension
