@@ -64,3 +64,23 @@ class TestStoppingCriterion(BotorchTestCase):
                 # Verify criterion works after reset
                 self.assertFalse(sc(f_vals[0]))
                 self.assertEqual(sc.iter, 1)
+
+    def test_exponential_moving_average_in_place_updates(self):
+        # In-place updates of the values passed to the criterion, as in
+        # ``optimize_acqf_cyclic``, must not change the stored values.
+        for dtype in (torch.float, torch.double):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            f_vals = 1 + torch.linspace(1, 0, 25, **tkwargs) ** 2
+            f_vals = torch.stack([f_vals, 2 * f_vals], dim=-1)
+            for minimize in (True, False):
+                sc = ExpMAStoppingCriterion(
+                    minimize=minimize, n_window=4, rel_tol=0.0375
+                )
+                sc_ref = ExpMAStoppingCriterion(
+                    minimize=minimize, n_window=4, rel_tol=0.0375
+                )
+                fvals = f_vals[0].clone()
+                for f in f_vals:
+                    fvals[:] = f
+                    self.assertEqual(sc(fvals), sc_ref(f.clone()))
+                    self.assertTrue(torch.equal(sc._prev_fvals, sc_ref._prev_fvals))

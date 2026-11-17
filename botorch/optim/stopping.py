@@ -103,7 +103,9 @@ class ExpMAStoppingCriterion:
             return True
 
         if self._prev_fvals is None:
-            self._prev_fvals = fvals.unsqueeze(0)
+            # Copy the values, which callers may update in place (e.g. the
+            # acquisition values in ``optimize_acqf_cyclic``).
+            self._prev_fvals = fvals.unsqueeze(0).clone()
         else:
             self._prev_fvals = torch.cat(
                 [self._prev_fvals[-self.n_window :], fvals.unsqueeze(0)]
