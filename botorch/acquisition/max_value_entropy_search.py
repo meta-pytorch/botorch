@@ -434,7 +434,17 @@ class qMaxValueEntropy(MaxValueBase, MCSamplerMixin):
         h0 = -log_pdf_fm
         H0_bar = h0.mean(dim=dim)
         cov = ((h1 - H1_bar) * (h0 - H0_bar)).mean(dim=dim)
-        beta = cov / (h0.var(dim=dim) * h1.var(dim=dim)).sqrt()
+        if h0.shape[0] * h0.shape[1] <= 1:
+            beta = torch.zeros_like(cov)
+        else:
+            variance_product = h0.var(dim=dim) * h1.var(dim=dim)
+            valid = (variance_product > 0) & torch.isfinite(variance_product)
+            # Select a positive denominator before sqrt so an inactive branch
+            # cannot record a singular first or second derivative.
+            denominator = torch.where(
+                valid, variance_product, torch.ones_like(variance_product)
+            ).sqrt()
+            beta = torch.where(valid, cov, torch.zeros_like(cov)) / denominator
         H1_hat = H1_bar - beta * (H0_bar - H0)
         ig = H0 - H1_hat  # batch_shape x num_fantasies x (m)
         permute_idcs = [-1, *range(ig.ndim - 1)]
