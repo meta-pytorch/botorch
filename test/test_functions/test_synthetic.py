@@ -4,6 +4,9 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+import math
+from itertools import product
+
 import torch
 from botorch.exceptions.errors import InputDataError
 from botorch.test_functions.synthetic import (
@@ -457,14 +460,33 @@ class TestConstrainedHartmann(
     SyntheticTestFunctionTestCaseMixin,
     ConstrainedTestProblemTestCaseMixin,
 ):
-    for dim in [3, 6]:
-        functions = [
+    functions = [
+        f
+        for dim in [3, 6]
+        for f in [
             ConstrainedHartmann(dim=dim, negate=True),
             ConstrainedHartmann(noise_std=0.1, dim=dim, negate=True),
             ConstrainedHartmann(
                 noise_std=0.1, constraint_noise_std=0.2, dim=dim, negate=True
             ),
         ]
+    ]
+
+    def test_optimizer_is_feasible(self):
+        for dim, dtype in product((3, 6), (torch.float, torch.double)):
+            f = ConstrainedHartmann(dim=dim).to(device=self.device, dtype=dtype)
+            self.assertTrue(f.is_feasible(f.optimizers, noise=False).all())
+            self.assertAllClose(
+                f.evaluate_true(f.optimizers),
+                torch.full((1,), f.optimal_value, device=self.device, dtype=dtype),
+                atol=1e-5,
+                rtol=0,
+            )
+        # In 3 dimensions, the unconstrained optimizer violates the constraint.
+        f = ConstrainedHartmann(dim=3)
+        x_unc = Hartmann(dim=3).optimizers
+        self.assertFalse(f.is_feasible(x_unc, noise=False).item())
+        self.assertLess(Hartmann(dim=3).optimal_value, f.optimal_value)
 
 
 class TestConstrainedHartmannSmooth(
@@ -473,13 +495,24 @@ class TestConstrainedHartmannSmooth(
     SyntheticTestFunctionTestCaseMixin,
     ConstrainedTestProblemTestCaseMixin,
 ):
-    for dim in [3, 6]:
-        functions = [
+    functions = [
+        f
+        for dim in [3, 6]
+        for f in [
             ConstrainedHartmannSmooth(dim=dim, negate=True),
             ConstrainedHartmannSmooth(
                 dim=dim, noise_std=0.1, constraint_noise_std=0.2, negate=True
             ),
         ]
+    ]
+
+    def test_optimizer_is_feasible(self):
+        for dim, dtype in product((3, 6), (torch.float, torch.double)):
+            f = ConstrainedHartmannSmooth(dim=dim).to(device=self.device, dtype=dtype)
+            self.assertTrue(f.is_feasible(f.optimizers, noise=False).all())
+            self.assertEqual(
+                f.optimal_value, ConstrainedHartmann(dim=dim).optimal_value
+            )
 
 
 class TestPressureVessel(
@@ -494,6 +527,28 @@ class TestPressureVessel(
             noise_std=0.1, constraint_noise_std=[0.1, 0.2, 0.1, 0.2], negate=True
         ),
     ]
+
+    def test_rounding(self):
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        f = PressureVessel().to(**tkwargs)
+        # The thicknesses are rounded to multiples of 0.0625 in both the objective
+        # and the constraints. Rounding x_1 = 0.84374 down to 0.8125 violates the
+        # first constraint, 0.0193 * x_3 <= x_1.
+        X = torch.tensor([0.84374, 0.4375, 43.7170974, 157.5607547], **tkwargs)
+        X_round = torch.tensor([0.8125, 0.4375, 43.7170974, 157.5607547], **tkwargs)
+        self.assertAllClose(f.evaluate_true(X), f.evaluate_true(X_round))
+        self.assertAllClose(f.evaluate_slack_true(X), f.evaluate_slack_true(X_round))
+        self.assertFalse(f.is_feasible(X, noise=False).item())
+        # Feasible design close to the optimum.
+        X_opt = torch.tensor([0.8125, 0.4375, 42.09844, 176.6367], **tkwargs)
+        self.assertTrue(f.is_feasible(X_opt, noise=False).item())
+        self.assertGreaterEqual(f.evaluate_true(X_opt).item(), f.optimal_value)
+        self.assertLess(f.evaluate_true(X_opt).item(), f.optimal_value + 0.01)
+        # The objective is increasing in all inputs and the upper corner is feasible.
+        self.assertTrue(f.is_feasible(f.bounds[1], noise=False).item())
+        self.assertAlmostEqual(
+            f.evaluate_true(f.bounds[1]).item(), f.worst_feasible_value, places=6
+        )
 
 
 class TestSpeedReducer(
@@ -520,16 +575,56 @@ class TestTensionCompressionString(
         ),
     ]
 
+    def test_optimal_value(self):
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        f = TensionCompressionString().to(**tkwargs)
+        # A feasible design whose value is within 1e-6 of the optimal value.
+        X = torch.tensor([0.05169, 0.35673, 11.289], **tkwargs)
+        self.assertTrue(f.is_feasible(X, noise=False).item())
+        f_X = f.evaluate_true(X).item()
+        self.assertGreaterEqual(f_X, f.optimal_value)
+        self.assertLess(f_X, f.optimal_value + 1e-6)
+
 
 class TestWeldedBeamSO(
     BotorchTestCase,
     BaseTestProblemTestCaseMixIn,
     ConstrainedTestProblemTestCaseMixin,
+    SyntheticTestFunctionTestCaseMixin,
 ):
     functions = [
         WeldedBeamSO(),
         WeldedBeamSO(noise_std=0.1, constraint_noise_std=[0.2] * 6),
     ]
+
+    def test_buckling_constraint(self):
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        f = WeldedBeamSO().to(**tkwargs)
+        P, L, E, G = 6000.0, 14.0, 30e6, 12e6
+        X = torch.tensor([[0.2, 3.5, 9.0, 0.21], [1.0, 2.0, 3.0, 4.0]], **tkwargs)
+        x3, x4 = X[:, 2], X[:, 3]
+        # P_c = 4.013 E sqrt(x3^2 x4^6 / 36) / L^2 (1 - x3 / (2L) sqrt(E / (4G)))
+        P_c = (
+            4.013
+            * E
+            * (x3.pow(2) * x4.pow(6) / 36).sqrt()
+            / L**2
+            * (1 - x3 / (2 * L) * math.sqrt(E / (4 * G)))
+        )
+        self.assertAllClose(f.evaluate_slack_true(X)[:, -1], P_c - P)
+        # This design satisfies all constraints except for the buckling constraint.
+        X = torch.tensor([0.168, 4.1, 10.0, 0.1681], **tkwargs)
+        self.assertLess(f.evaluate_true(X).item(), f.optimal_value)
+        self.assertTrue((f.evaluate_slack_true(X)[:-1] >= 0).all())
+        self.assertFalse(f.is_feasible(X, noise=False).item())
+        # The best known design is feasible.
+        self.assertTrue(f.is_feasible(f.optimizers, noise=False).all())
+        self.assertAllClose(
+            f.evaluate_true(f.optimizers),
+            torch.full((1,), f.optimal_value, **tkwargs),
+            atol=1e-5,
+            rtol=0,
+        )
 
 
 class TestKeaneBumpFunction(
