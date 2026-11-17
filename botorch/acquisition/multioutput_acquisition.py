@@ -14,10 +14,8 @@ import torch
 from botorch.acquisition.acquisition import AcquisitionFunction
 from botorch.exceptions.errors import UnsupportedError
 from botorch.models.model import Model
-from botorch.utils.transforms import (
-    average_over_ensemble_models,
-    t_batch_mode_transform,
-)
+from botorch.posteriors.fully_bayesian import MCMC_DIM
+from botorch.utils.transforms import is_ensemble, t_batch_mode_transform
 from torch import Tensor
 
 
@@ -80,7 +78,6 @@ class MultiOutputPosteriorMean(MultiOutputAcquisitionFunction):
         self.register_buffer("weights", weights)
 
     @t_batch_mode_transform(expected_q=1, assert_output_shape=False)
-    @average_over_ensemble_models
     def forward(self, X: Tensor) -> Tensor:
         r"""Evaluate the acquisition function on the candidate set X.
 
@@ -92,7 +89,12 @@ class MultiOutputPosteriorMean(MultiOutputAcquisitionFunction):
             A ``(b) x m``-dim Tensor of acquisition function values at the given
             design points ``X``.
         """
-        mean = self.model.posterior(X).mean.squeeze(-2)
+        mean = self.model.posterior(X).mean
+        if is_ensemble(self.model):
+            # Average over the ensemble dimension. ``average_over_ensemble_models``
+            # cannot be used here, since it reduces the last (output) dimension.
+            mean = mean.mean(dim=MCMC_DIM)
+        mean = mean.squeeze(-2)
         if self.weights is not None:
             return mean * self.weights
         return mean
