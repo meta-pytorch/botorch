@@ -22,6 +22,8 @@ problem as a single-output problem with `(n*m)` observations.
 
 from __future__ import annotations
 
+from typing import Any
+
 import torch
 from botorch.acquisition.objective import PosteriorTransform
 from botorch.exceptions.errors import UnsupportedError
@@ -578,7 +580,8 @@ class MultiOutputEmpiricalOneDimensionalGP(ExactGP, GPyTorchModel):
             X: `q x 1`-dim Tensor of input locations.
             output_indices: Not supported; must be None (raises otherwise).
             observation_noise: If a bool, whether to add the model's observation
-                noise to the posterior; requires either `train_Yvar` or a
+                noise to the posterior; requires either `train_Yvar` (whose
+                average over the training points is added for each output) or a
                 `GaussianLikelihood` (raises otherwise). If a Tensor, per-point
                 noise variances broadcastable to the trailing `(q, m)` grid --
                 e.g. a scalar, `(m,)` per-output, `(q, 1)` per-point, or a full
@@ -644,9 +647,16 @@ class MultiOutputEmpiricalOneDimensionalGP(ExactGP, GPyTorchModel):
             posterior_cov = posterior_cov + to_linear_operator(noise_cov)
         elif observation_noise:
             if self._train_Yvar_flat is not None:
-                avg_noise = self._train_Yvar_flat.mean().to(X)
+                # Average the observation noise of each output separately (as the
+                # batched multi-output models do), not across outputs. The flat
+                # noise is interleaved, so unflatten it to ``n x m`` first.
+                Yvar = self._train_Yvar_flat.to(X).unflatten(-1, (-1, m))
+                avg_noise = Yvar.mean(dim=-2, keepdim=True)
+                avg_noise = avg_noise.expand(*Yvar.shape[:-2], q, m).flatten(-2)
+                noise_eye = torch.diag_embed(avg_noise)
             elif isinstance(self.likelihood, GaussianLikelihood):
                 avg_noise = self.likelihood.noise.to(X)
+                noise_eye = avg_noise * torch.eye(q * m, dtype=X.dtype, device=X.device)
             else:
                 # Previously this fell through to ``avg_noise = 0.0``, silently
                 # returning a noiseless posterior for a caller that explicitly
@@ -661,7 +671,6 @@ class MultiOutputEmpiricalOneDimensionalGP(ExactGP, GPyTorchModel):
                     "`train_Yvar` at construction, or supply the noise explicitly "
                     "as a Tensor via `observation_noise`."
                 )
-            noise_eye = avg_noise * torch.eye(q * m, dtype=X.dtype, device=X.device)
             posterior_cov = posterior_cov + to_linear_operator(noise_eye)
 
         # Reshape mean from (q*m) to q x m
@@ -681,3 +690,34 @@ class MultiOutputEmpiricalOneDimensionalGP(ExactGP, GPyTorchModel):
             return posterior_transform(posterior)
 
         return posterior
+
+    def condition_on_observations(
+        self, X: Tensor, Y: Tensor, noise: Tensor | None = None, **kwargs: Any
+    ) -> MultiOutputEmpiricalOneDimensionalGP:
+        """Condition the model on new observations of all outputs.
+
+        The new data are brought into the same vectorized representation as the
+        training data (see ``__init__``) before conditioning: ``X`` is repeated
+        for each output and ``Y`` (and ``noise``) are flattened in the
+        interleaved ``(n' * m)`` ordering.
+
+        Args:
+            X: A `batch_shape x n' x 1`-dim Tensor of new inputs.
+            Y: A `batch_shape' x n' x m`-dim Tensor of new observations of all
+                `m` outputs, where `batch_shape'` must be broadcastable to
+                `batch_shape` (it may have one additional leading fantasy dim).
+            noise: An optional `batch_shape x n' x m`-dim Tensor of observation
+                noise variances of the new observations; required if the model
+                uses a fixed-noise likelihood (`train_Yvar`).
+            kwargs: Passed to `get_fantasy_model`.
+
+        Returns:
+            A `MultiOutputEmpiricalOneDimensionalGP` conditioned on the new
+            observations.
+        """
+        m = self._true_num_outputs
+        X = X.repeat_interleave(m, dim=-2)
+        Y = Y.reshape(*Y.shape[:-2], -1, 1)
+        if noise is not None:
+            noise = noise.reshape(*noise.shape[:-2], -1, 1)
+        return super().condition_on_observations(X=X, Y=Y, noise=noise, **kwargs)

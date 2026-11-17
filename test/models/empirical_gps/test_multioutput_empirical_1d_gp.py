@@ -984,6 +984,86 @@ class TestMultiOutputEmpiricalOneDimensionalGP(BotorchTestCase):
                 X_full=historical_X, Y_full=historical_Y, ard=False, correction=nc
             )
 
+    def test_condition_on_observations(self) -> None:
+        """Conditioning on new observations of all outputs equals a refit."""
+        torch.manual_seed(0)
+        tkwargs = {"device": self.device, "dtype": self.dtype}
+        train_X, train_Y, _, historical_X, historical_Y = self._get_data(num_train=6)
+        m = train_Y.shape[-1]
+        new_X = torch.tensor([[2.5], [7.3]], **tkwargs)
+        new_Y = torch.randn(2, m, **tkwargs)
+        test_X = torch.tensor([[1.7], [4.4], [8.9]], **tkwargs)
+
+        def _model(X: Tensor, Y: Tensor, fixed_noise: bool):
+            Yvar = torch.full_like(Y, 0.01) if fixed_noise else None
+            model = MultiOutputEmpiricalOneDimensionalGP(
+                train_X=X,
+                train_Y=Y,
+                train_Yvar=Yvar,
+                historical_X=historical_X,
+                historical_Y=historical_Y,
+            )
+            if not fixed_noise:
+                model.likelihood.noise = 0.01
+            model.eval()
+            return model
+
+        for fixed_noise in (False, True):
+            with self.subTest(fixed_noise=fixed_noise):
+                model = _model(train_X, train_Y, fixed_noise)
+                model.posterior(test_X)  # populate the prediction caches
+                noise = torch.full_like(new_Y, 0.01) if fixed_noise else None
+                conditioned = model.condition_on_observations(new_X, new_Y, noise=noise)
+                refit = _model(
+                    torch.cat([train_X, new_X]),
+                    torch.cat([train_Y, new_Y]),
+                    fixed_noise,
+                )
+                post = conditioned.posterior(test_X)
+                post_refit = refit.posterior(test_X)
+                self.assertEqual(post.mean.shape, torch.Size([3, m]))
+                self.assertAllClose(post.mean, post_refit.mean, atol=1e-6)
+                self.assertAllClose(post.variance, post_refit.variance, atol=1e-6)
+
+                # A batch of fantasies, e.g. as generated for fantasize.
+                Y_batch = torch.stack([new_Y, new_Y + 1.0])
+                post_batch = model.condition_on_observations(
+                    new_X, Y_batch, noise=noise
+                ).posterior(test_X)
+                self.assertEqual(post_batch.mean.shape, torch.Size([2, 3, m]))
+                self.assertAllClose(post_batch.mean[0], post.mean, atol=1e-6)
+                post_shifted = model.condition_on_observations(
+                    new_X, new_Y + 1.0, noise=noise
+                ).posterior(test_X)
+                self.assertAllClose(post_batch.mean[1], post_shifted.mean, atol=1e-6)
+
+    def test_observation_noise_per_output(self) -> None:
+        """`observation_noise=True` adds the average `train_Yvar` of each output."""
+        tkwargs = {"device": self.device, "dtype": self.dtype}
+        train_X, train_Y, _, historical_X, historical_Y = self._get_data(num_train=4)
+        train_Yvar = torch.stack(
+            [
+                torch.linspace(1e-4, 3e-4, 4, **tkwargs),
+                torch.linspace(0.5, 1.5, 4, **tkwargs),
+            ],
+            dim=-1,
+        )
+        model = MultiOutputEmpiricalOneDimensionalGP(
+            train_X=train_X,
+            train_Y=train_Y,
+            train_Yvar=train_Yvar,
+            historical_X=historical_X,
+            historical_Y=historical_Y,
+        )
+        test_X = historical_X[:3]
+        added_noise = (
+            model.posterior(test_X, observation_noise=True).variance
+            - model.posterior(test_X).variance
+        )
+        self.assertAllClose(
+            added_noise, train_Yvar.mean(dim=0).expand(3, 2), atol=1e-10, rtol=1e-6
+        )
+
     @unittest.skipUnless(torch.cuda.is_available(), "requires CUDA")
     def test_observation_noise_follows_query_tensor(self) -> None:
         """`observation_noise=True` must read the noise onto the query tensor.
