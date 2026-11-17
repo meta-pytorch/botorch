@@ -9,7 +9,7 @@ r"""Utility functions for empirical one-dimensional Gaussian Processes."""
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable
+from typing import Any, Callable
 
 import torch
 from botorch.exceptions.errors import UnsupportedError
@@ -272,8 +272,10 @@ class LinearInterpolation1D(Module):
             accordingly.
 
     Note:
-        ``assume_sorted`` is a construction-time optimization flag and is not
-        stored — after construction, ``_x`` is always sorted.
+        ``_x`` and ``_y`` are sorted snapshots in the state dictionary. Forward
+        calls rebuild differentiable sorted views of the original input data,
+        so separate evaluations can be differentiated independently. Loading
+        state or editing the sorted buffers replaces that original data.
 
     Example:
         >>> x = torch.linspace(0, 1, 10)
@@ -297,17 +299,65 @@ class LinearInterpolation1D(Module):
         if x.ndim != 1:
             raise UnsupportedError(f"Expected x to be 1-dim, but got {x.shape}.")
 
-        if not assume_sorted:
-            x_ind = torch.argsort(x)
-            x = x[x_ind]
-            y = y[..., x_ind]
-
-        self.register_buffer("_x", x)
-        self.register_buffer("_y", y)
+        self._assume_sorted = assume_sorted
+        self.register_buffer("_source_x", x, persistent=False)
+        self.register_buffer("_source_y", y, persistent=False)
+        knots, values = self._sorted_sources()
+        # Independent snapshots keep state_dict's existing sorted-buffer format
+        # without retaining the constructor's indexing graph or aliasing inputs.
+        self.register_buffer("_x", knots.detach().clone())
+        self.register_buffer("_y", values.detach().clone())
         self.register_buffer(
             "_bounds_error", torch.tensor(bounds_error, dtype=torch.bool)
         )
         self.register_buffer("_fill_value", torch.tensor(fill_value))
+        self._record_versions()
+
+    def _sorted_sources(self) -> tuple[Tensor, Tensor]:
+        if self._assume_sorted:
+            return self._source_x, self._source_y
+        order = self._source_x.argsort()
+        return self._source_x[order], self._source_y[..., order]
+
+    def _buffer_versions(self) -> tuple:
+        versions = []
+        for value in (self._x, self._y):
+            try:
+                version = value._version
+            except RuntimeError:  # Inference-mode tensors have no version counter.
+                version = None
+            versions.append((id(value), version, value.requires_grad))
+        return tuple(versions)
+
+    def _record_versions(self) -> None:
+        self._public_versions = self._buffer_versions()
+
+    def _adopt_public_changes(self) -> None:
+        if self._buffer_versions() != self._public_versions:
+            self._source_x, self._source_y = self._x, self._y
+            self._assume_sorted = True
+
+    def _update_snapshots(self, knots: Tensor, values: Tensor) -> None:
+        self._x, self._y = knots.detach().clone(), values.detach().clone()
+        self._record_versions()
+
+    def _save_to_state_dict(self, *args: Any, **kwargs: Any) -> None:
+        self._adopt_public_changes()
+        self._update_snapshots(*self._sorted_sources())
+        super()._save_to_state_dict(*args, **kwargs)
+
+    def _load_from_state_dict(self, *args: Any, **kwargs: Any) -> None:
+        super()._load_from_state_dict(*args, **kwargs)
+        self._source_x, self._source_y = self._x, self._y
+        self._assume_sorted = True
+        self._update_snapshots(self._source_x, self._source_y)
+
+    def _apply(self, fn: Callable, recurse: bool = True) -> LinearInterpolation1D:
+        self._adopt_public_changes()
+        self._update_snapshots(*self._sorted_sources())
+        result = super()._apply(fn, recurse)
+        self._record_versions()
+        return result
 
     def forward(self, x_new: Tensor) -> Tensor:
         """Interpolates y at x_new.
@@ -319,13 +369,17 @@ class LinearInterpolation1D(Module):
             y_new: `batch_size x new_batch_size x m`-dim Tensor of
                 interpolated values.
         """
-        return _interp1d_torch(
-            x=self._x,
-            y=self._y,
+        self._adopt_public_changes()
+        knots, values = self._sorted_sources()
+        result = _interp1d_torch(
+            x=knots,
+            y=values,
             x_new=x_new,
             bounds_error=self._bounds_error.item(),
             fill_value=self._fill_value.item(),
         )
+        self._update_snapshots(knots, values)
+        return result
 
 
 def _interp1d_torch(
