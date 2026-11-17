@@ -47,14 +47,14 @@ def is_non_dominated(
     if n > 1000 or n**2 * Y.shape[:-2].numel() * el_size / 8 > MAX_BYTES:
         return _is_non_dominated_loop(Y, maximize=maximize, deduplicate=deduplicate)
 
-    is_all_nan = Y.isnan().all(dim=-1)  # edge case: all elements are NaN
+    is_nan = Y.isnan().any(dim=-1)
     Y1 = Y.unsqueeze(-3)
     Y2 = Y.unsqueeze(-2)
     if maximize:
         dominates = (Y1 >= Y2).all(dim=-1) & (Y1 > Y2).any(dim=-1)
     else:
         dominates = (Y1 <= Y2).all(dim=-1) & (Y1 < Y2).any(dim=-1)
-    nd_mask = ~(dominates.any(dim=-1)) & ~is_all_nan
+    nd_mask = ~(dominates.any(dim=-1)) & ~is_nan
     if deduplicate:
         # remove duplicates
         # find index of first occurrence  of each unique element
@@ -86,7 +86,7 @@ def _is_non_dominated_loop(
         A ``(batch_shape) x n``-dim Tensor of booleans indicating whether each point is
             non-dominated.
     """
-    is_efficient = torch.ones(*Y.shape[:-1], dtype=bool, device=Y.device)
+    is_efficient = ~Y.isnan().any(dim=-1)
     for i in range(Y.shape[-2]):
         i_is_efficient = is_efficient[..., i]
         if i_is_efficient.any():
