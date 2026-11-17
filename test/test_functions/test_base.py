@@ -4,12 +4,17 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+from functools import partial
+
 import torch
 from botorch.test_functions.base import (
     BaseTestProblem,
+    constant_outlier_generator,
     ConstrainedBaseTestProblem,
+    CorruptedTestProblem,
     validate_parameter_indices,
 )
+from botorch.test_functions.synthetic import Rosenbrock
 from botorch.utils.testing import BotorchTestCase, TestCorruptedProblemsMixin
 from botorch.utils.transforms import unnormalize
 from torch import Tensor
@@ -194,3 +199,14 @@ class TestCorruptedTestProblem(TestCorruptedProblemsMixin):
         result = problem(x)
         # the outlier_generator sets corruptions to 1
         self.assertTrue((result == 1).all())
+
+    def test_device(self) -> None:
+        problem = CorruptedTestProblem(
+            base_test_problem=Rosenbrock(),
+            outlier_generator=partial(constant_outlier_generator, constant=1.0),
+            outlier_fraction=1.0,
+        ).to(self.device)
+        X = torch.rand(5, 2, device=self.device, dtype=torch.double)
+        Y = problem(X)
+        self.assertEqual(Y.device.type, self.device.type)
+        self.assertTrue((Y == 1).all())
