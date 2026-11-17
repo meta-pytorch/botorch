@@ -8,7 +8,6 @@ r"""Representations for different kinds of data."""
 
 from __future__ import annotations
 
-import dataclasses
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, fields
 from typing import Any
@@ -102,7 +101,9 @@ class DenseContainer(BotorchContainer):
                 )
 
     def clone(self) -> DenseContainer:
-        return dataclasses.replace(self)
+        return type(self)(
+            values=self.values.clone(), event_shape=torch.Size(self.event_shape)
+        )
 
 
 @dataclass(eq=False, slots=True, kw_only=True)
