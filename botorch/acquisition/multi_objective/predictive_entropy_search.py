@@ -30,6 +30,7 @@ from botorch.exceptions.errors import UnsupportedError
 from botorch.models.model import Model
 from botorch.models.model_list_gp_regression import ModelListGP
 from botorch.models.utils import check_no_nans
+from botorch.sampling.pathwise.utils import get_train_inputs
 from botorch.utils.transforms import (
     average_over_ensemble_models,
     concatenate_pending_points,
@@ -139,10 +140,14 @@ class qMultiObjectivePredictiveEntropySearch(AcquisitionFunction):
         self.maximize = maximize
         self.set_X_pending(X_pending)
 
+        # EP evaluates ``model.posterior`` at the training inputs, which applies the
+        # input transform. Use the original training inputs: in eval mode,
+        # ``model.train_inputs`` are already transformed.
+        train_inputs = get_train_inputs(model, transformed=False)
         if model.num_outputs > 1 or isinstance(model, ModelListGP):
-            train_X = self.model.train_inputs[0][0]
+            train_X = train_inputs[0][0]
         else:
-            train_X = self.model.train_inputs[0]
+            train_X = train_inputs[0]
 
         # Batch GP models (e.g. fantasized models) are not currently supported
         if train_X.ndim > 2:
