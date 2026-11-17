@@ -635,12 +635,16 @@ class qNoisyExpectedImprovement(
         )
         if not self._cache_root:
             samples_full = super().get_posterior_samples(posterior)
-            samples = samples_full[..., -q:, :]
+            # With one-to-many input transforms (e.g., ``InputPerturbation``), there
+            # are ``n_w`` samples per input, which the objective (e.g., a risk
+            # measure) maps to one objective value per input.
+            q_in = q * (samples_full.shape[-2] // X_full.shape[-2])
+            samples = samples_full[..., -q_in:, :]
             obj_full = self.objective(samples_full, X=X_full)
             # assigning baseline buffers so ``best_f`` can be computed in
             # _sample_forward
             self.baseline_obj, obj = obj_full[..., :-q], obj_full[..., -q:]
-            self.baseline_samples = samples_full[..., :-q, :]
+            self.baseline_samples = samples_full[..., :-q_in, :]
         else:
             # handle one-to-many input transforms
             n_plus_q = X_full.shape[-2]
