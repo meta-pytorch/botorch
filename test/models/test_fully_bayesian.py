@@ -91,6 +91,23 @@ class CustomPyroModel(PyroModel):
 
 
 class TestPyroModelPriorMode(BotorchTestCase):
+    def test_prior_observations_have_one_value_per_point(self) -> None:
+        train_X = torch.linspace(0, 1, 5, device=self.device).unsqueeze(-1)
+        train_Y = train_X.sin()
+        for cls in [MaternPyroModel, SaasPyroModel, LinearPyroModel]:
+            for known_noise in (False, True):
+                with self.subTest(model=cls.__name__, known_noise=known_noise):
+                    noise = torch.full_like(train_Y, 0.03) if known_noise else None
+                    model = cls()
+                    model.set_inputs(train_X=train_X, train_Y=train_Y, train_Yvar=noise)
+                    model._prior_mode = True
+                    trace = numpyro.handlers.trace(
+                        numpyro.handlers.seed(model.sample, rng_seed=123)
+                    ).get_trace()
+                    self.assertEqual(trace["f"]["value"].shape, (5,))
+                    self.assertEqual(trace["Y"]["value"].shape, (5,))
+                    self.assertEqual(trace["Y"]["fn"].batch_shape, (5,))
+
     """Tests for the _prior_mode attribute and sample_observations method."""
 
     def test_prior_mode_attribute_on_base_class(self) -> None:
