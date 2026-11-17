@@ -41,6 +41,19 @@ class ToyModule(Module):
 
 
 class TestForwardBackwardClosure(BotorchTestCase):
+    def test_constant_objective(self) -> None:
+        parameter = Parameter(torch.ones(2, device=self.device))
+        parameter.grad = torch.ones_like(parameter)
+        closure = ForwardBackwardClosure(
+            lambda: parameter.new_tensor(3.0), {"parameter": parameter}
+        )
+        value, gradients = closure()
+        self.assertEqual(value.item(), 3.0)
+        self.assertTrue(gradients[0] is None or gradients[0].eq(0).all())
+        wrapped = NdarrayOptimizationClosure(closure, {"parameter": parameter})
+        value, gradients = wrapped()
+        np.testing.assert_array_equal(gradients, np.zeros(2))
+
     def setUp(self, suppress_input_warnings: bool = True) -> None:
         super().setUp(suppress_input_warnings=suppress_input_warnings)
         module = ToyModule(
@@ -194,6 +207,18 @@ class TestNdarrayOptimizationClosure(BotorchTestCase):
 
 
 class TestBatchedNDarrayOptimizationClosure(BotorchTestCase):
+    def test_constant_objective(self) -> None:
+        parameter = Parameter(torch.ones(2, 3, device=self.device))
+        parameter.grad = torch.ones_like(parameter)
+        closure = BatchedNDarrayOptimizationClosure(
+            lambda: parameter.new_tensor([3.0, 5.0]),
+            {"parameter": parameter},
+            batch_shape=torch.Size([2]),
+        )
+        values, gradients = closure()
+        np.testing.assert_array_equal(values, np.array([3.0, 5.0]))
+        np.testing.assert_array_equal(gradients, np.zeros((2, 3)))
+
     def _make_closure(
         self, m: int = 2, d: int = 2, n: int = 5
     ) -> tuple[BatchedNDarrayOptimizationClosure, SingleTaskGP]:
