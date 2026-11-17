@@ -29,7 +29,13 @@ from botorch.utils.datasets import MultiTaskDataset, SupervisedDataset
 from botorch.utils.test_helpers import gen_multi_task_dataset
 from botorch.utils.testing import BotorchTestCase
 from gpytorch.distributions import MultitaskMultivariateNormal, MultivariateNormal
-from gpytorch.kernels import IndexKernel, MaternKernel, MultitaskKernel, RBFKernel
+from gpytorch.kernels import (
+    IndexKernel,
+    MaternKernel,
+    MultitaskKernel,
+    ProductKernel,
+    RBFKernel,
+)
 from gpytorch.likelihoods import (
     FixedNoiseGaussianLikelihood,
     GaussianLikelihood,
@@ -465,6 +471,37 @@ class TestMultiTaskGP(BotorchTestCase):
             self.assertIsInstance(data_covar_module.lengthscale_prior, LogNormalPrior)
             self.assertAlmostEqual(data_covar_module.lengthscale_prior.loc, 0.0)
             self.assertAlmostEqual(data_covar_module.lengthscale_prior.scale, 1.0)
+
+    def test_MultiTaskGP_product_covar_module(self) -> None:
+        # A ``ProductKernel`` ``covar_module`` keeps its ``active_dims``, so that it
+        # only acts on the non-task features.
+        for dtype in (torch.float, torch.double):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            train_X = torch.rand(8, 3, **tkwargs)
+            train_X[:, -1] = torch.tensor([0.0, 1.0] * 4, **tkwargs)
+            train_Y = torch.randn(8, 1, **tkwargs)
+            covar_module = ProductKernel(RBFKernel(), MaternKernel())
+            model = MultiTaskGP(
+                train_X,
+                train_Y,
+                task_feature=-1,
+                covar_module=covar_module,
+                all_tasks=[0, 1, 2],
+            ).to(**tkwargs)
+            data_covar_module, task_covar_module = model.covar_module.kernels
+            self.assertIs(data_covar_module, covar_module)
+            self.assertIsInstance(task_covar_module, PositiveIndexKernel)
+            self.assertEqual(data_covar_module.active_dims.tolist(), [0, 1])
+            # ``eval`` sets the task covariance of the unobserved task.
+            model.eval()
+            X_data, task_idcs = train_X[:, :2], train_X[:, -1].long()
+            rbf, matern = covar_module.kernels
+            expected = (
+                rbf(X_data).to_dense()
+                * matern(X_data).to_dense()
+                * task_covar_module.covar_matrix[task_idcs][:, task_idcs]
+            )
+            self.assertAllClose(model.covar_module(train_X).to_dense(), expected)
 
     def test_custom_mean_and_likelihood(self) -> None:
         tkwargs = {"device": self.device, "dtype": torch.double}
