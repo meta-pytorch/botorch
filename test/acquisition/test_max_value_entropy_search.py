@@ -66,6 +66,17 @@ class TestMaxValueEntropySearch(BotorchTestCase):
                     candidate_set=candidate_set,
                 )
 
+            # test error in case of a batched candidate set (also if its number of
+            # points equals the number of training points)
+            for acqf_cls in (qMaxValueEntropy, qLowerBoundMaxValueEntropy):
+                for n in (10, 50):
+                    with self.assertRaisesRegex(
+                        UnsupportedError, "Batched candidate sets are not supported"
+                    ):
+                        acqf_cls(
+                            model=model, candidate_set=candidate_set.view(-1, n, 2)
+                        )
+
             # test with X_pending is None
             qMVE = qMaxValueEntropy(
                 model=model, candidate_set=candidate_set, num_mv_samples=5
