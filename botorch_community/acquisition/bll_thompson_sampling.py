@@ -9,6 +9,7 @@ from __future__ import annotations
 import numpy as np
 import scipy
 import torch
+from botorch.exceptions.errors import UnsupportedError
 from botorch.logging import logger
 from botorch_community.models.blls import AbstractBLLModel
 from torch.func import grad
@@ -45,6 +46,8 @@ class BLLMaxPosteriorSampling:
         Raises:
             ValueError:
                 If the provided ``model`` is not an instance of ``AbstractBLLModel``.
+            UnsupportedError:
+                If the provided ``model`` has more than one output.
 
         Notes:
             - If ``bounds`` is not provided, the default range [0,1] is assumed for each
@@ -53,6 +56,11 @@ class BLLMaxPosteriorSampling:
         if not isinstance(model, AbstractBLLModel):
             raise ValueError(
                 f"Model must be an instance of AbstractBLLModel, is {type(model)}"
+            )
+        if model.num_outputs != 1:
+            raise UnsupportedError(
+                "BLLMaxPosteriorSampling only supports single-output models, but "
+                f"the model has {model.num_outputs} outputs."
             )
 
         self.model = model

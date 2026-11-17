@@ -8,6 +8,7 @@ import unittest.mock as mock
 
 import numpy as np
 import torch
+from botorch.exceptions.errors import UnsupportedError
 from botorch.utils.testing import BotorchTestCase
 from botorch_community.acquisition.bll_thompson_sampling import BLLMaxPosteriorSampling
 from botorch_community.models.vblls import VBLLModel
@@ -56,6 +57,21 @@ class TestBLLMaxPosteriorSampling(BotorchTestCase):
         non_bll_model = torch.nn.Linear(2, 1)
         with self.assertRaises(ValueError):
             BLLMaxPosteriorSampling(model=non_bll_model)
+
+    def test_multi_output_model_unsupported(self) -> None:
+        """Test that multi-output models raise (no objective to select the max)."""
+        multi_output_model = VBLLModel(
+            in_features=2,
+            hidden_features=3,
+            num_layers=1,
+            out_features=2,
+            device=self.device,
+        )
+        for discrete_inputs in (False, True):
+            with self.assertRaisesRegex(UnsupportedError, "single-output"):
+                BLLMaxPosteriorSampling(
+                    model=multi_output_model, discrete_inputs=discrete_inputs
+                )
 
     def test_call_discrete_inputs(self) -> None:
         """Test __call__ method with discrete inputs."""
