@@ -1286,6 +1286,54 @@ class TestFullyBayesianLinearWarpingSingleTaskGP(TestFullyBayesianLinearSingleTa
     model_kwargs = {"use_input_warping": True}
 
 
+class TestFullyBayesianExplicitNoise(BotorchTestCase):
+    def test_batched_prediction_noise(self) -> None:
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.linspace(0, 1, 6, **tkwargs).unsqueeze(-1)
+        train_Y = (3 * train_X).sin()
+        query = torch.tensor(
+            [[[0.1], [0.4], [0.8]], [[0.2], [0.5], [0.9]]],
+            **tkwargs,
+            requires_grad=True,
+        )
+        noise = torch.full((2, 3, 1), 0.03, **tkwargs, requires_grad=True)
+        for cls in [
+            SaasFullyBayesianSingleTaskGP,
+            FullyBayesianSingleTaskGP,
+            FullyBayesianLinearSingleTaskGP,
+        ]:
+            with self.subTest(model=cls.__name__):
+                model = cls(train_X, train_Y, outcome_transform=None)
+                model.load_mcmc_samples(
+                    model.pyro_model.get_dummy_mcmc_samples(
+                        num_mcmc_samples=4,
+                        **tkwargs,
+                    )
+                )
+                posterior = model.posterior(query, observation_noise=noise)
+                self.assertEqual(posterior.mean.shape, torch.Size([2, 4, 3, 1]))
+                expected = [
+                    model.posterior(x, observation_noise=n)
+                    for x, n in zip(query, noise)
+                ]
+                self.assertAllClose(
+                    posterior.mean, torch.stack([p.mean for p in expected])
+                )
+                self.assertAllClose(
+                    posterior.distribution.covariance_matrix,
+                    torch.stack([p.distribution.covariance_matrix for p in expected]),
+                )
+                latent = model.posterior(query)
+                self.assertAllClose(
+                    posterior.variance - latent.variance,
+                    noise.unsqueeze(-3).expand(2, 4, 3, 1),
+                )
+                gradients = torch.autograd.grad(
+                    posterior.variance.sum(), (query, noise)
+                )
+                self.assertTrue(all(g.isfinite().all() for g in gradients))
+
+
 class TestNumpyVersionCheck(BotorchTestCase):
     def test_missing_jax_raises_on_instantiation(self) -> None:
         """Test that missing JAX raises ImportError at model instantiation."""
