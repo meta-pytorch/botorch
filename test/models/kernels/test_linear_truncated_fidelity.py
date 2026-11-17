@@ -124,6 +124,13 @@ class TestLinearTruncatedFidelityKernel(BotorchTestCase, BaseKernelTestCase):
         self.assertTrue(
             isinstance(kernel.covar_module_biased.lengthscale_prior, GammaPrior)
         )
+        # the documented defaults GammaPrior(3, 6) and GammaPrior(6, 2)
+        for prior, (concentration, rate) in (
+            (kernel.covar_module_unbiased.lengthscale_prior, (3.0, 6.0)),
+            (kernel.covar_module_biased.lengthscale_prior, (6.0, 2.0)),
+        ):
+            self.assertEqual(prior.concentration.item(), concentration)
+            self.assertEqual(prior.rate.item(), rate)
         kernel2 = LinearTruncatedFidelityKernel(
             fidelity_dims=[1, 2],
             dimension=3,
