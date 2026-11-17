@@ -172,6 +172,11 @@ class PyroModel:
         r"""Warp the input through a Kumaraswamy CDF."""
         return kumaraswamy_warp(X=X, c0=c0, c1=c1, eps=self._eps)
 
+    @property
+    def _warp_indices(self) -> list[int]:
+        r"""The indices of the inputs to warp. Defaults to all inputs."""
+        return list(range(self.ard_num_dims)) if self.indices is None else self.indices
+
     def _maybe_input_warp(self, X_jax: jax.Array) -> jax.Array:
         if self.use_input_warping:
             c0, c1 = self.sample_concentrations()
@@ -184,9 +189,7 @@ class PyroModel:
     def _warp_jax(self, X: jax.Array, c0: jax.Array, c1: jax.Array) -> jax.Array:
         r"""Warp the input through a Kumaraswamy CDF (JAX version)."""
         eps = self._eps
-        indices = (
-            list(range(self.ard_num_dims)) if self.indices is None else self.indices
-        )
+        indices = self._warp_indices
         X_warped = X.copy()
         X_sub = X_warped[:, indices]
         # Clamp to [eps, 1-eps]
@@ -580,13 +583,13 @@ class MaternPyroModel(PyroModel):
             new_value=mcmc_samples["lengthscale"],
         )
         if self.use_input_warping:
-            indices = (
-                list(range(self.ard_num_dims)) if self.indices is None else self.indices
-            )
-            bounds = torch.zeros(2, self.ard_num_dims, **tkwargs)
+            indices = self._warp_indices
+            # The inputs include the task feature for multi-task models.
+            d = self.train_X.shape[-1]
+            bounds = torch.zeros(2, d, **tkwargs)
             bounds[1] = 1
             warping_function = Warp(
-                d=self.ard_num_dims,
+                d=d,
                 batch_shape=batch_shape,
                 indices=indices,
                 bounds=bounds,
@@ -770,28 +773,31 @@ class LinearPyroModel(PyroModel):
         num_mcmc_samples = len(mcmc_samples["weight_variance"])
         batch_shape = torch.Size([num_mcmc_samples])
 
-        mean_module = ConstantMean(batch_shape=batch_shape).to(**tkwargs)
+        mean_module = self._build_mean_module(
+            mcmc_samples=mcmc_samples, batch_shape=batch_shape, **tkwargs
+        )
         covar_module = LinearKernel(
             batch_shape=batch_shape,
             ard_num_dims=self.ard_num_dims,
         ).to(**tkwargs)
 
-        bounds = torch.zeros(2, self.ard_num_dims, **tkwargs)
+        d = self.train_X.shape[-1]
+        data_indices = [i for i in range(d) if i != getattr(self, "task_feature", None)]
+        bounds = torch.zeros(2, d, **tkwargs)
         bounds[1] = 1
         input_tf = Normalize(
-            d=self.ard_num_dims,
+            d=d,
+            indices=data_indices if d != self.ard_num_dims else None,
             bounds=bounds,
             center=0.0,
             # batch shape passed here when using input warping
             # which is applied first and adds a batch dimension
             batch_shape=batch_shape if self.use_input_warping else torch.Size([]),
         )
-        indices = (
-            list(range(self.ard_num_dims)) if self.indices is None else self.indices
-        )
+        indices = self._warp_indices
         if self.use_input_warping:
             warping_function = Warp(
-                d=self.ard_num_dims,
+                d=d,
                 batch_shape=batch_shape,
                 indices=indices,
                 bounds=bounds,
@@ -826,9 +832,11 @@ class LinearPyroModel(PyroModel):
             target=covar_module.variance,
             new_value=mcmc_samples["weight_variance"],
         )
-        mean_module.constant.data = reshape_and_detach(
-            target=mean_module.constant.data,
-            new_value=mcmc_samples["mean"],
+        covar_module = self._build_multitask_covariance(
+            mcmc_samples=mcmc_samples,
+            covar_module=covar_module,
+            batch_shape=batch_shape,
+            **tkwargs,
         )
         return mean_module, covar_module, likelihood, input_tf
 
