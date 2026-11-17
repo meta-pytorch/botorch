@@ -14,6 +14,7 @@ import torch
 from gpytorch.distributions import MultitaskMultivariateNormal
 from gpytorch.distributions.multivariate_normal import MultivariateNormal
 from linear_operator import to_linear_operator
+from linear_operator.operators import BlockInterleavedLinearOperator
 
 
 def separate_mtmvn(mvn: MultitaskMultivariateNormal) -> list[MultivariateNormal]:
@@ -24,10 +25,27 @@ def separate_mtmvn(mvn: MultitaskMultivariateNormal) -> list[MultivariateNormal]
     # T150340766 Upstream as a class method on gpytorch MultitaskMultivariateNormal.
     full_covar = mvn.lazy_covariance_matrix
     num_data, num_tasks = mvn.mean.shape[-2:]
+    # Independent tasks of an interleaved MTMVN (e.g. from ``from_batch_mvn``, as for
+    # the posteriors of multi-output variational GPs) have a
+    # ``BlockInterleavedLinearOperator`` covariance with one block per task.
+    dense_blocks = None
+    if (
+        mvn._interleaved
+        and isinstance(full_covar, BlockInterleavedLinearOperator)
+        and full_covar.num_blocks == num_tasks
+    ):
+        # Indexing these covariances lazily (below, or via ``base_linear_op``) can
+        # raise or silently return wrong values if they contain lazily evaluated
+        # kernels whose batch shape has fewer dimensions than their inputs, since
+        # GPyTorch's ``Kernel.__getitem__`` then applies the batch indices to the
+        # wrong dimensions of the kernel parameters. So use the dense blocks.
+        dense_blocks = full_covar.base_linear_op.to_dense()
 
     mvns = []
     for c in range(num_tasks):
-        if mvn._interleaved:
+        if dense_blocks is not None:
+            task_covar = dense_blocks[..., c, :, :]
+        elif mvn._interleaved:
             # For interleaved: task c data points are at positions
             # c, c+num_tasks, c+2*num_tasks, ...
             # Must use tensor indexing for strided access.
