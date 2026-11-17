@@ -204,8 +204,9 @@ def log_prob_normal_in(a: Tensor, b: Tensor) -> Tensor:
     r"""Computes the probability that a standard normal random variable takes a value
     in \[a, b\], i.e. log(Phi(b) - Phi(a)), where Phi is the standard normal CDF.
     Returns accurate values and permits numerically stable backward passes for inputs
-    in [-1e100, 1e100] for double precision and [-1e20, 1e20] for single precision.
-    In contrast, a naive approach is not numerically accurate beyond [-10, 10].
+    in [-1e100, 1e100] for double precision and [-1e20, 1e20] for single precision,
+    as well as for infinite bounds, e.g. ``a = -inf``. In contrast, a naive approach
+    is not numerically accurate beyond [-10, 10].
 
     Args:
         a: Tensor of lower integration bounds of the Gaussian probability measure.
@@ -224,7 +225,12 @@ def log_prob_normal_in(a: Tensor, b: Tensor) -> Tensor:
         c = torch.where(rev_cond, -b, a)
         b = torch.where(rev_cond, -a, b)
         a = c  # after we updated b, can assign c to a
-    return logdiffexp(log_a=log_ndtr(a), log_b=log_ndtr(b))
+    # After the reversal, an infinite bound is either a = -inf, or b = inf if also
+    # a = -inf. We mask a = -inf explicitly since log_ndtr(-inf) = -inf, but the
+    # backward pass of log_ndtr at -inf is NaN, which would propagate to a and b.
+    a_is_inf = a.isneginf()
+    log_a = log_ndtr(a.masked_fill(a_is_inf, 0.0)).masked_fill(a_is_inf, -torch.inf)
+    return logdiffexp(log_a=log_a, log_b=log_ndtr(b))
 
 
 def swap_along_dim_(
@@ -341,20 +347,31 @@ def compute_log_prob_feas_from_bounds(
     log_prob = torch.zeros_like(means[..., 0])
     if len(con_lower_inds) > 0:
         i = con_lower_inds
-        dist_l = (con_lower - means[..., i]) / sigmas[..., i]
+        dist_l = _scaled_distance(con_lower, means[..., i], sigmas[..., i])
         log_prob = log_prob + log_ndtr(-dist_l).sum(dim=-1)  # 1 - Phi(x) = Phi(-x)
     if len(con_upper_inds) > 0:
         i = con_upper_inds
-        dist_u = (con_upper - means[..., i]) / sigmas[..., i]
+        dist_u = _scaled_distance(con_upper, means[..., i], sigmas[..., i])
         log_prob = log_prob + log_ndtr(dist_u).sum(dim=-1)
     if len(con_both_inds) > 0:
         i = con_both_inds
         con_lower, con_upper = con_both[:, 0], con_both[:, 1]
         # scaled distance to lower and upper constraint boundary:
-        dist_l = (con_lower - means[..., i]) / sigmas[..., i]
-        dist_u = (con_upper - means[..., i]) / sigmas[..., i]
+        dist_l = _scaled_distance(con_lower, means[..., i], sigmas[..., i])
+        dist_u = _scaled_distance(con_upper, means[..., i], sigmas[..., i])
         log_prob = log_prob + log_prob_normal_in(a=dist_l, b=dist_u).sum(dim=-1)
     return log_prob
+
+
+def _scaled_distance(bound: Tensor, mean: Tensor, sigma: Tensor) -> Tensor:
+    r"""Computes the scaled distance ``(bound - mean) / sigma`` to a constraint bound.
+
+    Infinite bounds are equal to their scaled distance (for finite ``mean`` and
+    positive ``sigma``), and are masked to avoid NaN gradients w.r.t. ``sigma``.
+    """
+    is_inf = bound.isinf()
+    dist = (bound.masked_fill(is_inf, 0.0) - mean) / sigma
+    return torch.where(is_inf, bound, dist)
 
 
 def percentile_of_score(data: Tensor, score: Tensor, dim: int = -1) -> Tensor:

@@ -293,6 +293,26 @@ class TestProbabilityUtils(BotorchTestCase):
             # since the upper bound is satisfied, relevant gradients are in lower bound
             self.assertTrue((a.grad.diff() < 0).all())
 
+            # infinite bounds, i.e. one-sided probabilities, are supported as well,
+            # with numerically stable backward passes
+            x = torch.linspace(-5, 5, 11, dtype=dtype, device=self.device)
+            n = len(x)
+            inf = torch.full_like(x, torch.inf)
+            a = torch.cat((-inf, x, -inf[:1])).requires_grad_(True)
+            b = torch.cat((x, inf, inf[:1])).requires_grad_(True)
+            log_prob = log_prob_normal_in(a, b)
+            log_prob.sum().backward()
+            x1, x2 = x.clone().requires_grad_(True), x.clone().requires_grad_(True)
+            zeros = torch.zeros_like(x)
+            # P(-inf < Z < x) = Phi(x), P(x < Z < inf) = Phi(-x), P(-inf < Z < inf) = 1
+            expected_log_prob = torch.cat((log_ndtr(x1), log_ndtr(-x2), zeros[:1]))
+            expected_log_prob.sum().backward()
+            self.assertAllClose(log_prob, expected_log_prob, atol=atol, rtol=rtol)
+            expected_a_grad = torch.cat((zeros, x2.grad, zeros[:1]))
+            expected_b_grad = torch.cat((x1.grad, zeros, zeros[:1]))
+            self.assertAllClose(a.grad, expected_a_grad, atol=atol, rtol=rtol)
+            self.assertAllClose(b.grad, expected_b_grad, atol=atol, rtol=rtol)
+
             # testing error raising for invalid inputs
             a = torch.randn(3, 4, dtype=dtype, device=self.device)
             b = torch.randn(3, 4, dtype=dtype, device=self.device)
@@ -326,6 +346,58 @@ class TestProbabilityUtils(BotorchTestCase):
 
         with self.assertRaisesRegex(TypeError, expected_regex=float16_msg):
             log_ndtr(torch.tensor(1.0, dtype=torch.float16, device=self.device))
+
+    def test_compute_log_prob_feas_from_bounds_infinite_bounds(self) -> None:
+        # Infinite constraint bounds are equivalent to omitted bounds, and should lead
+        # to the same values and (finite) gradients.
+        torch.manual_seed(0)
+        inf = float("inf")
+        for dtype in (torch.float, torch.double):
+            tkwargs = {"dtype": dtype, "device": self.device}
+            means = torch.randn(4, 3, **tkwargs)
+            sigmas = torch.rand(4, 3, **tkwargs) + 0.1
+
+            def compute(lower=(), upper=(), both=()):
+                # lower, upper, both: sequences of (output index, bound) tuples
+                def inds(cons):
+                    return torch.tensor(
+                        [i for i, _ in cons], dtype=torch.long, device=self.device
+                    )
+
+                def vals(cons):
+                    return torch.tensor([v for _, v in cons], **tkwargs)
+
+                m = means.clone().requires_grad_(True)
+                s = sigmas.clone().requires_grad_(True)
+                log_prob = utils.compute_log_prob_feas_from_bounds(
+                    con_lower_inds=inds(lower),
+                    con_upper_inds=inds(upper),
+                    con_both_inds=inds(both),
+                    con_lower=vals(lower),
+                    con_upper=vals(upper),
+                    con_both=vals(both).view(-1, 2),
+                    means=m,
+                    sigmas=s,
+                )
+                log_prob.sum().backward()
+                return log_prob, m.grad, s.grad
+
+            # two-sided bounds with an infinite side vs. one-sided bounds
+            actual = compute(both=[(0, [-inf, 0.5]), (1, [-0.5, inf])])
+            expected = compute(lower=[(1, -0.5)], upper=[(0, 0.5)])
+            for a, e in zip(actual, expected):
+                self.assertTrue(a.isfinite().all())
+                self.assertAllClose(a, e)
+            # vacuous constraints neither contribute to the values nor the gradients
+            actual = compute(
+                lower=[(2, -inf)],
+                upper=[(0, 0.5), (2, inf)],
+                both=[(2, [-inf, inf])],
+            )
+            expected = compute(upper=[(0, 0.5)])
+            for a, e in zip(actual, expected):
+                self.assertTrue(a.isfinite().all())
+                self.assertAllClose(a, e)
 
     def test_percentile_of_score(self) -> None:
         # compare to scipy.stats.percentileofscore with default settings
