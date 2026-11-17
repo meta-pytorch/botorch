@@ -6,6 +6,7 @@
 
 import itertools
 import unittest
+from unittest import mock
 
 import botorch.acquisition.multi_objective.logei as logei_module
 import torch
@@ -189,6 +190,32 @@ class TestLogQExpectedHypervolumeImprovement(BotorchTestCase):
                 self.assertTrue(res.isneginf().all())
                 # zero hypervolume improvement upon exponentiation
                 self.assertEqual(res.exp().item(), 0.0)
+
+    def test_fused_kernel_fallback_large_m(self):
+        # The fused C++ kernel supports at most 8 objectives and raises otherwise,
+        # so larger ``m`` must fall back to the pure-Python path.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        m = 9
+        ref_point = torch.zeros(m, **tkwargs)
+        partitioning = NondominatedPartitioning(
+            ref_point=ref_point, Y=torch.eye(m, **tkwargs)[:2]
+        )
+        mm = MockModel(MockPosterior(samples=torch.rand(1, 2, m, **tkwargs)))
+        acqf = qLogExpectedHypervolumeImprovement(
+            model=mm,
+            ref_point=ref_point.tolist(),
+            partitioning=partitioning,
+            sampler=IIDNormalSampler(sample_shape=torch.Size([1])),
+        )
+        X = torch.zeros(2, 1, **tkwargs)
+        with mock.patch.object(logei_module, "_C", None):
+            expected = acqf(X)
+        fused_kernel = mock.Mock()
+        fused_kernel.forward.side_effect = RuntimeError("subset_size or m too large")
+        with mock.patch.object(logei_module, "_C", fused_kernel):
+            res = acqf(X)
+        fused_kernel.forward.assert_not_called()
+        self.assertAllClose(res, expected)
 
 
 @unittest.skipIf(_fused_C is None, "C++ extension not available")

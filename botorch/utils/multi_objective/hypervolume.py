@@ -632,6 +632,10 @@ class NoisyExpectedHypervolumeMixin(CachedCholeskyMCSamplerMixin):
         )
         # Base sampler is initialized in _set_cell_bounds.
         self.base_sampler = None
+        # Base sampler over the observed baseline only, recorded in _set_cell_bounds.
+        # It is used to restore the base samples of the observed baseline when the
+        # cached pending points are replaced.
+        self._baseline_base_sampler = None
 
         # For incremental NEHVI with enough pending points to cache, initialize the
         # first decomposition directly over B + P. All other cases need a valid
@@ -702,7 +706,20 @@ class NoisyExpectedHypervolumeMixin(CachedCholeskyMCSamplerMixin):
                 # Initialize the base sampler if needed.
                 samples = self.get_posterior_samples(posterior)
                 self.base_sampler = deepcopy(self.sampler)
+                if self.X_baseline.shape[-2] == self._X_baseline.shape[-2]:
+                    self._baseline_base_sampler = self.base_sampler
             else:
+                # Extend the base samples to the points appended to ``X_baseline``
+                # while keeping the base samples of the previously decomposed points
+                # fixed. Otherwise, the base samples would be redrawn whenever the
+                # number of points changes, and the decompositions (in particular,
+                # ``_hypervolumes`` relative to ``_baseline_hvs``) would not use common
+                # random numbers for the observed baseline.
+                base_sampler = deepcopy(self.base_sampler)
+                base_sampler._update_base_samples(
+                    posterior=posterior, base_sampler=self.base_sampler
+                )
+                self.base_sampler = base_sampler
                 samples = self.base_sampler(posterior)
             n_w = posterior._extended_shape()[-2] // self.X_baseline.shape[-2]
             num_sampler_points = (
@@ -753,7 +770,9 @@ class NoisyExpectedHypervolumeMixin(CachedCholeskyMCSamplerMixin):
         # Non-incremental NEHVI measures total improvement relative to HV(f(B)).
         # Cache this baseline-only reference exactly once, before adding pending points.
         if not hasattr(self, "_baseline_hvs") and not self.incremental_nehvi:
-            if obj.shape[-2] != self._X_baseline.shape[-2]:
+            # Check the points rather than ``obj``, since the objective can map each
+            # point to multiple outcomes (e.g., MVaR over ``n_w`` perturbations).
+            if self.X_baseline.shape[-2] != self._X_baseline.shape[-2]:
                 raise RuntimeError(
                     "_baseline_hvs must be computed from the observed baseline only."
                 )
@@ -858,6 +877,9 @@ class NoisyExpectedHypervolumeMixin(CachedCholeskyMCSamplerMixin):
             self.partitioning = None
             if hasattr(self, "_baseline_L"):
                 del self._baseline_L
+            # Discard the base samples of the previously cached pending points and
+            # restart from those of the observed baseline (if available).
+            self.base_sampler = self._baseline_base_sampler
             self.q_in = -1
             self.q_out = -1
             self._prev_nehvi = torch.zeros_like(self._prev_nehvi)
