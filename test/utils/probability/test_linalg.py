@@ -79,6 +79,24 @@ class TestPivotedCholesky(BotorchTestCase):
         self.assertTrue(A[2:4, :2].equal(B[2:4, :2].roll(1, 0)))
         self.assertTrue(A[4:, 2:4].equal(B[4:, 2:4].roll(1, 1)))
 
+    def test_pivot_gradient(self):
+        # ``pivot_`` permutes the entries of ``tril`` (by swapping pairs of
+        # entries), so the gradient w.r.t. ``tril`` is the same permutation of the
+        # gradient w.r.t. the output. This must also hold for batch members that do
+        # not pivot.
+        step = self.piv_chol.step
+        perm = self.piv_chol.perm
+        pivot = torch.tensor([3, step])  # the second member does not pivot
+        tril = self.piv_chol.tril.clone().requires_grad_(True)
+        piv_chol = PivotedCholesky(step=step, tril=tril.clone(), perm=perm.clone())
+        piv_chol.pivot_(pivot)
+        weights = torch.rand_like(tril)
+        (grad,) = torch.autograd.grad((weights * piv_chol.tril).sum(), tril)
+        expected = PivotedCholesky(step=step, tril=weights.clone(), perm=perm.clone())
+        expected.pivot_(pivot)
+        self.assertTrue(grad.equal(expected.tril))
+        self.assertTrue(grad[1].equal(weights[1]))
+
     def test_concat(self):
         A = self.piv_chol.expand(2, 2)
         B = self.piv_chol.expand(1, 2)
