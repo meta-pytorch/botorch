@@ -159,41 +159,58 @@ class TestPareto(BotorchTestCase):
                 self.assertTrue(torch.equal(cargs[0], y))
 
     def test_is_non_dominated_with_nan(self) -> None:
-        # NaN should always evaluate to False.
-        Y = torch.rand(10, 2)
-        Y[3, 1] = float("nan")
-        Y[7, 0] = float("nan")
-        self.assertFalse(is_non_dominated(Y)[[3, 7]].any())
-        # Check edge case if all elements are NaN
-        nans = torch.full((2, 2, 3), torch.nan)
-        rands = torch.rand((2, 2, 3))
-        Y = torch.hstack([nans, rands])
-        non_dominated = is_non_dominated(Y)
-        self.assertFalse(non_dominated[..., :, :2].any().item())
-        # Points with a NaN in any position (including the first point) are
-        # dominated and must not affect which of the other points are
-        # non-dominated, for both the vectorized and the loop-based implementation.
-        nan = float("nan")
-        Y = torch.rand(3, 20, 2, device=self.device)
-        nan_rows = torch.tensor(
-            [[nan, 2.0], [2.0, nan], [nan, -1.0], [-1.0, nan]], device=self.device
-        )
-        nan_idcs = ([0, 5, 9, 13], [2, 3, 17, 19], [1, 4, 6, 11])
-        for b, idcs in enumerate(nan_idcs):
-            Y[b, idcs] = nan_rows
-        for fn, maximize, deduplicate in product(
-            (is_non_dominated, _is_non_dominated_loop), (True, False), (True, False)
+        for dtype, maximize, deduplicate, max_bytes in product(
+            (torch.float, torch.double), (True, False), (True, False), (0, 5e6)
         ):
-            with self.subTest(fn=fn, maximize=maximize, deduplicate=deduplicate):
-                non_dominated = fn(Y, maximize=maximize, deduplicate=deduplicate)
-                for b, idcs in enumerate(nan_idcs):
-                    valid = torch.ones(20, dtype=torch.bool, device=self.device)
-                    valid[idcs] = False
-                    expected = torch.zeros_like(valid)
-                    expected[valid] = fn(
-                        Y[b, valid], maximize=maximize, deduplicate=deduplicate
-                    )
-                    self.assertTrue(torch.equal(non_dominated[b], expected))
+            Y = torch.tensor(
+                [[10.0, 10.0], [torch.nan, 0.0], [0.0, torch.nan]],
+                dtype=dtype,
+                device=self.device,
+            )
+            expected = torch.tensor([True, False, False], device=self.device)
+            with patch("botorch.utils.multi_objective.pareto.MAX_BYTES", max_bytes):
+                actual = is_non_dominated(
+                    Y if maximize else -Y,
+                    maximize=maximize,
+                    deduplicate=deduplicate,
+                )
+            self.assertTrue(torch.equal(actual, expected))
+
+    def test_is_non_dominated_with_nan_batches(self) -> None:
+        for dtype, maximize, deduplicate, max_bytes in product(
+            (torch.float, torch.double), (True, False), (True, False), (0, 5e6)
+        ):
+            Y = torch.tensor(
+                [
+                    [torch.nan, 20.0],
+                    [10.0, 10.0],
+                    [torch.nan, 0.0],
+                    [0.0, torch.nan],
+                    [10.0, 10.0],
+                    [11.0, 9.0],
+                    [0.0, 0.0],
+                    [torch.nan, torch.nan],
+                ],
+                dtype=dtype,
+                device=self.device,
+            )
+            expected = torch.tensor(
+                [False, True, False, False, not deduplicate, True, False, False],
+                device=self.device,
+            )
+            Y = torch.stack([Y, Y.roll(1, dims=-2), torch.full_like(Y, torch.nan)])
+            expected = torch.stack(
+                [expected, expected.roll(1, dims=-1), torch.zeros_like(expected)]
+            )
+            Y = Y.unsqueeze(0).expand(2, -1, -1, -1)
+            expected = expected.unsqueeze(0).expand(2, -1, -1)
+            with patch("botorch.utils.multi_objective.pareto.MAX_BYTES", max_bytes):
+                actual = is_non_dominated(
+                    Y if maximize else -Y,
+                    maximize=maximize,
+                    deduplicate=deduplicate,
+                )
+            self.assertTrue(torch.equal(actual, expected))
 
     def test_is_non_dominated_loop(self):
         n = 20
