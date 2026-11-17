@@ -21,7 +21,7 @@ class TestPosteriorList(BotorchTestCase):
         """
         m = 1
         for batch_shape, lazy, dtype in itertools.product(
-            ([], [3]), (False, True), (torch.float, torch.double)
+            ([], [3], [2, 3]), (False, True), (torch.float, torch.double)
         ):
             tkwargs = {"device": self.device, "dtype": dtype}
 
@@ -56,7 +56,7 @@ class TestPosteriorList(BotorchTestCase):
         """
         m = 1
         for batch_shape, lazy, dtype in itertools.product(
-            ([], [3]), (False, True), (torch.float, torch.double)
+            ([], [3], [2, 3]), (False, True), (torch.float, torch.double)
         ):
             tkwargs = {"device": self.device, "dtype": dtype}
             offset = torch.rand(1).item()
