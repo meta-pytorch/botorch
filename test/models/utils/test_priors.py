@@ -12,6 +12,32 @@ from torch.distributions import Beta
 
 
 class TestBetaPrior(BotorchTestCase):
+    def test_validated_empty_expansion(self) -> None:
+        prior = BetaPrior(1.2, 0.9, validate_args=True, transform=torch.sigmoid)
+        for shape in [torch.Size([0, 3]), torch.Size([2, 0]), torch.Size([2, 3])]:
+            with self.subTest(shape=shape):
+                expanded = prior.expand(shape).to(
+                    device=self.device, dtype=torch.double
+                )
+                reference = Beta(
+                    prior.concentration1.to(expanded.concentration1),
+                    prior.concentration0.to(expanded.concentration0),
+                    validate_args=True,
+                ).expand(shape)
+                self.assertEqual(expanded.batch_shape, shape)
+                self.assertTrue(expanded._validate_args)
+                self.assertTrue(expanded._dirichlet._validate_args)
+                self.assertIs(expanded._transform, torch.sigmoid)
+                value = torch.zeros(
+                    shape, device=self.device, dtype=torch.double, requires_grad=True
+                )
+                actual = expanded.log_prob(value)
+                expected = reference.log_prob(value.sigmoid())
+                self.assertAllClose(actual, expected)
+                derivative = torch.autograd.grad(actual.sum(), value)[0]
+                self.assertEqual(derivative.shape, shape)
+                self.assertTrue(derivative.isfinite().all())
+
     def test_init(self):
         prior = BetaPrior(1.2, 0.9)
         self.assertAlmostEqual(prior.concentration1.item(), 1.2)
