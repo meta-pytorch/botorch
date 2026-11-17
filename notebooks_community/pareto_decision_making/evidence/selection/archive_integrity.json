@@ -1,0 +1,16 @@
+{
+  "packaging_note": "Sanitized metadata copy. Path strings changed; original file bytes were not edited. The original metadata SHA256 below is not this sanitized file's hash.",
+  "original_metadata_sha256": "0310f7dc18fbf9081ce349f5223d50940fd5c1ffc34e3ac32579043f00282114",
+  "record": {
+    "archives_checked": 100,
+    "archived_trials": 5000,
+    "archives_per_problem": {
+      "branincurrin": 25,
+      "dtlz2": 25,
+      "vehiclesafety": 25,
+      "zdt1": 25
+    },
+    "metadata_mismatches": [],
+    "check": "CSV dataset/acquisition/seed/error model/magnitude/onset against filename plan on every row"
+  }
+}

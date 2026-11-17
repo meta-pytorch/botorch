@@ -1,0 +1,183 @@
+{
+  "note": "Hashes of copied evidence assets. Original source snapshots are byte-preserved; sanitized JSON wrappers explicitly carry original metadata hashes. Documentation and new upstream ported harnesses are separate, later artifacts.",
+  "files": [
+    {
+      "published_file": "selection/comparison_summary.csv",
+      "sha256": "b480b3f4ec4332114f653f2b15bb8666c7d0d4f3967c6f877d6f53436c18c8e0",
+      "historical_bytes_preserved": true
+    },
+    {
+      "published_file": "selection/comparison_per_problem.csv",
+      "sha256": "dab78d442d315fe40416898e39cf0c8e75a3f3d77f9b798803bc8aaef1d16ea7",
+      "historical_bytes_preserved": true
+    },
+    {
+      "published_file": "selection/preference_groups.csv",
+      "sha256": "ac3d7c94a5cc1e5dc00534ace3cebd5474d21c1fa3b716e877d17775a3432fc3",
+      "historical_bytes_preserved": true
+    },
+    {
+      "published_file": "selection/protocol.json",
+      "sha256": "b78faffd05c8679c536db7e22b55054fe6b05f5414cc5b6ecec82593359f469b",
+      "historical_bytes_preserved": false,
+      "original_metadata_sha256": "6e4400255968a450fcf1eead3aa9d9612189a3001360619f459f715810f152f7"
+    },
+    {
+      "published_file": "selection/provenance.json",
+      "sha256": "efecfe359240aa92bfa5ca3b53b05a6057891920727af4570612a5a147e42d2a",
+      "historical_bytes_preserved": false,
+      "original_metadata_sha256": "d7f702059dd9de445e5a15ca30471eec0e61084eea2cfc8b828791d53978dfcb"
+    },
+    {
+      "published_file": "selection/validation.json",
+      "sha256": "6610e2214b59d9504ff0324e49bb0157ddae9556648b45a2a7b3226f579e2d53",
+      "historical_bytes_preserved": false,
+      "original_metadata_sha256": "4cf17a6aa5d74165f014263519a164cc1635f696c92673e3b8d04781c8b28434"
+    },
+    {
+      "published_file": "selection/archive_integrity.json",
+      "sha256": "3dfc74449910e8649bc1f8291bf37bd0f444342660d593417ee8e8615603edc1",
+      "historical_bytes_preserved": false,
+      "original_metadata_sha256": "0310f7dc18fbf9081ce349f5223d50940fd5c1ffc34e3ac32579043f00282114"
+    },
+    {
+      "published_file": "selection/source/replay_schmitt_decisions.py.txt",
+      "sha256": "c5931fb08021c2807f942c989e0f292ed8da05e13cab7a40fa85c7cdc174f571",
+      "historical_bytes_preserved": true,
+      "original_source_filename": "replay_schmitt_decisions.py",
+      "expected_original_source_sha256": "c5931fb08021c2807f942c989e0f292ed8da05e13cab7a40fa85c7cdc174f571",
+      "original_source_record": "selection/provenance.json record.script_sha256",
+      "original_hash_verified": true
+    },
+    {
+      "published_file": "fpbi/summary.csv",
+      "sha256": "ed413566fac85911f4b45c0bdb2c4d88ddf998e674bc70f768cde761a5a6c6c7",
+      "historical_bytes_preserved": true
+    },
+    {
+      "published_file": "fpbi/runs.csv",
+      "sha256": "5640413d1b15f8983f6b9918bb2cac4bb6747307f7c0314d18738fbe5ca8b227",
+      "historical_bytes_preserved": true
+    },
+    {
+      "published_file": "fpbi/runs.json",
+      "sha256": "c9e3b0140bce5a18a36929b3960573c3f2f20e89e410f4442d3e945716d1c3ec",
+      "historical_bytes_preserved": true
+    },
+    {
+      "published_file": "fpbi/protocol.json",
+      "sha256": "ae33b1ec854e0aec2a706bca60d1ee5dd29d66483341ac36bb9a852a29a3c996",
+      "historical_bytes_preserved": false,
+      "original_metadata_sha256": "f591575c4bfef6df4ef7267ae375896fb86adf21b41664b85753d7b3e0af2681"
+    },
+    {
+      "published_file": "fpbi/provenance.json",
+      "sha256": "1daa5955b194cb9e9efd1822a8560022166da44786b41ecf70c845fa35d6ad48",
+      "historical_bytes_preserved": false,
+      "original_metadata_sha256": "9a0395b9a4282786f5b97a1f8913ddb85e46556918eafaeeeb6c0fba8e4cb34f"
+    },
+    {
+      "published_file": "fpbi/provenance_end.json",
+      "sha256": "2794cf1162439ac997bdd23d9e7108a3418c75303fece1a432c1c26eb76e5d88",
+      "historical_bytes_preserved": false,
+      "original_metadata_sha256": "4919c93be10888274a1af0bc4e44827b4d41d4c919f7610a3931b8fc056d1bf1"
+    },
+    {
+      "published_file": "fpbi/source/scripts/benchmark_fpbi.py.txt",
+      "sha256": "6dabd7bb4ee07ad2033e7001b50ea5e9600d83b411a375fdd6fb7808e4b24bd7",
+      "historical_bytes_preserved": true,
+      "original_source_filename": "benchmark_fpbi.py",
+      "expected_original_source_sha256": "6dabd7bb4ee07ad2033e7001b50ea5e9600d83b411a375fdd6fb7808e4b24bd7",
+      "original_source_record": "fpbi/provenance.json record.source_sha256",
+      "original_hash_verified": true
+    },
+    {
+      "published_file": "fpbi/source/src/openbo/decision_making/__init__.py.txt",
+      "sha256": "6b81b92bc21694fa5df95185f6f129de55e7ad2cb9261a4f15cd9aa8925e9005",
+      "historical_bytes_preserved": true,
+      "original_source_filename": "__init__.py",
+      "expected_original_source_sha256": "6b81b92bc21694fa5df95185f6f129de55e7ad2cb9261a4f15cd9aa8925e9005",
+      "original_source_record": "fpbi/provenance.json record.source_sha256",
+      "original_hash_verified": true
+    },
+    {
+      "published_file": "fpbi/source/src/openbo/decision_making/_fpbi.py.txt",
+      "sha256": "0a02ef50340bdf722d427f7f8fafb0c723ff60819f08cdc0389faec1b11b271d",
+      "historical_bytes_preserved": true,
+      "original_source_filename": "_fpbi.py",
+      "expected_original_source_sha256": "0a02ef50340bdf722d427f7f8fafb0c723ff60819f08cdc0389faec1b11b271d",
+      "original_source_record": "fpbi/provenance.json record.source_sha256",
+      "original_hash_verified": true
+    },
+    {
+      "published_file": "fpbi/source/src/openbo/decision_making/_selection.py.txt",
+      "sha256": "fb66f8ed50fee41c213f13005de4b0cb4507c0eebad14da8eef35edde5b5a7c3",
+      "historical_bytes_preserved": true,
+      "original_source_filename": "_selection.py",
+      "expected_original_source_sha256": "fb66f8ed50fee41c213f13005de4b0cb4507c0eebad14da8eef35edde5b5a7c3",
+      "original_source_record": "fpbi/provenance.json record.source_sha256",
+      "original_hash_verified": true
+    },
+    {
+      "published_file": "selector/timings.csv",
+      "sha256": "891b15fdb135c287cb095ea012108c1bfa030c0ab45b267e2dc85866f64d6b5d",
+      "historical_bytes_preserved": true
+    },
+    {
+      "published_file": "selector/timings.json",
+      "sha256": "af547fb60ebf07855a86ead76ef833edeff7a71253583a8904715a255a99d5ca",
+      "historical_bytes_preserved": true
+    },
+    {
+      "published_file": "selector/protocol.json",
+      "sha256": "1269f9794000ecf7d74dc0c3b8f05d4a69077bedd3e7b391187a3b091e710cd3",
+      "historical_bytes_preserved": false,
+      "original_metadata_sha256": "f6d9826c493ed77c24ff7e0da723b6165116254cb2996ae1bdfc16d9a5fc6a45"
+    },
+    {
+      "published_file": "selector/provenance.json",
+      "sha256": "86e22c018b31b20dfdaaf08ee2f22d10db1475fffb3d9dc2a0c71d785c751ab4",
+      "historical_bytes_preserved": false,
+      "original_metadata_sha256": "de0cac040abf395b57bb591e2ae8fbbf54475769c8de08ae16edcd1adacb4800"
+    },
+    {
+      "published_file": "selector/source/after.py.txt",
+      "sha256": "6634aabaf017067c8197cf5df30a92202b48166334f46dc52fd4f33029585f0d",
+      "historical_bytes_preserved": true,
+      "original_source_filename": "after.py",
+      "expected_original_source_sha256": "6634aabaf017067c8197cf5df30a92202b48166334f46dc52fd4f33029585f0d",
+      "original_source_record": "selector/provenance.json record.source_sha256",
+      "original_hash_verified": true
+    },
+    {
+      "published_file": "selector/source/before.py.txt",
+      "sha256": "21aa9fb1cc9f3cc243795f99b9ce303ce84721de386cac1173702b9f1fb5f15c",
+      "historical_bytes_preserved": true,
+      "original_source_filename": "before.py",
+      "expected_original_source_sha256": "21aa9fb1cc9f3cc243795f99b9ce303ce84721de386cac1173702b9f1fb5f15c",
+      "original_source_record": "selector/provenance.json record.source_sha256",
+      "original_hash_verified": true
+    },
+    {
+      "published_file": "selector/source/benchmark_selector.py.txt",
+      "sha256": "c62d38c7aaba6d9b37b3fe4759f3f6bdea449b3d763946c8eef407ad6201cecf",
+      "historical_bytes_preserved": true,
+      "original_source_filename": "benchmark_selector.py",
+      "expected_original_source_sha256": "c62d38c7aaba6d9b37b3fe4759f3f6bdea449b3d763946c8eef407ad6201cecf",
+      "original_source_record": "selector/provenance.json record.source_sha256",
+      "original_hash_verified": true
+    },
+    {
+      "published_file": "validation/library-cuda-validation.json",
+      "sha256": "a28bf71604e6a57b221c73f0af4e3c0ca5d04a66aeb96a117e119ab8acde1faa",
+      "historical_bytes_preserved": false,
+      "original_metadata_sha256": "e0a757b3feea142b6839b020401d5721f6fd2c3043d955adb99c8aa37d706089"
+    },
+    {
+      "published_file": "validation/fpbi-port-validation.json",
+      "sha256": "ba3c282445b04f86ad0b353f7ea2e65fcba7413e84025f439f61419ce13cd9e1",
+      "historical_bytes_preserved": false,
+      "original_metadata_sha256": "5e436a12ced1ea2169f19999358879908d65a7f453375706ac53e865a5185106"
+    }
+  ]
+}

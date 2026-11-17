@@ -1,0 +1,105 @@
+name: Decision contribution validation
+
+on:
+  push:
+    branches: [community/pareto-decision-making-2026-10-21]
+  pull_request:
+    paths:
+      - "botorch_community/utils/multi_objective/**"
+      - "test_community/utils/multi_objective/**"
+      - "notebooks_community/pareto_decision_making/**"
+      - "scripts/convert_ipynb_to_mdx.py"
+      - "test_community/scripts/test_convert_ipynb_to_mdx.py"
+      - ".github/workflows/decision-contribution.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: decision-contribution-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  decision-tests:
+    name: Decision tests (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-15]
+        python: ["3.11", "3.14"]
+    env:
+      UV_SYSTEM_PYTHON: "1"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: astral-sh/setup-uv@v7
+      - name: Install CPU PyTorch
+        if: runner.os != 'macOS'
+        run: uv pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Install macOS PyTorch
+        if: runner.os == 'macOS'
+        run: uv pip install torch
+      - name: Install focused test dependencies
+        run: uv pip install -e . pytest pymoo pandas nbformat mdformat mdformat-myst
+      - name: Run decision and converter regressions
+        run: >-
+          python -m pytest -ra
+          test_community/utils/multi_objective/
+          test_community/scripts/test_convert_ipynb_to_mdx.py
+          --junitxml=decision-tests.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: decision-tests-${{ matrix.os }}-py${{ matrix.python }}
+          path: decision-tests.xml
+
+  documentation:
+    name: Executed notebook and full Docusaurus build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      UV_SYSTEM_PYTHON: "1"
+      NODE_OPTIONS: --max-old-space-size=8192
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+      - uses: astral-sh/setup-uv@v7
+      - name: Install CPU PyTorch
+        run: uv pip install torch --index-url https://download.pytorch.org/whl/cpu
+      - name: Install notebook and converter dependencies
+        run: >-
+          uv pip install -e . pandas matplotlib nbformat nbclient nbconvert
+          ipykernel mdformat mdformat-myst lxml tabulate
+      - name: Execute contribution notebook
+        run: >-
+          jupyter nbconvert --to notebook --execute --inplace
+          --ExecutePreprocessor.timeout=300
+          notebooks_community/pareto_decision_making/pareto_decision_making.ipynb
+      - name: Convert all registered notebooks
+        run: python scripts/convert_ipynb_to_mdx.py --clean
+      - name: Enable Yarn
+        run: corepack enable && corepack prepare yarn@1.22.22 --activate
+      - name: Install website dependencies
+        working-directory: website
+        run: yarn install --non-interactive
+      - name: Build complete Docusaurus website
+        working-directory: website
+        run: yarn build
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: decision-docs-build
+          path: |
+            website/build
+            notebooks_community/pareto_decision_making/pareto_decision_making.ipynb

@@ -1,0 +1,36 @@
+{
+  "packaging_note": "Sanitized metadata copy. Path strings changed; original file bytes were not edited. The original metadata SHA256 below is not this sanitized file's hash.",
+  "original_metadata_sha256": "de0cac040abf395b57bb591e2ae8fbbf54475769c8de08ae16edcd1adacb4800",
+  "record": {
+    "created_utc": "2026-10-21T20:06:54.727791+00:00",
+    "python": "3.13.12",
+    "executable": "python",
+    "platform": "Windows-11-10.0.26300-SP0",
+    "processor": "Intel64 Family 6 Model 170 Stepping 4, GenuineIntel",
+    "versions": {
+      "torch": "2.13.0+cu132",
+      "botorch": "0.18.1",
+      "numpy": "2.5.2"
+    },
+    "torch_threads": 1,
+    "torch_interop_threads": 1,
+    "cuda_runtime": "13.2",
+    "cuda_available": true,
+    "cuda_device": "NVIDIA GeForce RTX 4050 Laptop GPU",
+    "original_sources": {
+      "before": "<RESEARCH_WORKSPACE>/work/selection_before.py",
+      "after": "<RESEARCH_WORKSPACE>/work/botorch-contribution/botorch_community/utils/multi_objective/decision_making.py"
+    },
+    "source_sha256": {
+      "after.py": "6634aabaf017067c8197cf5df30a92202b48166334f46dc52fd4f33029585f0d",
+      "before.py": "21aa9fb1cc9f3cc243795f99b9ce303ce84721de386cac1173702b9f1fb5f15c",
+      "benchmark_selector.py": "c62d38c7aaba6d9b37b3fe4759f3f6bdea449b3d763946c8eef407ad6201cecf"
+    },
+    "settings": {
+      "seed": 17,
+      "warmups": 2,
+      "repeats": 5
+    },
+    "conditions": "Own HITL full suite completed before timing; independent botorch-rs reference-free tests observed before timing. Other chat workloads were not controlled; no isolated-machine or robust speedup claim. No process or affinity changes."
+  }
+}

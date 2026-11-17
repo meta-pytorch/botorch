@@ -1,0 +1,61 @@
+{
+  "packaging_note": "Sanitized metadata copy. Path strings changed; original file bytes were not edited. The original metadata SHA256 below is not this sanitized file's hash.",
+  "original_metadata_sha256": "6e4400255968a450fcf1eead3aa9d9612189a3001360619f459f715810f152f7",
+  "record": {
+    "status": "fixed before outcome scoring; exploratory, not confirmatory",
+    "problems": [
+      "branincurrin",
+      "zdt1",
+      "dtlz2",
+      "vehiclesafety"
+    ],
+    "seeds": [
+      12,
+      13,
+      14,
+      15,
+      16
+    ],
+    "acquisition": "qlognehvi",
+    "source_logs": 100,
+    "trials_per_archive": 50,
+    "objective_error": "logged Gaussian SD1, onsets0/20, cross-correlation0/.85; plus clean archives",
+    "rules": [
+      "weighted",
+      "nearest_ideal",
+      "knee_weighted"
+    ],
+    "alpha": 0.5,
+    "utility_families": [
+      "linear",
+      "quadratic_distance"
+    ],
+    "reference_rules": {
+      "linear": "weighted",
+      "quadratic_distance": "nearest_ideal"
+    },
+    "random_preferences_per_seed": 24,
+    "additional_preferences": "equal and each objective axis",
+    "preference_log_noise_sd": [
+      0.0,
+      0.25,
+      1.0
+    ],
+    "zero_weight_policy": "multiplicative noise preserves exact zero weights",
+    "normalization": "decision inputs use their perceived PF ranges; evaluator freezes true PF ranges within each archive",
+    "clean_comparison": "same archive, exact objective outcomes and true preferences, for each rule",
+    "scope": "final selection only; no new designs, evaluations, GP fits, or acquisition comparisons",
+    "inference": "four correlated problem clusters; descriptive problem bootstrap only; no significance tests",
+    "command": [
+      "<HITL_CHECKOUT>/.venv-feedback315/Scripts/python.exe",
+      "scripts/replay_schmitt_decisions.py",
+      "--input-dir",
+      "output-boba-mo-halo",
+      "--openbo-src",
+      "<OPENBO_CHECKOUT>/src",
+      "--output-dir",
+      "<RESEARCH_WORKSPACE>/outputs/selection-replay",
+      "--run"
+    ]
+  }
+}

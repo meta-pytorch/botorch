@@ -1,0 +1,13 @@
+{
+  "packaging_note": "Sanitized metadata copy. Path strings changed; original file bytes were not edited. The original metadata SHA256 below is not this sanitized file's hash.",
+  "original_metadata_sha256": "e0a757b3feea142b6839b020401d5721f6fd2c3043d955adb99c8aa37d706089",
+  "record": {
+    "passed": true,
+    "library_cases": 72,
+    "comparisons": 144,
+    "device": "NVIDIA GeForce RTX 4050 Laptop GPU",
+    "torch": "2.13.0+cu132",
+    "openbo_module": "<OPENBO_CHECKOUT>/src/openbo/decision_making/__init__.py",
+    "rust_module": "<RUST_CHECKOUT>/botorch_pyo3/python/botorch_rs/decision_making/__init__.py"
+  }
+}

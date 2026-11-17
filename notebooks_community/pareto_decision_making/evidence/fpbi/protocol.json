@@ -1,0 +1,66 @@
+{
+  "packaging_note": "Sanitized metadata copy. Path strings changed; original file bytes were not edited. The original metadata SHA256 below is not this sanitized file's hash.",
+  "original_metadata_sha256": "f591575c4bfef6df4ef7267ae375896fb86adf21b41664b85753d7b3e0af2681",
+  "record": {
+    "preregistered_utc": "2026-10-21T19:55:00.215865+00:00",
+    "config": {
+      "output_dir": "<RESEARCH_WORKSPACE>/outputs/fpbi-benchmark",
+      "seeds": [
+        0,
+        1,
+        2
+      ],
+      "cases": [
+        "convex_2d",
+        "concave_2d",
+        "constrained_2d",
+        "sphere_3d"
+      ],
+      "steps_2d": 5,
+      "steps_3d": 3,
+      "restarts": 2,
+      "maxiter": 100,
+      "population": 32,
+      "output_generations": 20,
+      "max_budget_generations": 300,
+      "fpbi_api": "model",
+      "skip_plots": false,
+      "feasibility_tol": 1e-06,
+      "dtype": "torch.float64",
+      "device": "cpu"
+    },
+    "cases": [
+      {
+        "name": "convex_2d",
+        "dimensions": 1,
+        "objectives": 2,
+        "description": "Convex front (x^2, (1-x)^2), x in [0,1].",
+        "constrained": false
+      },
+      {
+        "name": "concave_2d",
+        "dimensions": 1,
+        "objectives": 2,
+        "description": "Nonconvex objective image: (sqrt(x), sqrt(1-x)).",
+        "constrained": false
+      },
+      {
+        "name": "constrained_2d",
+        "dimensions": 1,
+        "objectives": 2,
+        "description": "Quadratic front with 0.2 <= x <= 0.8.",
+        "constrained": true
+      },
+      {
+        "name": "sphere_3d",
+        "dimensions": 3,
+        "objectives": 3,
+        "description": "DTLZ2-style unit positive-octant sphere; radial nuisance variable.",
+        "constrained": false
+      }
+    ],
+    "command": ".venv/Scripts/python.exe scripts/benchmark_fpbi.py --output-dir \"<RESEARCH_WORKSPACE>/outputs/fpbi-benchmark\" --seeds 0 1 2 --cases convex_2d concave_2d constrained_2d sphere_3d --steps-2d 5 --steps-3d 3 --restarts 2 --maxiter 100 --population 32 --output-generations 20 --max-budget-generations 300 --fpbi-api model",
+    "budget_policy": "same output cap plus separately rounded FPBI objective-point-matched generations",
+    "reference": "known objective ranges; exact continuous-front HV; fixed 4097-point reference for IGD"
+  }
+}
