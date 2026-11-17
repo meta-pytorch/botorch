@@ -200,6 +200,10 @@ def _optimize_acqf_all_features_fixed(
     acq_function: AcquisitionFunction,
     return_best_only: bool = True,
     return_acq_values: bool = True,
+    inequality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
+    equality_constraints: list[tuple[Tensor, Tensor, float]] | None = None,
+    nonlinear_inequality_constraints: list[tuple[Callable, bool]] | None = None,
+    post_processing_func: Callable[[Tensor], Tensor] | None = None,
 ) -> tuple[Tensor, Tensor | None]:
     """
     Helper function for ``optimize_acqf`` for the trivial case where
@@ -211,6 +215,19 @@ def _optimize_acqf_all_features_fixed(
         dtype=bounds.dtype,
     )
     X = X.expand(q, *X.shape)
+    if post_processing_func is not None:
+        X = post_processing_func(X)
+    if not ((X >= bounds[0]) & (X <= bounds[1])).all():
+        raise CandidateGenerationError("The fixed candidate is outside the bounds.")
+    if not evaluate_feasibility(
+        X=X.unsqueeze(0),
+        inequality_constraints=inequality_constraints,
+        equality_constraints=equality_constraints,
+        nonlinear_inequality_constraints=nonlinear_inequality_constraints,
+    ).all():
+        raise CandidateGenerationError(
+            "The fixed candidate violates parameter constraints."
+        )
     if not return_best_only:
         # When return_best_only=False, candidates have shape
         # `num_restarts x q x d`. With all features fixed there is only one
@@ -835,6 +852,12 @@ def _optimize_acqf(opt_inputs: OptimizeAcqfInputs) -> tuple[Tensor, Tensor | Non
             acq_function=opt_inputs.acq_function,
             return_best_only=opt_inputs.return_best_only,
             return_acq_values=opt_inputs.return_acq_values,
+            inequality_constraints=opt_inputs.inequality_constraints,
+            equality_constraints=opt_inputs.equality_constraints,
+            nonlinear_inequality_constraints=(
+                opt_inputs.nonlinear_inequality_constraints
+            ),
+            post_processing_func=opt_inputs.post_processing_func,
         )
 
     # Perform sequential optimization via successive conditioning on pending points
