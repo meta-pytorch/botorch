@@ -1141,49 +1141,51 @@ def optimize_acqf_mixed_alternating(
     )
     cont_dims = cont_dims[(cont_dims.unsqueeze(-1) != ff_idcs).all(dim=-1)]
     candidates = torch.empty(0, dim, **tkwargs)
-    for _q in range(q):
-        # Generate starting points.
-        best_X, best_acq_val = generate_starting_points(
-            opt_inputs=opt_inputs,
-            discrete_dims=discrete_dims,
-            cat_dims=cat_dims,
-            cont_dims=cont_dims,
-        )
-
-        done = torch.zeros(len(best_X), dtype=torch.bool, device=tkwargs["device"])
-        for _step in range(options.get("maxiter_alternating", MAX_ITER_ALTER)):
-            starting_acq_val = best_acq_val.clone()
-            best_X[~done], best_acq_val[~done] = discrete_step(
+    try:
+        for _q in range(q):
+            # Generate starting points.
+            best_X, best_acq_val = generate_starting_points(
                 opt_inputs=opt_inputs,
                 discrete_dims=discrete_dims,
                 cat_dims=cat_dims,
-                current_x=best_X[~done],
+                cont_dims=cont_dims,
             )
 
-            best_X[~done], best_acq_val[~done] = continuous_step(
-                opt_inputs=opt_inputs,
-                discrete_dims=discrete_dims_t,
-                cat_dims=cat_dims_t,
-                current_x=best_X[~done],
-            )
+            done = torch.zeros(len(best_X), dtype=torch.bool, device=tkwargs["device"])
+            for _step in range(options.get("maxiter_alternating", MAX_ITER_ALTER)):
+                starting_acq_val = best_acq_val.clone()
+                best_X[~done], best_acq_val[~done] = discrete_step(
+                    opt_inputs=opt_inputs,
+                    discrete_dims=discrete_dims,
+                    cat_dims=cat_dims,
+                    current_x=best_X[~done],
+                )
 
-            improvement = best_acq_val - starting_acq_val
-            done_now = improvement < options.get("tol", CONVERGENCE_TOL)
-            done = done | done_now
-            if done.float().mean() >= STOP_AFTER_SHARE_CONVERGED:
-                break
+                best_X[~done], best_acq_val[~done] = continuous_step(
+                    opt_inputs=opt_inputs,
+                    discrete_dims=discrete_dims_t,
+                    cat_dims=cat_dims_t,
+                    current_x=best_X[~done],
+                )
 
-        new_candidate = best_X[torch.argmax(best_acq_val)].unsqueeze(0)
-        candidates = torch.cat([candidates, new_candidate], dim=-2)
-        # Update pending points to include the new candidate.
+                improvement = best_acq_val - starting_acq_val
+                done_now = improvement < options.get("tol", CONVERGENCE_TOL)
+                done = done | done_now
+                if done.float().mean() >= STOP_AFTER_SHARE_CONVERGED:
+                    break
+
+            new_candidate = best_X[torch.argmax(best_acq_val)].unsqueeze(0)
+            candidates = torch.cat([candidates, new_candidate], dim=-2)
+            # Update pending points to include the new candidate.
+            if q > 1:
+                acq_function.set_X_pending(
+                    torch.cat([base_X_pending, candidates], dim=-2)
+                    if base_X_pending is not None
+                    else candidates
+                )
+    finally:
         if q > 1:
-            acq_function.set_X_pending(
-                torch.cat([base_X_pending, candidates], dim=-2)
-                if base_X_pending is not None
-                else candidates
-            )
-    if q > 1:
-        acq_function.set_X_pending(base_X_pending)
+            acq_function.set_X_pending(base_X_pending)
 
     if post_processing_func is not None:
         candidates = post_processing_func(candidates)

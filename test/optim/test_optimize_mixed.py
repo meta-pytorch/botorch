@@ -968,6 +968,44 @@ class TestOptimizeAcqfMixed(BotorchTestCase):
                 num_restarts=2,
             )
 
+    def test_mixed_alternating_restores_pending_on_error(self) -> None:
+        bounds = torch.tensor([[0.0, 0.0], [1.0, 1.0]], dtype=torch.double)
+        for pending in (None, torch.full((1, 2), 0.25, dtype=torch.double)):
+            with self.subTest(pending=pending):
+                acquisition = MockAcquisitionFunction()
+                acquisition.set_X_pending(pending)
+                original = acquisition.X_pending
+                starts = bounds.new_tensor([[0.5, 0.5], [0.8, 0.8]])
+                values = bounds.new_tensor([0.5, 0.8])
+                with (
+                    mock.patch(
+                        f"{OPT_MODULE}.generate_starting_points",
+                        side_effect=[
+                            (starts.clone(), values.clone()),
+                            RuntimeError("deliberate initializer failure"),
+                        ],
+                    ),
+                    mock.patch(
+                        f"{OPT_MODULE}.discrete_step",
+                        return_value=(starts.clone(), values.clone()),
+                    ),
+                    mock.patch(
+                        f"{OPT_MODULE}.continuous_step",
+                        return_value=(starts.clone(), values.clone()),
+                    ),
+                ):
+                    with self.assertRaisesRegex(RuntimeError, "deliberate"):
+                        optimize_acqf_mixed_alternating(
+                            acquisition,
+                            bounds,
+                            discrete_dims={0: [0.0, 1.0]},
+                            q=2,
+                            raw_samples=8,
+                            num_restarts=2,
+                            options={"maxiter_alternating": 1},
+                        )
+                self.assertIs(acquisition.X_pending, original)
+
     def test_optimize_acqf_mixed_alternating_return_acq_values(self) -> None:
         """Test that return_acq_values defaults to True and can be turned off."""
         train_X, train_Y, binary_dims, cont_dims = self._get_data()
