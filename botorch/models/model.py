@@ -376,7 +376,9 @@ class FantasizeMixin(ABC):
             )
             Y = torch.empty(output_shape, dtype=X.dtype, device=X.device)
             if observation_noise is not None:
-                kwargs["noise"] = observation_noise.expand(Y.shape[1:])
+                kwargs["noise"] = observation_noise.expand(
+                    Y.shape[len(sampler.sample_shape) :]
+                )
             return self.condition_on_observations(
                 X=X,
                 Y=Y,
@@ -393,7 +395,9 @@ class FantasizeMixin(ABC):
                 )
             Y_fantasized = sampler(post_X)  # num_fantasies x batch_shape x n' x m
             if observation_noise is not None:
-                kwargs["noise"] = observation_noise.expand(Y_fantasized.shape[1:])
+                kwargs["noise"] = observation_noise.expand(
+                    Y_fantasized.shape[len(sampler.sample_shape) :]
+                )
             return self.condition_on_observations(X=X, Y=Y_fantasized, **kwargs)
 
 
