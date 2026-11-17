@@ -28,6 +28,24 @@ GetTrainInputs = Dispatcher("get_train_inputs")
 GetTrainTargets = Dispatcher("get_train_targets")
 
 
+def _forward_in_eval_mode(input_transform: InputTransform, values: Tensor) -> Tensor:
+    r"""Applies an input transform with eval-mode semantics.
+
+    Sample paths are evaluated at arbitrary (test) inputs, so the transform must not
+    be applied in train mode, where learnable transforms such as ``Normalize`` would
+    re-fit their parameters to ``values``. The original modes are restored after.
+    """
+    if not input_transform.training:
+        return input_transform.forward(values)
+    modes = {module: module.training for module in input_transform.modules()}
+    input_transform.eval()
+    try:
+        return input_transform.forward(values)
+    finally:
+        for module, mode in modes.items():
+            module.training = mode
+
+
 class TransformedModuleMixin:
     r"""Mixin that wraps a module's __call__ method with optional transforms."""
 
@@ -38,7 +56,7 @@ class TransformedModuleMixin:
         input_transform = getattr(self, "input_transform", None)
         if input_transform is not None:
             values = (
-                input_transform.forward(values)
+                _forward_in_eval_mode(input_transform, values)
                 if isinstance(input_transform, InputTransform)
                 else input_transform(values)
             )
