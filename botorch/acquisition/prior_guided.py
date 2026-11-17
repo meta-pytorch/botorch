@@ -22,8 +22,8 @@ from botorch.acquisition.acquisition import AcquisitionFunction
 from botorch.acquisition.monte_carlo import SampleReducingMCAcquisitionFunction
 from botorch.exceptions.errors import BotorchError
 from botorch.utils.transforms import (
-    average_over_ensemble_models,
     concatenate_pending_points,
+    is_ensemble,
     t_batch_mode_transform,
 )
 from torch import Tensor
@@ -84,14 +84,17 @@ class PriorGuidedAcquisitionFunction(AcquisitionFunction):
 
     @concatenate_pending_points
     @t_batch_mode_transform()
-    @average_over_ensemble_models
     def forward(self, X: Tensor) -> Tensor:
         r"""Compute the acquisition function weighted by the prior."""
+        # NOTE: For ensemble models, the base acquisition function (or its sample
+        # reduction) already averages over the ensemble dimension.
         # batch_shape x q
         prior = self.prior_module(X)
         if self._is_sample_reducing_af:
-            # sample_shape x batch_shape x q
+            # sample_shape x batch_shape x [ensemble_shape] x q
             af_val = self.acq_func._non_reduced_forward(X)
+            if is_ensemble(self.acq_func.model):
+                prior = prior.unsqueeze(-2)  # batch_shape x 1 x q
         else:
             if prior.shape[-1] > 1:
                 raise NotImplementedError(
