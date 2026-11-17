@@ -37,7 +37,7 @@ from botorch.models.transforms.outcome import OutcomeTransform
 from gpytorch.kernels import Kernel
 from gpytorch.likelihoods.likelihood import Likelihood
 from gpytorch.means import Mean
-from torch import Tensor
+from torch import broadcast_shapes, Size, Tensor
 
 
 # =============================================================================
@@ -314,7 +314,10 @@ class EmpiricalOneDimensionalKernel(Kernel):
         """
         validate_historical_curves_3d(Y_full)
 
-        super().__init__()
+        # Independent outputs are a kernel batch, including when the caller
+        # supplies unbatched progression points through the public lazy API.
+        outputs = Y_full.shape[-1]
+        super().__init__(batch_shape=Size([outputs]) if outputs > 1 else Size())
 
         self.num_curves = Y_full.shape[0]
         self.correction = correction
@@ -383,6 +386,14 @@ class EmpiricalOneDimensionalKernel(Kernel):
             if x2 is x1
             else extract_slice_for_interp(x2, self.num_outputs)
         )
+        if x2_for_interp is not x1_for_interp:
+            # Keep the leading historical-output axis aligned when one set of
+            # progression points has more query batch dimensions than the other.
+            batch_shape = broadcast_shapes(
+                x1_for_interp.shape[:-1], x2_for_interp.shape[:-1]
+            )
+            x1_for_interp = x1_for_interp.expand(*batch_shape, x1_for_interp.shape[-1])
+            x2_for_interp = x2_for_interp.expand(*batch_shape, x2_for_interp.shape[-1])
 
         # Compute basis matrices using shared helper
         Ux1 = compute_basis_matrix(
