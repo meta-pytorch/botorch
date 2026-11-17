@@ -120,7 +120,7 @@ class LogImprovementMCAcquisitionFunction(SampleReducingMCAcquisitionFunction):
         """
         if isinstance(objective, ConstrainedMCObjective):
             raise BotorchError(
-                "Log-Improvement should not be used with `ConstrainedMCObjective`."
+                "Log-Improvement should not be used with `ConstrainedMCObjective`. "
                 "Please pass the `constraints` directly to the constructor of the "
                 "acquisition function."
             )

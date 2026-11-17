@@ -243,7 +243,7 @@ class SampleReducingMCAcquisitionFunction(MCAcquisitionFunction):
         """
         if constraints is not None and isinstance(objective, ConstrainedMCObjective):
             raise ValueError(
-                "ConstrainedMCObjective as well as constraints passed to constructor."
+                "ConstrainedMCObjective as well as constraints passed to constructor. "
                 "Choose one or the other, preferably the latter."
             )
         # TODO: deprecate ConstrainedMCObjective
