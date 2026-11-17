@@ -35,6 +35,8 @@ is an imaginary node that is the parent of all orphan nodes, e.g., C0, C1, and P
 all functions in this file supports both rootless trees and rooted trees.
 """
 
+from numbers import Integral
+
 
 def get_orphan_feature_indices(
     dim: int,
@@ -57,6 +59,13 @@ def get_orphan_feature_indices(
         for children_indices in dependents.values()
     ]
     non_orphan_feature_indices = sum(grouped_non_orphan_feature_indices, [])
+    for index in [*hierarchical_dependencies, *non_orphan_feature_indices]:
+        if (
+            isinstance(index, bool)
+            or not isinstance(index, Integral)
+            or not 0 <= index < dim
+        ):
+            raise ValueError(f"Feature indices must be integers in [0, {dim}).")
 
     if len(set(non_orphan_feature_indices)) != len(non_orphan_feature_indices):
         raise ValueError(
@@ -92,30 +101,19 @@ def get_index_to_path(
 
     fid_to_path = {}
 
-    # depth-first traversal
-    def dfs(fid: int, path: list[tuple[int, int]]) -> None:
-        """
-        Depth-first search starting from ``fid``.
-
-        Args:
-            fid: The feature index to be visited.
-            path: A list of tuples of the form ``(index, value)``. They are the
-                indices and values of the ancestors of ``fid``, which represent
-                the path in the hierarchical tree that leads to ``fid``.
-        """
-        fid_to_path[fid] = path
-
-        if not has_children(fid):
-            return
-
-        for parent_value, children_indices in hierarchical_dependencies[fid].items():
-            for child in children_indices:
-                dfs(child, path + [(fid, parent_value)])
-
     orphan_feature_indices = get_orphan_feature_indices(dim, hierarchical_dependencies)
-
-    for idx in orphan_feature_indices:
-        dfs(idx, [])
+    stack = [(idx, []) for idx in reversed(orphan_feature_indices)]
+    while stack:
+        fid, path = stack.pop()
+        fid_to_path[fid] = path
+        if has_children(fid):
+            for parent_value, children_indices in reversed(
+                list(hierarchical_dependencies[fid].items())
+            ):
+                for child in reversed(children_indices):
+                    stack.append((child, path + [(fid, parent_value)]))
+    if len(fid_to_path) != dim:
+        raise ValueError("Hierarchical dependencies contain a cycle with no root.")
 
     return fid_to_path
 
