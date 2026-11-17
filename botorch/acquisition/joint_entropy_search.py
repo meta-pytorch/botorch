@@ -343,7 +343,9 @@ class qJointEntropySearch(AcquisitionFunction, MCSamplerMixin):
         )
         # prepare max value quantities and re-scale as required
         normalized_mvs = (self.optimal_outputs - mean_m) / noiseless_var.sqrt()
-        mvs_rescaled_mc = (normalized_mvs - rho * normalized_samples) / (1 - rho**2)
+        mvs_rescaled_mc = (normalized_mvs - rho * normalized_samples) / (
+            1 - rho**2
+        ).clamp_min(CLAMP_LB).sqrt()
         cdf_mvs = normal.cdf(normalized_mvs).clamp_min(CLAMP_LB)
         cdf_rescaled_mvs = normal.cdf(mvs_rescaled_mc).clamp_min(CLAMP_LB)
         mv_ratio = cdf_rescaled_mvs / cdf_mvs
