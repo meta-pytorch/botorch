@@ -172,6 +172,9 @@ class TestDTLZ(
             self.assertEqual(f.num_objectives, 2)
             self.assertEqual(f.dim, 5)
             self.assertEqual(f.k, 4)
+        # the last objective of DTLZ7 is a function of the other objectives
+        with self.assertRaisesRegex(ValueError, "at least two objectives"):
+            DTLZ7(dim=3, num_objectives=1)
 
     def test_gen_pareto_front(self):
         for dtype in (torch.float, torch.double):
@@ -481,6 +484,41 @@ class TestC2DTLZ2(
         f = C2DTLZ2(dim=3, num_objectives=2)
         with self.assertRaises(NotImplementedError):
             f.evaluate_slack_true(torch.rand(1, 1, 3))
+
+    def test_gen_pareto_front(self):
+        for dtype, M, negate in (
+            (torch.float, 2, False),
+            (torch.double, 2, True),
+            (torch.double, 3, False),
+        ):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            f = C2DTLZ2(dim=M + 2, num_objectives=M, negate=negate).to(**tkwargs)
+            pareto_Y = f.gen_pareto_front(n=100)
+            self.assertEqual(pareto_Y.shape, torch.Size([100, M]))
+            self.assertEqual(pareto_Y.dtype, dtype)
+            if negate:
+                pareto_Y = -pareto_Y
+            # the points lie on the pareto front of DTLZ2, the unit hypersphere
+            self.assertTrue((pareto_Y >= 0).all())
+            self.assertAllClose(pareto_Y.pow(2).sum(dim=-1), torch.ones(100, **tkwargs))
+            # the pareto optimal inputs with these objectives are feasible
+            if M == 2:
+                angles = [torch.atan2(pareto_Y[:, 1], pareto_Y[:, 0])]
+            else:
+                angles = [
+                    torch.asin(pareto_Y[:, 2].clamp(max=1.0)),
+                    torch.atan2(pareto_Y[:, 1], pareto_Y[:, 0]),
+                ]
+            X = torch.cat(
+                [
+                    torch.stack(angles, dim=-1) * 2 / math.pi,
+                    torch.full((100, 3), 0.5, **tkwargs),
+                ],
+                dim=-1,
+            ).clamp(0.0, 1.0)
+            self.assertAllClose(f.evaluate_true(X), pareto_Y, atol=1e-5, rtol=0)
+            if dtype == torch.double:
+                self.assertTrue(f.is_feasible(X, noise=False).all())
 
 
 class TestDiscBrake(

@@ -587,6 +587,35 @@ class DTLZ7(DTLZ):
 
     _ref_val = 15.0
 
+    def __init__(
+        self,
+        dim: int,
+        num_objectives: int = 2,
+        noise_std: None | float | list[float] = None,
+        negate: bool = False,
+        dtype: torch.dtype = torch.double,
+    ) -> None:
+        r"""
+        Args:
+            dim: The (input) dimension of the function.
+            num_objectives: Must be at least two and less than dim.
+            noise_std: Standard deviation of the observation noise.
+            negate: If True, negate the function.
+            dtype: The dtype that is used for the bounds of the function.
+        """
+        if num_objectives < 2:
+            # The last objective is a function of the other objectives.
+            raise ValueError(
+                f"DTLZ7 requires at least two objectives, but got {num_objectives}."
+            )
+        super().__init__(
+            dim=dim,
+            num_objectives=num_objectives,
+            noise_std=noise_std,
+            negate=negate,
+            dtype=dtype,
+        )
+
     def _evaluate_true(self, X):
         f = []
         for i in range(0, self.num_objectives - 1):
@@ -1320,6 +1349,34 @@ class C2DTLZ2(DTLZ2, ConstrainedBaseTestProblem):
         min1 = (term1 + term2).min(dim=-1).values
         min2 = ((f_X - 1 / math.sqrt(f_X.shape[-1])).pow(2) - self._r**2).sum(dim=-1)
         return -torch.min(min1, min2).unsqueeze(-1)
+
+    def gen_pareto_front(self, n: int) -> Tensor:
+        r"""Generate ``n`` feasible pareto optimal points.
+
+        The points are sampled from the pareto front of DTLZ2 (the positive section
+        of the unit hypersphere), and those that violate the constraint are discarded
+        until ``n`` feasible points have been found.
+        """
+        tkwargs = {"dtype": self.ref_point.dtype, "device": self.ref_point.device}
+        pareto_Y = torch.empty(0, self.num_objectives, **tkwargs)
+        while pareto_Y.shape[0] < n:
+            f_X = super().gen_pareto_front(n=n)
+            # Evaluate the constraint at the pareto optimal inputs with objectives
+            # f_X: the position variables are the angles of the spherical coordinates
+            # of f_X (scaled to [0, 1]), and the distance variables are 0.5.
+            f_abs = f_X.abs()
+            norms = f_abs.pow(2).cumsum(dim=-1).sqrt()
+            angles = torch.atan2(f_abs[:, 1:].flip(-1), norms[:, :-1].flip(-1))
+            X = torch.cat(
+                [
+                    (angles * (2 / math.pi)).clamp(0.0, 1.0),
+                    torch.full((n, self.k), 0.5, **tkwargs),
+                ],
+                dim=-1,
+            )
+            is_feasible = self.is_feasible(X, noise=False)
+            pareto_Y = torch.cat([pareto_Y, f_X[is_feasible]], dim=0)
+        return pareto_Y[:n]
 
 
 class DiscBrake(MultiObjectiveTestProblem, ConstrainedBaseTestProblem):
