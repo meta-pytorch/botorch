@@ -126,6 +126,7 @@ class InfiniteWidthBNNKernel(Kernel):
             self.weight_var * (x1.matmul(x2.transpose(-2, -1)) / x1.shape[-1])
             + self.bias_var
         )
+        coincident = (x1.unsqueeze(-2) == x2.unsqueeze(-3)).all(dim=-1)
 
         for layer in range(self.depth):
             if layer == 0:
@@ -135,19 +136,30 @@ class InfiniteWidthBNNKernel(Kernel):
                 K_11 = self._update_var(K_11, x1)
                 K_22 = self._update_var(K_22, x2)
 
-            sqrt_term = torch.sqrt(K_11.matmul(K_22.transpose(-2, -1)))
+            # Forming the variance product first can overflow even when the
+            # geometric mean and final covariance are representable.
+            sqrt_term = K_11.sqrt().matmul(K_22.sqrt().transpose(-2, -1))
 
             fraction = K_12 / sqrt_term
             fraction = torch.clamp(
                 fraction, min=-1 + self.acos_eps, max=1 - self.acos_eps
             )
+            # At coincident points the exact ReLU update is linear in the
+            # preceding cross covariance. Remove these entries from acos
+            # before evaluation, including acos_eps=0, so an inactive singular
+            # derivative cannot produce NaNs. Using K_12 retains both input
+            # arguments' partial and mixed derivatives.
+            fraction = torch.where(coincident, torch.zeros_like(fraction), fraction)
 
             theta = torch.acos(fraction)
             theta_term = torch.sin(theta) + (torch.pi - theta) * fraction
 
-            K_12 = (
+            regular = (
                 self.weight_var / (2 * torch.pi) * sqrt_term * theta_term
                 + self.bias_var
+            )
+            K_12 = torch.where(
+                coincident, self.weight_var * K_12 / 2 + self.bias_var, regular
             )
 
         return K_12
