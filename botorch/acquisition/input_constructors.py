@@ -517,6 +517,8 @@ def construct_inputs_qSimpleRegret(
     if constraints is not None:
         if X_baseline is None:
             raise ValueError("Constraints require an X_baseline.")
+        if objective is None:
+            objective = IdentityMCObjective()
         objective = ConstrainedMCObjective(
             objective=objective,
             constraints=constraints,
