@@ -119,10 +119,11 @@ class IntegratedWhiteNoiseKernel(Kernel):
         # Precompute the constant denominator ((p-1)!)^2 and the per-term
         # (binomial coefficient, exponents, divisor) tuples for j = 0..p-1.
         # Dividing by the denominator is numerically more stable than
-        # multiplying by its floating-point reciprocal.
-        self._denominator: int = math.factorial(order - 1) ** 2
-        self._terms: list[tuple[int, int, int, int]] = [
-            (math.comb(order - 1, j), order - 1 - j, order + j, order + j)
+        # multiplying by its floating-point reciprocal. The constants are stored
+        # as floats, since e.g. ((p-1)!)^2 exceeds the int64 range for p >= 14.
+        self._denominator: float = float(math.factorial(order - 1) ** 2)
+        self._terms: list[tuple[float, int, int, int]] = [
+            (float(math.comb(order - 1, j)), order - 1 - j, order + j, order + j)
             for j in range(order)
         ]
 
@@ -158,16 +159,20 @@ class IntegratedWhiteNoiseKernel(Kernel):
         x1_squeezed = x1.squeeze(-1)
         x2_squeezed = x2.squeeze(-1)
 
-        if diag:
-            # For diagonal, x1 and x2 should be equal, so min = max = x. Only the
-            # j = p-1 term survives: k(t, t) = t^(2p-1) / ((p-1)!^2 * (2p-1)).
+        if diag and x1 is x2:
+            # min = max = t, so only the j = p-1 term survives:
+            # k(t, t) = t^(2p-1) / ((p-1)!^2 * (2p-1)).
             return x1_squeezed ** (2 * self.order - 1) / (
                 self._denominator * (2 * self.order - 1)
             )
 
-        # Compute pairwise min and max with shapes broadcasting to (..., n, m).
-        x1_expanded = x1_squeezed.unsqueeze(-1)
-        x2_expanded = x2_squeezed.unsqueeze(-2)
+        if diag:
+            # Elementwise covariances k(x1_i, x2_i), the diagonal of K(x1, x2).
+            x1_expanded, x2_expanded = x1_squeezed, x2_squeezed
+        else:
+            # Pairwise min and max with shapes broadcasting to (..., n, m).
+            x1_expanded = x1_squeezed.unsqueeze(-1)
+            x2_expanded = x2_squeezed.unsqueeze(-2)
         min_val = torch.minimum(x1_expanded, x2_expanded)
         max_val = torch.maximum(x1_expanded, x2_expanded)
         diff = max_val - min_val

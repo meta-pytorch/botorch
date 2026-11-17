@@ -8,7 +8,7 @@ import warnings
 
 import numpy
 import torch
-from botorch.exceptions.errors import UnsupportedError
+from botorch.exceptions.errors import BotorchTensorDimensionError, UnsupportedError
 from gpytorch.constraints import Interval, Positive
 from gpytorch.kernels import Kernel, RBFKernel
 from gpytorch.module import Module
@@ -61,8 +61,9 @@ class OrthogonalAdditiveKernel(Kernel):
             per_dim_lengthscales: If True (default), the default base kernel gets
                 ``batch_shape=(*batch_shape, dim)``, giving each additive component
                 its own independent lengthscale. If False, the default base kernel
-                gets ``batch_shape=batch_shape``, sharing a single lengthscale
-                across all components.
+                gets ``batch_shape=(*batch_shape, 1)`` (or no batch shape if
+                ``batch_shape`` is empty), sharing a single lengthscale across all
+                components.
             quad_deg: Number of integration nodes for orthogonalization.
             second_order: Toggles second order interactions. If true, both the time and
                 space complexity of evaluating the kernel are quadratic in ``dim``.
@@ -84,11 +85,14 @@ class OrthogonalAdditiveKernel(Kernel):
         super().__init__(batch_shape=batch_shape)
         self.check_hypercube = check_hypercube
         self.per_dim_lengthscales = per_dim_lengthscales
-        expected_base_batch = (
-            self.batch_shape + torch.Size([dim])
-            if per_dim_lengthscales
-            else self.batch_shape
-        )
+        if per_dim_lengthscales:
+            expected_base_batch = self.batch_shape + torch.Size([dim])
+        elif len(self.batch_shape) > 0:
+            # `k` evaluates the base kernel on `batch_shape x d x n x 1` inputs, so a
+            # shared lengthscale needs a singleton dimension to broadcast over `d`.
+            expected_base_batch = self.batch_shape + torch.Size([1])
+        else:
+            expected_base_batch = self.batch_shape
         if base_kernel is None:
             base_kernel = RBFKernel(batch_shape=expected_base_batch).to(
                 dtype=dtype, device=device
@@ -112,8 +116,12 @@ class OrthogonalAdditiveKernel(Kernel):
         # integration nodes, weights for [0, 1]
         tkwargs = {"dtype": dtype, "device": device}
         z, w = leggauss(deg=quad_deg, a=0, b=1, **tkwargs)
-        self.z = z.unsqueeze(-1).expand(quad_deg, dim)  # deg x dim
-        self.w = w.unsqueeze(-1)
+        # Non-persistent buffers follow the module's dtype and device (e.g. when a
+        # model moves the kernel to its training data) without being saved.
+        self.register_buffer(
+            "z", z.unsqueeze(-1).expand(quad_deg, dim), persistent=False
+        )  # deg x dim
+        self.register_buffer("w", w.unsqueeze(-1), persistent=False)
         self.register_parameter(
             name="raw_offset",
             parameter=nn.Parameter(torch.zeros(self.batch_shape, **tkwargs)),
@@ -161,15 +169,19 @@ class OrthogonalAdditiveKernel(Kernel):
         # For second order interactions, we only store d*(d-1)/2 upper-triangular
         # coefficients. Pre-compute indices for reconstructing the full d x d matrix.
         if second_order:
-            self._rev_triu_indices = torch.tensor(
-                _reverse_triu_indices(dim),
-                device=device,
-                dtype=int,
+            self.register_buffer(
+                "_rev_triu_indices",
+                torch.tensor(_reverse_triu_indices(dim), device=device, dtype=int),
+                persistent=False,
             )
             # zero tensor for construction of upper-triangular coefficient matrix
-            self._quad_zero = torch.zeros(
-                tuple(1 for _ in range(len(self.batch_shape) + 1)), **tkwargs
-            ).expand(*self.batch_shape, 1)
+            self.register_buffer(
+                "_quad_zero",
+                torch.zeros(
+                    tuple(1 for _ in range(len(self.batch_shape) + 1)), **tkwargs
+                ).expand(*self.batch_shape, 1),
+                persistent=False,
+            )
         self.coeff_constraint = coeff_constraint
         self.dim = dim
 
@@ -529,14 +541,13 @@ class OrthogonalAdditiveKernel(Kernel):
         if x1 is not x2:
             if self.check_hypercube:
                 _check_hypercube(x2, "x2")
-            if diag:
-                raise UnsupportedError(
-                    "OrthogonalAdditiveKernel does not support `diag=True` "
-                    "with different `x1` and `x2`."
+            # With diag=True, the kernel is evaluated elementwise on (x1[i], x2[i]).
+            if diag and x1.shape[-2] != x2.shape[-2]:
+                raise BotorchTensorDimensionError(
+                    "diag=True requires `x1` and `x2` to have the same number of "
+                    f"points, but got {x1.shape[-2]} and {x2.shape[-2]}."
                 )
         Kx1x2 = self.k(x1, x2, diag=diag)  # batch_shape x d x n1 (x n2)
-        # Overwriting allocated quadrature tensors with fitting dtype and device
-        # self.z, self.w = self.z.to(x1), self.w.to(x1)
         # include normalization constant in weights
         # self.w: (q, 1), self.normalizer(): (d, 1, 1) -> w: (d, q, 1)
         w = self.w / self.normalizer().sqrt()
@@ -579,6 +590,12 @@ class OrthogonalAdditiveKernel(Kernel):
     def _clear_cache(self) -> None:
         if hasattr(self, "_normalizer"):
             del self._normalizer
+
+    def _apply(self, fn, *args, **kwargs):
+        # The cached eval-mode normalizer is not a buffer, so it would not follow
+        # dtype or device changes. Recompute it on the next call instead.
+        self._clear_cache()
+        return super()._apply(fn, *args, **kwargs)
 
     def _compute_normalizer(self, eps: float = 1e-6) -> Tensor:
         """Computes ``w.T @ K @ w`` for each dimension ``d``.
