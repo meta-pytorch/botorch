@@ -236,6 +236,17 @@ class TestMultiStepLookahead(BotorchTestCase):
             result = qMS(eval_X)
             self.assertEqual(result.shape, torch.Size(t_batch_size))
 
+            # analytic value functions with a batched best_f from the fantasy models
+            qMS = qMultiStepLookahead(
+                model=model,
+                batch_sizes=q_batch_sizes,
+                valfunc_cls=[ExpectedImprovement] * 4,
+                valfunc_argfacs=[make_best_f] * 4,
+                num_fantasies=num_fantasies,
+            )
+            result = qMS(eval_X)
+            self.assertEqual(result.shape, torch.Size(t_batch_size))
+
             # add dummy base_weights to samplers
             samplers = [
                 SobolQMCNormalSampler(sample_shape=torch.Size([nf]))

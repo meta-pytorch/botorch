@@ -255,6 +255,38 @@ class TestExpectedImprovement(BotorchTestCase):
                 model=mm, best_f=0.0, posterior_transform=IdentityMCObjective()
             )
 
+    def test_batched_best_f(self):
+        # A ``b``-dim ``best_f`` (batch mode) applies to the ``b`` t-batches of ``X``,
+        # also for batched models (here a fantasy model, as in qMultiStepLookahead).
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.rand(6, 2, **tkwargs)
+        train_Y = torch.sin(6 * train_X).sum(dim=-1, keepdim=True)
+        model = SingleTaskGP(train_X, train_Y).eval()
+        model.posterior(train_X)  # initialize the caches for conditioning
+        fantasy_model = model.condition_on_observations(
+            X=torch.rand(2, 3, 1, 2, **tkwargs), Y=torch.randn(2, 3, 1, 1, **tkwargs)
+        )
+        for acqf_cls, (m, batch_shape) in itertools.product(
+            (
+                ExpectedImprovement,
+                LogExpectedImprovement,
+                ProbabilityOfImprovement,
+                LogProbabilityOfImprovement,
+            ),
+            ((model, torch.Size([3])), (fantasy_model, torch.Size([2, 3]))),
+        ):
+            with self.subTest(acqf_cls=acqf_cls.__name__, batch_shape=batch_shape):
+                X = torch.rand(*batch_shape, 1, 2, **tkwargs)
+                best_f = torch.rand(batch_shape, **tkwargs)
+                with catch_warnings():
+                    simplefilter("ignore", category=NumericsWarning)
+                    value = acqf_cls(model=m, best_f=best_f)(X)
+                    self.assertEqual(value.shape, batch_shape)
+                    for idx in itertools.product(*(range(s) for s in batch_shape)):
+                        # the value with the t-batch's (scalar) ``best_f``
+                        expected = acqf_cls(model=m, best_f=best_f[idx])(X)[idx]
+                        self.assertAllClose(value[idx], expected)
+
 
 class TestProbabilityOfImprovement(BotorchTestCase):
     def test_probability_of_improvement(self):
