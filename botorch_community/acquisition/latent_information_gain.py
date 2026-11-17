@@ -19,10 +19,9 @@ Contributor: eibarolle
 
 from __future__ import annotations
 
-from typing import Any, Type
-
 import torch
 from botorch.acquisition import AcquisitionFunction
+from botorch.exceptions.errors import UnsupportedError
 from botorch_community.models.np_regression import NeuralProcessModel
 from torch import Tensor
 # reference: https://arxiv.org/abs/2106.02770
@@ -31,22 +30,29 @@ from torch import Tensor
 class LatentInformationGain(AcquisitionFunction):
     def __init__(
         self,
-        model: Type[Any],
+        model: NeuralProcessModel,
         num_samples: int = 10,
         min_std: float = 0.01,
         scaler: float = 0.5,
     ) -> None:
         """
         Latent Information Gain (LIG) Acquisition Function.
-        Uses the model's built-in posterior function to generalize KL computation.
+        Estimates the expected KL divergence between the latent distribution of a
+        neural process given the context and the candidate points (with outcomes
+        predicted by the decoder) and the one given the context points only.
 
         Args:
-            model: The model class to be used, defaults to NeuralProcessModel.
+            model: The NeuralProcessModel to be used.
             num_samples: Int showing the # of samples for calculation, defaults to 10.
             min_std: Float representing the minimum possible standardized std,
                 defaults to 0.01.
             scaler: Float scaling the std, defaults to 0.5.
         """
+        if not isinstance(model, NeuralProcessModel):
+            raise UnsupportedError(
+                "LatentInformationGain requires a NeuralProcessModel, got a "
+                f"{type(model).__name__}."
+            )
         super().__init__(model)
         self.model = model
         self.num_samples = num_samples
@@ -67,62 +73,41 @@ class LatentInformationGain(AcquisitionFunction):
         device = candidate_x.device
         candidate_x = candidate_x.to(device)
         N, q, D = candidate_x.shape
-        kl = torch.zeros(N, device=device, dtype=torch.float32)
+        kl = torch.zeros(N, device=device, dtype=candidate_x.dtype)
 
-        if isinstance(self.model, NeuralProcessModel):
-            x_c, y_c, _, _ = self.model.random_split_context_target(
-                self.model.train_X, self.model.train_Y, self.model.n_context
-            )
-            self.model.z_mu_context, self.model.z_logvar_context = (
-                self.model.data_to_z_params(x_c, y_c)
-            )
+        # The encoder and decoder operate on input-transformed points.
+        train_X = self.model.transform_inputs(self.model.train_X)
+        candidate_x = self.model.transform_inputs(candidate_x)
+        x_c, y_c, _, _ = self.model.random_split_context_target(
+            train_X, self.model.train_Y, self.model.n_context
+        )
+        # NOTE: The latent parameters are kept local, so that evaluating the
+        # acquisition function does not change the state of the model.
+        z_params_context = self.model.data_to_z_params(x_c, y_c)
 
-            for i in range(N):
-                x_i = candidate_x[i]
-                kl_i = 0.0
+        for i in range(N):
+            x_i = candidate_x[i]
+            kl_i = 0.0
 
-                for _ in range(self.num_samples):
-                    sample_z = self.model.sample_z(
-                        self.model.z_mu_context, self.model.z_logvar_context
-                    )
-                    if sample_z.dim() == 1:
-                        sample_z = sample_z.unsqueeze(0)
+            for _ in range(self.num_samples):
+                sample_z = self.model.sample_z(*z_params_context)
+                if sample_z.dim() == 1:
+                    sample_z = sample_z.unsqueeze(0)
 
-                    y_pred = self.model.decoder(x_i, sample_z)
+                y_pred = self.model.decoder(x_i, sample_z)
 
-                    combined_x = torch.cat([x_c, x_i], dim=0)
-                    combined_y = torch.cat([y_c, y_pred], dim=0)
+                combined_x = torch.cat([x_c, x_i], dim=0)
+                combined_y = torch.cat([y_c, y_pred], dim=0)
 
-                    self.model.z_mu_all, self.model.z_logvar_all = (
-                        self.model.data_to_z_params(combined_x, combined_y)
-                    )
-                    kl_sample = self.model.KLD_gaussian(self.min_std, self.scaler)
-                    kl_i += kl_sample
+                z_params_all = self.model.data_to_z_params(combined_x, combined_y)
+                kl_sample = self.model.KLD_gaussian(
+                    self.min_std,
+                    self.scaler,
+                    z_params_all=z_params_all,
+                    z_params_context=z_params_context,
+                )
+                kl_i += kl_sample
 
-                kl[i] = kl_i / self.num_samples
-
-        else:
-            for i in range(N):
-                x_i = candidate_x[i]
-                kl_i = 0.0
-                for _ in range(self.num_samples):
-                    posterior_prior = self.model.posterior(self.model.train_inputs[0])
-                    posterior_candidate = self.model.posterior(x_i)
-
-                    mean_prior = posterior_prior.mean.mean(dim=0)
-                    cov_prior = posterior_prior.variance.mean(dim=0)
-                    mvn_prior = torch.distributions.MultivariateNormal(
-                        mean_prior, torch.diag(cov_prior)
-                    )
-
-                    mean_candidate = posterior_candidate.mean.mean(dim=0)
-                    cov_candidate = posterior_candidate.variance.mean(dim=0)
-                    mvn_candidate = torch.distributions.MultivariateNormal(
-                        mean_candidate, torch.diag(cov_candidate)
-                    )
-
-                    kl_i += torch.distributions.kl_divergence(mvn_candidate, mvn_prior)
-
-                kl[i] = kl_i / self.num_samples
+            kl[i] = kl_i / self.num_samples
 
         return kl
