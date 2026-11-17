@@ -23,7 +23,6 @@ from linear_operator.operators import (
     BlockDiagLinearOperator,
     DenseLinearOperator,
     LinearOperator,
-    SumLinearOperator,
 )
 from torch import Tensor
 from torch.distributions import Normal
@@ -247,12 +246,11 @@ def scalarize_posterior_gpytorch(
         else:
             # special-case the independent setting
             if isinstance(cov, BlockDiagLinearOperator):
-                new_cov = SumLinearOperator(
-                    *[
-                        cov.base_linear_op[..., i, :, :] * weights[i].pow(2)
-                        for i in range(cov.base_linear_op.size(-3))
-                    ]
-                )
+                # Sum up the weighted blocks without indexing them one by one, since
+                # indexing a block of a ``CatLinearOperator`` (as constructed e.g. by
+                # ``ModelListGP``) fails if it contains ``InterpolatedLinearOperator``s.
+                block_weights = weights.pow(2).view(-1, 1, 1)
+                new_cov = (cov.base_linear_op * block_weights).sum(dim=-3)
                 return new_mean, new_cov
 
             w_cov = torch.repeat_interleave(weights, q).unsqueeze(0)
