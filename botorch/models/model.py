@@ -216,14 +216,33 @@ class Model(Module, ABC):
         except AttributeError:
             return X
 
+    def _transform_train_inputs(self, X: Tensor, preprocess: bool = False) -> Tensor:
+        r"""Transform inputs that are in the format of the training inputs.
+
+        Models that store their training inputs in a different format than the
+        inputs to ``posterior`` (e.g. ``BatchedMultiOutputGPyTorchModel``) override
+        this to apply the input transform consistently with ``posterior``.
+
+        Args:
+            X: A tensor of inputs in the format of ``self.train_inputs[0]``.
+            preprocess: If True, apply ``self.input_transform.preprocess_transform``
+                rather than ``self.transform_inputs``.
+
+        Returns:
+            A tensor of transformed inputs.
+        """
+        if preprocess:
+            return self.input_transform.preprocess_transform(X)
+        return self.transform_inputs(X)
+
     def _set_transformed_inputs(self) -> None:
         r"""Update training inputs with transformed inputs."""
         if hasattr(self, "input_transform") and not self._has_transformed_inputs:
             if hasattr(self, "train_inputs"):
                 self._original_train_inputs = self.train_inputs[0]
                 with torch.no_grad():
-                    X_tf = self.input_transform.preprocess_transform(
-                        self.train_inputs[0]
+                    X_tf = self._transform_train_inputs(
+                        self.train_inputs[0], preprocess=True
                     )
                 self.set_train_data(X_tf, strict=False)
                 self._has_transformed_inputs = True
