@@ -85,7 +85,12 @@ def _gaussian_update_exact(
         scale_tril = kernel(points).cholesky() if scale_tril is None else scale_tril
     else:
         noise_values = torch.randn_like(sample_values).unsqueeze(-1)
-        noise_values = noise_covariance.cholesky() @ noise_values
+        noise_root = (
+            torch.linalg.cholesky(noise_covariance)
+            if isinstance(noise_covariance, Tensor)
+            else noise_covariance.cholesky()
+        )
+        noise_values = noise_root @ noise_values
         sample_values = sample_values + noise_values.squeeze(-1)
         scale_tril = (
             SumLinearOperator(kernel(points), noise_covariance).cholesky()
