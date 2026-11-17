@@ -267,6 +267,12 @@ class GPyTorchModel(Model, ABC):
             Y = Y.squeeze(-1)
             if Yvar is not None:
                 kwargs.update({"noise": Yvar.squeeze(-1)})
+        noise = kwargs.get("noise")
+        if noise is not None and noise.dim() - 1 > X.dim() - 2:
+            # GPyTorch's fantasy update does not support noise with more batch
+            # dimensions than the inputs, so we expand the inputs.
+            batch_shape = broadcast_shapes(noise.shape[:-1], X.shape[:-2])
+            X = X.expand(batch_shape + X.shape[-2:])
         # get_fantasy_model will properly copy any existing outcome transforms
         # (since it deepcopies the original model))
         fantasy_model = self.get_fantasy_model(inputs=X, targets=Y, **kwargs)
