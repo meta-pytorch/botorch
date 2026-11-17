@@ -133,6 +133,39 @@ class TestScipyMinimize(BotorchTestCase):
         self.assertEqual(result.step, step_results[-1].step)
         self.assertEqual(result.fval, step_results[-1].fval)
 
+    def test_callback_does_not_reevaluate_closure(self):
+        def rosenbrock(x: Tensor) -> Tensor:
+            return (1 - x[0]).square() + 100 * (x[1] - x[0].square()).square()
+
+        num_evals = {}
+        for use_callback in (False, True):
+            x = Parameter(torch.tensor([-1.0, 1.0], dtype=torch.double))
+            num_evals[use_callback] = 0
+            results = []
+
+            def closure():
+                num_evals[use_callback] += 1
+                x.grad = None
+                loss = rosenbrock(x)
+                loss.backward()
+                return loss, [x.grad]
+
+            def callback(parameters, result):
+                # The parameters are at the current iterate, with value ``fval``.
+                with torch.no_grad():
+                    self.assertEqual(rosenbrock(parameters["x"]).item(), result.fval)
+                results.append(result)
+
+            result = scipy_minimize(
+                closure,
+                {"x": x},
+                callback=callback if use_callback else None,
+                options={"maxiter": 20},
+            )
+        self.assertEqual(result.step, 20)
+        self.assertEqual(len(results), 20)
+        self.assertEqual(num_evals[True], num_evals[False])
+
     def test_post_processing(self):
         closure = next(iter(self.closures.values()))
         wrapper = NdarrayOptimizationClosure(closure, closure.parameters)
