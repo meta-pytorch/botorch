@@ -47,6 +47,9 @@ def get_permutation(decomposition: dict[str, list[int]]) -> list[int] | None:
     1) the parameters for each context are contiguous.
     2) The parameters for each context are in the same order
 
+    The listed order within each context defines feature correspondences;
+    sorting the indices would change those correspondences.
+
     Args:
         decomposition: A dictionary mapping context names to a list of
             parameters.
@@ -55,31 +58,15 @@ def get_permutation(decomposition: dict[str, list[int]]) -> list[int] | None:
         Returning ``None`` means that ordering specified in ``decomposition``
         satisfies (1) and (2).
     """
-    permutation = None
-    if not all(
-        is_contiguous(indices=active_parameters)
-        for active_parameters in decomposition.values()
-    ):
-        permutation = _create_new_permutation(decomposition=decomposition)
-    else:
-        same_order = True
-        expected_order = get_order(indices=next(iter(decomposition.values())))
-        for active_parameters in decomposition.values():
-            order = get_order(indices=active_parameters)
-            if order != expected_order:
-                same_order = False
-                break
-        if not same_order:
-            permutation = _create_new_permutation(decomposition=decomposition)
-    return permutation
+    permutation = _create_new_permutation(decomposition)
+    return None if permutation == list(range(len(permutation))) else permutation
 
 
 def _create_new_permutation(decomposition: dict[str, list[int]]) -> list[int]:
     # make contiguous and ordered
     permutation = []
     for active_parameters in decomposition.values():
-        sorted_indices = sorted(active_parameters)
-        permutation.extend(sorted_indices)
+        permutation.extend(active_parameters)
     return permutation
 
 
@@ -229,6 +216,14 @@ class LCEAKernel(Kernel):
             self.context_cat_feature = torch.tensor(
                 [cat_feature_dict[c] for c in self.context_list]
             )
+        # Embedding rows index categories, rather than their arbitrary labels.
+        self.context_cat_feature = torch.stack(
+            [
+                torch.unique(column, sorted=True, return_inverse=True)[1]
+                for column in self.context_cat_feature.unbind(-1)
+            ],
+            dim=-1,
+        )
         #  construct emb_dims based on categorical features
         if embs_dim_list is None:
             #  set embedding_dim = 1 for each categorical variable

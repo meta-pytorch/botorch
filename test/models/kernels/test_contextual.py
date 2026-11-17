@@ -212,7 +212,7 @@ class ContextualKernelTest(BotorchTestCase):
         # order mismatch
         decomp = {"a": [1, 0], "b": [2, 3]}
         permutation = get_permutation(decomp)
-        self.assertEqual(permutation, [0, 1, 2, 3])
+        self.assertEqual(permutation, [1, 0, 2, 3])
         # non-contiguous
         decomp = {"a": [0, 2], "b": [1, 3]}
         permutation = get_permutation(decomp)
