@@ -4,7 +4,8 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-from contextlib import ExitStack
+from contextlib import ExitStack, nullcontext
+from itertools import product
 from unittest import mock
 
 import torch
@@ -13,6 +14,7 @@ from botorch.acquisition.cost_aware import GenericCostAwareUtility
 from botorch.acquisition.knowledge_gradient import (
     _get_value_function,
     _split_fantasy_points,
+    _value_function_settings,
     ProjectedAcquisitionFunction,
     qKnowledgeGradient,
     qMultiFidelityKnowledgeGradient,
@@ -22,7 +24,10 @@ from botorch.acquisition.objective import (
     GenericMCObjective,
     ScalarizedPosteriorTransform,
 )
-from botorch.acquisition.utils import project_to_sample_points
+from botorch.acquisition.utils import (
+    project_to_sample_points,
+    project_to_target_fidelity,
+)
 from botorch.exceptions.errors import UnsupportedError
 from botorch.models import SingleTaskGP
 from botorch.optim.optimize import optimize_acqf
@@ -31,6 +36,7 @@ from botorch.sampling.normal import IIDNormalSampler, SobolQMCNormalSampler
 from botorch.utils.test_helpers import DummyNonScalarizingPosteriorTransform
 from botorch.utils.testing import BotorchTestCase, MockModel, MockPosterior
 from gpytorch.distributions import MultitaskMultivariateNormal
+from gpytorch.settings import fast_pred_var
 
 NO = "botorch.utils.testing.MockModel.num_outputs"
 
@@ -641,6 +647,66 @@ class TestKGUtils(BotorchTestCase):
                 patch_bvf.assert_called_once_with(
                     torch.ones(1, 1, 1, device=self.device)
                 )
+
+    def test_gradients_with_posterior_samples(self):
+        # The gradient w.r.t. the candidates must also be correct when the value
+        # function samples the posterior of the fantasy models (an MC objective),
+        # whose covariance depends on the candidates.
+        torch.manual_seed(1234)
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.rand(8, 2, **tkwargs)
+        train_Y = train_X.sum(dim=-1, keepdim=True) + 0.1 * torch.sin(
+            5 * train_X[:, :1]
+        )
+        model = SingleTaskGP(train_X, train_Y)
+        objective = GenericMCObjective(lambda Y, X: Y.squeeze(-1) ** 2)
+        eps = 1e-6
+        for acqf_class, use_objective in product(
+            (qKnowledgeGradient, qMultiFidelityKnowledgeGradient), (False, True)
+        ):
+            kwargs = {"objective": objective} if use_objective else {}
+            if acqf_class == qMultiFidelityKnowledgeGradient:
+                kwargs["project"] = lambda X: project_to_target_fidelity(
+                    X, target_fidelities={1: 1.0}, d=2
+                )
+            acqf = acqf_class(model=model, num_fantasies=4, **kwargs)
+            X = torch.rand(1, 1 + acqf.num_fantasies, 2, **tkwargs)
+            X.requires_grad_(True)
+            (grad,) = torch.autograd.grad(acqf(X).sum(), X)
+            # central finite differences
+            X = X.detach()
+            fd_grad = torch.zeros_like(X)
+            with torch.no_grad():
+                for i in range(X.numel()):
+                    delta = torch.zeros(X.numel(), **tkwargs)
+                    delta[i] = eps
+                    delta = delta.view_as(X)
+                    fd_grad.view(-1)[i] = (acqf(X + delta) - acqf(X - delta)).sum() / (
+                        2 * eps
+                    )
+            self.assertAllClose(grad, fd_grad, atol=1e-6, rtol=1e-4)
+
+    def test_value_function_settings(self):
+        model = SingleTaskGP(
+            torch.rand(4, 2, device=self.device), torch.rand(4, 1, device=self.device)
+        )
+        mean = PosteriorMean(model=model)
+        samples = qSimpleRegret(model=model)
+        self.assertIsInstance(_value_function_settings(mean), nullcontext)
+        self.assertIsInstance(
+            _value_function_settings(
+                ProjectedAcquisitionFunction(mean, project=lambda X: X)
+            ),
+            nullcontext,
+        )
+        for value_function in (
+            samples,
+            ProjectedAcquisitionFunction(samples, project=lambda X: X),
+        ):
+            settings = _value_function_settings(value_function)
+            self.assertIsInstance(settings, fast_pred_var)
+            with settings:
+                self.assertFalse(fast_pred_var.on())
 
     def test_split_fantasy_points(self):
         for dtype in (torch.float, torch.double):
