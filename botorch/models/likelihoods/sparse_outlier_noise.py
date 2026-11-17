@@ -17,7 +17,11 @@ from gpytorch.likelihoods import _GaussianLikelihoodBase
 from gpytorch.likelihoods.noise_models import FixedGaussianNoise, Noise
 from gpytorch.mlls import ExactMarginalLogLikelihood
 from gpytorch.priors import Prior
-from linear_operator.operators import DiagLinearOperator, LinearOperator
+from linear_operator.operators import (
+    DiagLinearOperator,
+    LinearOperator,
+    ZeroLinearOperator,
+)
 from linear_operator.utils.cholesky import psd_safe_cholesky
 from torch import Tensor
 from torch.nn.parameter import Parameter
@@ -245,7 +249,12 @@ class SparseOutlierNoise(Noise, RelevancePursuitMixin):
         NOTE: We can't use the property setter @sparse_parameter.setter because of
         the special way PyTorch treats Parameter types, including custom setters.
         """
-        self.raw_rho = torch.nn.Parameter(value.to(self.raw_rho))
+        converted = value.to(self.raw_rho)
+        self.raw_rho = (
+            converted
+            if isinstance(converted, Parameter)
+            else Parameter(converted, requires_grad=value.requires_grad)
+        )
 
     @property
     def convex_parameterization(self) -> bool:
@@ -313,7 +322,7 @@ class SparseOutlierNoise(Noise, RelevancePursuitMixin):
             [rho_outlier, rho_inlier], dim=-1
         )  # batch_shape x (num_outliers + 1)
 
-        return rho[..., self._rho_selection_indices]
+        return rho.gather(-1, self._rho_selection_indices)
 
     @property
     def _rho_selection_indices(self) -> Tensor:
@@ -323,12 +332,12 @@ class SparseOutlierNoise(Noise, RelevancePursuitMixin):
         # is this related to a sparse to dense mapping used in RP?
         rho_selection_indices = torch.full(
             self.raw_rho.shape[:-1] + (self.dim,),
-            -1,
+            len(self.support),
             dtype=torch.long,
             device=self.raw_rho.device,
         )
         for i, j in enumerate(self.support):
-            rho_selection_indices[j] = i
+            rho_selection_indices[..., j] = i
 
         return rho_selection_indices
 
@@ -360,6 +369,16 @@ class SparseOutlierNoise(Noise, RelevancePursuitMixin):
             A ``batch_shape x self.dim``-dim Tensor of robustness variances.
         """
         noise_covar = self.base_noise(X, shape=shape, **kwargs)
+        # FixedGaussianNoise returns a scalar zero operator when the requested
+        # event size differs from its stored observations. Retain the requested
+        # event shape before inspecting or returning this operator.
+        if isinstance(noise_covar, ZeroLinearOperator) and noise_covar.ndim == 0:
+            inputs = X[0] if isinstance(X, list) and len(X) == 1 else X
+            event_shape = shape
+            if event_shape is None and isinstance(inputs, Tensor):
+                event_shape = inputs.shape[:-1] if inputs.ndim > 1 else inputs.shape
+            if event_shape is not None:
+                noise_covar = DiagLinearOperator(self.raw_rho.new_zeros(event_shape))
         # rho should always be applied to the training set, irrespective of whether or
         # not we are in training mode, so we will check if we should apply the rhos,
         # based on cached training inputs.
@@ -404,7 +423,7 @@ class SparseOutlierNoise(Noise, RelevancePursuitMixin):
                 )
             elif self.training or self._cached_train_inputs is None:
                 apply_robust_variances = True
-                self._cached_train_inputs = X
+                self._cached_train_inputs = X.detach().clone()
                 warning_reason = ""  # will not warn when applying robust variances
             else:
                 apply_robust_variances = torch.equal(X, self._cached_train_inputs)
@@ -476,9 +495,11 @@ class SparseOutlierNoise(Noise, RelevancePursuitMixin):
         # test: inv_root.square().sum(dim=-1) - S.inverse().diag()
         diag_S_inv = inv_root.square().sum(dim=-1)
         loo_var = 1 / diag_S_inv
-        S_inv_Y = torch.cholesky_solve(Y.unsqueeze(-1), chol, upper=True).squeeze(-1)
+        S_inv_Y = torch.cholesky_solve(
+            (Y - F.mean).unsqueeze(-1), chol, upper=True
+        ).squeeze(-1)
         loo_mean = Y - S_inv_Y / diag_S_inv
 
         loo_error = loo_mean - Y
         optimal_rho_deltas = loo_error.square() - loo_var
-        return (optimal_rho_deltas - self.rho).clamp(0)[~self.is_active]
+        return (optimal_rho_deltas - self.rho).clamp(0)[..., ~self.is_active]
