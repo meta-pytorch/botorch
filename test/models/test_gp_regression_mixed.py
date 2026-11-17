@@ -342,3 +342,132 @@ class TestMixedSingleTaskGP(BotorchTestCase):
         self.assertTrue(X.equal(model_kwargs["train_X"]))
         self.assertTrue(Y.equal(model_kwargs["train_Y"]))
         self.assertTrue(Y.equal(model_kwargs["train_Yvar"]))
+
+    def test_custom_cat_kernel_factory(self):
+        d = 3
+        for batch_shape, ncat, dtype in (
+            (torch.Size(), 1, torch.float),
+            (torch.Size([2]), 2, torch.double),
+            (torch.Size(), 3, torch.double),
+        ):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            train_X, train_Y = get_random_data(
+                batch_shape=batch_shape, m=1, d=d, **tkwargs
+            )
+            cat_dims = list(range(ncat))
+
+            class RecordingCatKernelFactory:
+                def __init__(self):
+                    self.calls = []
+
+                def __call__(
+                    self,
+                    batch_shape: torch.Size,
+                    ard_num_dims: int,
+                    active_dims: list[int] | None,
+                ):
+                    self.calls.append(
+                        {
+                            "batch_shape": batch_shape,
+                            "ard_num_dims": ard_num_dims,
+                            "active_dims": active_dims,
+                        }
+                    )
+                    return CategoricalKernel(
+                        batch_shape=batch_shape,
+                        ard_num_dims=None,
+                        active_dims=active_dims,
+                    )
+
+            factory = RecordingCatKernelFactory()
+            model = MixedSingleTaskGP(
+                train_X=train_X,
+                train_Y=train_Y,
+                cat_dims=cat_dims,
+                cat_kernel_factory=factory,
+            )
+            calls = factory.calls
+
+            # Mixed case (ncat < 3)
+            if ncat < 3:
+                self.assertEqual(len(calls), 2)
+                for call in calls:
+                    self.assertEqual(call["ard_num_dims"], ncat)
+                    self.assertEqual(call["active_dims"], cat_dims)
+                    self.assertEqual(call["batch_shape"], model._aug_batch_shape)
+
+                # Walk the kernel tree the way test_gp does:
+                sum_kernel, prod_kernel = model.covar_module.kernels
+                sum_cat_kernel = sum_kernel.base_kernel.kernels[1].base_kernel
+                prod_cat_kernel = prod_kernel.base_kernel.kernels[1]
+                self.assertIsNot(sum_cat_kernel, prod_cat_kernel)
+                self.assertEqual(sum_cat_kernel.lengthscale.shape[-1], 1)
+                self.assertEqual(prod_cat_kernel.lengthscale.shape[-1], 1)
+            else:
+                self.assertEqual(len(calls), 1)
+                self.assertEqual(calls[0]["ard_num_dims"], 3)
+                self.assertIsNone(calls[0]["active_dims"])
+                self.assertEqual(calls[0]["batch_shape"], model._aug_batch_shape)
+                self.assertIsInstance(model.covar_module, ScaleKernel)
+                cat_kernel = model.covar_module.base_kernel
+                self.assertIsInstance(cat_kernel, CategoricalKernel)
+                self.assertEqual(cat_kernel.lengthscale.shape[-1], 1)
+
+            # Posterior evaluation
+            X = torch.rand(batch_shape + torch.Size([4, d]), **tkwargs)
+            posterior = model.posterior(X)
+            self.assertEqual(posterior.mean.shape, batch_shape + torch.Size([4, 1]))
+
+            # Fitting MLL
+            mll = ExactMarginalLogLikelihood(model.likelihood, model).to(**tkwargs)
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=OptimizationWarning)
+                fit_gpytorch_mll(
+                    mll, optimizer_kwargs={"options": {"maxiter": 1}}, max_attempts=1
+                )
+
+            # Check that a completely different kernel type works
+            model_rbf = MixedSingleTaskGP(
+                train_X=train_X,
+                train_Y=train_Y,
+                cat_dims=cat_dims,
+                cat_kernel_factory=lambda batch_shape, ard_num_dims, active_dims: (
+                    RBFKernel(
+                        batch_shape=batch_shape,
+                        active_dims=active_dims,
+                    )
+                ),
+            )
+            if ncat < 3:
+                sum_kernel, prod_kernel = model_rbf.covar_module.kernels
+                self.assertIsInstance(
+                    sum_kernel.base_kernel.kernels[1].base_kernel, RBFKernel
+                )
+                self.assertIsInstance(prod_kernel.base_kernel.kernels[1], RBFKernel)
+            else:
+                self.assertIsInstance(model_rbf.covar_module, ScaleKernel)
+                self.assertIsInstance(model_rbf.covar_module.base_kernel, RBFKernel)
+
+    def test_default_cat_kernel_factory_unchanged(self):
+        d = 3
+        for ncat in (1, 3):
+            train_X, train_Y = get_random_data(
+                batch_shape=torch.Size(),
+                m=1,
+                d=d,
+                device=self.device,
+                dtype=torch.double,
+            )
+            cat_dims = list(range(ncat))
+            m1 = MixedSingleTaskGP(train_X, train_Y, cat_dims=cat_dims)
+            m2 = MixedSingleTaskGP(
+                train_X, train_Y, cat_dims=cat_dims, cat_kernel_factory=None
+            )
+            self.assertEqual(set(m1.state_dict().keys()), set(m2.state_dict().keys()))
+            if ncat == 3:
+                self.assertNotIn(
+                    "covar_module.base_kernel.active_dims", m1.state_dict().keys()
+                )
+                self.assertNotIn(
+                    "covar_module.base_kernel.active_dims", m2.state_dict().keys()
+                )
