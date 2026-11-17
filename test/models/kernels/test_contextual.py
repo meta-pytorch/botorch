@@ -19,6 +19,39 @@ from torch.nn import ModuleDict
 
 
 class ContextualKernelTest(BotorchTestCase):
+    def test_SACKernel_device_migration(self):
+        if not torch.cuda.is_available():
+            self.skipTest("CUDA is required for cross-device module migration.")
+        decomposition = {"a": [0, 3], "b": [1, 2]}
+        kernel = SACKernel(decomposition, torch.Size()).double()
+        for device in (torch.device("cuda"), torch.device("cpu")):
+            with self.subTest(device=device):
+                kernel.to(device)
+                x = torch.rand(
+                    3, 4, device=device, dtype=torch.double, requires_grad=True
+                )
+                z = torch.rand(
+                    2, 4, device=device, dtype=torch.double, requires_grad=True
+                )
+                actual = kernel(x, z).to_dense()
+                self.assertEqual(kernel.device, x.device)
+                expected = sum(
+                    kernel.kernel_dict[context](
+                        x[..., indices], z[..., indices]
+                    ).to_dense()
+                    for context, indices in decomposition.items()
+                )
+                self.assertAllClose(actual, expected)
+                actual_grad = torch.autograd.grad(
+                    actual.square().sum(), (x, z), retain_graph=True
+                )
+                expected_grad = torch.autograd.grad(expected.square().sum(), (x, z))
+                for actual_value, expected_value in zip(actual_grad, expected_grad):
+                    self.assertAllClose(actual_value, expected_value)
+                for indexer in kernel._indexers.values():
+                    self.assertEqual(indexer.device.type, device.type)
+                    self.assertEqual(indexer.dtype, torch.long)
+
     def test_SACKernel(self):
         decomposition = {"1": [0, 3], "2": [1, 2]}
         kernel = SACKernel(decomposition=decomposition, batch_shape=torch.Size([]))
