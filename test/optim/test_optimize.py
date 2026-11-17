@@ -2923,6 +2923,45 @@ class TestOptimizeAcqfMixed(BotorchTestCase):
                 ],
             )
 
+    @mock.patch("botorch.optim.optimize.optimize_acqf")
+    def test_optimize_acqf_mixed_infeasible_restarts(self, mock_optimize_acqf):
+        # With ``return_best_only=False``, ``optimize_acqf`` also returns restarts
+        # that are infeasible after the projection onto the constraints. They must
+        # not be selected, even if they have the largest acquisition values.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        bounds = torch.stack([torch.zeros(2, **tkwargs), torch.ones(2, **tkwargs)])
+        # x0 + x1 >= 1
+        ineq_constraints = [
+            (torch.tensor([0, 1], device=self.device), torch.ones(2, **tkwargs), 1.0)
+        ]
+        # an infeasible and a feasible restart for each fixed feature value
+        candidate_rvs = [
+            torch.tensor([[[0.1, 0.1]], [[0.1, 0.95]]], **tkwargs),
+            torch.tensor([[[0.2, 0.9]], [[0.2, 0.0]]], **tkwargs),
+        ]
+        acq_val_rvs = [
+            torch.tensor([5.0, 1.0], **tkwargs),
+            torch.tensor([2.0, 4.0], **tkwargs),
+        ]
+        for return_best_only in (True, False):
+            mock_optimize_acqf.side_effect = list(zip(candidate_rvs, acq_val_rvs))
+            candidates, acq_value = optimize_acqf_mixed(
+                acq_function=MockAcquisitionFunction(),
+                q=1,
+                fixed_features_list=[{0: 0.1}, {0: 0.2}],
+                bounds=bounds,
+                num_restarts=2,
+                raw_samples=10,
+                inequality_constraints=ineq_constraints,
+                return_best_only=return_best_only,
+            )
+            if return_best_only:
+                self.assertTrue(torch.equal(candidates, candidate_rvs[1][0]))
+                self.assertTrue(torch.equal(acq_value, acq_val_rvs[1][0]))
+            else:
+                self.assertTrue(torch.equal(candidates, candidate_rvs[1]))
+                self.assertTrue(torch.equal(acq_value, acq_val_rvs[1]))
+
     def test_optimize_acqf_mixed_return_best_only_q2(self):
         mock_acq_function = MockAcquisitionFunction()
         with self.assertRaisesRegex(
