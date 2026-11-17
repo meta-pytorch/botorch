@@ -57,6 +57,35 @@ class TestPairwiseGP(BotorchTestCase):
 
         return train_X, train_comp
 
+    def test_posterior_broadcasts_singleton_query_batches(self):
+        model, _ = self._get_model_and_data(batch_shape=torch.Size([2]))
+        for query_batch in ((1,), (3, 1), (1, 2)):
+            with self.subTest(query_batch=query_batch):
+                X = torch.rand(
+                    *query_batch,
+                    3,
+                    2,
+                    device=self.device,
+                    dtype=self.dtype,
+                    requires_grad=True,
+                )
+                batch = torch.broadcast_shapes(model.batch_shape, X.shape[:-2])
+                posterior = model.posterior(X)
+                expanded = model.posterior(X.expand(*batch, 3, 2))
+                self.assertEqual(posterior.mean.shape, batch + torch.Size([3, 1]))
+                self.assertAllClose(posterior.mean, expanded.mean)
+                self.assertAllClose(
+                    posterior.distribution.covariance_matrix,
+                    expanded.distribution.covariance_matrix,
+                )
+                gradient = torch.autograd.grad(
+                    posterior.mean.sum() + posterior.variance.sum(), X
+                )[0]
+                expected_gradient = torch.autograd.grad(
+                    expanded.mean.sum() + expanded.variance.sum(), X
+                )[0]
+                self.assertAllClose(gradient, expected_gradient)
+
     def _get_model_and_data(
         self,
         batch_shape,

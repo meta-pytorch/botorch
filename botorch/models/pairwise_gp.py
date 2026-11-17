@@ -627,10 +627,8 @@ class PairwiseGP(Model, GP, FantasizeMixin):
         Transform the batch shape of X to be compatible
         with ``X_new`` to calculate the posterior.
         If X has the same batch size as ``X_new``, return it as is.
-        If one is in batch mode and the other one is not, convert both
-        into batch mode.
-        If both are in batch mode, this will only work if X_batch_shape
-        can propagate to X_new_batch_shape
+        Broadcast both batch shapes, including singleton dimensions and
+        cases where the common batch shape differs from both inputs.
 
         Args:
             X: A ``batch_shape x q x d``-dim or ``(1 x) q x d``-dim Tensor
@@ -639,18 +637,15 @@ class PairwiseGP(Model, GP, FantasizeMixin):
         Returns:
             Transformed X and X_new pair
         """
-        X_bs = X.shape[:-2]  # X batch shape
-        X_new_bs = X_new.shape[:-2]  # X_new batch shape
+        X_bs = X.shape[:-2]
+        X_new_bs = X_new.shape[:-2]
         if X_new_bs == X_bs:
-            # if batch shapes match, there's no need to transform
-            # X_new may or may not have batch_shape dimensions
             return X, X_new
-        elif len(X_new_bs) < len(X_bs):
-            # if X_new has fewer dimension, try to expand it to X's shape
-            return X, X_new.expand(X_bs + X_new.shape[-2:])
-        else:
-            # if X has fewer dimension, try to expand it to X_new's shape
-            return X.expand(X_new_bs + X.shape[-2:]), X_new
+        batch_shape = torch.broadcast_shapes(X_bs, X_new_bs)
+        return (
+            X.expand(batch_shape + X.shape[-2:]),
+            X_new.expand(batch_shape + X_new.shape[-2:]),
+        )
 
     def _util_newton_updates(
         self, dp: Tensor, x0: Tensor, max_iter: int = 1, xtol: float | None = None
