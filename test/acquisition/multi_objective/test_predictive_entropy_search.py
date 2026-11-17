@@ -158,6 +158,31 @@ class TestQMultiObjectivePredictiveEntropySearch(BotorchTestCase):
     def test_moo_predictive_entropy_search_model_list_maximize(self):
         self.test_moo_predictive_entropy_search(use_model_list=True, maximize=True)
 
+    def test_moo_predictive_entropy_search_observation_noise(self):
+        # The Pareto conditions apply to the latent functions, not to the noisy
+        # observations: as the observation noise grows, an observation carries
+        # (almost) no information about the Pareto set.
+        torch.manual_seed(0)
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.rand(6, 2, **tkwargs)
+        train_Y = torch.stack(
+            [torch.sin(5 * train_X[:, 0]), torch.cos(5 * train_X[:, 1])], dim=-1
+        )
+        pareto_sets = torch.rand(2, 3, 2, **tkwargs)
+        X = torch.rand(4, 1, 2, **tkwargs)
+        for use_model_list in (False, True):
+            model = get_model(
+                train_X=train_X, train_Y=train_Y, use_model_list=use_model_list
+            )
+            for m in model.models if use_model_list else [model]:
+                m.likelihood.noise = 1e4
+            with torch.no_grad():
+                acq = qMultiObjectivePredictiveEntropySearch(
+                    model=model, pareto_sets=pareto_sets
+                )
+                acq_X = acq(X)
+            self.assertTrue((acq_X.abs() < 1e-2).all())
+
     def test_update_damping(self):
         # test error when old and new covariance are not positive semi-definite
         tkwargs = {"device": self.device}
