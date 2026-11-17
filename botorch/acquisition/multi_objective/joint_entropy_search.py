@@ -460,6 +460,31 @@ class qLowerBoundMultiObjectiveJointEntropySearch(
         return self._compute_lower_bound_information_gain(X)
 
 
+def _normal_cdf_with_infinite_bounds(g: Tensor, bounds: Tensor) -> Tensor:
+    """Evaluate finite standardized bounds with exact infinite-endpoint limits."""
+    normal = Normal(torch.zeros_like(g), torch.ones_like(g))
+    return torch.where(
+        torch.isposinf(bounds),
+        1,
+        torch.where(torch.isneginf(bounds), 0, normal.cdf(g)),
+    )
+
+
+def _compute_box_quantities(
+    hypercell_bounds: Tensor, mean: Tensor, variance: Tensor
+) -> tuple[Tensor, Tensor, Tensor]:
+    bounds = hypercell_bounds.unsqueeze(-4)
+    finite = torch.isfinite(bounds)
+    # Mask before standardization, which otherwise records infinite variance
+    # derivatives even if the resulting CDF is replaced afterwards.
+    safe_bounds = torch.where(finite, bounds, 0)
+    g = (safe_bounds - mean.unsqueeze(-2)) / variance.unsqueeze(-2).sqrt()
+    normal = Normal(torch.zeros_like(g), torch.ones_like(g))
+    gcdf = _normal_cdf_with_infinite_bounds(g, bounds)
+    gpdf = torch.where(finite, torch.exp(normal.log_prob(g)), 0)
+    return g, gcdf, gpdf
+
+
 def _compute_entropy_noiseless(
     hypercell_bounds: Tensor,
     mean: Tensor,
@@ -490,12 +515,7 @@ def _compute_entropy_noiseless(
 
     # Standardize the box decomposition bounds and compute normal quantities.
     # ``batch_shape x num_pareto_samples x q x 2 x J x M``
-    g = (hypercell_bounds.unsqueeze(-4) - mean.unsqueeze(-2)) / torch.sqrt(
-        variance.unsqueeze(-2)
-    )
-    normal = Normal(torch.zeros_like(g), torch.ones_like(g))
-    gcdf = normal.cdf(g)
-    gpdf = torch.exp(normal.log_prob(g))
+    g, gcdf, gpdf = _compute_box_quantities(hypercell_bounds, mean, variance)
     g_times_gpdf = g * gpdf
 
     # Compute the differences between the upper and lower terms.
@@ -560,12 +580,7 @@ def _compute_entropy_upper_bound(
 
     # Standardize the box decomposition bounds and compute normal quantities.
     # ``batch_shape x num_pareto_samples x q x 2 x J x M``
-    g = (hypercell_bounds.unsqueeze(-4) - mean.unsqueeze(-2)) / torch.sqrt(
-        variance.unsqueeze(-2)
-    )
-    normal = Normal(torch.zeros_like(g), torch.ones_like(g))
-    gcdf = normal.cdf(g)
-    gpdf = torch.exp(normal.log_prob(g))
+    g, gcdf, gpdf = _compute_box_quantities(hypercell_bounds, mean, variance)
     g_times_gpdf = g * gpdf
 
     # Compute the differences between the upper and lower terms.
@@ -687,15 +702,9 @@ def _compute_entropy_monte_carlo(
     ####################################################################
     # Standardize the box decomposition bounds and compute normal quantities.
     # ``batch_shape x num_pareto_samples x q x 2 x J x M``
-    g = (hypercell_bounds.unsqueeze(-4) - mean.unsqueeze(-2)) / torch.sqrt(
-        variance.unsqueeze(-2)
-    )
+    g, gcdf, _ = _compute_box_quantities(hypercell_bounds, mean, variance)
     # ``batch_shape x num_pareto_samples x q x 1 x M``
     rho = torch.sqrt(variance / variance_plus_noise)
-
-    # Compute the initial normal quantities.
-    normal = Normal(torch.zeros_like(g), torch.ones_like(g))
-    gcdf = normal.cdf(g)
 
     # Compute the differences between the upper and lower terms.
     Wjm = (gcdf[..., 1, :, :] - gcdf[..., 0, :, :]).clamp_min(CLAMP_LB)
@@ -716,8 +725,7 @@ def _compute_entropy_monte_carlo(
     g_new = (g - rho * z) / torch.sqrt((1 - rho * rho).clamp_min(CLAMP_LB))
 
     # Compute the initial normal quantities.
-    normal_new = Normal(torch.zeros_like(g_new), torch.ones_like(g_new))
-    gcdf_new = normal_new.cdf(g_new)
+    gcdf_new = _normal_cdf_with_infinite_bounds(g_new, hypercell_bounds.unsqueeze(-4))
 
     # Compute the differences between the upper and lower terms.
     Wjm_new = (gcdf_new[..., 1, :, :] - gcdf_new[..., 0, :, :]).clamp_min(CLAMP_LB)
