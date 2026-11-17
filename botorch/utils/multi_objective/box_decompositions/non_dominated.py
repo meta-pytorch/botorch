@@ -395,7 +395,8 @@ class FastNondominatedPartitioning(FastPartitioning):
             dtype=self._neg_pareto_Y.dtype,
             device=self._neg_pareto_Y.device,
         )
-        cell_bounds[0] = self.ref_point
+        # The reference point is ``(batch_shape) x m``-dim.
+        cell_bounds[0] = self.ref_point.unsqueeze(-2)
         self.hypercell_bounds = cell_bounds
 
     def _get_partitioning(self) -> None:

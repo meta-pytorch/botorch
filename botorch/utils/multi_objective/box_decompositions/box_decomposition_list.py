@@ -102,8 +102,7 @@ class BoxDecompositionList(Module):
         """
         if (
             torch.is_tensor(Y)
-            and Y.ndim != 3
-            and Y.shape[0] != len(self.box_decompositions)
+            and (Y.ndim != 3 or Y.shape[0] != len(self.box_decompositions))
         ) or (isinstance(Y, list) and len(Y) != len(self.box_decompositions)):
             raise BotorchTensorDimensionError(
                 "BoxDecompositionList.update requires either a batched tensor Y, "
