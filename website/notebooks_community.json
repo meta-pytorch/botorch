@@ -20,6 +20,10 @@
     "title": "Local Entropy Search"
   },
   {
+    "id": "meta_lsq",
+    "title": "Meta-LSQ: Meta-Learned Surrogates with Gradient Observations"
+  },
+  {
     "id": "multi_source_bo",
     "title": "Multi-Information Source BO with Augmented GP"
   },
