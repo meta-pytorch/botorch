@@ -156,7 +156,7 @@ class LogProbabilityOfImprovement(AnalyticAcquisitionFunction):
             maximize: If True, consider the problem a maximization problem.
         """
         super().__init__(model=model, posterior_transform=posterior_transform)
-        self.register_buffer("best_f", torch.as_tensor(best_f))
+        self.register_buffer("best_f", torch.as_tensor(best_f, dtype=torch.double))
         self.maximize = maximize
 
     @t_batch_mode_transform(expected_q=1)
@@ -212,7 +212,7 @@ class ProbabilityOfImprovement(AnalyticAcquisitionFunction):
             maximize: If True, consider the problem a maximization problem.
         """
         super().__init__(model=model, posterior_transform=posterior_transform)
-        self.register_buffer("best_f", torch.as_tensor(best_f))
+        self.register_buffer("best_f", torch.as_tensor(best_f, dtype=torch.double))
         self.maximize = maximize
 
     @t_batch_mode_transform(expected_q=1)
@@ -264,7 +264,7 @@ class qAnalyticProbabilityOfImprovement(AnalyticAcquisitionFunction):
         super().__init__(model=model, posterior_transform=posterior_transform)
         self.maximize = maximize
         if not torch.is_tensor(best_f):
-            best_f = torch.tensor(best_f)
+            best_f = torch.tensor(best_f, dtype=torch.double)
         self.register_buffer("best_f", best_f)
 
     @t_batch_mode_transform()
@@ -342,7 +342,7 @@ class ExpectedImprovement(AnalyticAcquisitionFunction):
         """
         legacy_ei_numerics_warning(legacy_name=type(self).__name__)
         super().__init__(model=model, posterior_transform=posterior_transform)
-        self.register_buffer("best_f", torch.as_tensor(best_f))
+        self.register_buffer("best_f", torch.as_tensor(best_f, dtype=torch.double))
         self.maximize = maximize
 
     @t_batch_mode_transform(expected_q=1)
@@ -406,7 +406,7 @@ class LogExpectedImprovement(AnalyticAcquisitionFunction):
             maximize: If True, consider the problem a maximization problem.
         """
         super().__init__(model=model, posterior_transform=posterior_transform)
-        self.register_buffer("best_f", torch.as_tensor(best_f))
+        self.register_buffer("best_f", torch.as_tensor(best_f, dtype=torch.double))
         self.maximize = maximize
 
     @t_batch_mode_transform(expected_q=1)
@@ -594,7 +594,7 @@ class LogConstrainedExpectedImprovement(
         self.posterior_transform = None
         self.maximize = maximize
         self.objective_index = objective_index
-        self.register_buffer("best_f", torch.as_tensor(best_f))
+        self.register_buffer("best_f", torch.as_tensor(best_f, dtype=torch.double))
         ConstrainedAnalyticAcquisitionFunctionMixin.__init__(self, constraints)
 
     @t_batch_mode_transform(expected_q=1)
@@ -736,7 +736,7 @@ class ConstrainedExpectedImprovement(
         self.posterior_transform = None
         self.maximize = maximize
         self.objective_index = objective_index
-        self.register_buffer("best_f", torch.as_tensor(best_f))
+        self.register_buffer("best_f", torch.as_tensor(best_f, dtype=torch.double))
         ConstrainedAnalyticAcquisitionFunctionMixin.__init__(self, constraints)
 
     @t_batch_mode_transform(expected_q=1)
@@ -1178,6 +1178,7 @@ def _scaled_improvement(
     mean: Tensor, sigma: Tensor, best_f: Tensor, maximize: bool
 ) -> Tensor:
     """Returns ``u = (mean - best_f) / sigma``, or ``-u`` if ``maximize`` is False."""
+    best_f = best_f.to(mean)
     u = (mean - best_f) / sigma
     return u if maximize else -u
 

@@ -175,6 +175,33 @@ class TestExpectedImprovement(BotorchTestCase):
             self.assertFalse(g.isinf().any())
             self.assertTrue((g >= 0).all())  # gradient is positive for all z
 
+    def test_best_f_scalar_precision(self):
+        # A Python-float best_f and a Tensor best_f are documented as
+        # interchangeable, but the scalar used to be rounded through the
+        # default dtype before use, while the Tensor kept full precision.
+        # With a large-magnitude incumbent the loss corrupted acquisition
+        # values by orders of magnitude.
+        previous_dtype = torch.get_default_dtype()
+        try:
+            torch.set_default_dtype(torch.float)
+            mean = torch.tensor([[2.0]], device=self.device, dtype=torch.double)
+            variance = torch.ones(1, 1, device=self.device, dtype=torch.double)
+            mm = MockModel(MockPosterior(mean=mean, variance=variance))
+            best_f = 100000000.49486153
+            X = torch.empty(1, 1, device=self.device, dtype=torch.double)
+            with catch_warnings():
+                simplefilter("ignore", category=NumericsWarning)
+                for cls in (ExpectedImprovement, LogExpectedImprovement):
+                    acq_scalar = cls(model=mm, best_f=best_f)
+                    acq_tensor = cls(
+                        model=mm, best_f=torch.tensor(best_f, dtype=torch.double)
+                    )
+                    self.assertAllClose(
+                        acq_scalar(X), acq_tensor(X), atol=1e-12, rtol=1e-9
+                    )
+        finally:
+            torch.set_default_dtype(previous_dtype)
+
     def test_expected_improvement_batch(self):
         for dtype in (torch.float, torch.double):
             with catch_warnings():
