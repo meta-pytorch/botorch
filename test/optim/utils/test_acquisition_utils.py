@@ -36,6 +36,28 @@ class TestColumnWiseClamp(BotorchTestCase):
         self.X = torch.tensor([[-2, 1], [0.5, -0.5]], device=self.device)
         self.X_expected = torch.tensor([[-1, 0.5], [0.5, -0.5]], device=self.device)
 
+    def test_bounds_scalar_precision(self):
+        # A Python-float bound and a double-Tensor bound must clamp
+        # identically; the scalar used to be rounded through the default
+        # dtype before the cast to X.
+        previous_dtype = torch.get_default_dtype()
+        try:
+            torch.set_default_dtype(torch.float)
+            X = torch.tensor(
+                [[-0.5], [0.99999995], [1.5]],
+                device=self.device,
+                dtype=torch.double,
+            )
+            lower = 1.0 - 1e-8
+            clamped_scalar = columnwise_clamp(X, lower=lower, upper=None)
+            clamped_tensor = columnwise_clamp(
+                X, lower=torch.tensor(lower, dtype=torch.double), upper=None
+            )
+            self.assertTrue(torch.equal(clamped_scalar, clamped_tensor))
+            self.assertEqual(clamped_scalar[1].item(), lower)
+        finally:
+            torch.set_default_dtype(previous_dtype)
+
     def test_column_wise_clamp_scalars(self):
         X, X_expected = self.X, self.X_expected
         with self.assertRaises(ValueError):

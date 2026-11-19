@@ -49,10 +49,10 @@ def columnwise_clamp(
         return X
 
     if lower is not None:
-        lower = torch.as_tensor(lower).expand_as(X).to(X)
+        lower = torch.as_tensor(lower, dtype=torch.double).expand_as(X).to(X)
 
     if upper is not None:
-        upper = torch.as_tensor(upper).expand_as(X).to(X)
+        upper = torch.as_tensor(upper, dtype=torch.double).expand_as(X).to(X)
         if lower is not None and (lower > upper).any():
             raise ValueError("Lower bounds cannot exceed upper bounds.")
 
