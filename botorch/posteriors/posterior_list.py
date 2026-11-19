@@ -92,7 +92,7 @@ class PosteriorList(Posterior):
         if len(devices) > 1:
             raise NotImplementedError(  # pragma: no cover
                 "Multi-device posteriors are currently not supported. "
-                "The devices of the constituent posteriors are: {devices}."
+                f"The devices of the constituent posteriors are: {devices}."
             )
         return next(iter(devices))
 
@@ -103,7 +103,7 @@ class PosteriorList(Posterior):
         if len(dtypes) > 1:
             raise NotImplementedError(
                 "Multi-dtype posteriors are currently not supported. "
-                "The dtypes of the constituent posteriors are: {dtypes}."
+                f"The dtypes of the constituent posteriors are: {dtypes}."
             )
         return next(iter(dtypes))
 

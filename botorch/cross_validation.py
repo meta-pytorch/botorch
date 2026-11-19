@@ -818,7 +818,7 @@ def ensemble_loo_cv(
         >>> import torch
         >>> from botorch.cross_validation import ensemble_loo_cv
         >>> from botorch.models.fully_bayesian import SaasFullyBayesianSingleTaskGP
-        >>> from botorch.models.fully_bayesian import fit_fully_bayesian_model_nuts
+        >>> from botorch.fit import fit_fully_bayesian_model_nuts
         >>>
         >>> train_X = torch.rand(20, 2, dtype=torch.float64)
         >>> train_Y = torch.sin(train_X).sum(dim=-1, keepdim=True)
