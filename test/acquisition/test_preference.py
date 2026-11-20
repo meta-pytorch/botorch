@@ -94,6 +94,13 @@ class TestAnalyticEUBOAndBald(TestPreferenceAcquisitionFunctions):
             with self.assertRaises((UnsupportedError, AssertionError)):
                 acqf(self.X3)
 
+    def test_analytic_eubo_prior_only_model(self) -> None:
+        prior_pref_model = PairwiseGP(None, None).to(**self.twargs)
+        acqf = AnalyticExpectedUtilityOfBestOption(pref_model=prior_pref_model)
+        val = acqf(self.X2)
+        self.assertEqual(val.shape, torch.Size([1]))
+        self.assertTrue(torch.all(torch.isfinite(val)))
+
 
 class TestQExpectedUtilityOfBestOption(TestPreferenceAcquisitionFunctions):
     def test_qeubo(self) -> None:

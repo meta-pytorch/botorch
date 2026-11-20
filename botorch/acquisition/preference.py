@@ -76,10 +76,19 @@ class AnalyticExpectedUtilityOfBestOption(AnalyticAcquisitionFunction):
         self.add_module("outcome_model", outcome_model)
         self.register_buffer("previous_winner", previous_winner)
 
-        tkwargs = {
-            "dtype": pref_model.datapoints.dtype,
-            "device": pref_model.datapoints.device,
-        }
+        if getattr(pref_model, "datapoints", None) is not None:
+            tkwargs = {
+                "dtype": pref_model.datapoints.dtype,
+                "device": pref_model.datapoints.device,
+            }
+        else:
+            param = next(pref_model.parameters(), None)
+            tkwargs = {
+                "dtype": (
+                    param.dtype if param is not None else torch.get_default_dtype()
+                ),
+                "device": param.device if param is not None else torch.device("cpu"),
+            }
         std_norm = torch.distributions.normal.Normal(
             torch.zeros(1, **tkwargs),
             torch.ones(1, **tkwargs),

@@ -133,7 +133,13 @@ class PairwiseProbitLikelihood(PairwiseLikelihood):
         """
         return log_phi(z), log_ndtr(z), standard_normal_log_hazard(-z).exp()
 
+    def log_p(self, utility: Tensor, D: Tensor) -> Tensor:
+        z = self._calc_z(utility=utility, D=D)
+        return log_ndtr(z)
+
     def p(self, utility: Tensor, D: Tensor, log: bool = False) -> Tensor:
+        if log:
+            return self.log_p(utility=utility, D=D)
         z = self._calc_z(utility=utility, D=D)
         std_norm = torch.distributions.normal.Normal(
             torch.zeros(1, dtype=z.dtype, device=z.device),
@@ -191,18 +197,17 @@ class PairwiseLogitLikelihood(PairwiseLikelihood):
         logit = self._calc_logit(utility=utility, D=D)
         return torch.nn.functional.logsigmoid(logit)
 
-    def p(self, utility: Tensor, D: Tensor) -> Tensor:
+    def p(self, utility: Tensor, D: Tensor, log: bool = False) -> Tensor:
+        if log:
+            return self.log_p(utility=utility, D=D)
         logit = self._calc_logit(utility=utility, D=D)
         return torch.sigmoid(logit)
 
     def negative_log_gradient_sum(self, utility: Tensor, D: Tensor) -> Tensor:
-        indices_shape = utility.shape[:-1] + (-1,)
-        winner_indices = (D == 1).nonzero(as_tuple=True)[-1].reshape(indices_shape)
-        loser_indices = (D == -1).nonzero(as_tuple=True)[-1].reshape(indices_shape)
-        ex = torch.exp(torch.gather(utility, -1, winner_indices))
-        ey = torch.exp(torch.gather(utility, -1, loser_indices))
-        unsigned_grad = ey / (ex + ey)
-        grad = (unsigned_grad.unsqueeze(-2) @ (-D)).squeeze(-2)
+        D_util = D.to(utility)
+        neg_logit = -(D_util @ utility.unsqueeze(-1)).squeeze(-1)
+        unsigned_grad = torch.sigmoid(neg_logit)
+        grad = (unsigned_grad.unsqueeze(-2) @ (-D_util)).squeeze(-2)
         return grad
 
     def negative_log_hessian_sum(self, utility: Tensor, D: Tensor) -> Tensor:
