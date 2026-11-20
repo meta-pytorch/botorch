@@ -8,6 +8,7 @@ import gc
 
 import torch
 from botorch.exceptions.errors import UnsupportedError
+from botorch.models import SingleTaskGP
 from botorch.models.approximate_gp import SingleTaskVariationalGP
 from botorch.models.utils.inducing_point_allocators import (
     _pivoted_cholesky_init,
@@ -103,6 +104,36 @@ class TestExpectedImprovementQualityFunction(BotorchTestCase):
             )
 
             self.assertAllClose(ei, quality_function(train_X), atol=0.01, rtol=0.01)
+
+    def test_conservative_baseline(self):
+        # With a non-constant posterior mean, the improvement is measured w.r.t.
+        # the worst posterior mean, so the quality is positive at every input.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.linspace(0, 1, 20, **tkwargs).unsqueeze(-1)
+        train_Y = torch.sin(6 * train_X)
+        model = SingleTaskGP(
+            train_X, train_Y, train_Yvar=torch.full_like(train_Y, 1e-6)
+        )
+        mean = model.posterior(train_X).mean.view(-1)
+        sigma = model.posterior(train_X).variance.sqrt().view(-1)
+        for maximize in (True, False):
+            baseline = mean.min() if maximize else mean.max()
+            u = (mean - baseline) / sigma if maximize else (baseline - mean) / sigma
+            normal = torch.distributions.Normal(0.0, 1.0)
+            expected = sigma * (normal.log_prob(u).exp() + u * normal.cdf(u))
+            quality = ExpectedImprovementQualityFunction(model, maximize)(train_X)
+            self.assertAllClose(quality, expected)
+            self.assertTrue((quality > 0).all())
+            # All requested inducing points are allocated.
+            inducing_points = GreedyImprovementReduction(
+                model, maximize=maximize
+            ).allocate_inducing_points(
+                inputs=train_X,
+                covar_module=model.covar_module,
+                num_inducing=10,
+                input_batch_shape=torch.Size([]),
+            )
+            self.assertEqual(inducing_points.shape, torch.Size([10, 1]))
 
 
 class TestGreedyVarianceReduction(BotorchTestCase):

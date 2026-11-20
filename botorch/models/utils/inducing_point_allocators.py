@@ -221,8 +221,10 @@ class ExpectedImprovementQualityFunction(QualityFunction):
         mean = posterior.mean.squeeze(-2).squeeze(-1)  # removing redundant dimensions
         sigma = posterior.variance.clamp_min(1e-12).sqrt().view(mean.shape)
 
-        best_f = torch.max(mean) if self._maximize else torch.min(mean)
-        u = (mean - best_f) / sigma if self._maximize else -(mean - best_f) / sigma
+        # The improvement is measured w.r.t. a conservative baseline, the worst
+        # posterior mean, so that it does not vanish at most of the inputs.
+        baseline = torch.min(mean) if self._maximize else torch.max(mean)
+        u = (mean - baseline) / sigma if self._maximize else -(mean - baseline) / sigma
         return sigma * (phi(u) + u * Phi(u))
 
 
