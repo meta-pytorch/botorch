@@ -198,13 +198,82 @@ class SingleTaskGP(BatchedMultiOutputGPyTorchModel, ExactGP, FantasizeMixin):
             }
             if train_Yvar is None:
                 self._subset_batch_dict["likelihood.noise_covar.raw_noise"] = -2
-        self.covar_module: Module = covar_module
-        # TODO: Allow subsetting of other covar modules
+            self.covar_module: Module = covar_module
+        else:
+            self.covar_module = covar_module
+            inferred_subset_dict = self._infer_subset_batch_dict()
+            if inferred_subset_dict is not None:
+                self._subset_batch_dict = inferred_subset_dict
         if outcome_transform is not None:
             self.outcome_transform = outcome_transform
         if input_transform is not None:
             self.input_transform = input_transform
         self.to(train_X)
+
+    def _infer_subset_batch_dict(self) -> dict[str, int] | None:
+        r"""Infer ``_subset_batch_dict`` when a custom ``covar_module`` is used.
+
+        Returns ``None`` if any sub-module has a non-empty ``batch_shape`` that
+        differs from ``self._aug_batch_shape`` or owns non-scalar parameters
+        whose batch layout cannot be verified, preserving ``NotImplementedError``
+        on ``subset_output``.
+        """
+        aug_batch = self._aug_batch_shape
+        aug_len = len(aug_batch)
+        subset_dict: dict[str, int] = {}
+
+        for root_name, root in (
+            ("mean_module", self.mean_module),
+            ("covar_module", self.covar_module),
+            ("likelihood", self.likelihood),
+        ):
+            for sub_name, submod in root.named_modules():
+                prefix = f"{root_name}.{sub_name}" if sub_name else root_name
+                bs = getattr(submod, "batch_shape", None)
+                if bs is not None:
+                    if len(bs) > 0 and bs != aug_batch:
+                        return None
+                    if aug_len > 0 and bs == aug_batch:
+                        for p_name, param in submod.named_parameters(recurse=False):
+                            if (
+                                param.ndim >= aug_len
+                                and param.shape[:aug_len] == aug_batch
+                            ):
+                                subset_dict[f"{prefix}.{p_name}"] = -(
+                                    param.ndim - aug_len + 1
+                                )
+                        for b_name, buf in submod.named_buffers(recurse=False):
+                            full_b_name = f"{prefix}.{b_name}"
+                            if full_b_name == "likelihood.noise_covar.noise":
+                                continue
+                            if buf.ndim >= aug_len and buf.shape[:aug_len] == aug_batch:
+                                subset_dict[full_b_name] = -(buf.ndim - aug_len + 1)
+                    continue
+
+                # Sub-modules without a `batch_shape` attribute (e.g.
+                # HomoskedasticNoise, LinearMean, or constraints): verify known
+                # GPyTorch event ranks.
+                for p_name, param in submod.named_parameters(recurse=False):
+                    full_p_name = f"{prefix}.{p_name}"
+                    if p_name == "raw_noise":
+                        event_ndim = 1
+                    elif type(submod).__name__ == "LinearMean" and p_name in {
+                        "weights",
+                        "bias",
+                    }:
+                        event_ndim = 2 if p_name == "weights" else 1
+                    elif param.numel() == 1:
+                        continue
+                    else:
+                        return None
+
+                    batch_dims = param.shape[: param.ndim - event_ndim]
+                    if len(batch_dims) > 0 and batch_dims != aug_batch:
+                        return None
+                    if aug_len > 0 and batch_dims == aug_batch:
+                        subset_dict[full_p_name] = -(event_ndim + 1)
+
+        return subset_dict
 
     def forward(self, x: Tensor) -> MultivariateNormal:
         if self.training:
