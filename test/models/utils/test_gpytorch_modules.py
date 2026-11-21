@@ -82,9 +82,49 @@ class TestGPyTorchModules(BotorchTestCase):
                 use_rbf_kernel=False,
             )
             self.assertIsInstance(matern_kernel, MaternKernel)
-
+            self.assertEqual(matern_kernel.nu, 2.5)
             self.assertEqual(matern_kernel.batch_shape, batch_shape or torch.Size([]))
             self.assertEqual(matern_kernel.ard_num_dims, 2)
+
+            for nu in (0.5, 1.5, 2.5):
+                mk = get_covar_module_with_dim_scaled_prior(
+                    ard_num_dims=3,
+                    batch_shape=batch_shape,
+                    use_rbf_kernel=False,
+                    nu=nu,
+                )
+                self.assertIsInstance(mk, MaternKernel)
+                self.assertEqual(mk.nu, nu)
+                self.assertEqual(mk.ard_num_dims, 3)
+                self.assertAllClose(
+                    mk.lengthscale_prior.loc.item(), SQRT2 + 0.5 * math.log(3)
+                )
+
+            # Isotropic (ard=False) keeps the dimension-scaled prior loc for d=4
+            for use_rbf in (True, False):
+                iso_k = get_covar_module_with_dim_scaled_prior(
+                    ard_num_dims=4,
+                    batch_shape=batch_shape,
+                    use_rbf_kernel=use_rbf,
+                    nu=1.5,
+                    ard=False,
+                )
+                self.assertIsNone(iso_k.ard_num_dims)
+                expected_ls_shape = (batch_shape or torch.Size([])) + torch.Size([1, 1])
+                self.assertEqual(iso_k.raw_lengthscale.shape, expected_ls_shape)
+                self.assertAllClose(
+                    iso_k.lengthscale_prior.loc.item(), SQRT2 + 0.5 * math.log(4)
+                )
+
+        with self.assertRaisesRegex(ValueError, "Expected `nu` to be 0.5, 1.5, or 2.5"):
+            get_covar_module_with_dim_scaled_prior(
+                ard_num_dims=2, use_rbf_kernel=False, nu=3.5
+            )
+        # Ignored when use_rbf_kernel=True
+        rbf_k = get_covar_module_with_dim_scaled_prior(
+            ard_num_dims=2, use_rbf_kernel=True, nu=3.5
+        )
+        self.assertIsInstance(rbf_k, RBFKernel)
 
     def test_get_gaussian_likelihood_with_log_normal_prior(self):
         for batch_shape in (None, torch.Size([2])):
