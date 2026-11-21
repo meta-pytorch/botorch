@@ -63,7 +63,9 @@ from gpytorch.likelihoods.multitask_gaussian_likelihood import (
 )
 from gpytorch.means import MultitaskMean
 from gpytorch.means.constant_mean import ConstantMean
+from gpytorch.mlls import ExactMarginalLogLikelihood
 from gpytorch.models.exact_gp import ExactGP
+from gpytorch.models.exact_prediction_strategies import DefaultPredictionStrategy
 from gpytorch.module import Module
 from gpytorch.priors.lkj_prior import LKJCovariancePrior
 from gpytorch.priors.prior import Prior
@@ -72,15 +74,18 @@ from gpytorch.priors.torch_priors import GammaPrior, LogNormalPrior
 from gpytorch.settings import detach_test_caches
 from gpytorch.utils.errors import CachingError
 from gpytorch.utils.memoize import cached, pop_from_cache
+from linear_operator import settings as linear_operator_settings
 from linear_operator.operators import (
     BatchRepeatLinearOperator,
     CatLinearOperator,
     DiagLinearOperator,
     KroneckerProductDiagLinearOperator,
     KroneckerProductLinearOperator,
+    LinearOperator,
     RootLinearOperator,
     to_linear_operator,
 )
+from linear_operator.utils.cholesky import psd_safe_cholesky
 from torch import Tensor
 from typing_extensions import Self
 
@@ -122,6 +127,103 @@ def _compute_multitask_mean(
         # mean_x has shape ``batch_shape x n`` regardless
         mean_x = mean_module(x_mean)
     return mean_x
+
+
+def _supports_shared_source_design(module: Module, base: type[Module]) -> bool:
+    """Check the component family and its concrete class's solver contract."""
+    if not isinstance(module, base):
+        return False
+    cls = module.__class__
+    # An opt-in on a parent does not certify a child that changes the math.
+    return vars(cls).get("supports_shared_source_design", cls is base)
+
+
+class _SharedSourceDesign:
+    """Condition first on the Kronecker source block, then on the target data."""
+
+    def __init__(
+        self,
+        model: MultiTaskGP,
+        source_cov: LinearOperator,
+        source_rows: Tensor,
+        target_rows: Tensor,
+        source_y: Tensor,
+        target_y: Tensor,
+        target_noise: Tensor,
+    ) -> None:
+        self.source_rows = source_rows
+        self.target_rows = target_rows
+        self.source_cov = source_cov
+        X = model.train_inputs[0]
+        source_X = torch.cat(model._split_inputs(X[source_rows]), -1)
+        target_X = torch.cat(model._split_inputs(X[target_rows]), -1)
+        self.source_y = source_y
+        cross = model.covar_module(source_X, target_X).to_dense()
+        self.train_rhs = torch.cat([source_y[:, None], cross], dim=-1)
+        gram = self._source_gram(self.train_rhs.mT, self.train_rhs)
+        self.source_quad = gram[0, 0]
+        target_cov = model.covar_module(target_X).to_dense()
+        self.chol = psd_safe_cholesky(target_cov + target_noise.diag() - gram[1:, 1:])
+        self.residual = target_y - gram[1:, 0]
+        self.target_alpha = torch.cholesky_solve(self.residual[:, None], self.chol)
+
+    def _source_gram(self, left: Tensor, right: Tensor) -> Tensor:
+        # Passing both operands saves both structured solves for backward.
+        with (
+            linear_operator_settings.fast_computations(solves=True),
+            linear_operator_settings.max_cholesky_size(0),
+        ):
+            return self.source_cov.solve(right, left_tensor=left)
+
+    def log_prob(self) -> Tensor:
+        n = self.source_y.numel() + self.residual.numel()
+        return -0.5 * (
+            n * math.log(2 * math.pi)
+            + self.source_cov.logdet()
+            + 2 * self.chol.diagonal().log().sum()
+            + self.source_quad
+            + self.residual @ self.target_alpha.squeeze(-1)
+        )
+
+    def predict(
+        self,
+        mean: Tensor,
+        test_cov: Tensor | LinearOperator,
+        test_train_cov: Tensor | LinearOperator,
+    ) -> tuple[Tensor, LinearOperator]:
+        test_train = test_train_cov.to_dense()
+        cross = test_train[..., self.source_rows]
+        gram = torch.stack(
+            [
+                self._source_gram(c, torch.cat([self.train_rhs, c.mT], dim=-1))
+                for c in cross.reshape(-1, *cross.shape[-2:])
+            ]
+        ).reshape(*cross.shape[:-1], -1)
+        n_target = self.target_rows.numel()
+        target_cross = test_train[..., self.target_rows] - gram[..., 1 : 1 + n_target]
+        mean = mean + gram[..., 0] + (target_cross @ self.target_alpha).squeeze(-1)
+        projected = torch.linalg.solve_triangular(
+            self.chol, target_cross.mT, upper=False
+        )
+        cov = test_cov.to_dense() - gram[..., 1 + n_target :] - projected.mT @ projected
+        return mean, to_linear_operator((cov + cov.mT) / 2)
+
+
+class _SharedSourcePredictionStrategy(DefaultPredictionStrategy):
+    # GPyTorch also constructs this class for fantasy updates, with ordinary caches.
+    design: _SharedSourceDesign | None = None
+
+    def exact_prediction(
+        self,
+        test_mean: Tensor,
+        test_test_covar: Tensor | LinearOperator,
+        test_train_covar: Tensor | LinearOperator,
+    ) -> tuple[Tensor, Tensor | LinearOperator]:
+        if self.design is None or not test_mean.numel():
+            return super().exact_prediction(
+                test_mean, test_test_covar, test_train_covar
+            )
+        return self.design.predict(test_mean, test_test_covar, test_train_covar)
 
 
 class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
@@ -166,6 +268,7 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
         outcome_transform: OutcomeTransform | _DefaultType | None = DEFAULT,
         input_transform: InputTransform | None = None,
         validate_task_values: bool = True,
+        shared_source_target: int | None = None,
     ) -> None:
         r"""Multi-Task GP model using an ICM kernel.
 
@@ -213,6 +316,16 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
             validate_task_values: If True, validate that the task values supplied in the
                 input are expected tasks values. If false, unexpected task values
                 will be mapped to the first output_task if supplied.
+
+            shared_source_target: Optional raw task ID of the target. During fitting
+                and prediction, exploit a shared design if every other observed
+                task has the same inputs in the same order and constant fixed source
+                noise. Target inputs and target noise need not align with the sources.
+                Other designs, input transforms, and likelihoods use ordinary inference.
+                Subclasses of the model, fixed-noise likelihood, or exact MLL must
+                declare ``supports_shared_source_design = True`` in their own class
+                body to certify that the structured computation preserves their
+                covariance, noise, or objective, respectively.
 
         Example:
             >>> X1, X2 = torch.rand(10, 2), torch.rand(20, 2)
@@ -355,7 +468,97 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
         if outcome_transform is not None:
             self.outcome_transform = outcome_transform
         self._validate_task_values = validate_task_values
+        self.shared_source_target = shared_source_target
+        if shared_source_target is not None:
+            if shared_source_target not in all_tasks_inferred:
+                raise ValueError("shared_source_target must identify an observed task.")
+            if _supports_shared_source_design(self, MultiTaskGP):
+                if not hasattr(self, "compute_custom_loss"):
+                    self.compute_custom_loss = self._shared_design_loss
+                self.covar_module.prediction_strategy = self._prediction_strategy
         self.to(train_X)
+
+    def _shared_design(self) -> _SharedSourceDesign | None:
+        X = self.train_inputs[0]
+        if (
+            self.shared_source_target is None
+            or X.ndim != 2
+            or hasattr(self, "input_transform")
+            or not _supports_shared_source_design(
+                self.likelihood, FixedNoiseGaussianLikelihood
+            )
+            or self.likelihood.second_noise_covar is not None
+        ):
+            return None
+        data_kernel, task_kernel = self.covar_module.kernels
+        if self._task_feature in data_kernel.active_dims.tolist():
+            return None
+        tasks = X[:, self._task_feature]
+        source_ids = tasks.unique()
+        source_ids = source_ids[source_ids != self.shared_source_target]
+        source_rows = [torch.where(tasks == task)[0] for task in source_ids]
+        if not source_rows:
+            return None
+        grid = X[source_rows[0]]
+        features = grid[:, self._base_idxr]
+        if any(
+            not torch.equal(X[rows][:, self._base_idxr], features)
+            for rows in source_rows[1:]
+        ):
+            return None
+        rows = torch.cat(source_rows)
+        noise = self.likelihood.noise
+        if not torch.all(noise[rows] == noise[rows[0]]):
+            return None
+        target_rows = torch.where(tasks == self.shared_source_target)[0]
+        if target_rows.numel() == 0:
+            return None
+        source_tasks = self._map_tasks(source_ids).long()
+        B = task_kernel.covar_matrix
+        source_cov = KroneckerProductLinearOperator(
+            B[source_tasks[:, None], source_tasks], data_kernel(grid).to_dense()
+        ).add_diagonal(noise[rows[0]])
+        residual = self.train_targets - _compute_multitask_mean(
+            self.mean_module, *self._split_inputs(X)
+        )
+        return _SharedSourceDesign(
+            self,
+            source_cov,
+            rows,
+            target_rows,
+            residual[rows],
+            residual[target_rows],
+            noise[target_rows],
+        )
+
+    def _shared_design_loss(self, mll: ExactMarginalLogLikelihood) -> Tensor:
+        design = (
+            self._shared_design()
+            if _supports_shared_source_design(mll, ExactMarginalLogLikelihood)
+            else None
+        )
+        X = self.train_inputs[0]
+        if design is None:
+            return -mll(self(X), self.train_targets, self.transform_inputs(X))
+        return -mll._add_other_terms(design.log_prob(), (X,)) / X.size(-2)
+
+    def _prediction_strategy(
+        self,
+        train_inputs: list[Tensor],
+        train_prior_dist: MultivariateNormal,
+        train_labels: Tensor,
+        likelihood: Likelihood,
+    ) -> DefaultPredictionStrategy:
+        with torch.set_grad_enabled(
+            torch.is_grad_enabled() and detach_test_caches.off()
+        ):
+            design = self._shared_design()
+        args = (train_inputs, train_prior_dist, train_labels, likelihood)
+        if design is None:
+            return DefaultPredictionStrategy(*args)
+        strategy = _SharedSourcePredictionStrategy(*args)
+        strategy.design = design
+        return strategy
 
     def _map_tasks(self, task_values: Tensor) -> Tensor:
         """Map raw task values to the task indices used by the model.
