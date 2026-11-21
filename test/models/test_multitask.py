@@ -8,6 +8,7 @@ import itertools
 import math
 import warnings
 from typing import Any
+from unittest.mock import patch
 
 import torch
 from botorch.acquisition.objective import ScalarizedPosteriorTransform
@@ -23,6 +24,7 @@ from botorch.models.multitask import (
 from botorch.models.transforms.input import InputTransform, Normalize
 from botorch.models.transforms.outcome import OutcomeTransform, Standardize
 from botorch.models.utils.priors import BetaPrior
+from botorch.optim.closures.model_closures import get_loss_closure
 from botorch.posteriors import GPyTorchPosterior
 from botorch.posteriors.transformed import TransformedPosterior
 from botorch.utils.datasets import MultiTaskDataset, SupervisedDataset
@@ -1255,3 +1257,137 @@ class TestMultiTaskUtils(BotorchTestCase):
                     all_task_values=all_task_values,
                     dtype=dtype,
                 )
+
+
+class TestSharedSourceDesign(BotorchTestCase):
+    def test_subclass_opt_in(self):
+        class CompatibleModel(MultiTaskGP):
+            supports_shared_source_design = True
+
+        class CustomModel(CompatibleModel):
+            def compute_custom_loss(self, mll):
+                return self.train_targets.sum()
+
+        class PenalizedMLL(ExactMarginalLogLikelihood):
+            def forward(self, *args, **kwargs):
+                return super().forward(*args, **kwargs) - 3
+
+        class CompatibleNoise(FixedNoiseGaussianLikelihood):
+            supports_shared_source_design = True
+
+        class OtherNoise(CompatibleNoise):
+            pass
+
+        X = torch.tensor([[0.1, 1], [0.7, 1], [0.3, 0]], dtype=torch.double)
+        Y = X[:, :1]
+        kwargs = {
+            "task_feature": -1,
+            "shared_source_target": 0,
+            "outcome_transform": None,
+        }
+        noise = torch.full_like(Y[:, 0], 0.01)
+        model = CompatibleModel(X, Y, likelihood=CompatibleNoise(noise=noise), **kwargs)
+        self.assertIsNotNone(model._shared_design())
+        ordinary = ExactMarginalLogLikelihood(model.likelihood, model)
+        penalized = PenalizedMLL(model.likelihood, model)
+        torch.testing.assert_close(
+            get_loss_closure(penalized)(), get_loss_closure(ordinary)() + 3
+        )
+
+        model.likelihood = OtherNoise(noise=noise)
+        self.assertIsNone(model._shared_design())
+        child = CustomModel(X, Y, train_Yvar=noise[:, None], **kwargs)
+        child_mll = ExactMarginalLogLikelihood(child.likelihood, child)
+        torch.testing.assert_close(get_loss_closure(child_mll)(), Y.sum())
+
+    def test_dense_parity(self):
+        torch.manual_seed(13)
+        grid = torch.rand(7, 2, dtype=torch.double)
+        target = torch.rand(4, 2, dtype=torch.double)
+        X = torch.cat(
+            [
+                torch.cat([x[:, :1], x.new_full((len(x), 1), task), x[:, 1:]], dim=-1)
+                for task, x in [(2, grid), (4, target), (9, grid)]
+            ]
+        )
+        Y = torch.sin(X[:, :1] + X[:, 1:2]) + X[:, 2:]
+        noise = torch.full_like(Y, 0.01)
+        noise[7:11, 0] *= torch.arange(1, 5)
+        models = [
+            MultiTaskGP(
+                X,
+                Y,
+                task_feature=1,
+                output_tasks=[4],
+                rank=2,
+                train_Yvar=noise,
+                shared_source_target=t,
+            )
+            for t in [None, 4]
+        ]
+        models[1].load_state_dict(models[0].state_dict())
+        self.assertIsNotNone(models[1]._shared_design())
+        candidates = torch.rand(2, 3, 2, dtype=X.dtype, requires_grad=True)
+        results = []
+        for model in models:
+            mll = ExactMarginalLogLikelihood(model.likelihood, model)
+            loss = get_loss_closure(mll)()
+            gradients = torch.autograd.grad(loss, model.parameters())
+            posterior = model.posterior(candidates)
+            mean, cov = posterior.mean, posterior.distribution.covariance_matrix
+            derivative = torch.autograd.grad(mean.sum() + cov.sum(), candidates)[0]
+            results.append((loss, *gradients, mean, cov, derivative))
+        for actual, expected in zip(*results, strict=True):
+            torch.testing.assert_close(actual, expected, atol=1e-8, rtol=1e-6)
+
+        # A mixed-task query exercises ExactGP.__call__ directly.
+        query = X[[0, 8, -1]].clone()
+        query[:, 0] += 0.03
+        reference = models[0](query)
+        models[1].train().eval()
+        kernel = models[1].covar_module
+        forward = kernel.forward
+
+        def forbid_full_training_covariance(x1, x2, **kwargs):
+            self.assertLess(min(x1.size(-2), x2.size(-2)), len(X))
+            return forward(x1, x2, **kwargs)
+
+        with patch.object(
+            kernel, "forward", side_effect=forbid_full_training_covariance
+        ):
+            actual = models[1](query)
+            torch.testing.assert_close(actual.mean, reference.mean)
+            torch.testing.assert_close(
+                actual.covariance_matrix, reference.covariance_matrix
+            )
+            torch.testing.assert_close(
+                models[1].posterior(candidates).mean,
+                models[0].posterior(candidates).mean,
+            )
+        self.assertIsNotNone(models[1].prediction_strategy.design)
+
+        fantasy_predictions = [
+            model.condition_on_observations(X=query[1:2], Y=Y[8:9], noise=noise[8:9])
+            .posterior(candidates)
+            .distribution
+            for model in models
+        ]
+        a, b = fantasy_predictions
+        torch.testing.assert_close(a.mean, b.mean)
+        torch.testing.assert_close(a.covariance_matrix, b.covariance_matrix)
+
+        changed = X.clone()
+        changed[-1, 0] += 0.01
+        models[1].set_train_data(inputs=changed)
+        self.assertIsNone(models[1]._shared_design())
+
+        for model in models:
+            model.train()
+            model.set_train_data(inputs=changed)
+        losses = [
+            get_loss_closure(ExactMarginalLogLikelihood(m.likelihood, m))()
+            for m in models
+        ]
+        torch.testing.assert_close(*losses)
+        means = [m.posterior(candidates, observation_noise=True).mean for m in models]
+        torch.testing.assert_close(*means)
