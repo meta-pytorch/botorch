@@ -647,3 +647,41 @@ class TestFitGPyTorchMLLScipyIndependent(BotorchTestCase):
         self._test_status([2, 2], OptimizationStatus.FAILURE)
         self._test_status([0, 2], OptimizationStatus.FAILURE)
         self._test_status([1, 2], OptimizationStatus.FAILURE)
+
+    def test_zero_maxiter_does_not_step_parameters(self):
+        from botorch.fit import fit_gpytorch_mll
+
+        for num_outputs in (1, 2):
+            with self.subTest(num_outputs=num_outputs):
+                with torch.random.fork_rng():
+                    torch.manual_seed(0)
+                    train_X = torch.rand(8, 2, dtype=torch.double)
+                    train_Y = torch.rand(8, num_outputs, dtype=torch.double)
+                model = SingleTaskGP(train_X, train_Y)
+                mll = ExactMarginalLogLikelihood(model.likelihood, model)
+                mll.train()
+                initial_params = {
+                    name: p.detach().clone()
+                    for name, p in model.named_parameters()
+                    if p.requires_grad
+                }
+                with catch_warnings(record=True) as ws:
+                    result = fit.fit_gpytorch_mll_scipy(mll, options={"maxiter": 0})
+                self.assertEqual(result.step, 0)
+                self.assertEqual(result.status, OptimizationStatus.STOPPED)
+                self.assertFalse(
+                    any(issubclass(w.category, OptimizationWarning) for w in ws)
+                )
+                for name, p in model.named_parameters():
+                    if p.requires_grad:
+                        self.assertTrue(torch.equal(p, initial_params[name]))
+
+                fit_gpytorch_mll(
+                    mll,
+                    optimizer_kwargs={"options": {"maxiter": 0}},
+                    max_attempts=1,
+                )
+                self.assertFalse(model.training)
+                for name, p in model.named_parameters():
+                    if p.requires_grad:
+                        self.assertTrue(torch.equal(p, initial_params[name]))

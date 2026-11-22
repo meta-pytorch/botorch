@@ -11,9 +11,11 @@ import warnings
 from collections.abc import Callable, Sequence
 from typing import Any
 
+import numpy as np
 import numpy.typing as npt
 from botorch.exceptions.errors import OptimizationTimeoutError
 from scipy import optimize
+from scipy.optimize._constraints import old_bound_to_new
 from threadpoolctl import threadpool_limits
 
 
@@ -77,6 +79,48 @@ def minimize_with_timeout(
 
     else:
         wrapped_callback = callback
+
+    # SciPy's L-BFGS-B checks its iteration budget after completing the first step,
+    # so ``maxiter=0`` would still advance ``x0`` by one full iteration.
+    is_lbfgsb = (isinstance(method, str) and method.lower() == "l-bfgs-b") or (
+        method is None and bounds is not None and not constraints
+    )
+    if (
+        is_lbfgsb
+        and not constraints
+        and options is not None
+        and options.get("maxiter") == 0
+    ):
+        x = np.asarray(x0, dtype=np.float64).copy()
+        if bounds is not None:
+            if isinstance(bounds, optimize.Bounds):
+                lb, ub = np.asarray(bounds.lb), np.asarray(bounds.ub)
+            else:
+                lb, ub = np.asarray(old_bound_to_new(bounds))
+            if (lb > ub).any():
+                raise ValueError(
+                    "LBFGSB - one of the lower bounds is greater than an upper bound."
+                )
+            x = np.clip(x, lb, ub)
+        with threadpool_limits(limits=1, user_api="blas"):
+            if jac is True:
+                fval, grad = fun(x, *args)
+                njev = 1
+            else:
+                fval = fun(x, *args)
+                grad = jac(x, *args) if callable(jac) else None
+                njev = 1 if callable(jac) else 0
+        return optimize.OptimizeResult(
+            fun=float(np.asarray(fval).item()),
+            jac=None if grad is None else np.asarray(grad, dtype=np.float64),
+            nfev=1,
+            njev=njev,
+            nit=0,
+            status=1,
+            message="STOP: TOTAL NO. OF ITERATIONS REACHED LIMIT",
+            x=x,
+            success=False,
+        )
 
     try:
         # Only raise these warnings as errors within this call, rather than

@@ -25,7 +25,8 @@ from botorch.optim.stopping import ExpMAStoppingCriterion, StoppingCriterion
 from botorch.optim.utils import get_parameters_and_bounds, TorchAttr
 from botorch.utils.types import DEFAULT
 from gpytorch.mlls.marginal_log_likelihood import MarginalLogLikelihood
-from numpy import ndarray
+from numpy import array, clip, ndarray
+from scipy.optimize._constraints import old_bound_to_new
 from torch import Tensor
 from torch.nn import Module
 from torch.optim.adam import Adam
@@ -315,6 +316,25 @@ def _fit_gpytorch_mll_scipy_independent(
         # ``fmin_l_bfgs_b_batched`` does not accept ``ftol`` together with ``factr``
         # (which has a non-trivial default value), and ``ftol`` takes precedence.
         lbfgsb_options["factr"] = None
+
+    if lbfgsb_options.get("maxiter") == 0:
+        # L-BFGS-B checks ``maxiter`` after taking a step, so handle zero iterations
+        # directly without advancing the initial parameters.
+        if bounds_np is not None:
+            lb, ub = array(old_bound_to_new(bounds_np))
+            if (lb > ub).any():
+                raise ValueError(
+                    "LBFGSB - one of the lower bounds is greater than an upper bound."
+                )
+            x0 = clip(x0, lb, ub)
+        fs, _ = batched_closure(x0, batch_indices=list(range(len(x0))))
+        batched_closure.state = x0
+        return OptimizationResult(
+            fval=float(fs.sum()),
+            step=0,
+            status=OptimizationStatus.STOPPED,
+            message=f"Batched L-BFGS-B: 0/{len(x0)} outputs converged.",
+        )
 
     # Run batched L-BFGS-B
     xs, fs, results = fmin_l_bfgs_b_batched(
