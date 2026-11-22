@@ -586,3 +586,43 @@ class TestRandomRestartOptimization(TestBaseCandidateGeneration):
                 batch_candidates=batch_candidates, batch_values=batch_acq_values
             )
             self.assertTrue(-EPS <= candidates <= 1 + EPS)
+
+    def test_gen_candidates_scipy_aggregated_fallback_preserves_initial_conditions(
+        self,
+    ):
+        # Regression test for #3570: when the parallel L-BFGS-B fast path is not used
+        # (e.g., ``timeout_sec`` is set or ``use_parallel_mode=False``), optimizing the
+        # summed loss across restarts must not return candidates worse than their
+        # starting initial conditions.
+        dtype = torch.double
+        g = torch.Generator(device="cpu").manual_seed(0)
+        train_x = torch.tensor(
+            [[0.05], [0.45], [0.6], [0.75], [0.95]], device=self.device, dtype=dtype
+        )
+        noise = torch.randn(5, 1, generator=g, dtype=dtype).to(device=self.device)
+        train_y = torch.sin(2 * math.pi * train_x) + 0.05 * noise
+        model = SingleTaskGP(train_x, train_y)
+        fit_gpytorch_mll(ExactMarginalLogLikelihood(model.likelihood, model))
+        acqf = LogExpectedImprovement(model, best_f=train_y.max() + 4.0)
+        ics = torch.linspace(0.05, 0.95, 10, device=self.device, dtype=dtype).view(
+            10, 1, 1
+        )
+        ics[0, 0, 0] = 0.233
+        with torch.no_grad():
+            init_vals = acqf(ics)
+
+        for kwargs in ({"timeout_sec": 60.0}, {"use_parallel_mode": False}):
+            batch_candidates, batch_values = gen_candidates_scipy(
+                initial_conditions=ics,
+                acquisition_function=acqf,
+                lower_bounds=0.0,
+                upper_bounds=1.0,
+                **kwargs,
+            )
+            self.assertTrue(torch.all(batch_values >= init_vals))
+            best_cand = get_best_candidates(
+                batch_candidates=batch_candidates, batch_values=batch_values
+            )
+            with torch.no_grad():
+                best_val = acqf(best_cand.unsqueeze(0)).item()
+            self.assertGreaterEqual(best_val, init_vals.max().item())
