@@ -13,6 +13,33 @@ Abstract Test Function API
 
 Synthetic Test Functions
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The last axis of the input tensor holds the coordinates of each point. For a single-objective function with ``d`` input dimensions, an input of shape ``(..., d)`` produces one value per point with shape ``(...)``. The same shape convention applies to ``evaluate_true(X)``.
+
+For example, evaluate three points with the two-dimensional Ackley function.
+
+.. doctest::
+
+    >>> import torch
+    >>> from botorch.test_functions import Ackley
+    >>> ackley = Ackley(dim=2)
+    >>> points = torch.tensor([[0.0, 0.0], [1.0, 0.0], [1.0, 2.0]])
+    >>> ackley(points).shape
+    torch.Size([3])
+
+For a surface plot, stack the coordinates along the last axis to evaluate a whole grid in one call.
+
+.. doctest::
+
+    >>> x = torch.linspace(-5.0, 5.0, 5)
+    >>> y = torch.linspace(-5.0, 5.0, 7)
+    >>> grid_x, grid_y = torch.meshgrid(x, y, indexing="ij")
+    >>> grid = torch.stack((grid_x, grid_y), dim=-1)
+    >>> grid.shape
+    torch.Size([5, 7, 2])
+    >>> ackley(grid).shape
+    torch.Size([5, 7])
+
 .. automodule:: botorch.test_functions.synthetic
     :members:
 
