@@ -26,7 +26,7 @@ import warnings
 from collections.abc import Callable
 
 import torch
-from botorch.acquisition.logei import TAU_MAX, TAU_RELU
+from botorch.acquisition.logei import _is_fat_utility, TAU_MAX, TAU_RELU
 from botorch.acquisition.multi_objective.base import MultiObjectiveMCAcquisitionFunction
 from botorch.acquisition.multi_objective.objective import MCMultiOutputObjective
 from botorch.logging import logger
@@ -184,7 +184,7 @@ class qLogExpectedHypervolumeImprovement(
         constraints: list[Callable[[Tensor], Tensor]] | None = None,
         X_pending: Tensor | None = None,
         eta: Tensor | float = 1e-2,
-        fat: bool = True,
+        fat: list[bool | None] | bool = True,
         tau_relu: float = TAU_RELU,
         tau_max: float = TAU_MAX,
     ) -> None:
@@ -231,7 +231,11 @@ class qLogExpectedHypervolumeImprovement(
                 constraints. The i-th constraint is then estimated with the i-th
                 eta value.
             fat: Toggles the logarithmic / linear asymptotic behavior of the smooth
-                approximation to the ReLU and the maximum.
+                approximation to the ReLU and the maximum, and of the constraint
+                indicators. A list sets the constraint transformation per
+                constraint, see ``compute_smoothed_feasibility_indicator``; an entry
+                ``None`` means that the constraint delivers a probability of
+                feasibility. With a list, the fat-tailed approximations are used.
             tau_relu: Temperature parameter controlling the sharpness of the
                 approximation to the ReLU over the ``q`` candidate points. For further
                 details, see the comments above the definition of ``TAU_RELU``.
@@ -319,7 +323,7 @@ class qLogExpectedHypervolumeImprovement(
         cell_batch_ndim = self.cell_lower_bounds.ndim - 2
         use_fused = (
             _C is not None
-            and self.fat
+            and _is_fat_utility(self.fat)
             and obj.device.type == "cpu"
             and q <= _FUSED_MAX_I
             # An approximate box decomposition can have zero cells; there is
@@ -466,11 +470,11 @@ class qLogExpectedHypervolumeImprovement(
         )
 
     def _log_smooth_relu(self, X: Tensor) -> Tensor:
-        f = log_fatplus if self.fat else log_softplus
+        f = log_fatplus if _is_fat_utility(self.fat) else log_softplus
         return f(X, tau=self.tau_relu)
 
     def _smooth_min(self, X: Tensor, dim: int, keepdim: bool = False) -> Tensor:
-        f = fatmin if self.fat else smooth_amin
+        f = fatmin if _is_fat_utility(self.fat) else smooth_amin
         return f(X, tau=self.tau_max, dim=dim)
 
     def _smooth_minimum(self, X: Tensor, Y: Tensor) -> Tensor:
@@ -510,7 +514,7 @@ class qLogNoisyExpectedHypervolumeImprovement(
         cache_root: bool | None = None,
         tau_relu: float = TAU_RELU,
         tau_max: float = 1e-3,  # TAU_MAX,
-        fat: bool = True,
+        fat: list[bool | None] | bool = True,
         marginalize_dim: int | None = None,
     ) -> None:
         r"""
@@ -603,6 +607,7 @@ class qLogNoisyExpectedHypervolumeImprovement(
             incremental_nehvi=incremental_nehvi,
             cache_root=cache_root,
             marginalize_dim=marginalize_dim,
+            fat=fat,
         )
         # parameters that are used by qLogEHVI
         self.tau_relu = tau_relu

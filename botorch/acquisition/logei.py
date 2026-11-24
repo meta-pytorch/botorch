@@ -85,7 +85,7 @@ class LogImprovementMCAcquisitionFunction(SampleReducingMCAcquisitionFunction):
         X_pending: Tensor | None = None,
         constraints: list[Callable[[Tensor], Tensor]] | None = None,
         eta: Tensor | float = 1e-3,
-        fat: bool = True,
+        fat: list[bool | None] | bool = True,
         tau_max: float = TAU_MAX,
     ) -> None:
         r"""Constructor of the base class for LogEI acquisition functions.
@@ -114,7 +114,11 @@ class LogImprovementMCAcquisitionFunction(SampleReducingMCAcquisitionFunction):
                 See the docs of ``compute_(log_)constraint_indicator``
                 for more details on this parameter.
             fat: Toggles the logarithmic / linear asymptotic behavior of the smooth
-                approximation to the ReLU.
+                approximation to the ReLU and of the constraint indicators.
+                A list sets the constraint transformation per constraint, see
+                ``compute_smoothed_feasibility_indicator``; an entry ``None`` means
+                that the constraint delivers a probability of feasibility. With a
+                list, the fat-tailed approximations are used.
             tau_max: Temperature parameter controlling the sharpness of the
                 approximation to the ``max`` operator over the ``q`` candidate points.
         """
@@ -124,7 +128,9 @@ class LogImprovementMCAcquisitionFunction(SampleReducingMCAcquisitionFunction):
                 "Please pass the `constraints` directly to the constructor of the "
                 "acquisition function."
             )
-        q_reduction = partial(fatmax if fat else smooth_amax, tau=tau_max)
+        q_reduction = partial(
+            fatmax if _is_fat_utility(fat) else smooth_amax, tau=tau_max
+        )
         super().__init__(
             model=model,
             sampler=sampler,
@@ -173,7 +179,7 @@ class qLogExpectedImprovement(LogImprovementMCAcquisitionFunction):
         X_pending: Tensor | None = None,
         constraints: list[Callable[[Tensor], Tensor]] | None = None,
         eta: Tensor | float = 1e-3,
-        fat: bool = True,
+        fat: list[bool | None] | bool = True,
         tau_max: float = TAU_MAX,
         tau_relu: float = TAU_RELU,
     ) -> None:
@@ -205,7 +211,11 @@ class qLogExpectedImprovement(LogImprovementMCAcquisitionFunction):
                 See the docs of
                 ``compute_(log_)smoothed_constraint_indicator`` for details.
             fat: Toggles the logarithmic / linear asymptotic behavior of the smooth
-                approximation to the ReLU.
+                approximation to the ReLU and of the constraint indicators.
+                A list sets the constraint transformation per constraint, see
+                ``compute_smoothed_feasibility_indicator``; an entry ``None`` means
+                that the constraint delivers a probability of feasibility. With a
+                list, the fat-tailed approximations are used.
             tau_max: Temperature parameter controlling the sharpness of the smooth
                 approximations to max.
             tau_relu: Temperature parameter controlling the sharpness of the smooth
@@ -238,7 +248,7 @@ class qLogExpectedImprovement(LogImprovementMCAcquisitionFunction):
             Y=obj,
             best_f=self.best_f,
             tau=self.tau_relu,
-            fat=self._fat,
+            fat=_is_fat_utility(self._fat),
         )
         return li
 
@@ -282,7 +292,7 @@ class qLogNoisyExpectedImprovement(
         X_pending: Tensor | None = None,
         constraints: list[Callable[[Tensor], Tensor]] | None = None,
         eta: Tensor | float = 1e-3,
-        fat: bool = True,
+        fat: list[bool | None] | bool = True,
         prune_baseline: bool = True,
         cache_root: bool | None = None,
         tau_max: float = TAU_MAX,
@@ -318,7 +328,11 @@ class qLogNoisyExpectedImprovement(
                 See the docs of
                 ``compute_(log_)smoothed_constraint_indicator`` for details.
             fat: Toggles the logarithmic / linear asymptotic behavior of the smooth
-                approximation to the ReLU.
+                approximation to the ReLU and of the constraint indicators.
+                A list sets the constraint transformation per constraint, see
+                ``compute_smoothed_feasibility_indicator``; an entry ``None`` means
+                that the constraint delivers a probability of feasibility. With a
+                list, the fat-tailed approximations are used.
             prune_baseline: If True, remove points in ``X_baseline`` that are
                 highly unlikely to be the best point. This can significantly
                 improve performance and is generally recommended. In order to
@@ -387,7 +401,7 @@ class qLogNoisyExpectedImprovement(
             Y=obj,
             best_f=self.compute_best_f(obj),
             tau=self.tau_relu,
-            fat=self._fat,
+            fat=_is_fat_utility(self._fat),
         )
 
     def _init_baseline(
@@ -411,6 +425,7 @@ class qLogNoisyExpectedImprovement(
                 posterior_transform=posterior_transform,
                 marginalize_dim=self.marginalize_dim,
                 constraints=self._constraints,
+                fat=self._fat,
             )
         self.register_buffer("_X_baseline", X_baseline)
         # full_X_baseline is the set of points that should be considered as the
@@ -575,6 +590,7 @@ class qLogNoisyExpectedImprovement(
             objective=self.objective,
             posterior_transform=self.posterior_transform,
             X_baseline=self.X_baseline,
+            fat=self._fat,
         )
 
 
@@ -598,7 +614,7 @@ class qLogProbabilityOfFeasibility(LogImprovementMCAcquisitionFunction):
         posterior_transform: PosteriorTransform | None = None,
         X_pending: Tensor | None = None,
         eta: Tensor | float = 1e-3,
-        fat: bool = True,
+        fat: list[bool | None] | bool = True,
         tau_max: float = TAU_MAX,
     ):
         r"""Constructor of the batch log probability of feasibility acquisition
@@ -627,7 +643,11 @@ class qLogProbabilityOfFeasibility(LogImprovementMCAcquisitionFunction):
                 See the docs of ``compute_(log_)constraint_indicator``
                 for more details on this parameter.
             fat: Toggles the logarithmic / linear asymptotic behavior of the smooth
-                approximation to the ReLU.
+                approximation to the ReLU and of the constraint indicators.
+                A list sets the constraint transformation per constraint, see
+                ``compute_smoothed_feasibility_indicator``; an entry ``None`` means
+                that the constraint delivers a probability of feasibility. With a
+                list, the fat-tailed approximations are used.
             tau_max: Temperature parameter controlling the sharpness of the
                 approximation to the ``max`` operator over the ``q`` candidate points.
         """
@@ -676,6 +696,20 @@ class qLogProbabilityOfFeasibility(LogImprovementMCAcquisitionFunction):
 """
 ###################################### utils ##########################################
 """
+
+
+def _is_fat_utility(fat: list[bool | None] | bool) -> bool:
+    """Whether the fat-tailed approximations of the ReLU and the maximum are used.
+
+    Args:
+        fat: The ``fat`` argument of a log acquisition function. A list sets the
+            constraint transformations per constraint and implies the fat-tailed
+            approximations.
+
+    Returns:
+        ``fat`` itself if it is a boolean, otherwise ``True``.
+    """
+    return fat if isinstance(fat, bool) else True
 
 
 def _log_improvement(

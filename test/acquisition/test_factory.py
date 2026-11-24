@@ -11,11 +11,13 @@ import torch
 from botorch.acquisition import logei, monte_carlo
 from botorch.acquisition.factory import get_acquisition_function
 from botorch.acquisition.multi_objective import (
+    IdentityMCMultiOutputObjective,
     logei as moo_logei,
     MCMultiOutputObjective,
     monte_carlo as moo_monte_carlo,
 )
 from botorch.acquisition.objective import (
+    GenericMCObjective,
     MCAcquisitionObjective,
     ScalarizedPosteriorTransform,
 )
@@ -747,3 +749,76 @@ class TestGetAcquisitionFunction(BotorchTestCase):
         assert isinstance(acqf, PathwiseThompsonSampling)
         assert acqf.model is self.model
         assert acqf.objective is self.objective
+
+
+class TestGetAcquisitionFunctionProbabilityConstraint(BotorchTestCase):
+    def test_fat_is_passed_on(self):
+        # outputs: objective, probability of feasibility
+        mean = torch.tensor([[1.0, 0.9], [3.0, 0.1], [2.0, 0.6]], dtype=torch.double)
+        model = MockModel(MockPosterior(mean=mean, samples=mean.unsqueeze(0)))
+        X_observed = torch.zeros(3, 1, dtype=torch.double)
+        objective = GenericMCObjective(lambda Y, X: Y[..., 0])
+        constraints = [lambda Y: Y[..., 1]]
+        kwargs = {
+            "model": model,
+            "objective": objective,
+            "X_observed": X_observed,
+            "constraints": constraints,
+            "mc_samples": 4,
+            "prune_baseline": False,
+            "cache_root": False,
+        }
+        for name in ("qEI", "qLogEI", "qPI"):
+            with self.subTest(name=name):
+                acqf = get_acquisition_function(name, **kwargs, fat=[None])
+                self.assertEqual(acqf._fat, [None])
+                # the best feasible observation, not the infeasible 3.0
+                self.assertEqual(acqf.best_f.item(), 2.0)
+        for name in ("qNEI", "qLogNEI", "qLogPF"):
+            with self.subTest(name=name):
+                acqf = get_acquisition_function(name, **kwargs, fat=[None])
+                self.assertEqual(acqf._fat, [None])
+        # without ``fat``, each acquisition function keeps its default
+        acqf = get_acquisition_function("qLogNEI", **kwargs)
+        self.assertIs(acqf._fat, True)
+        acqf = get_acquisition_function("qNEI", **kwargs)
+        self.assertIs(acqf._fat, False)
+
+    def test_fat_is_passed_on_multi_objective(self):
+        # outputs: two objectives, probability of feasibility
+        Y = torch.tensor([[1.0, 1.0, 0.9], [2.0, 2.0, 0.1]], dtype=torch.double)
+        model = MockModel(MockPosterior(mean=Y, samples=Y.unsqueeze(0)))
+        kwargs = {
+            "model": model,
+            "objective": IdentityMCMultiOutputObjective(outcomes=[0, 1]),
+            "X_observed": torch.zeros(2, 1, dtype=torch.double),
+            "constraints": [lambda Y: Y[..., 2]],
+            "mc_samples": 4,
+            "ref_point": [0.0, 0.0],
+            "Y": Y,
+        }
+        for name in ("qEHVI", "qLogEHVI"):
+            with (
+                self.subTest(name=name),
+                mock.patch(
+                    "botorch.acquisition.factory.FastNondominatedPartitioning",
+                    wraps=FastNondominatedPartitioning,
+                ) as mock_partitioning,
+            ):
+                acqf = get_acquisition_function(name, **kwargs, fat=[None])
+                self.assertEqual(acqf.fat, [None])
+                # only the first observation is feasible
+                self.assertEqual(
+                    mock_partitioning.call_args.kwargs["Y"].tolist(), [[1.0, 1.0]]
+                )
+        for name, acqf_class in (
+            ("qNEHVI", "qNoisyExpectedHypervolumeImprovement"),
+            ("qLogNEHVI", "qLogNoisyExpectedHypervolumeImprovement"),
+        ):
+            module = moo_monte_carlo if name == "qNEHVI" else moo_logei
+            with (
+                self.subTest(name=name),
+                mock.patch.object(module, acqf_class) as mock_acqf,
+            ):
+                get_acquisition_function(name, **kwargs, fat=[None])
+                self.assertEqual(mock_acqf.call_args.kwargs["fat"], [None])

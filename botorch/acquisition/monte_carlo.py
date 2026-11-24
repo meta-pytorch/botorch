@@ -381,6 +381,7 @@ class qExpectedImprovement(SampleReducingMCAcquisitionFunction):
         X_pending: Tensor | None = None,
         constraints: list[Callable[[Tensor], Tensor]] | None = None,
         eta: Tensor | float = 1e-3,
+        fat: list[bool | None] | bool = False,
     ) -> None:
         r"""q-Expected Improvement.
 
@@ -411,6 +412,11 @@ class qExpectedImprovement(SampleReducingMCAcquisitionFunction):
                 sigmoid approximation to the constraint indicators. For more
                 details, on this parameter, see the docs of
                 ``compute_smoothed_feasibility_indicator``.
+            fat: Whether to apply a fat-tailed smooth approximation to the
+                feasibility indicator or the canonical sigmoid approximation. A
+                list sets it per constraint; an entry ``None`` means that the
+                constraint delivers a probability of feasibility. For more details,
+                see the docs of ``compute_smoothed_feasibility_indicator``.
         """
         legacy_ei_numerics_warning(legacy_name=type(self).__name__)
         super().__init__(
@@ -421,6 +427,7 @@ class qExpectedImprovement(SampleReducingMCAcquisitionFunction):
             X_pending=X_pending,
             constraints=constraints,
             eta=eta,
+            fat=fat,
         )
         self.register_buffer("best_f", torch.as_tensor(best_f))
 
@@ -473,6 +480,7 @@ class qNoisyExpectedImprovement(
         cache_root: bool | None = None,
         constraints: list[Callable[[Tensor], Tensor]] | None = None,
         eta: Tensor | float = 1e-3,
+        fat: list[bool | None] | bool = False,
         marginalize_dim: int | None = None,
     ) -> None:
         r"""q-Noisy Expected Improvement.
@@ -511,6 +519,11 @@ class qNoisyExpectedImprovement(
                 sigmoid approximation to the constraint indicators. For more
                 details, on this parameter, see the docs of
                 ``compute_smoothed_feasibility_indicator``.
+            fat: Whether to apply a fat-tailed smooth approximation to the
+                feasibility indicator or the canonical sigmoid approximation. A
+                list sets it per constraint; an entry ``None`` means that the
+                constraint delivers a probability of feasibility. For more details,
+                see the docs of ``compute_smoothed_feasibility_indicator``.
             marginalize_dim: The dimension to marginalize over.
 
         TODO: similar to qNEHVI, when we are using sequential greedy candidate
@@ -527,6 +540,7 @@ class qNoisyExpectedImprovement(
             X_pending=X_pending,
             constraints=constraints,
             eta=eta,
+            fat=fat,
         )
         CachedCholeskyMCSamplerMixin.__init__(
             self, model=model, cache_root=cache_root, sampler=sampler
@@ -539,6 +553,7 @@ class qNoisyExpectedImprovement(
                 posterior_transform=posterior_transform,
                 constraints=self._constraints,
                 marginalize_dim=marginalize_dim,
+                fat=self._fat,
             )
         self.register_buffer("X_baseline", X_baseline)
         # registering buffers for _get_samples_and_objectives in the next ``if`` block
@@ -670,6 +685,7 @@ class qNoisyExpectedImprovement(
             objective=self.objective,
             posterior_transform=self.posterior_transform,
             X_baseline=self.X_baseline,
+            fat=self._fat,
         )
 
 
@@ -703,6 +719,7 @@ class qProbabilityOfImprovement(SampleReducingMCAcquisitionFunction):
         tau: float = 1e-3,
         constraints: list[Callable[[Tensor], Tensor]] | None = None,
         eta: Tensor | float = 1e-3,
+        fat: list[bool | None] | bool = False,
     ) -> None:
         r"""q-Probability of Improvement.
 
@@ -735,6 +752,11 @@ class qProbabilityOfImprovement(SampleReducingMCAcquisitionFunction):
                 sigmoid approximation to the constraint indicators. For more
                 details, on this parameter, see the docs of
                 ``compute_smoothed_feasibility_indicator``.
+            fat: Whether to apply a fat-tailed smooth approximation to the
+                feasibility indicator or the canonical sigmoid approximation. A
+                list sets it per constraint; an entry ``None`` means that the
+                constraint delivers a probability of feasibility. For more details,
+                see the docs of ``compute_smoothed_feasibility_indicator``.
         """
         super().__init__(
             model=model,
@@ -744,6 +766,7 @@ class qProbabilityOfImprovement(SampleReducingMCAcquisitionFunction):
             X_pending=X_pending,
             constraints=constraints,
             eta=eta,
+            fat=fat,
         )
         best_f = torch.as_tensor(best_f).unsqueeze(-1)  # adding batch dim
         self.register_buffer("best_f", best_f)
@@ -941,6 +964,7 @@ class qPosteriorStandardDeviation(SampleReducingMCAcquisitionFunction):
         X_pending: Tensor | None = None,
         constraints: list[Callable[[Tensor], Tensor]] | None = None,
         eta: Tensor | float = 1e-3,
+        fat: list[bool | None] | bool = False,
     ) -> None:
         r"""q-Posterior Standard Deviation.
 
@@ -964,6 +988,11 @@ class qPosteriorStandardDeviation(SampleReducingMCAcquisitionFunction):
                 sigmoid approximation to the constraint indicators. For more
                 details, on this parameter, see the docs of
                 ``compute_smoothed_feasibility_indicator``.
+            fat: Whether to apply a fat-tailed smooth approximation to the
+                feasibility indicator or the canonical sigmoid approximation. A
+                list sets it per constraint; an entry ``None`` means that the
+                constraint delivers a probability of feasibility. For more details,
+                see the docs of ``compute_smoothed_feasibility_indicator``.
         """
         super().__init__(
             model=model,
@@ -973,6 +1002,7 @@ class qPosteriorStandardDeviation(SampleReducingMCAcquisitionFunction):
             X_pending=X_pending,
             constraints=constraints,
             eta=eta,
+            fat=fat,
         )
         self._scale = math.sqrt(math.pi / 2)
 

@@ -24,7 +24,7 @@ from botorch.acquisition.analytic import (
     NoisyExpectedImprovement,
 )
 from botorch.acquisition.input_constructors import ACQF_INPUT_CONSTRUCTOR_REGISTRY
-from botorch.acquisition.logei import qLogProbabilityOfFeasibility
+from botorch.acquisition.logei import _is_fat_utility, qLogProbabilityOfFeasibility
 from botorch.acquisition.monte_carlo import (
     qExpectedImprovement,
     qNoisyExpectedImprovement,
@@ -45,6 +45,7 @@ from botorch.models import ModelListGP, SingleTaskGP
 from botorch.sampling.normal import IIDNormalSampler, SobolQMCNormalSampler
 from botorch.utils.low_rank import sample_cached_cholesky
 from botorch.utils.objective import compute_smoothed_feasibility_indicator
+from botorch.utils.safe_math import fatmax, smooth_amax
 from botorch.utils.test_helpers import DummyNonScalarizingPosteriorTransform
 from botorch.utils.testing import BotorchTestCase, MockModel, MockPosterior
 from botorch.utils.transforms import standardize
@@ -769,6 +770,71 @@ class TestQLogNoisyExpectedImprovement(BotorchTestCase):
                         best_feas_f, torch.full_like(obj[..., 0], -infcost.item())
                     )
         # TODO: Test different objectives (incl. constraints)
+
+
+class TestProbabilityConstraints(BotorchTestCase):
+    def test_is_fat_utility(self):
+        self.assertTrue(_is_fat_utility(True))
+        self.assertFalse(_is_fat_utility(False))
+        self.assertTrue(_is_fat_utility([False, None]))
+
+    def test_q_log_expected_improvement_probability_constraint(self):
+        for dtype in (torch.float, torch.double):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            # outputs: objective, probability of feasibility
+            samples = torch.tensor([[[1.5, 0.8]]], **tkwargs)
+            mm = MockModel(MockPosterior(samples=samples))
+            X = torch.zeros(1, 1, **tkwargs)
+            sampler = IIDNormalSampler(sample_shape=torch.Size([2]))
+            objective = GenericMCObjective(lambda Y, X: Y[..., 0])
+            kwargs = {
+                "model": mm,
+                "best_f": 1.0,
+                "sampler": sampler,
+                "objective": objective,
+            }
+            acqf = qLogExpectedImprovement(
+                **kwargs, constraints=[lambda Y: Y[..., 1]], fat=[None]
+            )
+            # a list implies the fat-tailed utility smoothing
+            self.assertIs(acqf._q_reduction.func, fatmax)
+            unconstrained = qLogExpectedImprovement(**kwargs)
+            self.assertAllClose(
+                acqf(X), unconstrained(X) + torch.tensor(0.8, **tkwargs).log()
+            )
+            # a list with ``False`` entries also uses the fat utility smoothing
+            acqf = qLogExpectedImprovement(
+                **kwargs, constraints=[lambda Y: -Y[..., 1]], fat=[False]
+            )
+            self.assertIs(acqf._q_reduction.func, fatmax)
+            acqf = qLogExpectedImprovement(**kwargs, fat=False)
+            self.assertIs(acqf._q_reduction.func, smooth_amax)
+
+    def test_q_log_noisy_expected_improvement_probability_constraint(self):
+        for dtype in (torch.float, torch.double):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            # outputs: objective, probability of feasibility; three baseline points
+            # and one candidate. The best feasible baseline objective is 2.0.
+            samples = torch.tensor(
+                [[[1.0, 0.9], [3.0, 0.1], [2.0, 0.6], [2.5, 0.8]]], **tkwargs
+            )
+            mm = MockModel(MockPosterior(samples=samples))
+            X_baseline = torch.zeros(3, 1, **tkwargs)
+            X = torch.zeros(1, 1, **tkwargs)
+            acqf = qLogNoisyExpectedImprovement(
+                model=mm,
+                X_baseline=X_baseline,
+                sampler=IIDNormalSampler(sample_shape=torch.Size([2])),
+                objective=GenericMCObjective(lambda Y, X: Y[..., 0]),
+                constraints=[lambda Y: Y[..., 1]],
+                fat=[None],
+                prune_baseline=False,
+                cache_root=False,
+            )
+            # improvement 2.5 - 2.0, weighted with the probability 0.8
+            self.assertAllClose(
+                acqf(X).exp(), torch.tensor([0.4], **tkwargs), atol=1e-4, rtol=0
+            )
 
 
 class TestQLogProbabilityOfFeasibility(BotorchTestCase):

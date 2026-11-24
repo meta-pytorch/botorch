@@ -30,7 +30,7 @@ class qLogNParEGO(qLogNoisyExpectedImprovement, MultiObjectiveMCAcquisitionFunct
         constraints: list[Callable[[Tensor], Tensor]] | None = None,
         X_pending: Tensor | None = None,
         eta: Tensor | float = 1e-3,
-        fat: bool = True,
+        fat: list[bool | None] | bool = True,
         prune_baseline: bool = False,
         cache_root: bool | None = None,
         tau_relu: float = TAU_RELU,
@@ -76,7 +76,11 @@ class qLogNParEGO(qLogNoisyExpectedImprovement, MultiObjectiveMCAcquisitionFunct
                 approximation to the constraint indicators. See the docs of
                 ``compute_(log_)smoothed_constraint_indicator`` for details.
             fat: Toggles the logarithmic / linear asymptotic behavior of the smooth
-                approximation to the ReLU.
+                approximation to the ReLU and of the constraint indicators. A list
+                sets the constraint transformation per constraint, see
+                ``compute_smoothed_feasibility_indicator``; an entry ``None`` means
+                that the constraint delivers a probability of feasibility. With a
+                list, the fat-tailed approximations are used.
             prune_baseline: If True, remove points in ``X_baseline`` that are
                 highly unlikely to be the best point. This can significantly
                 improve performance and is generally recommended. In order to

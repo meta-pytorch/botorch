@@ -32,6 +32,7 @@ from botorch.sampling.base import MCSampler
 from botorch.sampling.get_sampler import get_sampler
 from botorch.sampling.pathwise.posterior_samplers import get_matheron_path_model
 from botorch.utils.objective import (
+    _normalize_fat,
     compute_feasibility_indicator,
     compute_smoothed_feasibility_indicator,
 )
@@ -103,6 +104,7 @@ def compute_best_feasible_objective(
     posterior_transform: PosteriorTransform | None = None,
     X_baseline: Tensor | None = None,
     infeasible_obj: Tensor | None = None,
+    fat: list[bool | None] | bool = False,
 ) -> Tensor:
     """Computes the largest ``obj`` value that is feasible under the ``constraints``. If
     ``constraints`` is None, returns the best unconstrained objective value.
@@ -127,6 +129,10 @@ def compute_best_feasible_objective(
         X_baseline: A ``batch_shape x d``-dim Tensor of baseline points, only required
             when there are no feasible observations.
         infeasible_obj: A Tensor to be returned when no feasible points exist.
+        fat: The per-constraint setting of the feasibility indicator, see
+            ``compute_smoothed_feasibility_indicator``. A constraint with ``None``
+            delivers a probability of feasibility and is considered satisfied if it
+            is at least 0.5.
 
     Returns:
         A ``(sample_shape) x batch_shape``-dim Tensor of best feasible objectives.
@@ -138,7 +144,7 @@ def compute_best_feasible_objective(
             return obj.amax(dim=-1, keepdim=False)
 
     is_feasible = compute_feasibility_indicator(
-        constraints=constraints, samples=samples
+        constraints=constraints, samples=samples, fat=fat
     )  # sample_shape x batch_shape x q
 
     if is_feasible.any(dim=-1).all():
@@ -284,6 +290,7 @@ def _prune_inferior_shared_processing(
     max_frac: float = 1.0,
     sampler: MCSampler | None = None,
     marginalize_dim: int | None = None,
+    fat: list[bool | None] | bool = False,
 ) -> tuple[int, Tensor, Tensor]:
     r"""Shared data processing for ``prune_inferior_points`` and
     ``prune_inferior_points_multi_objective``.
@@ -339,6 +346,7 @@ def _prune_inferior_shared_processing(
         constraints=constraints,
         samples=samples,
         marginalize_dim=marginalize_dim,
+        fat=fat,
     )
 
     return max_points, obj_vals, infeas
@@ -354,6 +362,7 @@ def prune_inferior_points(
     max_frac: float = 1.0,
     sampler: MCSampler | None = None,
     marginalize_dim: int | None = None,
+    fat: list[bool | None] | bool = False,
 ) -> Tensor:
     r"""Prune points from an input tensor that are unlikely to be the best point.
 
@@ -383,6 +392,10 @@ def prune_inferior_points(
         marginalize_dim: A batch dimension that should be marginalized.
             For example, this is useful when using a batched fully Bayesian
             model.
+        fat: The per-constraint setting of the feasibility indicator, see
+            ``compute_smoothed_feasibility_indicator``. A constraint with ``None``
+            delivers a probability of feasibility and is considered satisfied if it
+            is at least 0.5.
 
     Returns:
         A ``n' x d`` with subset of points in ``X``, where
@@ -403,6 +416,7 @@ def prune_inferior_points(
         max_frac=max_frac,
         sampler=sampler,
         marginalize_dim=marginalize_dim,
+        fat=fat,
     )
     if infeas.all():
         # if no points are feasible, keep the point closest to being feasible
@@ -414,11 +428,16 @@ def prune_inferior_points(
             )
         samples = sampler(posterior)
         # use the probability of feasibility as the objective for computing best points
+        # probability constraints enter as they are, all others via a sigmoid
         obj_vals = compute_smoothed_feasibility_indicator(
             constraints=constraints,
             samples=samples,
             eta=1e-3,
             log=True,
+            fat=[
+                None if fat_ is None else False
+                for fat_ in _normalize_fat(fat=fat, n_constraints=len(constraints))
+            ],
         )
 
     elif infeas.any():
