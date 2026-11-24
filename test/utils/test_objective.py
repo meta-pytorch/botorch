@@ -290,6 +290,34 @@ class TestApplyConstraints(BotorchTestCase):
                 constraints=[prob_f, neg_f], samples=samples, fat=[None]
             )
 
+    def test_probability_constraints_in_log_space(self):
+        samples = torch.tensor([[0.0], [0.5]], device=self.device)
+        # a probability of exactly zero stays finite in log space
+        log_ind = compute_smoothed_feasibility_indicator(
+            constraints=[lambda Y: Y[..., 0]],
+            samples=samples,
+            eta=1e-3,
+            log=True,
+            fat=[None],
+        )
+        self.assertTrue(torch.isfinite(log_ind).all())
+        self.assertAllClose(log_ind[1], torch.tensor(0.5, device=self.device).log())
+
+    def test_apply_constraints_probability_constraint(self):
+        # outputs: objective, probability of feasibility
+        samples = torch.tensor([[2.0, 0.25], [-1.0, 0.5]], device=self.device)
+        obj = samples[..., 0]
+        res = apply_constraints(
+            obj=obj,
+            constraints=[lambda Y: Y[..., 1]],
+            samples=samples,
+            infeasible_cost=3.0,
+            fat=[None],
+        )
+        # (obj + M) * p - M
+        expected = (obj + 3.0) * samples[..., 1] - 3.0
+        self.assertAllClose(res, expected)
+
 
 class TestGetObjectiveWeightsTransform(BotorchTestCase):
     def test_NoWeights(self) -> None:

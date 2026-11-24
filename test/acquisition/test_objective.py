@@ -326,6 +326,19 @@ class TestGenericMCObjective(BotorchTestCase):
 
 
 class TestConstrainedMCObjective(BotorchTestCase):
+    def test_constrained_mc_objective_probability_constraint(self):
+        # outputs: objective, probability of feasibility
+        samples = torch.tensor([[2.0, 0.25], [-1.0, 0.5]], device=self.device)
+        obj = ConstrainedMCObjective(
+            objective=lambda Y, X=None: Y[..., 0],
+            constraints=[lambda Y: Y[..., 1]],
+            infeasible_cost=3.0,
+            fat=[None],
+        )
+        self.assertEqual(obj.fat, [None])
+        expected = (samples[..., 0] + 3.0) * samples[..., 1] - 3.0
+        self.assertAllClose(obj(samples), expected)
+
     def test_constrained_mc_objective(self):
         for dtype in (torch.float, torch.double):
             # one feasible constraint

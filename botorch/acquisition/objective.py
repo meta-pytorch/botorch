@@ -432,6 +432,7 @@ class ConstrainedMCObjective(GenericMCObjective):
         constraints: list[Callable[[Tensor], Tensor]],
         infeasible_cost: Tensor | float = 0.0,
         eta: Tensor | float = 1e-3,
+        fat: list[bool | None] | bool = False,
     ) -> None:
         r"""
         Args:
@@ -451,9 +452,15 @@ class ConstrainedMCObjective(GenericMCObjective):
                 constraints. In case of a tensor the length of the tensor must
                 match the number of provided constraints. The i-th constraint is
                 then estimated with the i-th eta value.
+            fat: Whether to apply a fat-tailed approximation to the feasibility
+                indicator instead of the sigmoid, either for all constraints or per
+                constraint as a list. A list entry ``None`` means that the
+                constraint delivers a probability of feasibility, see
+                ``compute_smoothed_feasibility_indicator``.
         """
         super().__init__(objective=objective)
         self.constraints = constraints
+        self.fat = fat
         if not isinstance(eta, Tensor):
             eta = torch.full((len(constraints),), eta)
         self.register_buffer("eta", eta)
@@ -479,6 +486,7 @@ class ConstrainedMCObjective(GenericMCObjective):
             samples=samples,
             infeasible_cost=self.infeasible_cost,
             eta=self.eta,
+            fat=self.fat,
         )
 
 

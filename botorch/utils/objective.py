@@ -68,11 +68,12 @@ def apply_constraints_nonnegative_soft(
     constraints: list[Callable[[Tensor], Tensor]],
     samples: Tensor,
     eta: Tensor | float,
+    fat: list[bool | None] | bool = False,
 ) -> Tensor:
     r"""Applies constraints to a non-negative objective.
 
     This function uses a sigmoid approximation to an indicator function for
-    each constraint.
+    each constraint, unless ``fat`` asks for another one.
 
     Args:
         obj: A ``n_samples x b x q (x m')``-dim Tensor of objective values.
@@ -86,12 +87,17 @@ def apply_constraints_nonnegative_soft(
             constraint in constraints. In case of a tensor the length of the tensor
             must match the number of provided constraints. The i-th constraint is
             then estimated with the i-th eta value.
+        fat: Whether to apply a fat-tailed approximation to the feasibility
+            indicator instead of the sigmoid, either for all constraints or per
+            constraint as a list. A list entry ``None`` means that the constraint
+            delivers a probability of feasibility, see
+            ``compute_smoothed_feasibility_indicator``.
 
     Returns:
         A ``n_samples x b x q (x m')``-dim tensor of feasibility-weighted objectives.
     """
     w = compute_smoothed_feasibility_indicator(
-        constraints=constraints, samples=samples, eta=eta
+        constraints=constraints, samples=samples, eta=eta, fat=fat
     )
     if obj.dim() == samples.dim():
         w = w.unsqueeze(-1)  # Need to unsqueeze to accommodate the outcome dimension.
@@ -209,9 +215,11 @@ def compute_smoothed_feasibility_indicator(
             the i-th fat value is ``None``, no fatmoid/sigmoid transformation is
             applied to the i-th constraint and it is assumed that the constraint
             by itself delivers values in the interval [0, 1]. This is especially useful
-            for using classifiers as constraints. If a boolean is provided and its
-            value is ``True``, a fatmoid transformation is applied, if its value is
-            ``False``, a sigmoid transformation is applied.
+            for using classifiers as constraints. Values of zero are clamped to the
+            smallest positive number of the dtype, so that their logarithm is
+            finite. If a boolean is provided and its value is ``True``, a fatmoid
+            transformation is applied, if its value is ``False``, a sigmoid
+            transformation is applied.
 
 
     Returns:
@@ -230,7 +238,10 @@ def compute_smoothed_feasibility_indicator(
 
     for constraint, eta_, fat_ in zip(constraints, eta, fat):
         if fat_ is None:
-            is_feasible = is_feasible + constraint(samples).log()
+            # clamp, so that a probability of exactly zero stays finite in log space
+            prob = constraint(samples)
+            prob = prob.clamp_min(torch.finfo(prob.dtype).tiny)
+            is_feasible = is_feasible + prob.log()
         else:
             log_sigmoid = log_fatmoid if fat_ else logexpit
             is_feasible = is_feasible + log_sigmoid(-constraint(samples) / eta_)
@@ -244,6 +255,7 @@ def apply_constraints(
     samples: Tensor,
     infeasible_cost: float,
     eta: Tensor | float = 1e-3,
+    fat: list[bool | None] | bool = False,
 ) -> Tensor:
     r"""Apply constraints using an infeasible_cost ``M`` for negative objectives.
 
@@ -266,6 +278,11 @@ def apply_constraints(
             constraint in constraints. In case of a tensor the length of the tensor
             must match the number of provided constraints. The i-th constraint is
             then estimated with the i-th eta value.
+        fat: Whether to apply a fat-tailed approximation to the feasibility
+            indicator instead of the sigmoid, either for all constraints or per
+            constraint as a list. A list entry ``None`` means that the constraint
+            delivers a probability of feasibility, see
+            ``compute_smoothed_feasibility_indicator``.
 
     Returns:
         A ``n_samples x b x q (x m')``-dim tensor of feasibility-weighted objectives.
@@ -277,5 +294,6 @@ def apply_constraints(
         constraints=constraints,
         samples=samples,
         eta=eta,
+        fat=fat,
     )
     return obj.add(-infeasible_cost)
