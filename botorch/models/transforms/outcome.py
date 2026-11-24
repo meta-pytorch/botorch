@@ -522,6 +522,7 @@ class StratifiedStandardize(Standardize):
 
     Statistics are fitted separately for each batch and stratum. A stratum
     observed only in other batches uses identity statistics in the missing batch.
+    For a stratum with a single observation, only de-meaning is performed.
     """
 
     def __init__(
@@ -602,7 +603,7 @@ class StratifiedStandardize(Standardize):
                 Y_strata = Y.clone()
                 Y_strata[..., mask, :] = float("nan")
                 stdvs = (
-                    torch.ones_like(Y_strata)
+                    torch.ones_like(Y_strata.squeeze(-2))
                     if Y.shape[-2] == 1
                     else nanstd(X=Y_strata, dim=-2)
                 )
