@@ -228,6 +228,23 @@ class TestConstraintUtils(BotorchTestCase):
             M4 = get_infeasible_cost(X=X, model=mm)
             self.assertAllClose(M4, torch.tensor([1.0], **tkwargs))
 
+    def test_get_infeasible_cost_with_learned_objective(self) -> None:
+        """Return a single utility cost for an unbatched outcome posterior."""
+        X = torch.linspace(0, 1, 5, device=self.device, dtype=torch.double).unsqueeze(
+            -1
+        )
+        outcome_model = MockModel(
+            MockPosterior(mean=X, variance=torch.full_like(X, 0.01))
+        )
+        preference_model = SingleTaskGP(train_X=X, train_Y=X - 2.0)
+        cost = get_infeasible_cost(
+            X=X,
+            model=outcome_model,
+            objective=LearnedObjective(pref_model=preference_model, seed=0),
+        )
+        self.assertEqual(cost.shape, torch.Size([1]))
+        self.assertGreater(cost.item(), 0)
+
 
 class TestPruneInferiorPoints(BotorchTestCase):
     def test_prune_inferior_points(self):
@@ -308,6 +325,21 @@ class TestPruneInferiorPoints(BotorchTestCase):
                 constraints=constraints,
             )
             self.assertTrue(torch.equal(X_pruned, X[[-1]]))
+
+    def test_prune_inferior_points_with_augmented_objective_samples(self) -> None:
+        """Apply each outcome sample's feasibility mask to its utility draws."""
+        X = torch.tensor([[0.0], [1.0]], device=self.device)
+        samples = torch.tensor([[2.0, 1.0], [1.0, -1.0]], device=self.device)
+        model = MockModel(MockPosterior(samples=samples))
+        objective = GenericMCObjective(objective=lambda Y, X: Y[..., 0].repeat(2, 1))
+
+        pruned = prune_inferior_points(
+            model=model,
+            X=X,
+            objective=objective,
+            constraints=[lambda Y: Y[..., 1]],
+        )
+        self.assertAllClose(pruned, X[1:])
 
 
 class TestFidelityUtils(BotorchTestCase):

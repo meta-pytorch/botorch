@@ -16,6 +16,7 @@ from collections.abc import Callable
 
 import torch
 from botorch.acquisition.objective import (
+    LearnedObjective,
     MCAcquisitionObjective,
     PosteriorTransform,
     ScalarizedPosteriorTransform,
@@ -255,17 +256,24 @@ def get_infeasible_cost(
     # We check both the upper and lower bound of the posterior, since the objective
     # may be increasing or decreasing. For objectives that are neither (eg. absolute
     # distance from a target), this should still provide a good bound.
+    mean = posterior.mean
     six_stdv = 6 * posterior.variance.clamp_min(0).sqrt()
+    is_learned_objective = isinstance(objective, LearnedObjective)
+    if is_learned_objective and mean.ndim == 2:
+        # LearnedObjective expects an outcome-sample dimension even for a
+        # single unbatched posterior estimate.
+        mean = mean.unsqueeze(0)
+        six_stdv = six_stdv.unsqueeze(0)
     lb = torch.stack(
         [
-            objective(posterior.mean - six_stdv, X=X),
-            objective(posterior.mean + six_stdv, X=X),
+            objective(mean - six_stdv, X=X),
+            objective(mean + six_stdv, X=X),
         ],
         dim=0,
     )
     lb = lb.min(dim=0).values
 
-    if lb.ndim < posterior.mean.ndim:
+    if is_learned_objective or lb.ndim < mean.ndim:
         lb = lb.unsqueeze(-1)
     # Take outcome-wise min. Looping in to handle batched models.
     while lb.dim() > 1:
@@ -422,8 +430,12 @@ def prune_inferior_points(
         )
 
     elif infeas.any():
+        # A learned objective can draw multiple utilities per outcome sample.
+        infeas = repeat_to_match_aug_dim(
+            target_tensor=infeas, reference_tensor=obj_vals
+        )
         # set infeasible points to worse than worst objective across all samples
-        # Use clone() here to avoid deprecated ``index_put_`` on an expanded tensor
+        # Use clone() here to avoid deprecated ``index_put_`` on an expanded tensor.
         obj_vals = obj_vals.clone()
         obj_vals[infeas] = obj_vals.min() - 1
 
