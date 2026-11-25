@@ -38,6 +38,7 @@ class HigherOrderGPPosterior(GPyTorchPosterior):
         train_targets: Tensor,
         output_shape: torch.Size,
         num_outputs: int,
+        test_noise: Tensor | None = None,
     ) -> None:
         r"""A Posterior for HigherOrderGP models.
 
@@ -51,6 +52,8 @@ class HigherOrderGPPosterior(GPyTorchPosterior):
             train_targets: Training responses vectorized.
             output_shape: Shape output training responses.
             num_outputs: Batch shaping of model.
+            test_noise: Observation noise variances of the vectorized test outputs.
+                Only used if the samples should contain observation noise.
         """
         super().__init__(distribution=distribution)
         self.joint_covariance_matrix = joint_covariance_matrix
@@ -60,18 +63,28 @@ class HigherOrderGPPosterior(GPyTorchPosterior):
         self.output_shape = output_shape
         self._is_mt = True
         self.num_outputs = num_outputs
+        self.test_noise = test_noise
+
+    @property
+    def _num_noise_base_samples(self) -> int:
+        r"""The number of base samples used for the observation noise."""
+        num_noise = self.train_train_covar.shape[-2]
+        if self.test_noise is not None:
+            num_noise += self.test_train_covar.shape[-2]
+        return num_noise
 
     @property
     def base_sample_shape(self):
         r"""The shape of a base sample used for constructing posterior samples.
 
         Overwrites the standard ``base_sample_shape`` call to inform samplers that
-        ``n + 2 n_train`` samples need to be drawn rather than n samples.
+        ``n + 2 n_train`` samples (and ``n`` more if the samples should contain
+        observation noise) need to be drawn rather than n samples.
         """
         joint_covar = self.joint_covariance_matrix
         batch_shape = joint_covar.shape[:-2]
         sampling_shape = torch.Size(
-            [joint_covar.shape[-2] + self.train_train_covar.shape[-2]]
+            [joint_covar.shape[-2] + self._num_noise_base_samples]
         )
         return batch_shape + sampling_shape
 
@@ -106,7 +119,7 @@ class HigherOrderGPPosterior(GPyTorchPosterior):
             if base_samples.shape[: len(sample_shape)] != sample_shape:
                 raise RuntimeError("sample_shape disagrees with shape of base_samples.")
 
-            appended_shape = joint_size + self.train_train_covar.shape[-1]
+            appended_shape = joint_size + self._num_noise_base_samples
             if appended_shape != base_samples.shape[-1]:
                 # get base_samples to the correct shape by expanding as sample shape,
                 # batch shape, then rest of dimensions. We have to add first the sample
@@ -147,7 +160,7 @@ class HigherOrderGPPosterior(GPyTorchPosterior):
             noise_base_samples = torch.randn(
                 *sample_shape,
                 *batch_shape,
-                self.train_train_covar.shape[-1],
+                self._num_noise_base_samples,
                 device=covariance_matrix.device,
                 dtype=covariance_matrix.dtype,
             )
@@ -196,10 +209,11 @@ class HigherOrderGPPosterior(GPyTorchPosterior):
         samples = covar_root.matmul(base_samples[..., : covar_root.shape[-1], :])
 
         # now pluck out Y_x and X_x
-        noiseless_train_marginal_samples = samples[
-            ..., : self.train_train_covar.shape[-1], :
-        ]
-        test_marginal_samples = samples[..., self.train_train_covar.shape[-1] :, :]
+        num_train = self.train_train_covar.shape[-1]
+        noiseless_train_marginal_samples = samples[..., :num_train, :]
+        test_marginal_samples = samples[..., num_train:, :]
+        test_noise_base_samples = noise_base_samples[..., num_train:, :]
+        noise_base_samples = noise_base_samples[..., :num_train, :]
         # we need to add noise to the train_joint_samples
         # THIS ASSUMES CONSTANT NOISE
         # The following assumes test_train_covar is a SumLinearOperator. TODO: Improve
@@ -235,6 +249,12 @@ class HigherOrderGPPosterior(GPyTorchPosterior):
 
         # add samples
         test_cond_samples = test_marginal_samples + test_updated_samples
+        if self.test_noise is not None:
+            # add observation noise to the test samples
+            test_cond_samples = (
+                test_cond_samples
+                + self.test_noise.sqrt().unsqueeze(-1) * test_noise_base_samples
+            )
         test_cond_samples = test_cond_samples.permute(
             test_cond_samples.ndim - 1, *range(0, test_cond_samples.ndim - 1)
         )

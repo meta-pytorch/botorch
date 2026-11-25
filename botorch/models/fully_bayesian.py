@@ -988,8 +988,16 @@ class AbstractFullyBayesianSingleTaskGP(ExactGP, BatchedMultiOutputGPyTorchModel
             self.pyro_model.load_mcmc_samples(mcmc_samples=mcmc_samples)
         )
         if input_transform is not None:
-            if hasattr(self, "input_transform"):
-                tfs = [self.input_transform]
+            # The input warping is chained with the input transform of the model
+            # without the input warping added by previous calls of this method. It is
+            # stored in a tuple to avoid registering it as an additional submodule.
+            if not hasattr(self, "_input_transform_without_warping"):
+                self._input_transform_without_warping = (
+                    getattr(self, "input_transform", None),
+                )
+            base_input_transform = self._input_transform_without_warping[0]
+            if base_input_transform is not None:
+                tfs = [base_input_transform]
                 if isinstance(input_transform, ChainedInputTransform):
                     tfs.extend(list(input_transform.values()))
                 else:
