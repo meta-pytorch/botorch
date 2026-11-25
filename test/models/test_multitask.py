@@ -25,6 +25,7 @@ from botorch.models.transforms.outcome import OutcomeTransform, Standardize
 from botorch.models.utils.priors import BetaPrior
 from botorch.posteriors import GPyTorchPosterior
 from botorch.posteriors.transformed import TransformedPosterior
+from botorch.sampling.normal import IIDNormalSampler
 from botorch.utils.datasets import MultiTaskDataset, SupervisedDataset
 from botorch.utils.test_helpers import gen_multi_task_dataset
 from botorch.utils.testing import BotorchTestCase
@@ -275,8 +276,9 @@ class TestMultiTaskGP(BotorchTestCase):
 
             # test that posterior w/ observation noise raises appropriate error
             with self.assertRaisesRegex(
-                NotImplementedError,
-                "Passing a tensor of observations is not supported by MultiTaskGP.",
+                UnsupportedError,
+                "Passing a tensor of observations is only supported if the likelihood "
+                "is FixedNoiseGaussianLikelihood.",
             ):
                 model.posterior(test_x, observation_noise=torch.rand(2, **tkwargs))
 
@@ -496,6 +498,56 @@ class TestMultiTaskGP(BotorchTestCase):
                 self.assertIsInstance(posterior.distribution, MultivariateNormal)
                 self.assertEqual(posterior.mean.shape, torch.Size([2, 2]))
                 self.assertEqual(posterior.variance.shape, torch.Size([2, 2]))
+
+    def test_fantasize_unobserved_task_fixed_noise(self) -> None:
+        for dtype in (torch.float, torch.double):
+            train_X = torch.tensor(
+                [[0.1, 3], [0.2, 3], [0.3, 5], [0.4, 5]], dtype=dtype
+            )
+            model = MultiTaskGP(
+                train_X=train_X,
+                train_Y=torch.rand(4, 1, dtype=dtype),
+                train_Yvar=torch.tensor([[0.1], [0.1], [0.3], [0.3]], dtype=dtype),
+                task_feature=-1,
+                all_tasks=[3, 5, 7],
+                outcome_transform=None,
+            )
+            fantasy = model.fantasize(
+                X=torch.rand(2, 2, 1, dtype=dtype),
+                sampler=IIDNormalSampler(sample_shape=torch.Size([2])),
+            )
+            self.assertTrue(torch.isfinite(fantasy.train_targets).all())
+            self.assertAllClose(
+                fantasy.likelihood.noise[..., -6:],
+                torch.tensor([0.1, 0.1, 0.3, 0.3, 0.2, 0.2], dtype=dtype).expand(2, -1),
+            )
+
+    def test_fantasize_empty_multitask(self) -> None:
+        for dtype in (torch.float, torch.double):
+            train_X = torch.tensor(
+                [[0.1, 0], [0.2, 1], [0.3, 0], [0.4, 1]], dtype=dtype
+            )
+            model = MultiTaskGP(
+                train_X=train_X,
+                train_Y=torch.rand(4, 1, dtype=dtype),
+                train_Yvar=torch.full((4, 1), 0.1, dtype=dtype),
+                task_feature=-1,
+            )
+            fantasy = model.fantasize(
+                X=torch.empty(3, 0, 1, dtype=dtype),
+                sampler=IIDNormalSampler(sample_shape=torch.Size([2, 2])),
+            )
+            self.assertEqual(fantasy.batch_shape, torch.Size([2, 2, 3]))
+            self.assertAllClose(
+                fantasy.train_targets, model.train_targets.expand(2, 2, 3, -1)
+            )
+            self.assertAllClose(
+                fantasy.likelihood.noise, model.likelihood.noise.expand(2, 2, 3, -1)
+            )
+            posterior = fantasy.posterior(torch.rand(3, 2, 1, dtype=dtype))
+            self.assertTrue(torch.isfinite(posterior.mean).all())
+            self.assertTrue(torch.isfinite(posterior.variance).all())
+            self.assertEqual(model.batch_shape, torch.Size())
 
     def test_all_tasks_input(self) -> None:
         _, (train_X, train_Y, _) = gen_multi_task_dataset(
