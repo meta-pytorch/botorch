@@ -1212,8 +1212,17 @@ def sample_points_around_best(
             )
             return
         mean = posterior.mean
-        while mean.ndim > 2:
-            # take average over batch dims
+        # Average over the batch dims of the model (e.g. the MCMC samples of a fully
+        # Bayesian model). These are not necessarily all but the last two dims: for
+        # ``HigherOrderGP``, the posterior mean is ``batch_shape x n x output_shape``.
+        num_batch_dims = mean.ndim - 2
+        try:
+            batch_shape = acq_function.model.batch_shape
+        except (AttributeError, NotImplementedError):
+            batch_shape = None
+        if batch_shape is not None:
+            num_batch_dims = min(num_batch_dims, len(batch_shape))
+        for _ in range(num_batch_dims):
             mean = mean.mean(dim=0)
         try:
             f_pred = acq_function.objective(mean)
@@ -1240,7 +1249,8 @@ def sample_points_around_best(
                     f_pred = neg_violation
         except AttributeError:
             pass
-        if f_pred.ndim == mean.ndim and f_pred.shape[-1] > 1:
+        # ``f_pred`` is ``n x m``-dim if there are multiple (``m > 1``) objectives.
+        if f_pred.ndim == 2 and f_pred.shape[-1] > 1:
             # multi-objective
             # find pareto set
             is_pareto = is_non_dominated(f_pred)
