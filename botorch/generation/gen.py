@@ -225,6 +225,7 @@ def gen_candidates_scipy(
     )
 
     if not why_not_fast_path and use_parallel_mode is not False:
+        keep_better_initial_candidates = False
         if is_constrained:
             raise RuntimeWarning("Method L-BFGS-B cannot handle constraints.")
 
@@ -286,6 +287,12 @@ def gen_candidates_scipy(
         all_xs = []
         split_candidates = clamped_candidates.split(
             max_optimization_problem_aggregation_size
+        )
+        keep_better_initial_candidates = not is_constrained and any(
+            len(c) > 1 for c in split_candidates
+        )
+        initial_clamped_candidates = (
+            clamped_candidates if keep_better_initial_candidates else None
         )
         for i, candidates_ in enumerate(split_candidates):
             if fixed_features:
@@ -429,6 +436,24 @@ def gen_candidates_scipy(
 
     with torch.no_grad():
         batch_acquisition = acquisition_function(clamped_candidates)
+        if keep_better_initial_candidates and initial_clamped_candidates is not None:
+            # Optimizing the summed loss across restarts can accept steps that
+            # improve steep restarts while degrading better starting points (#3570).
+            initial_candidates = fix_features(
+                X=initial_clamped_candidates,
+                fixed_features=fixed_features,
+                replace_current_value=False,
+            ).reshape(original_initial_conditions_shape)
+            initial_acquisition = acquisition_function(initial_candidates)
+            worse = batch_acquisition < initial_acquisition
+            if worse.any():
+                view_shape = worse.shape + (1,) * (clamped_candidates.ndim - worse.ndim)
+                clamped_candidates = torch.where(
+                    worse.view(view_shape), initial_candidates, clamped_candidates
+                )
+                batch_acquisition = torch.where(
+                    worse, initial_acquisition, batch_acquisition
+                )
 
     return clamped_candidates, batch_acquisition
 
