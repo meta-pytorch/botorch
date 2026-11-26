@@ -1278,6 +1278,116 @@ class TestGenOneShotHVKGInitialConditions(BotorchTestCase):
                             == n_value * hvkg.num_pseudo_points
                         )
 
+    def test_gen_one_shot_hvkg_initial_conditions_mf(self):
+        # The fantasy designs of qMFHVKG are optimized over the non-fidelity
+        # columns. Target fidelities with negative indices and fixed features
+        # after a fidelity column must be mapped to these columns.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.rand(10, 3, **tkwargs)
+        train_Y = torch.stack([train_X.sum(-1), (1 - train_X).prod(-1)], dim=-1)
+        model = ModelListGP(
+            *(SingleTaskGP(train_X, train_Y[:, i : i + 1]) for i in range(2))
+        )
+        bounds = torch.stack([torch.zeros(3, **tkwargs), torch.ones(3, **tkwargs)])
+        q = 1
+        for target_fidelities, fixed_features, fidelity_col in (
+            ({-1: 1.0}, None, 2),
+            ({2: 1.0}, {0: 0.5}, 2),
+            ({0: 1.0}, {1: 0.5}, 0),
+            ({0: 1.0}, {0: 0.3, 2: 0.5}, 0),
+        ):
+            acqf = qMultiFidelityHypervolumeKnowledgeGradient(
+                model=model,
+                ref_point=torch.zeros(2, **tkwargs),
+                target_fidelities=target_fidelities,
+                num_fantasies=2,
+                num_pareto=2,
+            )
+            ics = gen_one_shot_hvkg_initial_conditions(
+                acq_function=acqf,
+                bounds=bounds,
+                q=q,
+                num_restarts=2,
+                raw_samples=16,
+                fixed_features=fixed_features,
+                # all restarts use optimized fantasy designs
+                options={
+                    "frac_random": 0.1,
+                    "num_inner_restarts": 2,
+                    "raw_inner_samples": 16,
+                },
+            )
+            self.assertEqual(ics.shape, torch.Size([2, q + 4, 3]))
+            # the fantasy designs are at the target fidelity
+            self.assertTrue((ics[:, q:, fidelity_col] == 1.0).all())
+            for col, value in (fixed_features or {}).items():
+                if col != fidelity_col:
+                    self.assertTrue((ics[..., col] == value).all())
+
+    def test_gen_one_shot_hvkg_initial_conditions_mf_constraints(self):
+        # Linear constraints on the full space are restricted to the non-fidelity
+        # columns, with the fidelity columns at their targets.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.rand(10, 3, **tkwargs)
+        train_Y = torch.stack([train_X.sum(-1), (1 - train_X).prod(-1)], dim=-1)
+        model = ModelListGP(
+            *(SingleTaskGP(train_X, train_Y[:, i : i + 1]) for i in range(2))
+        )
+        bounds = torch.stack([torch.zeros(3, **tkwargs), torch.ones(3, **tkwargs)])
+        acqf = qMultiFidelityHypervolumeKnowledgeGradient(
+            model=model,
+            ref_point=torch.zeros(2, **tkwargs),
+            target_fidelities={0: 1.0},
+            num_fantasies=2,
+            num_pareto=2,
+        )
+        idx = torch.tensor([0, 1, 2], device=self.device)
+        inequality_constraints = [
+            # x_0 + x_1 + x_2 <= 1.5, i.e. x_1 + x_2 <= 0.5 at the target fidelity
+            (idx, -torch.ones(3, **tkwargs), -1.5),
+            # x_0 >= 0.1 (only a fidelity column)
+            (idx[:1], torch.ones(1, **tkwargs), 0.1),
+        ]
+        equality_constraints = [(idx[2:], torch.ones(1, **tkwargs), 0.25)]
+        q = 1
+        kwargs = {
+            "acq_function": acqf,
+            "bounds": bounds,
+            "q": q,
+            "num_restarts": 2,
+            "raw_samples": 16,
+            # all restarts use optimized fantasy designs
+            "options": {
+                "frac_random": 0.1,
+                "num_inner_restarts": 2,
+                "raw_inner_samples": 16,
+            },
+        }
+        ics = gen_one_shot_hvkg_initial_conditions(
+            inequality_constraints=inequality_constraints,
+            equality_constraints=equality_constraints,
+            **kwargs,
+        )
+        self.assertEqual(ics.shape, torch.Size([2, q + 4, 3]))
+        X_fantasies = ics[:, q:]
+        self.assertTrue((X_fantasies[..., 0] == 1.0).all())
+        self.assertTrue((X_fantasies[..., 1:].sum(dim=-1) <= 0.5 + 1e-6).all())
+        self.assertAllClose(
+            X_fantasies[..., 2], torch.full_like(X_fantasies[..., 2], 0.25)
+        )
+        # inter-point constraints are not supported
+        with self.assertRaisesRegex(UnsupportedError, "Inter-point constraints"):
+            gen_one_shot_hvkg_initial_conditions(
+                inequality_constraints=[
+                    (
+                        torch.tensor([[0, 1], [1, 1]], device=self.device),
+                        torch.ones(2, **tkwargs),
+                        0.5,
+                    )
+                ],
+                **kwargs,
+            )
+
 
 class TestGenValueFunctionInitialConditions(BotorchTestCase):
     def test_gen_value_function_initial_conditions(self):
