@@ -12,6 +12,8 @@ from botorch.acquisition.multioutput_acquisition import (
     MultiOutputPosteriorMean,
 )
 from botorch.exceptions.errors import UnsupportedError
+from botorch.models.map_saas import EnsembleMapSaasSingleTaskGP
+from botorch.models.model_list_gp_regression import ModelListGP
 from botorch.utils.testing import BotorchTestCase, MockModel, MockPosterior
 
 
@@ -75,6 +77,38 @@ class TestMultiOutputAcquisitionFunction(BotorchTestCase):
                     mean.squeeze(-2) * weights,
                 )
             )
+
+    def test_multioutput_posterior_mean_ensemble(self) -> None:
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.rand(10, 3, **tkwargs)
+        train_Ys = [torch.sin(6 * train_X[:, :1]), 5 + train_X[:, 1:2] ** 2]
+        test_X = torch.rand(4, 1, 3, **tkwargs)
+        # Check both an ensemble size that differs from the number of outputs
+        # and one that matches it.
+        for num_taus in (2, 3):
+            models = [
+                EnsembleMapSaasSingleTaskGP(
+                    train_X=train_X, train_Y=train_Y, num_taus=num_taus
+                )
+                for train_Y in train_Ys
+            ]
+            for m in models:
+                # Give the members different means, so that the result depends
+                # on averaging over all of them.
+                m.mean_module.constant = torch.arange(num_taus, **tkwargs)
+            model = ModelListGP(*models)
+            with torch.no_grad():
+                expected = torch.cat(
+                    [m.posterior(test_X).mixture_mean for m in models], dim=-1
+                ).squeeze(-2)
+            for weights in (None, torch.tensor([-1.0, 2.0], **tkwargs)):
+                acqf = MultiOutputPosteriorMean(model=model, weights=weights)
+                with torch.no_grad():
+                    acqf_vals = acqf(test_X)
+                self.assertEqual(acqf_vals.shape, torch.Size([4, 2]))
+                self.assertAllClose(
+                    acqf_vals, expected if weights is None else expected * weights
+                )
 
     def test_multioutput_wrapper(self) -> None:
         for dtype in (torch.float, torch.double):
