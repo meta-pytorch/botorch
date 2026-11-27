@@ -21,6 +21,10 @@ from botorch_community.acquisition.discretized import (
     DiscretizedNoisyExpectedImprovement,
     DiscretizedProbabilityOfImprovement,
 )
+from botorch_community.acquisition.rei import (
+    LogRegionalExpectedImprovement,
+    qLogRegionalExpectedImprovement,
+)
 from botorch_community.acquisition.scorebo import qSelfCorrectingBayesianOptimization
 
 
@@ -85,6 +89,56 @@ class TestAnalyticalAcquisitionFunctionInputConstructors(InputConstructorBaseTes
                 self.assertIs(kwargs["model"], mock_model)
                 self.assertIsNone(kwargs["posterior_transform"])
                 self.assertEqual(kwargs["best_f"], 0.1)
+                acqf = acqf_cls(**kwargs)
+                self.assertIs(acqf.model, mock_model)
+
+    def test_construct_inputs_rei(self) -> None:
+        # Contributor: sahilKirangi (113878)
+        for acqf_cls in [
+            LogRegionalExpectedImprovement,
+            qLogRegionalExpectedImprovement,
+        ]:
+            with self.subTest(acqf_cls=acqf_cls):
+                c = get_acqf_input_constructor(acqf_cls)
+                mock_model = self.mock_model
+                X_dev = torch.rand(5, 2)
+
+                # best_f inferred from training data
+                kwargs = c(
+                    model=mock_model,
+                    training_data=self.blockX_blockY,
+                    X_dev=X_dev,
+                )
+                best_f_expected = self.blockX_blockY[0].Y.squeeze().max()
+                self.assertIs(kwargs["model"], mock_model)
+                self.assertTrue(torch.equal(kwargs["X_dev"], X_dev))
+                self.assertEqual(kwargs["best_f"], best_f_expected)
+                self.assertIsNone(kwargs["posterior_transform"])
+                self.assertEqual(kwargs["length"], 0.8)
+                self.assertIsNone(kwargs["bounds"])
+                acqf = acqf_cls(**kwargs)
+                self.assertIs(acqf.model, mock_model)
+
+                # explicit best_f overrides inferred value
+                kwargs = c(
+                    model=mock_model,
+                    training_data=self.blockX_blockY,
+                    X_dev=X_dev,
+                    best_f=0.5,
+                )
+                self.assertEqual(kwargs["best_f"], 0.5)
+
+                # explicit length and bounds are passed through unchanged
+                bounds = torch.tensor([[0.0, 0.0], [1.0, 1.0]])
+                kwargs = c(
+                    model=mock_model,
+                    training_data=self.blockX_blockY,
+                    X_dev=X_dev,
+                    length=0.5,
+                    bounds=bounds,
+                )
+                self.assertEqual(kwargs["length"], 0.5)
+                self.assertTrue(torch.equal(kwargs["bounds"], bounds))
                 acqf = acqf_cls(**kwargs)
                 self.assertIs(acqf.model, mock_model)
 
