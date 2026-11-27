@@ -110,6 +110,23 @@ class TestDominatedPartitioning(BotorchTestCase):
             cell_bounds2 = partitioning.get_hypercell_bounds()
             self.assertTrue(torch.equal(cell_bounds, cell_bounds2))
 
+            # test batch ref point, no pareto points better than the reference point
+            batch_ref_point = Y.max(dim=-2).values + 1
+            partitioning = DominatedPartitioning(ref_point=batch_ref_point, Y=Y)
+            self.assertTrue(torch.equal(partitioning.pareto_Y, Y[:, :0]))
+            # one empty cell per batch element, bounded by its reference point
+            self.assertTrue(
+                torch.equal(
+                    partitioning.get_hypercell_bounds(),
+                    batch_ref_point.unsqueeze(-2).expand(2, 3, 1, 2),
+                )
+            )
+            self.assertTrue(
+                torch.equal(
+                    partitioning.compute_hypervolume(), torch.zeros(3, **tkwargs)
+                )
+            )
+
             # test batched where batches have different numbers of pareto points
             partitioning = DominatedPartitioning(
                 ref_point=pareto_Y.max(dim=-2).values,

@@ -87,3 +87,9 @@ class TestBoxDecompositionList(BotorchTestCase):
             bd = BoxDecompositionList(*bds)
             with self.assertRaises(BotorchTensorDimensionError):
                 bd.update(new_Y.unsqueeze(0))
+            # more batches than box decompositions
+            with self.assertRaises(BotorchTensorDimensionError):
+                bd.update(torch.cat([new_Y, new_Y[:1]], dim=0))
+            # a 2-dim tensor with one point per box decomposition
+            with self.assertRaises(BotorchTensorDimensionError):
+                bd.update(new_Y.squeeze(-2))
