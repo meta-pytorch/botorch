@@ -119,17 +119,16 @@ class qLowerBoundMultiObjectiveMaxValueEntropySearch(
         #  the posterior p(Y| X, D_n)
         posterior_plus_noise = self.initial_model.posterior(X, observation_noise=True)
 
-        # Additional constant term.
-        add_term = (
-            0.5
-            * self.model.num_outputs
-            * (1 + torch.log(2 * pi * torch.ones(1, **tkwargs)))
-        )
         # The variance initially has shape ``batch_shape x (q*M) x (q*M)``
         # prior_entropy has shape ``batch_shape x num_fantasies``
-        initial_entropy = add_term + 0.5 * torch.logdet(
-            posterior_plus_noise.mvn.covariance_matrix
+        covariance = posterior_plus_noise.mvn.covariance_matrix
+        # Additional constant term of the entropy of a ``q*M``-dim normal.
+        add_term = (
+            0.5
+            * covariance.shape[-1]
+            * (1 + torch.log(2 * pi * torch.ones(1, **tkwargs)))
         )
+        initial_entropy = add_term + 0.5 * torch.logdet(covariance)
         posterior_statistics = {"initial_entropy": initial_entropy}
 
         # Compute the posterior entropy term.
