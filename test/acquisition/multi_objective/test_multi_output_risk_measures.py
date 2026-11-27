@@ -373,6 +373,21 @@ class TestMVaR(BotorchTestCase):
                 self.assertTrue(
                     torch.allclose(mvar_exp, torch.stack(expected).view(2, 2, 2))
                 )
+                # with gradients, each output is the mean of the MVaR values
+                # mapped to the samples that attain them
+                samples.requires_grad_(True)
+                mvar_exp = mvar(samples)
+                self.assertEqual(mvar_exp.shape, torch.Size([2, 2, 2]))
+                self.assertAllClose(mvar_exp, torch.stack(expected).view(2, 2, 2))
+                mvar_exp.sum().backward()
+                expected_grad = torch.stack(
+                    [
+                        (Y.unsqueeze(-2) == mvar_set).sum(dim=-2) / mvar_set.shape[0]
+                        for Y in samples.detach().view(4, 10, 2)
+                        for mvar_set in mvar.get_mvar_set_via_counting(Y)
+                    ]
+                ).view(2, 20, 2)
+                self.assertAllClose(samples.grad, expected_grad.to(samples))
 
             # m > 2
             samples = torch.rand(2, 20, 3, **tkwargs)
