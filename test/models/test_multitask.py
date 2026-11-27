@@ -21,7 +21,11 @@ from botorch.models.multitask import (
     MultiTaskGP,
 )
 from botorch.models.transforms.input import InputTransform, Normalize
-from botorch.models.transforms.outcome import OutcomeTransform, Standardize
+from botorch.models.transforms.outcome import (
+    OutcomeTransform,
+    Standardize,
+    StratifiedStandardize,
+)
 from botorch.models.utils.priors import BetaPrior
 from botorch.posteriors import GPyTorchPosterior
 from botorch.posteriors.transformed import TransformedPosterior
@@ -497,6 +501,41 @@ class TestMultiTaskGP(BotorchTestCase):
                 self.assertEqual(posterior.mean.shape, torch.Size([2, 2]))
                 self.assertEqual(posterior.variance.shape, torch.Size([2, 2]))
 
+    def test_posterior_with_stratified_standardize(self) -> None:
+        # The posterior must be un-transformed using the task of each output,
+        # also when the task feature is not included in ``X``.
+        tkwargs: dict[str, Any] = {"device": self.device, "dtype": torch.double}
+        _, (train_X, train_Y, _) = gen_multi_task_dataset(task_values=[0, 2], **tkwargs)
+        # Use different scales for the two tasks.
+        train_Y[10:] = 5 * train_Y[10:] + 10
+        test_x = torch.rand(2, 3, 1, **tkwargs)
+        for output_tasks in ([2], [0, 2], [2, 0]):
+            model = MultiTaskGP(
+                train_X,
+                train_Y,
+                task_feature=0,
+                output_tasks=output_tasks,
+                outcome_transform=StratifiedStandardize(
+                    stratification_idx=0,
+                    all_task_values=torch.tensor([0, 2], device=self.device),
+                ),
+            )
+            posterior = model.posterior(test_x)
+            # Compare with the joint posterior over ``X`` with the task features.
+            X_full = torch.cat(
+                [
+                    torch.cat([torch.full_like(test_x, t), test_x], dim=-1)
+                    for t in output_tasks
+                ],
+                dim=-2,
+            )
+            expected = model.posterior(X_full)
+            expected_mean = expected.mean.view(2, len(output_tasks), 3).transpose(
+                -1, -2
+            )
+            self.assertAllClose(posterior.mean, expected_mean)
+            self.assertAllClose(posterior.covariance_matrix, expected.covariance_matrix)
+
     def test_all_tasks_input(self) -> None:
         _, (train_X, train_Y, _) = gen_multi_task_dataset(
             dtype=torch.double, device=self.device
@@ -803,6 +842,32 @@ class TestMultiTaskGP(BotorchTestCase):
         # Verify we can sample from the posterior
         samples = posterior.rsample(sample_shape=torch.Size([2]))
         self.assertEqual(samples.shape, torch.Size([2, 3, 1]))
+
+    def test_observation_noise_unobserved_tasks(self) -> None:
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        # Task 0 has noise 0.05 and task 2 has noise 0.1. Task 1 is unobserved.
+        _, (train_X, train_Y, train_Yvar) = gen_multi_task_dataset(
+            yvar=0.05, task_values=[0, 2], **tkwargs
+        )
+        model = MultiTaskGP(
+            train_X=train_X,
+            train_Y=train_Y,
+            train_Yvar=train_Yvar,
+            task_feature=0,
+            all_tasks=[0, 1, 2],
+        )
+        test_x = torch.rand(3, 1, **tkwargs)
+        posterior_f = model.posterior(test_x)
+        posterior_y = model.posterior(test_x, observation_noise=True)
+        # The unobserved task uses the average noise across all training data.
+        expected_noise = torch.tensor([0.05, 0.075, 0.1], **tkwargs)
+        self.assertAllClose(posterior_y.variance, posterior_f.variance + expected_noise)
+        # Same result when the task feature is included in X.
+        posterior_y_1 = model.posterior(
+            torch.cat([torch.ones_like(test_x), test_x], dim=-1),
+            observation_noise=True,
+        )
+        self.assertAllClose(posterior_y_1.variance, posterior_y.variance[..., 1:2])
 
     def test_construct_inputs_heterogeneous(self) -> None:
         tkwargs: dict[str, Any] = {"device": self.device, "dtype": torch.double}

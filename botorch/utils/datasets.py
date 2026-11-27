@@ -152,6 +152,8 @@ class SupervisedDataset:
                 )
 
     def __eq__(self, other: Any) -> bool:
+        if type(other) is not type(self):
+            return False
         if self.group_indices is None and other.group_indices is None:
             group_indices_equal = True
         elif self.group_indices is None or other.group_indices is None:
@@ -159,8 +161,7 @@ class SupervisedDataset:
         else:
             group_indices_equal = torch.equal(self.group_indices, other.group_indices)
         return (
-            type(other) is type(self)
-            and torch.equal(self.X, other.X)
+            torch.equal(self.X, other.X)
             and torch.equal(self.Y, other.Y)
             and (
                 other.Yvar is None
@@ -189,6 +190,7 @@ class SupervisedDataset:
         new_X = self._X
         new_Y = self._Y
         new_Yvar = self._Yvar
+        group_indices = self.group_indices
         feature_names = self.feature_names
         outcome_names = self.outcome_names
         if mask is not None:
@@ -200,15 +202,21 @@ class SupervisedDataset:
             new_Y = new_Y[..., mask, :]
             if new_Yvar is not None:
                 new_Yvar = new_Yvar[..., mask, :]
+            if group_indices is not None:
+                group_indices = group_indices[..., mask]
         if deepcopy:
             new_X = new_X.clone()
             new_Y = new_Y.clone()
             new_Yvar = new_Yvar.clone() if new_Yvar is not None else None
+            if group_indices is not None:
+                group_indices = group_indices.clone()
             feature_names = copy.copy(self.feature_names)
             outcome_names = copy.copy(self.outcome_names)
         kwargs = {}
         if new_Yvar is not None:
-            kwargs = {"Yvar": new_Yvar}
+            kwargs["Yvar"] = new_Yvar
+        if group_indices is not None:
+            kwargs["group_indices"] = group_indices
         return type(self)(
             X=new_X,
             Y=new_Y,
@@ -413,6 +421,11 @@ class MultiTaskDataset(SupervisedDataset):
                 Yvar=dataset.Yvar[filter_mask] if dataset.Yvar is not None else None,
                 feature_names=dataset.feature_names,
                 outcome_names=[outcome_name],
+                group_indices=(
+                    dataset.group_indices[filter_mask]
+                    if dataset.group_indices is not None
+                    else None
+                ),
             )
             datasets.append(new_dataset)
         # Return the new dataset
@@ -522,7 +535,9 @@ class MultiTaskDataset(SupervisedDataset):
         dataset = self.datasets[outcome_name]
         if self.task_feature_index is None:
             return dataset
-        indices = list(range(len(self.feature_names)))
+        # NOTE: The datasets may have heterogeneous feature sets, so we use the
+        # features of the extracted dataset rather than those of the target.
+        indices = list(range(len(dataset.feature_names)))
         indices.pop(self.task_feature_index)
         return SupervisedDataset(
             X=dataset.X[..., indices],
@@ -532,12 +547,14 @@ class MultiTaskDataset(SupervisedDataset):
                 fn for i, fn in enumerate(dataset.feature_names) if i in indices
             ],
             outcome_names=[outcome_name],
+            group_indices=dataset.group_indices,
         )
 
     def __eq__(self, other: Any) -> bool:
         return (
             type(other) is type(self)
-            and self.datasets == other.datasets
+            # The order of the datasets matters, e.g. for the task values in ``X``.
+            and list(self.datasets.items()) == list(other.datasets.items())
             and self.target_outcome_name == other.target_outcome_name
             and self.task_feature_index == other.task_feature_index
         )
@@ -785,7 +802,8 @@ class ContextualDataset(SupervisedDataset):
     def __eq__(self, other: Any) -> bool:
         return (
             type(other) is type(self)
-            and self.datasets == other.datasets
+            # The order of the datasets matters, e.g. for the order of outcomes in Y.
+            and list(self.datasets.items()) == list(other.datasets.items())
             and self.parameter_decomposition == other.parameter_decomposition
             and self.metric_decomposition == other.metric_decomposition
         )
