@@ -1020,7 +1020,7 @@ class AbstractFullyBayesianSingleTaskGP(ExactGP, BatchedMultiOutputGPyTorchModel
         self,
         X: Tensor,
         output_indices: list[int] | None = None,
-        observation_noise: bool = False,
+        observation_noise: bool | Tensor = False,
         posterior_transform: PosteriorTransform | None = None,
         **kwargs: Any,
     ) -> GaussianMixturePosterior:
@@ -1045,6 +1045,8 @@ class AbstractFullyBayesianSingleTaskGP(ExactGP, BatchedMultiOutputGPyTorchModel
                 if specified.
         """
         self._check_if_fitted()
+        if isinstance(observation_noise, Tensor):
+            observation_noise = observation_noise.unsqueeze(MCMC_DIM)
         posterior = super().posterior(
             X=X.unsqueeze(MCMC_DIM),
             output_indices=output_indices,
