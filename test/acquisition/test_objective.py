@@ -159,6 +159,28 @@ class TestScalarizedPosteriorTransform(BotorchTestCase):
 
 
 class TestExpectationPosteriorTransform(BotorchTestCase):
+    def test_invalid_weights(self) -> None:
+        for n_w in (0, -1, 1.5):
+            with (
+                self.subTest(n_w=n_w),
+                self.assertRaisesRegex(ValueError, "positive integer"),
+            ):
+                ExpectationPosteriorTransform(n_w=n_w)
+        for value in (float("nan"), float("inf"), -float("inf")):
+            weights = torch.tensor([[1.0], [value]], device=self.device)
+            with (
+                self.subTest(value=value),
+                self.assertRaisesRegex(ValueError, "finite"),
+            ):
+                ExpectationPosteriorTransform(n_w=2, weights=weights)
+        weights = torch.tensor([[1.0, 0.0], [2.0, 0.0]], device=self.device)
+        with self.assertRaisesRegex(ValueError, "positive sum"):
+            ExpectationPosteriorTransform(n_w=2, weights=weights)
+        # Zeros are valid as long as every column has positive total weight.
+        weights = torch.eye(2, device=self.device)
+        transform = ExpectationPosteriorTransform(n_w=2, weights=weights)
+        self.assertAllClose(transform.weights, weights)
+
     def test_init(self):
         # Without weights.
         tf = ExpectationPosteriorTransform(n_w=5)
