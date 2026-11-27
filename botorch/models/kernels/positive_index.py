@@ -7,7 +7,8 @@
 import torch
 from gpytorch.constraints import GreaterThan, Interval, Positive
 from gpytorch.kernels import IndexKernel, Kernel
-from gpytorch.priors import Prior
+from gpytorch.priors import LKJCholeskyFactorPrior, LKJCovariancePrior, LKJPrior, Prior
+from torch import Tensor
 
 
 class PositiveIndexKernel(IndexKernel):
@@ -41,7 +42,12 @@ class PositiveIndexKernel(IndexKernel):
         Args:
             num_tasks (int): Total number of indices.
             rank (int): Rank of the covariance matrix parameterization.
-            task_prior (Prior, optional): Prior for the covariance matrix.
+            task_prior (Prior, optional): Prior on the task covariance. An
+                ``LKJCovariancePrior`` is evaluated on the covariance matrix, an
+                ``LKJPrior`` on the correlation matrix, and an
+                ``LKJCholeskyFactorPrior`` on the Cholesky factor of the
+                correlation matrix. Other priors are evaluated on the
+                lower-triangular correlations.
             normalize_covar_matrix (bool): Whether to normalize the covariance matrix.
             target_task_index (int): Index of the task whose diagonal element should be
                 normalized to 1. Defaults to 0 (first task).
@@ -85,12 +91,23 @@ class PositiveIndexKernel(IndexKernel):
                     f"Expected gpytorch.priors.Prior but got "
                     f"{type(task_prior).__name__}"
                 )
-            self.register_prior(
-                "IndexKernelPrior",
-                task_prior,
-                lambda m: m._lower_triangle_corr,
-                lambda m, v: m._set_lower_triangle_corr(v),
-            )
+            if isinstance(task_prior, LKJCholeskyFactorPrior):
+                # LKJ priors are priors on matrices rather than on the vector of
+                # correlations. ``LKJCovariancePrior`` and ``LKJPrior`` subclass
+                # ``LKJCholeskyFactorPrior``.
+                self.register_prior(
+                    "IndexKernelPrior",
+                    task_prior,
+                    lambda m: m._lkj_prior_input,
+                    lambda m, v: m._set_lkj_prior_input(v),
+                )
+            else:
+                self.register_prior(
+                    "IndexKernelPrior",
+                    task_prior,
+                    lambda m: m._lower_triangle_corr,
+                    lambda m, v: m._set_lower_triangle_corr(v),
+                )
         self.register_constraint("raw_covar_factor", GreaterThan(0.0))
 
     def _covar_factor_params(self, m):
@@ -114,16 +131,39 @@ class PositiveIndexKernel(IndexKernel):
         )
 
     @property
+    def _corr_matrix(self) -> Tensor:
+        return _covar_to_corr(self.covar_matrix)
+
+    @property
     def _lower_triangle_corr(self):
         lower_row, lower_col = torch.tril_indices(
             self.num_tasks, self.num_tasks, offset=-1
         )
-        covar = self.covar_matrix
-        norm_factor = covar.diagonal(dim1=-1, dim2=-2).sqrt()
-        corr = covar / (norm_factor.unsqueeze(-1) * norm_factor.unsqueeze(-2))
-        low_tri = corr[..., lower_row, lower_col]
+        return self._corr_matrix[..., lower_row, lower_col]
 
-        return low_tri
+    @property
+    def _lkj_prior_input(self) -> Tensor:
+        """The matrix that the LKJ prior ``IndexKernelPrior`` is evaluated on."""
+        if isinstance(self.IndexKernelPrior, LKJCovariancePrior):
+            return self.covar_matrix
+        if isinstance(self.IndexKernelPrior, LKJPrior):
+            return self._corr_matrix
+        return torch.linalg.cholesky(self._corr_matrix)
+
+    def _set_lkj_prior_input(self, value: Tensor) -> None:
+        """Set covar_factor to produce the correlations of a sample of an LKJ prior.
+
+        Args:
+            value: A covariance matrix, a correlation matrix or the Cholesky factor
+                of a correlation matrix, depending on the type of the LKJ prior
+                ``IndexKernelPrior`` (see ``_lkj_prior_input``).
+        """
+        if not isinstance(self.IndexKernelPrior, LKJPrior):
+            value = value @ value.transpose(-1, -2)
+        lower_row, lower_col = torch.tril_indices(
+            self.num_tasks, self.num_tasks, offset=-1
+        )
+        self._set_lower_triangle_corr(_covar_to_corr(value)[..., lower_row, lower_col])
 
     def _set_lower_triangle_corr(self, value):
         """Set covar_factor to produce the given lower-triangle correlations.
@@ -177,3 +217,9 @@ class PositiveIndexKernel(IndexKernel):
     @property
     def covar_matrix(self):
         return self._eval_covar_matrix()
+
+
+def _covar_to_corr(covar: Tensor) -> Tensor:
+    r"""Compute the correlation matrix of a ``... x n x n`` covariance matrix."""
+    norm_factor = covar.diagonal(dim1=-1, dim2=-2).sqrt()
+    return covar / (norm_factor.unsqueeze(-1) * norm_factor.unsqueeze(-2))

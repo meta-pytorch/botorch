@@ -525,7 +525,7 @@ class MultiTaskGP(ExactGP, MultiTaskGPyTorchModel, FantasizeMixin):
             if not prior_config.get("use_LKJ_prior"):
                 raise ValueError("Currently only config for LKJ prior is supported.")
 
-            num_tasks = training_data.X[task_feature].unique().numel()
+            num_tasks = training_data.X[..., task_feature].unique().numel()
             sd_prior = GammaPrior(1.0, 0.15)
             sd_prior._event_shape = torch.Size([num_tasks])
             eta = prior_config.get("eta", 0.5)
