@@ -926,7 +926,7 @@ class AckleyMixed(SyntheticTestFunction):
         self._ackley = Ackley(dim=dim, dtype=dtype)
 
     def _evaluate_true(self, X: Tensor) -> Tensor:
-        return self._ackley.evaluate_true((X - self.x_opt).abs())
+        return self._ackley.evaluate_true((X - self.x_opt.to(X)).abs())
 
 
 class Labs(SyntheticTestFunction):
@@ -1192,9 +1192,8 @@ class TrajectoryPlanning(SyntheticTestFunction):
 
     def _evaluate_true(self, X: Tensor) -> Tensor:
         """Evaluate the objective function on a batch of inputs."""
-        if X.ndim == 1:
-            X = X.unsqueeze(0)
-        return torch.stack([self._evaluate_trajectory(x) for x in X])
+        costs = [self._evaluate_trajectory(x) for x in X.reshape(-1, self.dim)]
+        return torch.stack(costs).reshape(X.shape[:-1])
 
 
 #  ------------ Constrained synthetic test functions ----------- #

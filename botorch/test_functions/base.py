@@ -514,7 +514,7 @@ class CorruptedTestProblem(BaseTestProblem, SeedingMixin):
             if self.has_seeds:
                 self.increment_seed()
                 torch.manual_seed(self.seed)
-            corrupt = torch.rand(X.shape[:-1]) < self.outlier_fraction
+            corrupt = torch.rand(X.shape[:-1], device=X.device) < self.outlier_fraction
             outliers = self.outlier_generator(
                 problem=self.base_test_problem, X=X, bounds=self.bounds
             )
