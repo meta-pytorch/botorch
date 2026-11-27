@@ -409,6 +409,7 @@ class OrthogonalAdditiveKernel(Kernel):
         # Bias: batch_shape x 1 x n (x n)
         component_dim = -2 if diag else -3
         K0 = self._bias_covariance(n1, n2, diag).unsqueeze(component_dim)
+        K0 = K0.expand(K1.shape[:component_dim] + (1,) + K1.shape[component_dim + 1 :])
 
         component_tensors = [K0, K1]
 
