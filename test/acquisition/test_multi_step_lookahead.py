@@ -138,6 +138,48 @@ class TestMultiStepLookahead(BotorchTestCase):
         ):
             qMultiStepLookahead(model=model, batch_sizes=q_batch_sizes, objective="cat")
 
+    def test_qMS_gradients(self):
+        # The gradient w.r.t. the candidates must include the dependence of the
+        # posteriors of the fantasy models on the candidates of the previous steps
+        # (their training inputs).
+        torch.manual_seed(1234)
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.rand(8, 2, **tkwargs)
+        train_Y = torch.sin(6 * train_X).sum(dim=-1, keepdim=True)
+        model = SingleTaskGP(train_X, train_Y).eval()
+        eps = 1e-6
+        for name, kwargs in (
+            ("one step", {"batch_sizes": [1], "num_fantasies": [3]}),
+            ("two steps", {"batch_sizes": [1, 1], "num_fantasies": [2, 2]}),
+            (
+                "two steps, qEI stage values",
+                {
+                    "batch_sizes": [1, 1],
+                    "num_fantasies": [2, 2],
+                    "valfunc_cls": [qExpectedImprovement] * 3,
+                    "valfunc_argfacs": [make_best_f] * 3,
+                    "inner_mc_samples": [4] * 3,
+                },
+            ),
+        ):
+            with self.subTest(name):
+                qMS = qMultiStepLookahead(model=model, **kwargs)
+                q_prime = qMS.get_augmented_q_batch_size(1)
+                X = torch.rand(1, q_prime, 2, **tkwargs, requires_grad=True)
+                (grad,) = torch.autograd.grad(qMS(X).sum(), X)
+                # central finite differences
+                X = X.detach()
+                fd_grad = torch.zeros_like(X)
+                with torch.no_grad():
+                    for i in range(X.numel()):
+                        delta = torch.zeros(X.numel(), **tkwargs)
+                        delta[i] = eps
+                        delta = delta.view_as(X)
+                        fd_grad.view(-1)[i] = (
+                            qMS(X + delta) - qMS(X - delta)
+                        ).sum() / (2 * eps)
+                self.assertAllClose(grad, fd_grad, atol=1e-6, rtol=1e-4)
+
     def test_qMS(self):
         d = 2
         q = 1

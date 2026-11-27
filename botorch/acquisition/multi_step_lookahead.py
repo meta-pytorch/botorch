@@ -24,6 +24,7 @@ from typing import Any
 
 import numpy as np
 import torch
+from botorch import settings
 from botorch.acquisition import AcquisitionFunction, OneShotAcquisitionFunction
 from botorch.acquisition.analytic import AnalyticAcquisitionFunction, PosteriorMean
 from botorch.acquisition.monte_carlo import MCAcquisitionFunction
@@ -40,6 +41,7 @@ from botorch.utils.transforms import (
     t_batch_mode_transform,
     unnormalize,
 )
+from gpytorch.settings import fast_pred_var
 from torch import Size, Tensor
 from torch.distributions import Beta
 from torch.nn import ModuleList
@@ -415,19 +417,25 @@ def _step(
         prev_weights=sample_weights, sampler=samplers[0]
     )
 
-    return _step(
-        model=fantasy_model,
-        Xs=Xs[1:],
-        samplers=samplers[1:],
-        valfunc_cls=valfunc_cls[1:],
-        valfunc_argfacs=valfunc_argfacs[1:],
-        inner_samplers=inner_samplers[1:],
-        objective=objective,
-        posterior_transform=posterior_transform,
-        sample_weights=sample_weights,
-        running_val=running_val,
-        step_index=step_index + 1,
-    )
+    # The posteriors of the fantasy model (for its stage value and for fantasizing
+    # the next step) depend on ``X`` through its training data. Evaluate them with
+    # ``propagate_grads`` (otherwise GPyTorch detaches its test caches) and without
+    # ``fast_pred_var`` (its covariance cache is precomputed, and detached, when the
+    # fantasy model is constructed), so that their gradients include this dependence.
+    with settings.propagate_grads(True), fast_pred_var(False):
+        return _step(
+            model=fantasy_model,
+            Xs=Xs[1:],
+            samplers=samplers[1:],
+            valfunc_cls=valfunc_cls[1:],
+            valfunc_argfacs=valfunc_argfacs[1:],
+            inner_samplers=inner_samplers[1:],
+            objective=objective,
+            posterior_transform=posterior_transform,
+            sample_weights=sample_weights,
+            running_val=running_val,
+            step_index=step_index + 1,
+        )
 
 
 def _compute_stage_value(
