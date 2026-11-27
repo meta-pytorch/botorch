@@ -9,10 +9,12 @@ import warnings
 import torch
 from botorch.exceptions.warnings import InputDataWarning
 from botorch.models.gp_regression import SingleTaskGP
+from botorch.test_functions.synthetic import ConstrainedGramacy
 from botorch.utils.testing import (
     BotorchTestCase,
     MockModel,
     MockPosterior,
+    sample_random_feasible,
     skip_if_import_error,
 )
 
@@ -85,3 +87,15 @@ class TestMisc(BotorchTestCase):
         with warnings.catch_warnings(record=True) as ws:
             safe_func()
         self.assertTrue(any(str(w.message) == msg for w in ws))
+
+    def test_sample_random_feasible_ignores_constraint_noise(self) -> None:
+        # With this much constraint noise, about half of the infeasible points
+        # have a nonnegative noisy slack.
+        f = ConstrainedGramacy(constraint_noise_std=100.0)
+        torch.manual_seed(0)
+        for dtype in (torch.float, torch.double):
+            f.to(dtype=dtype)
+            for _ in range(20):
+                X = sample_random_feasible(f=f, dtype=dtype, device=self.device)
+                self.assertEqual(X.dtype, dtype)
+                self.assertTrue(f.is_feasible(X.unsqueeze(0), noise=False).item())

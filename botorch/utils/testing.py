@@ -81,7 +81,10 @@ def sample_random_feasible(
             bounds=f.bounds,
         )
         X[..., round_ids] = X[..., round_ids].round()
-        feasible = (f.evaluate_slack(X) >= 0).all(dim=-1)
+        # Use the noiseless constraints: with constraint noise, an infeasible point
+        # could be returned, and its objective value can be better than the
+        # optimal value of the constrained problem.
+        feasible = f.is_feasible(X, noise=False)
         if feasible.any():
             return X[feasible][0]
         else:  # pragma: no cover
