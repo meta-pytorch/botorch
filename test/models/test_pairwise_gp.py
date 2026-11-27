@@ -4,6 +4,7 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+import copy
 import itertools
 import random
 import warnings
@@ -39,6 +40,45 @@ from torch import Tensor
 
 
 class TestPairwiseGP(BotorchTestCase):
+    def test_self_comparisons_preserve_the_prior(self):
+        devices = [torch.device("cpu")]
+        if torch.cuda.is_available():
+            devices.append(torch.device("cuda"))
+        for device, likelihood_cls, consolidate in itertools.product(
+            devices, (PairwiseProbitLikelihood, PairwiseLogitLikelihood), (False, True)
+        ):
+            with self.subTest(
+                device=device, likelihood=likelihood_cls, consolidate=consolidate
+            ):
+                X = torch.tensor(
+                    [[0.2], [0.2 if consolidate else 0.6]],
+                    dtype=self.dtype,
+                    device=device,
+                )
+                comparisons = torch.tensor(
+                    [[0, 1 if consolidate else 0]], device=device
+                )
+                model = PairwiseGP(X, comparisons, likelihood=likelihood_cls())
+                self.assertEqual(model.n, 1 if consolidate else 2)
+                self.assertAllClose(model.D, torch.zeros_like(model.D))
+                self.assertAllClose(model.utility, torch.zeros_like(model.utility))
+                self.assertAllClose(
+                    model.likelihood_hess, torch.zeros_like(model.likelihood_hess)
+                )
+                prior = PairwiseGP(
+                    None,
+                    None,
+                    covar_module=copy.deepcopy(model.covar_module),
+                    likelihood=likelihood_cls(),
+                ).to(X)
+                query = X.new_tensor([[0.35], [0.75]])
+                posterior, expected = model.posterior(query), prior.posterior(query)
+                self.assertAllClose(posterior.mean, expected.mean)
+                self.assertAllClose(
+                    posterior.distribution.covariance_matrix,
+                    expected.distribution.covariance_matrix,
+                )
+
     def setUp(self, suppress_input_warnings: bool = True) -> None:
         super().setUp(suppress_input_warnings)
         # single-precision tests are carried out by TestPairwiseGP_float32
