@@ -1237,7 +1237,22 @@ def _log_ei_helper(u: Tensor) -> Tensor:
             -2 * u_lower.abs().log(),
         )
     )
-    return torch.where(u > bound, log_ei_upper, log_ei_lower)
+    # In the negative tail, differentiating log1mexp(w) amplifies cancellation in
+    # w by O(u**2). Use Laplace's continued fraction for the Mills-ratio gap
+    # instead: for t = -u / sqrt(2), EI(u) / phi(u) = gap / (t + gap).
+    # Forty terms give machine precision for t > 4, including higher derivatives.
+    tail_bound = -4 * math.sqrt(2)
+    tail_u = u.clamp_max(tail_bound)
+    t = -tail_u / math.sqrt(2)
+    gap = torch.zeros_like(t)
+    for index in range(40, 0, -1):
+        gap = (index / 2) / (t + gap)
+    log_ei_tail = log_phi(tail_u) + gap.log() - (t + gap).log()
+    return torch.where(
+        u < tail_bound,
+        log_ei_tail,
+        torch.where(u > bound, log_ei_upper, log_ei_lower),
+    )
 
 
 def _log_abs_u_Phi_div_phi(u: Tensor) -> Tensor:
