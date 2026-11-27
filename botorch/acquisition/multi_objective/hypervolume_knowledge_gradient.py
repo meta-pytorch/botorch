@@ -322,8 +322,7 @@ class qMultiFidelityHypervolumeKnowledgeGradient(qHypervolumeKnowledgeGradient):
     A version of ``qHypervolumeKnowledgeGradient`` that supports multi-fidelity
     optimization via a ``CostAwareUtility`` and the ``project`` and ``expand``
     operators. If none of these are set, this acquisition function reduces to
-    ``qHypervolumeKnowledgeGradient``. Through ``valfunc_cls`` and ``valfunc_argfac``,
-    this can be changed into a custom multi-fidelity acquisition function.
+    ``qHypervolumeKnowledgeGradient``.
     """
 
     def __init__(
@@ -388,11 +387,10 @@ class qMultiFidelityHypervolumeKnowledgeGradient(qHypervolumeKnowledgeGradient):
                 points to a tensor with shape ``batch_shape x q_term x d`` projected
                 to the desired target set (e.g. the target fidelities in case of
                 multi-fidelity optimization). For the basic case, ``q_term = q``.
-            valfunc_cls: An acquisition function class to be used as the terminal
-                value function.
-            valfunc_argfac: An argument factory, i.e. callable that maps a ``Model``
-                to a dictionary of kwargs for the terminal value function (e.g.
-                ``best_f`` for ``ExpectedImprovement``).
+            valfunc_cls: Custom terminal value functions are not currently
+                supported. Must be ``None``.
+            valfunc_argfac: Custom terminal value functions are not currently
+                supported. Must be ``None``.
             log: If True, then returns the log of the HVKG value. If True, then it
                 expects current_value to be in log-space and cost_aware_utility to
                 output log utilities.
@@ -419,6 +417,11 @@ class qMultiFidelityHypervolumeKnowledgeGradient(qHypervolumeKnowledgeGradient):
             raise NotImplementedError(
                 "Trace observations are not currently supported "
                 "by `qMultiFidelityHypervolumeKnowledgeGradient`."
+            )
+        if valfunc_cls is not None or valfunc_argfac is not None:
+            raise NotImplementedError(
+                "Custom value functions (`valfunc_cls`, `valfunc_argfac`) are not "
+                "currently supported by `qMultiFidelityHypervolumeKnowledgeGradient`."
             )
         self.expand = lambda X: X
         self.valfunc_cls = valfunc_cls
