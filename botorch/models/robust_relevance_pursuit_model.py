@@ -32,6 +32,7 @@ to do two distinct operations in the context of the robust model:
 
 from __future__ import annotations
 
+import math
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, Self
@@ -122,8 +123,17 @@ class RobustRelevancePursuitMixin(ABC):
         self.cache_model_trace = cache_model_trace
         self.model_trace: list[SingleTaskGP] | None = None
         self.prior_mean_of_support: float = (
-            int(0.2 * dim) if prior_mean_of_support is None else prior_mean_of_support
+            max(1, int(0.2 * dim))
+            if prior_mean_of_support is None
+            else prior_mean_of_support
         )
+        if (
+            not math.isfinite(self.prior_mean_of_support)
+            or self.prior_mean_of_support <= 0
+        ):
+            raise ValueError(
+                "prior_mean_of_support must be finite and strictly positive."
+            )
 
     @abstractmethod
     def to_standard_model(self) -> Model:
@@ -219,38 +229,42 @@ class RobustRelevancePursuitMixin(ABC):
         # Need to convert model to avoid recursion through fit_gpytorch_mll,
         # since relevance pursuit expects to call the base fit_gpytorch_mll.
         original_model = mll.model  # Robust Relevance Pursuit Model
-        mll.model = original_model.to_standard_model()
-        sparse_module = SparseOutlierNoise._from_model(mll.model)
-        sparse_module, model_trace = relevance_pursuit_optimizer(
-            sparse_module=sparse_module,
-            mll=mll,
-            sparsity_levels=numbers_of_outliers,
-            reset_parameters=reset_parameters,
-            reset_dense_parameters=reset_dense_parameters,
-            record_model_trace=True,
-            # These are the args of the canonical mll fit routine
-            closure=closure,
-            optimizer=optimizer,
-            closure_kwargs=closure_kwargs,
-            optimizer_kwargs=optimizer_kwargs_,
-        )
+        try:
+            mll.model = original_model.to_standard_model()
+            mll.likelihood = mll.model.likelihood
+            sparse_module = SparseOutlierNoise._from_model(mll.model)
+            sparse_module, model_trace = relevance_pursuit_optimizer(
+                sparse_module=sparse_module,
+                mll=mll,
+                sparsity_levels=numbers_of_outliers,
+                reset_parameters=reset_parameters,
+                reset_dense_parameters=reset_dense_parameters,
+                record_model_trace=True,
+                # These are the args of the canonical mll fit routine
+                closure=closure,
+                optimizer=optimizer,
+                closure_kwargs=closure_kwargs,
+                optimizer_kwargs=optimizer_kwargs_,
+            )
 
-        # Bayesian model comparison
-        bmc_support_sizes, bmc_probabilities = get_posterior_over_support(
-            SparseOutlierNoise,
-            model_trace,
-            prior_mean_of_support=original_model.prior_mean_of_support,
-        )
-        map_index = torch.argmax(bmc_probabilities)
-        map_model = model_trace[map_index]  # choosing model with highest BMC score
-        # overwrite mll.model with chosen model
-        mll.model = original_model  # first restore original model pointer
-        mll.model.load_standard_model(map_model)
-        # Store the bmc results
-        mll.model.bmc_support_sizes = bmc_support_sizes
-        mll.model.bmc_probabilities = bmc_probabilities
-        if mll.model.cache_model_trace:
-            mll.model.model_trace = model_trace
+            # Bayesian model comparison
+            bmc_support_sizes, bmc_probabilities = get_posterior_over_support(
+                SparseOutlierNoise,
+                model_trace,
+                prior_mean_of_support=original_model.prior_mean_of_support,
+            )
+            map_index = torch.argmax(bmc_probabilities)
+            map_model = model_trace[map_index]  # choosing model with highest BMC score
+            # overwrite mll.model with chosen model
+            original_model.load_standard_model(map_model)
+            # Store the bmc results
+            original_model.bmc_support_sizes = bmc_support_sizes
+            original_model.bmc_probabilities = bmc_probabilities
+            if original_model.cache_model_trace:
+                original_model.model_trace = model_trace
+        finally:
+            mll.model = original_model
+            mll.likelihood = original_model.likelihood
         return mll
 
 
