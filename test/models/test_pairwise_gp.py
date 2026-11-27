@@ -292,6 +292,42 @@ class TestPairwiseGP(BotorchTestCase):
             # Pass the original comparisons through mll should work
             mll(pred, dup_comp)
 
+    def test_consolidation_of_compared_duplicates(self) -> None:
+        # A comparison between two near-duplicate datapoints compares an item
+        # with itself after consolidation and should be dropped.
+        tkwargs = {"device": self.device, "dtype": self.dtype}
+        X = torch.tensor(
+            [[0.1, 0.2], [0.5, 0.9], [0.10001, 0.2], [0.7, 0.4]], **tkwargs
+        )
+        comps = torch.tensor([[0, 1], [2, 0], [3, 1]], device=self.device)
+        # the same data without the duplicate and its comparison
+        ref_X = X[[0, 1, 3]]
+        ref_comps = torch.tensor([[0, 1], [2, 1]], device=self.device)
+        test_X = torch.rand(4, 2, **tkwargs)
+        for likelihood_cls in (PairwiseLogitLikelihood, PairwiseProbitLikelihood):
+            model = PairwiseGP(X, comps, likelihood=likelihood_cls())
+            ref_model = PairwiseGP(ref_X, ref_comps, likelihood=likelihood_cls())
+            self.assertIs(model.unconsolidated_comparisons, comps)
+            self.assertTrue(torch.equal(model.comparisons, ref_comps))
+            self.assertTrue(torch.equal(model.D, ref_model.D))
+            self.assertAllClose(model.utility, ref_model.utility, atol=1e-4)
+            post = model.posterior(test_X)
+            ref_post = ref_model.posterior(test_X)
+            self.assertAllClose(post.mean, ref_post.mean, atol=1e-4)
+            self.assertAllClose(post.variance, ref_post.variance, atol=1e-4)
+            # training with the unconsolidated comparisons
+            model.train()
+            mll = PairwiseLaplaceMarginalLogLikelihood(model.likelihood, model)
+            self.assertTrue(mll(model(X), comps).isfinite())
+
+            # a model all of whose comparisons are dropped is a prior model
+            model = PairwiseGP(X[:3], comps[1:2], likelihood=likelihood_cls())
+            self.assertEqual(model.D.shape, torch.Size([0, 2]))
+            prior_post = PairwiseGP(None, None).to(**tkwargs).posterior(test_X)
+            post = model.posterior(test_X)
+            self.assertAllClose(post.mean, prior_post.mean)
+            self.assertAllClose(post.variance, prior_post.variance)
+
     def test_condition_on_observations(self) -> None:
         for batch_shape, likelihood_cls in itertools.product(
             (torch.Size(), torch.Size([2])),

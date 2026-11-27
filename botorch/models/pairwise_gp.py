@@ -728,7 +728,7 @@ class PairwiseGP(Model, GP, FantasizeMixin):
             else:
                 (
                     self.consolidated_datapoints,
-                    self.consolidated_comparisons,
+                    consolidated_comparisons,
                     self.consolidated_indices,
                 ) = consolidate_duplicates(
                     datapoints,
@@ -736,6 +736,18 @@ class PairwiseGP(Model, GP, FantasizeMixin):
                     rtol=self._consolidate_rtol,
                     atol=self._consolidate_atol,
                 )
+                # A comparison between two datapoints that have been consolidated
+                # into one compares an item with itself. It carries no information
+                # about the utility and cannot be represented in ``D``, each row of
+                # which must contain exactly one 1 and one -1, so drop it.
+                is_self_comparison = (
+                    consolidated_comparisons[..., 0] == consolidated_comparisons[..., 1]
+                )
+                if is_self_comparison.any():
+                    consolidated_comparisons = consolidated_comparisons[
+                        ~is_self_comparison
+                    ]
+                self.consolidated_comparisons = consolidated_comparisons
 
         return self.consolidated_datapoints, self.consolidated_comparisons
 
@@ -887,8 +899,11 @@ class PairwiseGP(Model, GP, FantasizeMixin):
         self.D = torch.zeros(
             D_size, dtype=self.datapoints.dtype, device=self.datapoints.device
         )
-        comp_view = self.comparisons.view(-1, self.m, 2).long().to(self.D.device)
-        for i, sub_D in enumerate(self.D.view(-1, self.m, self.n)):
+        # not using view(-1, ...), which is ambiguous if there are no comparisons
+        num_batches = self.batch_shape.numel()
+        comp_view = self.comparisons.view(num_batches, self.m, 2)
+        comp_view = comp_view.long().to(self.D.device)
+        for i, sub_D in enumerate(self.D.view(num_batches, self.m, self.n)):
             sub_D.scatter_(1, comp_view[i, :, [0]], 1)
             sub_D.scatter_(1, comp_view[i, :, [1]], -1)
         self.DT = self.D.transpose(-1, -2)
