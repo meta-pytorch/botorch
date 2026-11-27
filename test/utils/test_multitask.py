@@ -6,10 +6,12 @@
 
 
 import torch
+from botorch.models import ModelListGP, SingleTaskGP, SingleTaskVariationalGP
 from botorch.utils.multitask import separate_mtmvn
 from botorch.utils.testing import BotorchTestCase
 from gpytorch.distributions import MultitaskMultivariateNormal
 from gpytorch.distributions.multivariate_normal import MultivariateNormal
+from gpytorch.settings import lazily_evaluate_kernels
 
 
 class TestSeparateMTMVN(BotorchTestCase):
@@ -48,3 +50,38 @@ class TestSeparateMTMVN(BotorchTestCase):
                     idx = torch.arange(c * num_data, (c + 1) * num_data)
                 expected_covar = dense_covar[..., idx, :][..., :, idx]
                 self.assertAllClose(mvn_c.covariance_matrix, expected_covar, atol=1e-5)
+
+    def test_separate_mtmvn_variational_gp_posterior(self) -> None:
+        # The posterior of a multi-output variational GP is an interleaved MTMVN with
+        # a ``BlockInterleavedLinearOperator`` covariance of lazily evaluated kernels.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        X = torch.rand(12, 2, **tkwargs)
+        Y = torch.randn(12, 3, **tkwargs)
+        model = SingleTaskVariationalGP(
+            X, Y[:, :2], num_outputs=2, inducing_points=X[:6]
+        ).to(**tkwargs)
+        # Use different lengthscales for the two outputs.
+        model.model.covar_module.lengthscale = torch.tensor(
+            [[[0.2, 0.5]], [[1.5, 0.9]]], **tkwargs
+        )
+        model.eval()
+        model_list = ModelListGP(model, SingleTaskGP(X, Y[:, 2:])).eval()
+        for batch_shape in (torch.Size([]), torch.Size([3]), torch.Size([4, 1])):
+            for q in (1, 2, 3):
+                with self.subTest(batch_shape=batch_shape, q=q), torch.no_grad():
+                    Xt = torch.rand(*batch_shape, q, 2, **tkwargs)
+                    with lazily_evaluate_kernels(False):
+                        expected = model.posterior(Xt).distribution.covariance_matrix
+                    mvn = model.posterior(Xt).distribution
+                    self.assertTrue(mvn._interleaved)
+                    for c, mvn_c in enumerate(separate_mtmvn(mvn)):
+                        covar_c = mvn_c.lazy_covariance_matrix
+                        expected_c = expected[..., c::2, c::2]
+                        self.assertAllClose(covar_c.to_dense(), expected_c)
+                        # The variance of a ModelListGP posterior is computed like this.
+                        self.assertAllClose(
+                            covar_c.unsqueeze(-3).diagonal(dim1=-2, dim2=-1),
+                            expected_c.diagonal(dim1=-2, dim2=-1).unsqueeze(-2),
+                        )
+                    variance = model_list.posterior(Xt).variance
+                    self.assertAllClose(variance[..., :2], model.posterior(Xt).variance)
