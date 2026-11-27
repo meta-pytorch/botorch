@@ -6,8 +6,13 @@
 
 from __future__ import annotations
 
+from itertools import product
+
 import torch
 from botorch.exceptions.errors import BotorchError, BotorchTensorDimensionError
+from botorch.utils.multi_objective.box_decompositions.dominated import (
+    DominatedPartitioning,
+)
 from botorch.utils.multi_objective.hypervolume import (
     get_hypervolume_maximizing_subset,
     Hypervolume,
@@ -61,6 +66,60 @@ pareto_Y_5d = [
         -0.06024010111083461,
     ],
 ]
+
+
+def _legacy_hypervolume(ref_point: torch.Tensor, Y: torch.Tensor) -> float:
+    r"""The previous implementation of ``Hypervolume.compute`` [Fonseca2006]_."""
+    hv = Hypervolume(ref_point)
+    Y = -Y
+    Y = Y[(Y <= hv._ref_point).all(dim=-1)] - hv._ref_point
+    hv._initialize_multilist(Y)
+    bounds = torch.full_like(hv._ref_point, float("-inf"))
+    return hv._hv_recursive(
+        i=hv._ref_point.shape[0] - 1, n_pareto=Y.shape[0], bounds=bounds
+    )
+
+
+def _grid_hypervolume(ref_point: torch.Tensor, Y: torch.Tensor) -> float:
+    r"""Brute-force hypervolume over the grid spanned by the coordinates of the
+    points and the reference point. A grid cell is dominated if and only if
+    its upper corner is weakly dominated by one of the points. Only for small
+    inputs with ``m >= 2``.
+    """
+    Y = Y[(Y >= ref_point).all(dim=-1)]
+    if Y.shape[0] == 0:
+        return 0.0
+    coords = [
+        torch.unique(torch.cat([ref_point[i : i + 1], Y[:, i]]))
+        for i in range(Y.shape[-1])
+    ]
+    upper = torch.cartesian_prod(*(c[1:] for c in coords))
+    volumes = torch.cartesian_prod(*(c[1:] - c[:-1] for c in coords)).prod(dim=-1)
+    is_dominated = (Y.unsqueeze(0) >= upper.unsqueeze(1)).all(dim=-1).any(dim=-1)
+    return volumes[is_dominated].sum().item()
+
+
+def _random_points(
+    n: int, m: int, ties: bool, generator: torch.Generator, **tkwargs
+) -> torch.Tensor:
+    r"""Points on and below the positive part of the unit sphere, some of them
+    outside the box dominating the reference point ``-0.1``, with duplicates.
+    With ``ties=True``, the coordinates are rounded to a coarse grid, so many
+    points share coordinate values.
+    """
+    Y = torch.randn(n, m, generator=generator, dtype=torch.double).abs()
+    Y = Y / Y.norm(dim=-1, keepdim=True)
+    # scale part of the points down, so that they are dominated
+    scale = torch.rand(n, 1, generator=generator, dtype=torch.double)
+    Y = torch.where(scale < 0.5, Y, Y * scale)
+    # move some points beyond the reference point in one objective
+    beyond = torch.rand(n, generator=generator, dtype=torch.double) < 0.1
+    Y[beyond, 0] = -0.2
+    if ties:
+        Y = (Y * 4).round() / 4
+    # duplicate some points
+    Y = torch.cat([Y, Y[: max(n // 5, 1)]])
+    return Y.to(**tkwargs)
 
 
 class TestHypervolume(BotorchTestCase):
@@ -141,6 +200,107 @@ class TestHypervolume(BotorchTestCase):
             pareto_Y = torch.tensor(pareto_Y_5d, **tkwargs)
             volume = hv.compute(pareto_Y)
             self.assertTrue(abs(volume - 0.42127855991587) < EPS)
+
+    def test_hypervolume_matches_reference(self):
+        generator = torch.Generator().manual_seed(0)
+        # (m, n) for the comparison against the previous implementation, and
+        # n for the comparison against the brute-force grid computation
+        sizes = {2: (60, 12), 3: (40, 10), 4: (25, 8), 5: (12, 6), 6: (8, 5)}
+        for dtype, ties in product((torch.float, torch.double), (False, True)):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            rtol = 1e-5 if dtype == torch.float else 1e-10
+            for m, (n_legacy, n_grid) in sizes.items():
+                ref_point = torch.full((m,), -0.1, **tkwargs)
+                hv = Hypervolume(ref_point)
+                for _ in range(3):
+                    Y = _random_points(n_legacy, m, ties, generator, **tkwargs)
+                    volume = hv.compute(Y)
+                    self.assertIsInstance(volume, float)
+                    if not ties:
+                        # The previous implementation can be wrong for m >= 4 when
+                        # points share some coordinate values (see
+                        # ``test_hypervolume_ties``), so only compare without ties.
+                        expected = _legacy_hypervolume(ref_point, Y)
+                        self.assertAlmostEqual(volume, expected, delta=rtol * expected)
+                    # the result does not depend on the order of the points
+                    perm = torch.randperm(Y.shape[0], generator=generator)
+                    self.assertAlmostEqual(
+                        hv.compute(Y[perm]), volume, delta=rtol * volume
+                    )
+                    # the grid computation is exact up to floating point errors,
+                    # so compare in double precision
+                    Y = _random_points(n_grid, m, ties, generator, **tkwargs)
+                    expected = _grid_hypervolume(ref_point.double(), Y.double())
+                    self.assertAlmostEqual(
+                        hv.compute(Y), expected, delta=rtol * expected
+                    )
+
+    def test_hypervolume_matches_box_decomposition(self):
+        # The acquisition functions use the box decompositions, so check that
+        # both agree, including on inputs with ties and duplicates.
+        generator = torch.Generator().manual_seed(0)
+        sizes = {2: 60, 3: 20, 4: 10}
+        for dtype, ties in product((torch.float, torch.double), (False, True)):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            rtol = 1e-5 if dtype == torch.float else 1e-10
+            for m, n in sizes.items():
+                ref_point = torch.full((m,), -0.1, **tkwargs)
+                Y = _random_points(n, m, ties, generator, **tkwargs)
+                volume = Hypervolume(ref_point).compute(Y)
+                expected = DominatedPartitioning(
+                    ref_point=ref_point, Y=Y
+                ).compute_hypervolume()
+                self.assertAlmostEqual(
+                    volume, expected.item(), delta=rtol * expected.item()
+                )
+
+    def test_hypervolume_ties(self):
+        # Points that share coordinate values. The previous implementation
+        # returned 30.0 and 102.0 for these.
+        for dtype in (torch.float, torch.double):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            Y = torch.tensor(
+                [[3.0, 2.0, 2.0, 1.0], [3.0, 2.0, 3.0, 1.0], [3.0, 2.0, 3.0, 2.0]],
+                **tkwargs,
+            )
+            hv = Hypervolume(torch.zeros(4, **tkwargs))
+            # the last point dominates the other two
+            self.assertEqual(hv.compute(Y), 36.0)
+            Y = torch.tensor(
+                [
+                    [2.0, 2.0, 3.0, 3.0, 1.0],
+                    [2.0, 2.0, 3.0, 3.0, 3.0],
+                    [1.0, 3.0, 2.0, 3.0, 1.0],
+                ],
+                **tkwargs,
+            )
+            hv = Hypervolume(torch.zeros(5, **tkwargs))
+            self.assertEqual(hv.compute(Y), 114.0)
+
+    def test_hypervolume_edge_cases(self):
+        for dtype, m in product((torch.float, torch.double), (1, 2, 3, 4, 5)):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            ref_point = torch.linspace(-1.0, 0.5, m, **tkwargs)
+            hv = Hypervolume(ref_point)
+            # empty input
+            self.assertEqual(hv.compute(torch.empty(0, m, **tkwargs)), 0.0)
+            # no point dominates the reference point
+            Y = ref_point + torch.tensor([[-1.0], [1.0]], **tkwargs)
+            Y[1, -1] = ref_point[-1] - 1.0
+            self.assertEqual(hv.compute(Y), 0.0)
+            # single point, alone and with duplicates and dominated points
+            point = ref_point + torch.arange(1, m + 1, **tkwargs)
+            expected = float(torch.arange(1, m + 1).prod())
+            self.assertEqual(hv.compute(point.unsqueeze(0)), expected)
+            Y = torch.stack([point, point, (point + ref_point) / 2, point])
+            self.assertEqual(hv.compute(Y), expected)
+            # points on the boundary of the reference box add no volume
+            boundary = point.repeat(m, 1)
+            boundary[torch.arange(m), torch.arange(m)] = ref_point
+            self.assertEqual(hv.compute(torch.cat([boundary, Y])), expected)
+            # inputs that require gradients
+            Y = Y.clone().requires_grad_(True)
+            self.assertEqual(hv.compute(Y), expected)
 
 
 class TestGetReferencePoint(BotorchTestCase):
