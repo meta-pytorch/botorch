@@ -1081,6 +1081,9 @@ class AbstractFullyBayesianSingleTaskGP(ExactGP, BatchedMultiOutputGPyTorchModel
             # will have 'batch_shape' copies of the training data.
             X = X.repeat(self.batch_shape + (1, 1))
             Y = Y.repeat(self.batch_shape + (1, 1))
+            noise = kwargs.get("noise")
+            if noise is not None and noise.ndim == 2:
+                kwargs["noise"] = noise.repeat(self.batch_shape + (1, 1))
 
         elif X.ndim < Y.ndim:
             # We need to duplicate the training data to enable correct batch
