@@ -131,6 +131,150 @@ class TestUtils(BotorchTestCase):
         with self.assertRaisesRegex(ValueError, "Unknown method"):
             compute_orthogonal_basis(A, method="bogus")
 
+    def test_linear_interpolation_independent_data_autograd_graphs(self) -> None:
+        devices = [torch.device("cpu")]
+        if torch.cuda.is_available():
+            devices.append(torch.device("cuda"))
+        for device in devices:
+            for dtype in (torch.float32, torch.float64):
+                for assume_sorted in (False, True):
+                    with self.subTest(
+                        device=device, dtype=dtype, assume_sorted=assume_sorted
+                    ):
+                        x = torch.tensor([1.0, 0.0, 0.4], dtype=dtype, device=device)
+                        y = torch.tensor([[0.5, 0.1, 0.8]], dtype=dtype, device=device)
+                        if assume_sorted:
+                            order = x.argsort()
+                            x, y = x[order], y[..., order]
+                        x.requires_grad_()
+                        y.requires_grad_()
+                        query = x.new_tensor([0.2, 0.7], requires_grad=True)
+                        interp = LinearInterpolation1D(
+                            x, y, assume_sorted=assume_sorted
+                        )
+                        variables = (x, y, query)
+                        for _ in range(3):
+                            actual = interp(query)
+                            # Independent piecewise-linear formula, with fresh
+                            # sorted views of the original data for each call.
+                            order = x.argsort()
+                            knots, values = x[order], y[..., order]
+                            idx = (torch.searchsorted(knots, query) - 1).clamp(0, 1)
+                            weight = (query - knots[idx]) / (
+                                knots[idx + 1] - knots[idx]
+                            )
+                            expected = (1 - weight) * values[
+                                ..., idx
+                            ] + weight * values[..., idx + 1]
+                            self.assertAllClose(actual, expected)
+                            first = torch.autograd.grad(
+                                actual.square().sum(), variables, create_graph=True
+                            )
+                            oracle = torch.autograd.grad(
+                                expected.square().sum(), variables, create_graph=True
+                            )
+                            for actual_grad, expected_grad in zip(first, oracle):
+                                self.assertAllClose(actual_grad, expected_grad)
+                            second = torch.autograd.grad(
+                                sum(value.square().sum() for value in first), variables
+                            )
+                            expected_second = torch.autograd.grad(
+                                sum(value.square().sum() for value in oracle), variables
+                            )
+                            for actual_grad, expected_grad in zip(
+                                second, expected_second
+                            ):
+                                self.assertAllClose(actual_grad, expected_grad)
+
+    def test_linear_interpolation_live_data_and_sorted_state(self) -> None:
+        devices = [torch.device("cpu")]
+        if torch.cuda.is_available():
+            devices.append(torch.device("cuda"))
+        for device in devices:
+            for assume_sorted in (False, True):
+                with self.subTest(device=device, assume_sorted=assume_sorted):
+                    x = torch.tensor([1.0, 0.0, 0.4], dtype=torch.double, device=device)
+                    y = torch.tensor([[0.5, 0.1, 0.8]], dtype=x.dtype, device=device)
+                    if assume_sorted:
+                        order = x.argsort()
+                        x, y = x[order], y[..., order]
+                    x.requires_grad_()
+                    y.requires_grad_()
+                    query = x.new_tensor([0.2, 0.7], requires_grad=True)
+                    interp = LinearInterpolation1D(x, y, assume_sorted=assume_sorted)
+                    torch.autograd.grad(interp(query).sum(), (x, y))
+                    # Raw data edits must not be mistaken for writes to detached
+                    # sorted snapshots, including when assume_sorted=True.
+                    with torch.no_grad():
+                        y.add_(0.1)
+                        x[-1].add_(0.02)
+                    state = {
+                        key: value.clone() for key, value in interp.state_dict().items()
+                    }
+                    self.assertEqual(
+                        set(state), {"_x", "_y", "_bounds_error", "_fill_value"}
+                    )
+                    order = x.argsort()
+                    self.assertAllClose(state["_x"], x[order])
+                    self.assertAllClose(state["_y"], y[..., order])
+                    first = interp(query)
+                    gradients = torch.autograd.grad(first.sum(), (x, y))
+                    self.assertTrue(
+                        all(torch.isfinite(value).all() for value in gradients)
+                    )
+                    # Existing sorted state dictionaries replace constructor
+                    # data, and do not require the new nonpersistent raw buffers.
+                    restored = LinearInterpolation1D(x.detach() + 2, y.detach() + 3)
+                    restored.load_state_dict(state)
+                    self.assertAllClose(restored(query), first)
+                    for _ in range(2):
+                        self.assertTrue(
+                            torch.isfinite(
+                                torch.autograd.grad(restored(query).sum(), query)[0]
+                            ).all()
+                        )
+                    # Public buffer edits still replace data before migration.
+                    with torch.no_grad():
+                        restored._y.add_(0.2)
+                    restored.to(dtype=torch.float32)
+                    expected = first.detach().float() + 0.2
+                    self.assertAllClose(restored(query.float()), expected, atol=1e-6)
+                    self.assertEqual(restored._source_x.device.type, device.type)
+                    self.assertEqual(restored._source_y.dtype, torch.float32)
+                    # Moving a live interpolant also keeps data adjoints back
+                    # to the original external leaves on separate evaluations.
+                    interp.to(dtype=torch.float32)
+                    for _ in range(2):
+                        loss = interp(query.float()).square().sum()
+                        gradients = torch.autograd.grad(
+                            loss, (x, y, query), create_graph=True
+                        )
+                        second = torch.autograd.grad(
+                            sum(value.square().sum() for value in gradients),
+                            (x, y, query),
+                        )
+                        self.assertTrue(
+                            all(
+                                torch.isfinite(value).all()
+                                for value in (*gradients, *second)
+                            )
+                        )
+
+    def test_linear_interpolation_pending_forward_graphs(self) -> None:
+        x = torch.tensor([1.0, 0.0, 0.4], dtype=torch.double, requires_grad=True)
+        y = torch.tensor([[0.5, 0.1, 0.8]], dtype=x.dtype, requires_grad=True)
+        query = x.new_tensor([0.2, 0.7], requires_grad=True)
+        interp = LinearInterpolation1D(x, y)
+        first, second = interp(query), interp(query + 0.01)
+        first_gradient = torch.autograd.grad(first.sum(), (x, y, query))
+        second_gradient = torch.autograd.grad(second.sum(), (x, y, query))
+        self.assertTrue(
+            all(
+                torch.isfinite(value).all()
+                for value in (*first_gradient, *second_gradient)
+            )
+        )
+
     def test_covariance_computation_helpers(self) -> None:
         """Test helper functions for covariance computation."""
         # Test center_curves with 2D tensor
