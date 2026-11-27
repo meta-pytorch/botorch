@@ -11,6 +11,7 @@ from botorch.acquisition.fixed_feature import (
     get_device_of_sequence,
     get_dtype_of_sequence,
 )
+from botorch.acquisition.logei import qLogNoisyExpectedImprovement
 from botorch.acquisition.monte_carlo import qExpectedImprovement
 from botorch.models import SingleTaskGP
 from botorch.utils.testing import BotorchTestCase, MockAcquisitionFunction
@@ -136,6 +137,42 @@ class TestFixedFeatureAcquisitionFunction(BotorchTestCase):
         )
         with self.assertRaises(ValueError):
             EI_ff.X_pending
+
+    def test_unsorted_columns(self) -> None:
+        # ``values`` are ordered as ``columns``, which need not be sorted.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.rand(5, 3, **tkwargs)
+        model = SingleTaskGP(train_X, train_X.norm(dim=-1, keepdim=True)).eval()
+        qEI = qExpectedImprovement(model, best_f=0.0)
+        X = torch.rand(4, 1, 1, **tkwargs)
+        X_full = torch.cat([torch.full_like(X, 0.1), X, torch.full_like(X, 0.9)], -1)
+        for values in ([0.9, 0.1], torch.tensor([0.9, 0.1], **tkwargs)):
+            qEI_ff = FixedFeatureAcquisitionFunction(
+                qEI, d=3, columns=[2, 0], values=values
+            )
+            self.assertAllClose(qEI_ff._construct_X_full(X), X_full)
+            self.assertAllClose(qEI_ff(X), qEI(X_full))
+
+    def test_set_X_pending_on_base_acqf(self) -> None:
+        # Pending points are passed on via ``set_X_pending`` of the base
+        # acquisition function, e.g. incremental qLogNEI adds them to its baseline.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.rand(5, 3, **tkwargs)
+        model = SingleTaskGP(train_X, train_X.norm(dim=-1, keepdim=True)).eval()
+        acqf = qLogNoisyExpectedImprovement(
+            model=model, X_baseline=train_X, prune_baseline=False
+        )
+        acqf_ff = FixedFeatureAcquisitionFunction(acqf, d=3, columns=[2], values=[0.5])
+        X_pending = torch.rand(2, 2, **tkwargs)
+        X_pending_full = torch.cat(
+            [X_pending, torch.full_like(X_pending[:, :1], 0.5)], dim=-1
+        )
+        acqf_ff.set_X_pending(X_pending)
+        self.assertAllClose(acqf.X_pending, X_pending_full)
+        self.assertAllClose(acqf.X_baseline, torch.cat([train_X, X_pending_full]))
+        acqf_ff.X_pending = None
+        self.assertIsNone(acqf.X_pending)
+        self.assertAllClose(acqf.X_baseline, train_X)
 
     def test_values_dtypes(self) -> None:
         acqf = MockAcquisitionFunction()

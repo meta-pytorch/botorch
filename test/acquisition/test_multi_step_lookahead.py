@@ -261,3 +261,28 @@ class TestMultiStepLookahead(BotorchTestCase):
             # extract candidates
             cand = qMS.extract_candidates(eval_X)
             self.assertEqual(cand.shape, torch.Size(t_batch_size + [q, d]))
+
+    def test_make_best_f(self):
+        # ``best_f`` must be in the original outcome space, i.e. that of the
+        # posterior, also if the model uses an outcome transform (as by default).
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.rand(8, 2, **tkwargs)
+        train_Y = 100 + 5 * torch.sin(6 * train_X)
+        for num_outputs in (1, 2):
+            model = SingleTaskGP(train_X, train_Y[:, :num_outputs]).eval()
+            best_f = make_best_f(model=model, X=train_X)["best_f"]
+            expected = train_Y[:, :num_outputs].amax(dim=0)
+            self.assertAllClose(
+                best_f, expected.squeeze(0) if num_outputs == 1 else expected
+            )
+        # fantasy model with batched train targets
+        model = SingleTaskGP(train_X, train_Y[:, :1]).eval()
+        model.posterior(train_X)
+        fantasy_model = model.condition_on_observations(
+            X=torch.rand(2, 1, 2, **tkwargs),
+            Y=torch.tensor([[[110.0]], [[90.0]]], **tkwargs),
+        )
+        best_f = make_best_f(model=fantasy_model, X=train_X)["best_f"]
+        self.assertAllClose(
+            best_f, torch.stack([torch.tensor(110.0, **tkwargs), train_Y[:, 0].max()])
+        )

@@ -8,7 +8,11 @@ from contextlib import ExitStack
 from unittest import mock
 
 import torch
-from botorch.acquisition.analytic import PosteriorMean, ScalarizedPosteriorMean
+from botorch.acquisition.analytic import (
+    PosteriorMean,
+    ScalarizedPosteriorMean,
+    UpperConfidenceBound,
+)
 from botorch.acquisition.cost_aware import GenericCostAwareUtility
 from botorch.acquisition.knowledge_gradient import (
     _get_value_function,
@@ -554,6 +558,54 @@ class TestQMultiFidelityKnowledgeGradient(BotorchTestCase):
                     num_restarts=1,
                     raw_samples=1,
                 )
+
+    def test_evaluate_qMFKG_cost_and_value_function(self):
+        # As in ``forward``, the cost is computed for the candidates only (without
+        # pending points and trace observations), and ``valfunc_cls`` and
+        # ``valfunc_argfac`` define the value function.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        torch.manual_seed(0)
+        train_X = torch.rand(10, 2, **tkwargs)
+        train_Y = torch.sin(5 * train_X[:, :1]) + train_X[:, 1:]
+        model = SingleTaskGP(train_X, train_Y).eval()
+        bounds = torch.tensor([[0.0, 0.0], [1.0, 1.0]], **tkwargs)
+        X = torch.rand(2, 1, 2, **tkwargs)
+        X_pending = torch.rand(3, 2, **tkwargs)
+        cost_X_shapes = []
+
+        def cost(X, deltas):
+            cost_X_shapes.append(X.shape)
+            return deltas / (1.0 + X[..., -1].sum(dim=-1))
+
+        def evaluate(**kwargs):
+            qMFKG = qMultiFidelityKnowledgeGradient(
+                model=model,
+                num_fantasies=None,
+                sampler=SobolQMCNormalSampler(torch.Size([4]), seed=0),
+                X_pending=X_pending,
+                current_value=torch.tensor(0.0, **tkwargs),
+                cost_aware_utility=GenericCostAwareUtility(cost),
+                expand=lambda X: torch.cat([X, X], dim=-2),
+                **kwargs,
+            )
+            torch.manual_seed(1)
+            return qMFKG.evaluate(
+                X,
+                bounds=bounds,
+                num_restarts=2,
+                raw_samples=8,
+                scipy_options={"maxiter": 20},
+            )
+
+        val = evaluate()
+        self.assertEqual(cost_X_shapes, [X.shape])
+        # A UCB value function with a large ``beta`` yields larger values than the
+        # (default) posterior mean value function.
+        val_ucb = evaluate(
+            valfunc_cls=UpperConfidenceBound,
+            valfunc_argfac=lambda model: {"beta": 100.0},
+        )
+        self.assertTrue((val_ucb > val + 0.5).all())
 
     def test_optimize_w_posterior_transform(self):
         # This is mainly testing that we can optimize without errors.

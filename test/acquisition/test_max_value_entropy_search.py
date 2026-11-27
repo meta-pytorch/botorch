@@ -5,10 +5,11 @@
 # LICENSE file in the root directory of this source tree.
 
 from collections.abc import Callable
+from itertools import product
 from unittest import mock
 
 import torch
-from botorch.acquisition.cost_aware import InverseCostWeightedUtility
+from botorch.acquisition.cost_aware import CostAwareUtility, InverseCostWeightedUtility
 from botorch.acquisition.max_value_entropy_search import (
     _sample_max_value_Gumbel,
     _sample_max_value_Thompson,
@@ -24,8 +25,14 @@ from botorch.models.cost import AffineFidelityCostModel
 from botorch.models.gp_regression import SingleTaskGP
 from botorch.models.gp_regression_fidelity import SingleTaskMultiFidelityGP
 from botorch.models.model_list_gp_regression import ModelListGP
+from botorch.models.transforms.input import Normalize
 from botorch.sampling.normal import SobolQMCNormalSampler
 from botorch.utils.testing import BotorchTestCase
+
+
+class _NoCostUtility(CostAwareUtility):
+    def forward(self, X, deltas, sampler=None):
+        return deltas
 
 
 class TestMaxValueEntropySearch(BotorchTestCase):
@@ -212,6 +219,79 @@ class TestMaxValueEntropySearch(BotorchTestCase):
             # Test evaluation with fantasized model
             acq_value = qMF_GIBBON(X)
             self.assertEqual(acq_value.shape, torch.Size([5]))
+
+    def test_gibbon_pending_points_with_transforms(self):
+        # With pending points, GIBBON adds the repulsion term 0.5 * log of the
+        # ratio of the determinants of the predictive correlation matrices of the
+        # noisy observations at ``[x, X_pending]`` and at ``X_pending``. This must
+        # be computed consistently when the model uses input / outcome transforms.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        torch.manual_seed(0)
+        train_X = 10 * torch.rand(12, 3, **tkwargs)
+        train_Y = 10 * torch.sin(train_X / 2).sum(dim=-1, keepdim=True)
+        # Normalize input transform and (default) Standardize outcome transform.
+        model = SingleTaskGP(train_X, train_Y, input_transform=Normalize(d=3))
+        model.eval()
+        X_pending = 10 * torch.rand(2, 3, **tkwargs)
+        X = (X_pending[:1] + torch.randn(4, 1, 3, **tkwargs)).clamp(0, 10)
+        with torch.no_grad():
+            V = model.posterior(
+                torch.cat([X, X_pending.expand(4, 2, 3)], dim=-2),
+                observation_noise=True,
+            ).distribution.covariance_matrix
+        expected = 0.5 * (
+            torch.logdet(V) - V[:, 0, 0].log() - torch.logdet(V[:, 1:, 1:])
+        )
+        self.assertTrue((expected < -1e-2).all())
+        for acqf_cls, kwargs in (
+            (qLowerBoundMaxValueEntropy, {}),
+            (
+                qMultiFidelityLowerBoundMaxValueEntropy,
+                {"cost_aware_utility": _NoCostUtility()},
+            ),
+        ):
+            with self.subTest(acqf_cls=acqf_cls.__name__):
+                acqf = acqf_cls(
+                    model=model,
+                    candidate_set=10 * torch.rand(50, 3, **tkwargs),
+                    X_pending=X_pending,
+                    **kwargs,
+                )
+                self.assertAllClose(acqf.X_pending, X_pending)
+                with torch.no_grad():
+                    acq_value_pending = acqf(X)
+                    # The max-value samples are not affected by this.
+                    acqf.set_X_pending(None)
+                    acq_value = acqf(X)
+                self.assertAllClose(acq_value_pending - acq_value, expected)
+
+    def test_candidate_set_with_input_transform(self):
+        # The train inputs are appended to ``candidate_set``, which is in the
+        # original input space (it is transformed in ``model.posterior``).
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = 10 * torch.rand(8, 2, **tkwargs)
+        train_Y = torch.sin(train_X).sum(dim=-1, keepdim=True)
+        bounds = torch.tensor([[0.0, 0.0], [10.0, 10.0]], **tkwargs)
+        model = SingleTaskGP(
+            train_X, train_Y, input_transform=Normalize(d=2, bounds=bounds)
+        )
+        candidate_set = 10 * torch.rand(5, 2, **tkwargs)
+        expected = torch.cat([candidate_set, train_X])
+        for train_mode, acqf_cls in product(
+            (True, False),
+            (
+                qMaxValueEntropy,
+                qLowerBoundMaxValueEntropy,
+                qMultiFidelityMaxValueEntropy,
+                qMultiFidelityLowerBoundMaxValueEntropy,
+            ),
+        ):
+            with self.subTest(train_mode=train_mode, acqf_cls=acqf_cls.__name__):
+                model.train(mode=train_mode)
+                acqf = acqf_cls(
+                    model=model, candidate_set=candidate_set, num_mv_samples=2
+                )
+                self.assertAllClose(acqf.candidate_set, expected)
 
     def test_q_multi_fidelity_max_value_entropy(
         self, acqf_class=qMultiFidelityMaxValueEntropy

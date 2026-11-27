@@ -7,11 +7,13 @@
 from itertools import product
 
 import torch
-from botorch.acquisition.analytic import ExpectedImprovement
+from botorch.acquisition.analytic import ExpectedImprovement, LogExpectedImprovement
 from botorch.acquisition.monte_carlo import qExpectedImprovement
 from botorch.acquisition.prior_guided import PriorGuidedAcquisitionFunction
 from botorch.exceptions.errors import BotorchError
 from botorch.models import SingleTaskGP
+from botorch.sampling.normal import SobolQMCNormalSampler
+from botorch.utils.test_helpers import get_fully_bayesian_model
 from botorch.utils.testing import BotorchTestCase
 from botorch.utils.transforms import match_batch_shape
 from torch.nn import Module
@@ -123,6 +125,37 @@ class TestPriorGuidedAcquisitionFunction(BotorchTestCase):
                 expected_val = ei._sample_reduction(ei._q_reduction(weighted_val))
 
                 self.assertTrue(torch.equal(val, expected_val))
+
+    def test_prior_guided_ensemble_model(self) -> None:
+        # The base acquisition function averages over the models of the ensemble.
+        # Evaluating a t-batch of candidates must match evaluating them one by one.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        model = get_fully_bayesian_model(
+            train_X=self.train_X, train_Y=self.train_Y, num_models=3, **tkwargs
+        )
+        best_f = self.train_Y.min()
+        X = torch.rand(4, 1, 3, **tkwargs)
+        for acqf, use_log in (
+            (
+                qExpectedImprovement(
+                    model=model,
+                    best_f=best_f,
+                    sampler=SobolQMCNormalSampler(torch.Size([16]), seed=0),
+                ),
+                False,
+            ),
+            (ExpectedImprovement(model=model, best_f=best_f), False),
+            (LogExpectedImprovement(model=model, best_f=best_f), True),
+        ):
+            with self.subTest(acqf=type(acqf).__name__):
+                af = PriorGuidedAcquisitionFunction(
+                    acq_function=acqf, prior_module=self.prior, log=use_log
+                )
+                with torch.no_grad():
+                    val = af(X)
+                    expected = torch.cat([af(x) for x in X.split(1)])
+                self.assertEqual(val.shape, torch.Size([4]))
+                self.assertAllClose(val, expected)
 
     def test_X_pending_error(self) -> None:
         X_pending = torch.rand(2, 3, dtype=torch.double, device=self.device)
