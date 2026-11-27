@@ -1013,7 +1013,9 @@ def _sample_max_value_Gumbel(
             [
                 brentq(lambda y: np.exp(np.sum(N.logcdf(y))) - p, lo_, hi_)
                 for p in [0.25, 0.50, 0.75]
-            ]
+            ],
+            device=device,
+            dtype=dtype,
         )
     q25, q50, q75 = quantiles[:, 0], quantiles[:, 1], quantiles[:, 2]
     # q25, q50, q75 are one-dimensional tensors of size num_batches.
