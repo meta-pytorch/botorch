@@ -64,3 +64,20 @@ class TestQPredictiveEntropySearch(BotorchTestCase):
                     acq_X = acq(test_Xs[j])
                     # assess shape
                     self.assertTrue(acq_X.shape == test_Xs[j].shape[:-2])
+
+    def test_predictive_entropy_search_observation_noise(self):
+        # The optimality conditions apply to the latent function, not to the noisy
+        # observations: as the observation noise grows, an observation carries
+        # (almost) no information about the optimal inputs.
+        torch.manual_seed(0)
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.rand(6, 2, **tkwargs)
+        train_Y = torch.sin(5 * train_X[:, :1])
+        model = get_model(train_X=train_X, train_Y=train_Y)
+        model.likelihood.noise = 1e4
+        with torch.no_grad():
+            acq = qPredictiveEntropySearch(
+                model=model, optimal_inputs=torch.rand(2, 2, **tkwargs)
+            )
+            acq_X = acq(torch.rand(4, 1, 2, **tkwargs))
+        self.assertTrue((acq_X.abs() < 1e-2).all())
