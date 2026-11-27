@@ -1701,6 +1701,15 @@ class NumericToCategoricalEncoding(InputTransform):
 
         self.encoders = encoders
         self.categorical_features = categorical_features
+        # Preserve the public integer-keyed callable mapping while registering
+        # actual module encoders for parameters, state, modes and migration.
+        self._encoder_modules = ModuleDict(
+            {
+                str(index): encoder
+                for index, encoder in encoders.items()
+                if isinstance(encoder, Module)
+            }
+        )
 
         if len(self.categorical_features) == 0:
             raise ValueError(

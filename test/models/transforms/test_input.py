@@ -1217,6 +1217,44 @@ class TestInputTransforms(BotorchTestCase):
             ),
         )
 
+    def test_numeric_to_categorical_encoding_module_encoder(self) -> None:
+        devices = [torch.device("cpu")]
+        if torch.cuda.is_available():
+            devices.append(torch.device("cuda", torch.cuda.current_device()))
+        for device in devices:
+            with self.subTest(device=device):
+                encoder = torch.nn.Embedding(2, 2)
+                tf = NumericToCategoricalEncoding(
+                    dim=3,
+                    categorical_features={2: 2, 0: 2},
+                    encoders={2: encoder, 0: encoder},
+                )
+                self.assertIs(tf.encoders[0], encoder)
+                self.assertEqual(len(list(tf.parameters())), 1)
+                self.assertIs(next(tf.parameters()), encoder.weight)
+                tf.to(device=device, dtype=torch.double)
+                self.assertEqual(encoder.weight.dtype, torch.double)
+                self.assertEqual(encoder.weight.device, device)
+                tf.eval()
+                self.assertFalse(encoder.training)
+                tf.train()
+                self.assertTrue(encoder.training)
+                X = torch.tensor([[0.0, 0.2, 1.0]], device=device, dtype=torch.double)
+                output = tf(X)
+                expected = torch.cat(
+                    (encoder(X[..., 0].long()), X[..., 1:2], encoder(X[..., 2].long())),
+                    dim=-1,
+                )
+                self.assertAllClose(output, expected)
+                gradient = torch.autograd.grad(output.square().sum(), encoder.weight)[0]
+                self.assertAllClose(gradient, 2 * encoder.weight)
+                clone = deepcopy(tf)
+                with torch.no_grad():
+                    encoder.weight.add_(0.5)
+                clone.load_state_dict(tf.state_dict())
+                self.assertAllClose(clone(X), tf(X))
+                self.assertIs(clone.encoders[0], clone.encoders[2])
+
     def test_numeric_to_categorical_encoding(self) -> None:
         # test exceptions
         with self.assertRaises(
