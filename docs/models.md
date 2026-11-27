@@ -158,6 +158,53 @@ additional context on the default hyperparameters.
   an approximate model for faster computation when you have a lot of data or
   your responses are non-Gaussian.
 
+## Input and Outcome Transforms
+
+Most BoTorch models take an `input_transform` and an `outcome_transform`
+argument. They are different things and are applied at different points:
+
+- An
+  [`OutcomeTransform`](https://botorch.readthedocs.io/en/latest/models.html#module-botorch.models.transforms.outcome)
+  (for example `Standardize`, `Log`, `Power` or `Bilog`) is applied to the
+  training targets when the model is constructed. The `Posterior` returned by
+  `model.posterior(X)` is un-transformed, so it is on the original scale of the
+  data. `SingleTaskGP` uses `Standardize` unless you pass another transform or
+  `outcome_transform=None`.
+- An
+  [`InputTransform`](https://botorch.readthedocs.io/en/latest/models.html#module-botorch.models.transforms.input)
+  (for example `Normalize`, `InputStandardize`, `Round`, `Log10` or `Warp`) is
+  applied in the model's forward pass, so you pass inputs in the original space
+  to `model.posterior(X)` and to acquisition functions. `SingleTaskGP` does not
+  use an input transform unless you pass one.
+
+`Normalize` without explicit `bounds` learns the bounds from the training inputs
+while the model is in `train()` mode and keeps them fixed in `eval()` mode.
+Several input transforms can be combined with `ChainedInputTransform`, which
+applies them in the order of its keyword arguments. Each input transform has the
+flags `transform_on_train`, `transform_on_eval` and `transform_on_fantasize`
+that control when it is applied.
+
+```python
+import torch
+from botorch.fit import fit_gpytorch_mll
+from botorch.models import SingleTaskGP
+from botorch.models.transforms.input import Normalize
+from botorch.models.transforms.outcome import Standardize
+from gpytorch.mlls import ExactMarginalLogLikelihood
+
+train_X = torch.rand(20, 2, dtype=torch.double) * 10
+train_Y = (train_X**2).sum(dim=-1, keepdim=True)
+model = SingleTaskGP(
+    train_X,
+    train_Y,
+    input_transform=Normalize(d=2),
+    outcome_transform=Standardize(m=1),
+)
+fit_gpytorch_mll(ExactMarginalLogLikelihood(model.likelihood, model))
+# Inputs and outputs are on the original scale
+posterior = model.posterior(torch.tensor([[5.0, 5.0]], dtype=torch.double))
+```
+
 ## Implementing Custom Models
 
 The configurability of the above models is limited (for instance, it is not
