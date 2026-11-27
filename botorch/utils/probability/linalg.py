@@ -149,6 +149,11 @@ class PivotedCholesky:
         indices_v1 = []
         indices_v2 = []
         for i, piv in enumerate(pivot.view(-1, 1)):
+            if piv == self.step:
+                # Nothing to swap. Swapping the entries with themselves would add
+                # duplicate indices to the in-place swap below, whose backward pass
+                # would then count the gradients of these entries twice.
+                continue
             v1 = pad(piv, (1, 0), value=self.step).unsqueeze(-1)
             v2 = pad(piv, (0, 1), value=self.step).unsqueeze(-1)
             start = i * size2
