@@ -260,11 +260,14 @@ class TestBatchedNDarrayOptimizationClosure(BotorchTestCase):
                 vals_minus, _ = closure(state=state_minus)
 
                 fd_grad = (vals_plus[b] - vals_minus[b]) / (2 * eps)
-                self.assertAlmostEqual(
+                # The finite difference error grows with the size of the gradient,
+                # which can be in the thousands for small noise values.
+                np.testing.assert_allclose(
                     grads[b, j],
                     fd_grad,
-                    places=4,
-                    msg=f"Gradient mismatch at batch={b}, param={j}",
+                    rtol=1e-6,
+                    atol=5e-5,
+                    err_msg=f"Gradient mismatch at batch={b}, param={j}",
                 )
 
     def test_runtime_error_handling(self):
