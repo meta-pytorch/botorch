@@ -121,10 +121,17 @@ class qBayesianQueryByComittee(FullyBayesianAcquisitionFunction):
         posterior_mean = posterior.mean
         marg_mean = posterior.mixture_mean.unsqueeze(MCMC_DIM)
         mean_diff = posterior_mean - marg_mean
-        covar_of_mean = torch.matmul(mean_diff, mean_diff.transpose(-1, -2))
+        # Covariance of the posterior mean across the ensemble models. It has to
+        # be averaged before taking the determinant, as the per-model outer
+        # products have rank one (i.e. a zero determinant for q > 1).
+        covar_of_mean = torch.matmul(mean_diff, mean_diff.transpose(-1, -2)).mean(
+            dim=MCMC_DIM
+        )
 
-        res = torch.logdet(covar_of_mean).exp()
-        return torch.nan_to_num(res, 0)
+        res = torch.nan_to_num(torch.logdet(covar_of_mean).exp(), 0)
+        # the MCMC dim is averaged out above, so the result needs to be
+        # unsqueezed for the averaging in the decorator
+        return res.unsqueeze(-1)
 
 
 class qStatisticalDistanceActiveLearning(FullyBayesianAcquisitionFunction):
@@ -425,7 +432,8 @@ class qHyperparameterInformedPredictiveExploration(
         self._tuning_factor = acq_evals.max().item()
         self._tuning_factor_q = q
 
-    @concatenate_pending_points
+    # NOTE: X_pending is not concatenated here, as this is done by the forward
+    # methods of the two acquisition functions that are combined below.
     @t_batch_mode_transform()
     def forward(self, X: Tensor) -> Tensor:
         """Evaluate the acquisition function at X.

@@ -24,7 +24,7 @@ from copy import deepcopy
 
 import torch
 from botorch import fit_gpytorch_mll
-from botorch.exceptions import InputDataError
+from botorch.exceptions import InputDataError, UnsupportedError
 from botorch.models import SingleTaskGP
 from botorch.models.transforms.input import InputTransform
 from botorch.models.transforms.outcome import OutcomeTransform
@@ -100,11 +100,12 @@ class SingleTaskAugmentedGP(SingleTaskGP):
     ) -> None:
         r"""
         Args:
-            train_X: A ``batch_shape x n x (d + 1)`` tensor of training features,
-                where the additional dimension is for the source parameter.
-            train_Y: A ``batch_shape x n x m`` tensor of training observations.
-            train_Yvar: A ``batch_shape x n x m`` tensor of observed measurement
-                noise.
+            train_X: A ``n x (d + 1)`` tensor of training features, where the
+                additional dimension is for the source parameter. The sources must
+                be labeled ``0, ..., S - 1``, with ``S - 1`` being the ground truth
+                source. Batched training data is not supported.
+            train_Y: A ``n x m`` tensor of training observations.
+            train_Yvar: A ``n x m`` tensor of observed measurement noise.
             m: The multiplication factor of the model standard deviation used to select
                 points from other sources to add to the Augmented GP.
             likelihood: A likelihood. If omitted, use a standard
@@ -122,11 +123,23 @@ class SingleTaskAugmentedGP(SingleTaskGP):
         """
         if m <= 0:
             raise InputDataError(f"The value of m must be greater than 0, given m={m}.")
+        if train_X.dim() > 2:
+            # Splitting the data by source would merge the batches.
+            raise UnsupportedError(
+                "SingleTaskAugmentedGP does not support batched training data."
+            )
         # Divide train_X and train_Y based on the source
         train_S = train_X[..., -1]
-        sources = torch.unique(train_S).int()
+        sources = torch.unique(train_S)
         if sources.shape[0] == 1:
             raise InputDataError("AGP is meant to be used with more than one source.")
+        if not torch.equal(sources, torch.arange(len(sources)).to(sources)):
+            # The sources are used to index the per-source models (and costs).
+            raise InputDataError(
+                "The sources (last column of train_X) must be labeled 0, ..., S - 1, "
+                f"with S - 1 being the ground truth source. Got {sources.tolist()}."
+            )
+        sources = sources.int()
         train_X = [train_X[torch.where(train_S == s)] for s in sources]
         train_Y = [train_Y[torch.where(train_S == s)] for s in sources]
         if train_Yvar is not None:
@@ -226,6 +239,8 @@ class SingleTaskAugmentedGP(SingleTaskGP):
         Returns:
             The fitted Single Task GP and its Marginal Log Likelihood.
         """
+        # Copy all modules, so that each source's GP (and the AGP) fits its own
+        # parameters, including those of the (learnable) transforms.
         gp = SingleTaskGP(
             train_X,
             train_Y,
@@ -233,8 +248,8 @@ class SingleTaskAugmentedGP(SingleTaskGP):
             likelihood=deepcopy(likelihood),
             covar_module=deepcopy(covar_module),
             mean_module=deepcopy(mean_module),
-            outcome_transform=outcome_transform,
-            input_transform=input_transform,
+            outcome_transform=deepcopy(outcome_transform),
+            input_transform=deepcopy(input_transform),
         )
         mll = ExactMarginalLogLikelihood(gp.likelihood, gp)
         fit_gpytorch_mll(mll)

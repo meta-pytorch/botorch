@@ -72,11 +72,11 @@ def mvn_hellinger_distance(
     # we need to re-use the cholesky decomp, so we compute it once here
     L_avg = torch.linalg.cholesky(avg_covar)
 
-    # removes one dimension, which needs to be recouped
-    pq_logdet = (
-        torch.pow(torch.diagonal(L_avg, dim1=-2, dim2=-1), 2)
-        .prod(dim=-1, keepdim=True)
-        .log()
+    # removes one dimension, which needs to be recouped. Sum the logs of the
+    # diagonal rather than taking the log of their product, which under- or
+    # overflows for small or large variances in higher dimensions.
+    pq_logdet = 2 * torch.diagonal(L_avg, dim1=-2, dim2=-1).log().sum(
+        dim=-1, keepdim=True
     )
     base_logterm = 0.25 * (p_logdet + q_logdet) - 0.5 * pq_logdet
 

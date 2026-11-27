@@ -87,3 +87,21 @@ class TestStatDist(BotorchTestCase):
         res = mvn_hellinger_distance(dist1_mean, dist2_mean, dist1_cov, dist2_cov)
         self.assertFalse(res.isnan().any())
         self.assertAllClose(res, torch.tensor([0.0], dtype=torch.float64))
+
+    def test_mvn_hellinger_distance_extreme_determinants(self):
+        # The determinant of the averaged covariance under- or overflows for
+        # small or large variances in higher dimensions; the distance must not.
+        for dtype, q, var in (
+            (torch.float, 10, 1e-5),
+            (torch.float, 10, 1e4),
+            (torch.double, 200, 1e-3),
+        ):
+            with self.subTest(dtype=dtype, q=q, var=var):
+                tkwargs = {"device": self.device, "dtype": dtype}
+                mean = torch.zeros(q, 1, **tkwargs)
+                eye = torch.eye(q, **tkwargs)
+                res = mvn_hellinger_distance(mean, mean, var * eye, 2 * var * eye)
+                # Bhattacharyya coefficient det(Sp)^1/4 det(Sq)^1/4 / det(Sa)^1/2
+                bc = (2**0.25 / 1.5**0.5) ** q
+                expected = torch.tensor([(1 - bc) ** 0.5], **tkwargs)
+                self.assertAllClose(res, expected, rtol=1e-4, atol=0.0)

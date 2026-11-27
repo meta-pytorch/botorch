@@ -32,6 +32,7 @@ from botorch.acquisition.objective import ScalarizedPosteriorTransform
 from botorch.models.fully_bayesian import MCMC_DIM, SaasFullyBayesianSingleTaskGP
 from botorch.models.utils import fantasize as fantasize_flag
 from botorch.models.utils.gpytorch_modules import MIN_INFERRED_NOISE_LEVEL
+from botorch.utils.probability.utils import log_ndtr, log_phi
 from botorch.utils.transforms import (
     average_over_ensemble_models,
     concatenate_pending_points,
@@ -40,7 +41,7 @@ from botorch.utils.transforms import (
 from botorch_community.acquisition.bayesian_active_learning import DISTANCE_METRICS
 from torch import Tensor
 
-# The lower bound on the CDF value of the max-values
+# The lower bound on the relative (noiseless) variance of the truncated posterior
 CLAMP_LB = 1e-6
 
 
@@ -95,8 +96,9 @@ class qSelfCorrectingBayesianOptimization(
                         )
 
             self.optimal_inputs = optimal_inputs.unsqueeze(-2)
+            # NOTE: condition_on_observations applies the input transforms itself.
             self.conditional_model = self.model.condition_on_observations(
-                X=self.model.transform_inputs(self.optimal_inputs),
+                X=self.optimal_inputs,
                 Y=self.optimal_outputs,
                 noise=torch.full_like(self.optimal_outputs, MIN_INFERRED_NOISE_LEVEL),
             )
@@ -153,14 +155,15 @@ class qSelfCorrectingBayesianOptimization(
         normalized_mvs = (
             self.optimal_output_values - cond_means
         ) / noiseless_var.sqrt()
-        cdf_mvs = self.normal.cdf(normalized_mvs).clamp_min(CLAMP_LB)
-        pdf_mvs = torch.exp(self.normal.log_prob(normalized_mvs))
-        mean_truncated = cond_means - noiseless_var.sqrt() * pdf_mvs / cdf_mvs
+        # pdf / cdf of the normalized max-values (the inverse Mills ratio), computed
+        # in log-space, since the cdf underflows for very negative values.
+        pdf_cdf_ratio = torch.exp(log_phi(normalized_mvs) - log_ndtr(normalized_mvs))
+        mean_truncated = cond_means - noiseless_var.sqrt() * pdf_cdf_ratio
 
         # This is the noiseless variance (i.e. the part that gets truncated)
         var_truncated = noiseless_var * (
-            1 - normalized_mvs * pdf_mvs / cdf_mvs - torch.pow(pdf_mvs / cdf_mvs, 2)
-        )
+            1 - normalized_mvs * pdf_cdf_ratio - pdf_cdf_ratio.pow(2)
+        ).clamp_min(CLAMP_LB)
         # and add the (possibly heteroskedastic) noise
         var_truncated = var_truncated + (cond_variances - noiseless_var)
 
