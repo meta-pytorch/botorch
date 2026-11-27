@@ -283,6 +283,14 @@ def gen_candidates_scipy(
                 "problem at a time."
             )
 
+        # ``tol`` is an argument of ``scipy.optimize.minimize``, not an option of its
+        # methods. For L-BFGS-B, use it as the tolerance for the projected gradient,
+        # as ``fmin_l_bfgs_b_batched`` does on the parallel path.
+        tol = minimize_options.pop("tol", None)
+        if tol is not None and str(method).lower() == "l-bfgs-b":
+            minimize_options.setdefault("gtol", tol)
+            tol = None
+
         all_xs = []
         split_candidates = clamped_candidates.split(
             max_optimization_problem_aggregation_size
@@ -387,6 +395,7 @@ def gen_candidates_scipy(
                 jac=with_grad,
                 bounds=bounds,
                 constraints=constraints,
+                tol=tol,
                 callback=options.get("callback", None),
                 options=minimize_options,
                 timeout_sec=(
