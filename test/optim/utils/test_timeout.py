@@ -5,12 +5,13 @@
 # LICENSE file in the root directory of this source tree.
 
 import time
+import warnings
 
 import numpy as np
 import numpy.typing as npt
 from botorch.optim.utils.timeout import minimize_with_timeout
 from botorch.utils.testing import BotorchTestCase
-from scipy.optimize import OptimizeResult
+from scipy.optimize import minimize, OptimizeResult
 
 
 class TestMinimizeWithTimeout(BotorchTestCase):
@@ -102,3 +103,78 @@ class TestMinimizeWithTimeout(BotorchTestCase):
                     callback=callback,
                     timeout_sec=1e-4,
                 )
+
+        with self.subTest("test w/ binding timeout and without gradient"):
+
+            def f(x: npt.NDArray, sleep_sec: float = 0.0) -> float:
+                time.sleep(sleep_sec)
+                return float((x**2).sum())
+
+            res = minimize_with_timeout(
+                **{**base_kwargs, "fun": f, "jac": None},
+                args=(1e-2,),
+                timeout_sec=1e-4,
+            )
+            self.assertFalse(res.success)
+            self.assertIn("Optimization timed out", res.message)
+            self.assertEqual(res.fun, f(res.x))
+
+    def test_minimize_with_timeout_warning_filters(self):
+        # Warnings about methods that cannot handle bounds or constraints are raised
+        # as errors within ``minimize_with_timeout``, without modifying the warning
+        # filters outside of it.
+        filters = list(warnings.filters)
+        minimize_with_timeout(
+            fun=lambda x: float((x**2).sum()), x0=np.array([1.0]), method="L-BFGS-B"
+        )
+        self.assertEqual(warnings.filters, filters)
+        kwargs = {
+            "fun": lambda x: float((x**2).sum()),
+            "x0": np.array([1.0]),
+            "method": "Nelder-Mead",
+            "constraints": [{"type": "ineq", "fun": lambda x: x[0]}],
+        }
+        with self.assertRaisesRegex(RuntimeWarning, "cannot handle constraints"):
+            minimize_with_timeout(**kwargs)
+        self.assertEqual(warnings.filters, filters)
+        with self.assertWarnsRegex(RuntimeWarning, "cannot handle constraints"):
+            minimize(**kwargs)
+
+    def test_minimize_with_timeout_lbfgsb_zero_maxiter(self):
+        evals = []
+
+        def f_and_g(x: npt.NDArray) -> tuple[float, npt.NDArray]:
+            evals.append(x.copy())
+            return float(((x - 5.0) ** 2).sum()), 2.0 * (x - 5.0)
+
+        res = minimize_with_timeout(
+            fun=f_and_g,
+            x0=np.array([0.0]),
+            method="L-BFGS-B",
+            jac=True,
+            bounds=[(-2.0, 2.0)],
+            options={"maxiter": 0},
+        )
+        self.assertFalse(res.success)
+        self.assertEqual(res.status, 1)
+        self.assertEqual(res.nit, 0)
+        self.assertEqual(res.nfev, 1)
+        self.assertEqual(len(evals), 1)
+        np.testing.assert_array_equal(res.x, np.array([0.0]))
+        self.assertAlmostEqual(res.fun, 25.0)
+        np.testing.assert_allclose(res.jac, np.array([-10.0]))
+
+        # Out-of-bounds x0 is clipped to bounds without taking an optimization step.
+        evals.clear()
+        res_clipped = minimize_with_timeout(
+            fun=f_and_g,
+            x0=np.array([-4.0]),
+            method="L-BFGS-B",
+            jac=True,
+            bounds=[(-2.0, 2.0)],
+            options={"maxiter": 0},
+        )
+        self.assertEqual(res_clipped.nit, 0)
+        self.assertEqual(len(evals), 1)
+        np.testing.assert_array_equal(res_clipped.x, np.array([-2.0]))
+        self.assertAlmostEqual(res_clipped.fun, 49.0)

@@ -22,7 +22,7 @@ from botorch.optim.closures import NdarrayOptimizationClosure
 from botorch.optim.stopping import StoppingCriterion
 from botorch.optim.utils.numpy_utils import get_bounds_as_ndarray
 from botorch.optim.utils.timeout import minimize_with_timeout
-from numpy import asarray, float64 as np_float64
+from numpy import array_equal, asarray, float64 as np_float64
 from torch import Tensor
 from torch.optim.adam import Adam
 from torch.optim.optimizer import Optimizer
@@ -98,22 +98,36 @@ def scipy_minimize(
     else:
         bounds_np = get_bounds_as_ndarray(parameters, bounds)
 
+    fun = wrapped_closure
     if callback is None:
         wrapped_callback = None
     else:
         call_counter = count(1)  # callbacks are typically made at the end of each iter
+        last_eval = {}
+
+        def fun_and_cache(x: npt.NDArray) -> tuple[npt.NDArray, npt.NDArray]:
+            fval, grad = wrapped_closure(x)
+            last_eval.update(x=x.copy(), fval=fval)
+            return fval, grad
 
         def wrapped_callback(x: npt.NDArray):
+            # The callback is typically made at the point of the last evaluation
+            # (e.g., for L-BFGS-B), in which case the closure is not re-evaluated
+            # (the evaluation also sets the parameters to ``x``).
+            if "x" not in last_eval or not array_equal(x, last_eval["x"]):
+                fun_and_cache(x)
             result = OptimizationResult(
                 step=next(call_counter),
-                fval=float(wrapped_closure(x)[0]),
+                fval=float(last_eval["fval"]),
                 status=OptimizationStatus.RUNNING,
                 runtime=monotonic() - start_time,
             )
             return callback(parameters, result)  # pyre-ignore [29]
 
+        fun = fun_and_cache
+
     raw = minimize_with_timeout(
-        wrapped_closure,
+        fun,
         wrapped_closure.state if x0 is None else x0.astype(np_float64, copy=False),
         jac=True,
         bounds=bounds_np,
