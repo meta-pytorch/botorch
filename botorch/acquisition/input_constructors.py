@@ -214,7 +214,9 @@ def allow_only_specific_variable_kwargs(f: Callable[..., T]) -> Callable[..., T]
     This decorator is applied in ``acqf_input_constructor`` so that all constructors
     obtained with ``acqf_input_constructor`` allow keyword
     arguments such as ``training_data`` and ``objective``, even if they do not appear
-    in the signature of ``f``. Any other keyword arguments will raise an error.
+    in the signature of ``f``. These are dropped. Any other keyword arguments will
+    raise an error, unless ``f`` takes variable keyword arguments (``**kwargs``), to
+    which they are passed.
     """
     allowed = {
         # ``training_data`` and/or ``X_baseline`` are needed to compute baselines
@@ -242,8 +244,11 @@ def allow_only_specific_variable_kwargs(f: Callable[..., T]) -> Callable[..., T]
     def g(*args: Any, **kwargs: Any) -> T:
         new_kwargs = {}
         accepted_kwargs = inspect.signature(f).parameters.keys()
+        accepts_var_kwargs = any(
+            p.kind == p.VAR_KEYWORD for p in inspect.signature(f).parameters.values()
+        )
         for k, v in kwargs.items():
-            if k in accepted_kwargs:
+            if k in accepted_kwargs or (accepts_var_kwargs and k not in allowed):
                 new_kwargs[k] = v
             elif k not in allowed:
                 raise TypeError(
