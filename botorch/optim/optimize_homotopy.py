@@ -133,8 +133,8 @@ def optimize_acqf_homotopy(
             is set to 1, which will be done automatically if not specified in
             ``options``.
         fixed_features: A map ``{feature_index: value}`` for features that should
-            be fixed to a particular value during generation. Used with
-            ``optimize_acqf`` or ``optimize_acqf_mixed_alternating``.
+            be fixed to a particular value during generation. These take
+            precedence over ``discrete_dims`` and ``cat_dims``.
         discrete_dims: A dictionary mapping indices of discrete and binary
             dimensions to a list of allowed values for that dimension. If provided
             along with ``cat_dims``, the optimizer is chosen based on the number
@@ -192,13 +192,21 @@ def optimize_acqf_homotopy(
         fixed_features_kwargs = {}
     elif discrete_dims is not None or cat_dims is not None:
         # Use optimize_acqf_mixed for mixed problems with few discrete combinations.
-        # Build fixed_features_list from discrete_dims and cat_dims.
-
-        all_discrete_dims = {**(discrete_dims or {}), **(cat_dims or {})}
+        # Build fixed_features_list from discrete_dims and cat_dims, and add the
+        # user-provided fixed_features (which take precedence) to each entry.
+        fixed_features = {
+            k % bounds.shape[-1]: v for k, v in (fixed_features or {}).items()
+        }
+        all_discrete_dims = {
+            dim: values
+            for dim, values in {**(discrete_dims or {}), **(cat_dims or {})}.items()
+            if dim not in fixed_features
+        }
         dim_indices = sorted(all_discrete_dims.keys())
         value_lists = [all_discrete_dims[idx] for idx in dim_indices]
         fixed_features_list = [
-            dict(zip(dim_indices, combo)) for combo in product(*value_lists)
+            {**dict(zip(dim_indices, combo)), **fixed_features}
+            for combo in product(*value_lists)
         ]
         optimization_fn = optimize_acqf_mixed
         shared_optimize_acqf_kwargs = {

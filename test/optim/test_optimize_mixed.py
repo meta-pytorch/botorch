@@ -1172,23 +1172,27 @@ class TestOptimizeAcqfMixed(BotorchTestCase):
             torch.ones(2, device=self.device),
             1.0,
         )
-        candidates, _ = optimize_acqf_mixed_alternating(
-            acq_function=acqf,
-            bounds=bounds,
-            discrete_dims={
-                i: values for i, values in discrete_dims.items() if i in integer_dims
-            },
-            q=3,
-            raw_samples=32,
-            num_restarts=4,
-            options={"batch_limit": 5, "init_batch_limit": 20},
-            fixed_features={1: 0.5, 3: 2},
-            inequality_constraints=[constraint],
-        )
-        self.assertAllClose(
-            candidates[:, [0, 1, 3]],
-            torch.tensor([0.5, 0.5, 2.0], device=self.device).repeat(3, 1),
-        )
+        # Negative indices are supported, as in ``optimize_acqf``.
+        for fixed_features in ({1: 0.5, 3: 2}, {1 - dim: 0.5, 3 - dim: 2}):
+            candidates, _ = optimize_acqf_mixed_alternating(
+                acq_function=acqf,
+                bounds=bounds,
+                discrete_dims={
+                    i: values
+                    for i, values in discrete_dims.items()
+                    if i in integer_dims
+                },
+                q=3,
+                raw_samples=32,
+                num_restarts=4,
+                options={"batch_limit": 5, "init_batch_limit": 20},
+                fixed_features=fixed_features,
+                inequality_constraints=[constraint],
+            )
+            self.assertAllClose(
+                candidates[:, [0, 1, 3]],
+                torch.tensor([0.5, 0.5, 2.0], device=self.device).repeat(3, 1),
+            )
 
         # Test with equality constraints.
         constraint = (  # X[..., 1] + X[..., 2] >= 1.

@@ -440,7 +440,11 @@ def _generate_unfixed_nonlin_constraints(
             selector.append(idx_X)
             idx_X += 1
 
-    values = torch.tensor(list(fixed_features.values()), dtype=torch.double)
+    # The fixed features are appended in ascending order of their indices (see
+    # ``selector``), so their values need to be in the same order.
+    values = torch.tensor(
+        [fixed_features[i] for i in sorted(fixed_features)], dtype=torch.double
+    )
 
     def _wrap_nonlin_constraint(
         constraint: Callable[[Tensor], Tensor],
@@ -495,7 +499,15 @@ def _generate_unfixed_lin_constraints(
 
         # all indices were fixed, so the constraint is gone.
         if len(new_indices) == 0:
-            if (eq and new_rhs != 0) or (not eq and new_rhs > 0):
+            # Allow for floating point errors, as in ``evaluate_feasibility``.
+            tolerance = get_constraint_tolerance(
+                dtype=(
+                    coefficients.dtype
+                    if coefficients.is_floating_point()
+                    else torch.double
+                )
+            )
+            if (eq and abs(new_rhs) >= tolerance) or (not eq and new_rhs > tolerance):
                 prefix = "Eq" if eq else "Ineq"
                 raise CandidateGenerationError(
                     f"{prefix}uality constraint {constraint_id} not met "
