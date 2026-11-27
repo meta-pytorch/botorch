@@ -673,7 +673,31 @@ def project_psd(A: Tensor, min_eigval: float = 0.0) -> Tensor:
     Returns:
         A_psd: (N, N) symmetric PSD matrix closest to A in Frobenius norm.
     """
-    # Eigendecomposition (A should be symmetric, eigh is appropriate)
+    original_dtype = A.dtype
+    A = A.to(torch.double) if A.dtype == torch.float else A
+    A = (A + A.mT) * 0.5
+    eigenvalues = torch.linalg.eigvalsh(A)
+    if bool((eigenvalues >= min_eigval).all()):
+        # The projection is the identity throughout this open region, even
+        # when eigenvalues repeat and eigenvector derivatives are singular.
+        return A.to(original_dtype)
+    if bool((eigenvalues < min_eigval).all()):
+        return (
+            A * 0 + min_eigval * torch.eye(A.shape[-1], device=A.device, dtype=A.dtype)
+        ).to(original_dtype)
+    if torch.is_grad_enabled() and A.requires_grad:
+        from botorch.models.empirical_gps._spectral import smooth_psd_floor
+
+        try:
+            return smooth_psd_floor(A, min_eigval).to(original_dtype)
+        except ValueError:
+            # The projection is not differentiable when an eigenvalue lies at the
+            # clipping threshold, e.g. when re-projecting a matrix that was
+            # already projected with the same floor. Fall back to clamping the
+            # eigenvalues below, as for value-only evaluation.
+            pass
+
+    # Eigendecomposition for value-only evaluation.
     eigvals, eigvecs = torch.linalg.eigh(A)
 
     # Clamp negative eigenvalues
@@ -681,10 +705,10 @@ def project_psd(A: Tensor, min_eigval: float = 0.0) -> Tensor:
 
     # Reconstruct: A_psd = V @ diag(max(λ, 0)) @ V.T
     # Use scaled eigenvectors for efficient computation: (V * λ) @ V.T
-    A_psd = (eigvecs * eigvals_clamped) @ eigvecs.T
+    A_psd = (eigvecs * eigvals_clamped.unsqueeze(-2)) @ eigvecs.mT
 
     # Explicitly symmetrize to counteract numerical asymmetry from matmul
-    return 0.5 * (A_psd + A_psd.T)
+    return (0.5 * (A_psd + A_psd.mT)).to(original_dtype)
 
 
 def trace_matched_shrinkage(
