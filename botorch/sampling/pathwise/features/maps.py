@@ -15,7 +15,7 @@ from botorch.sampling.pathwise.utils import (
 from gpytorch.kernels import Kernel
 from linear_operator.operators import LinearOperator
 from torch import Size, Tensor
-from torch.nn import Module
+from torch.nn import Module, Parameter
 
 
 class FeatureMap(TransformedModuleMixin, Module):
@@ -56,7 +56,10 @@ class KernelEvaluationMap(FeatureMap):
 
         super().__init__()
         self.kernel = kernel
-        self.points = points
+        if isinstance(points, Parameter):
+            self.points = points
+        else:
+            self.register_buffer("points", points)
         self.input_transform = input_transform
         self.output_transform = output_transform
 
