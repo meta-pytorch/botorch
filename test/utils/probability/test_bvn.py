@@ -61,6 +61,39 @@ def run_gaussian_estimator(
 
 
 class TestBVN(BotorchTestCase):
+    def test_independent_correlation_derivatives(self) -> None:
+        for dtype in (torch.float, torch.double):
+            for track_bounds in (False, True):
+                with self.subTest(dtype=dtype, track_bounds=track_bounds):
+                    r = torch.tensor(
+                        [0.0, 0.0], dtype=dtype, device=self.device, requires_grad=True
+                    )
+                    h = r.new_tensor([0.4, -0.7], requires_grad=track_bounds)
+                    k = r.new_tensor([-0.2, 0.3], requires_grad=track_bounds)
+                    value = bvnu(r, h, k)
+                    self.assertAllClose(value, Phi(-h) * Phi(-k), atol=0, rtol=0)
+                    gradient = torch.autograd.grad(value.sum(), r, create_graph=True)[0]
+                    expected = (-0.5 * (h.square() + k.square())).exp() / (2 * torch.pi)
+                    rtol = 3e-6 if dtype == torch.float else 3e-14
+                    self.assertAllClose(gradient, expected, atol=0, rtol=rtol)
+                    curvature = torch.autograd.grad(gradient.sum(), r)[0]
+                    self.assertAllClose(curvature, h * k * expected, atol=0, rtol=rtol)
+
+    def test_independent_rectangle_correlation_derivative(self) -> None:
+        r = torch.tensor(
+            [0.0], dtype=torch.double, device=self.device, requires_grad=True
+        )
+        bounds = tuple(r.new_tensor([x]) for x in (-0.3, 0.2, 1.1, 1.5))
+        probability = bvn(r, *bounds)
+        actual = torch.autograd.grad(probability.sum(), r)[0]
+
+        def density(x: Tensor) -> Tensor:
+            return (-x.square() / 2).exp() / (2 * torch.pi) ** 0.5
+
+        xl, yl, xu, yu = bounds
+        expected = (density(xl) - density(xu)) * (density(yl) - density(yu))
+        self.assertAllClose(actual, expected, atol=0, rtol=3e-14)
+
     def setUp(
         self,
         nprobs_per_coeff: int = 3,
