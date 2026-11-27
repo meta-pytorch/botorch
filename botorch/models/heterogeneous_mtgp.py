@@ -275,6 +275,16 @@ class HeterogeneousMTGP(MultiTaskGP):
                 "Heterogeneous MTGP does not support `output_indices`. "
             )
 
+        X_full = self._map_target_inputs(X)
+        return super().posterior(
+            X=X_full,
+            observation_noise=observation_noise,
+            posterior_transform=posterior_transform,
+            **kwargs,
+        )
+
+    def _map_target_inputs(self, X: Tensor) -> Tensor:
+        """Embed public target-task inputs in the full training feature layout."""
         d_target = len(self.feature_indices[0])
         if X.shape[-1] != d_target + 1:
             raise ValueError(
@@ -285,13 +295,14 @@ class HeterogeneousMTGP(MultiTaskGP):
 
         if (X[..., -1] != 0).any():
             raise UnsupportedError("Posterior can only be called for the target task.")
-        X = X[..., :-1]
-        X_full = self.map_to_full_tensor(X=X, task_index=0)
-        return super().posterior(
-            X=X_full,
-            observation_noise=observation_noise,
-            posterior_transform=posterior_transform,
-            **kwargs,
+        return self.map_to_full_tensor(X=X[..., :-1], task_index=0)
+
+    def condition_on_observations(
+        self, X: Tensor, Y: Tensor, **kwargs: Any
+    ) -> "HeterogeneousMTGP":
+        """Condition on observations in the public target-task feature layout."""
+        return super().condition_on_observations(
+            X=self._map_target_inputs(X), Y=Y, **kwargs
         )
 
     def _split_inputs(self, x: Tensor) -> tuple[Tensor, Tensor, Tensor]:
