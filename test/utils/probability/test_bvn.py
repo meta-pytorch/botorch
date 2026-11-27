@@ -15,6 +15,7 @@ from botorch.exceptions import UnsupportedError
 from botorch.utils.probability.bvn import (
     _bvnu_polar,
     _bvnu_taylor,
+    _bvnu_taylor_impl,
     bvn,
     bvnmom,
     bvnu,
@@ -208,6 +209,116 @@ class TestBVN(BotorchTestCase):
 
         atol = self.mc_atol_multiplier * (self.mc_num_samples**-0.5)
         self.assertAllClose(estimates, solves, rtol=0, atol=atol)
+
+    def test_bvnu_taylor_equal_bound_second_derivatives(self) -> None:
+        """The distribution is smooth at h = sign(r) * k for abs(r) < 1."""
+        devices = [torch.device("cpu")]
+        if torch.cuda.is_available():
+            devices.append(torch.device("cuda"))
+        for device in devices:
+            for rho in (-0.98, 0.98):
+                with self.subTest(device=device, rho=rho):
+                    r, h, k = (
+                        torch.tensor(
+                            [value],
+                            dtype=torch.double,
+                            device=device,
+                            requires_grad=True,
+                        )
+                        for value in (rho, 0.4, -0.4 if rho < 0 else 0.4)
+                    )
+                    value = _bvnu_taylor(r, h, k)
+                    dh = torch.autograd.grad(value.sum(), h, create_graph=True)[0]
+                    mixed = torch.autograd.grad(dh.sum(), k)[0]
+                    variance = 1 - r.square()
+                    density = torch.exp(
+                        -(h.square() + k.square() - 2 * r * h * k) / (2 * variance)
+                    ) / (2 * torch.pi * variance.sqrt())
+                    self.assertAllClose(mixed, density, atol=1e-10, rtol=1e-9)
+                    public_dh = torch.autograd.grad(
+                        bvnu(r, h, k).sum(), h, create_graph=True
+                    )[0]
+                    public_mixed = torch.autograd.grad(public_dh.sum(), k)[0]
+                    self.assertAllClose(public_mixed, density, atol=1e-10, rtol=1e-9)
+                    derivatives = []
+                    step = 1e-5
+                    for sign in (-1, 1):
+                        shifted = _bvnu_taylor(r.detach(), h, k.detach() + sign * step)
+                        derivatives.append(torch.autograd.grad(shifted.sum(), h)[0])
+                    finite_difference = (derivatives[1] - derivatives[0]) / (2 * step)
+                    self.assertAllClose(mixed, finite_difference, atol=2e-8, rtol=2e-8)
+                    self.assertTrue(torch.autograd.gradcheck(_bvnu_taylor, (r, h, k)))
+                    self.assertTrue(
+                        torch.autograd.gradgradcheck(_bvnu_taylor, (r, h, k))
+                    )
+
+    def test_bvnu_taylor_analytic_derivative_transforms(self) -> None:
+        devices = [torch.device("cpu")]
+        if torch.cuda.is_available():
+            devices.append(torch.device("cuda"))
+        for device in devices:
+            with self.subTest(device=device):
+                r = torch.tensor([-0.98, 0.98], dtype=torch.double, device=device)
+                h = torch.tensor([0.4, 0.4], dtype=torch.double, device=device)
+                k = torch.tensor([-0.4, 0.4], dtype=torch.double, device=device)
+                variance = 1 - r.square()
+                density = torch.exp(
+                    -(h.square() + k.square() - 2 * r * h * k) / (2 * variance)
+                ) / (2 * torch.pi * variance.sqrt())
+                value, tangent = torch.func.jvp(
+                    _bvnu_taylor,
+                    (r, h, k),
+                    (torch.ones_like(r), torch.zeros_like(h), torch.zeros_like(k)),
+                )
+                self.assertAllClose(tangent, density)
+                self.assertAllClose(torch.vmap(_bvnu_taylor)(r, h, k), value)
+                self.assertAllClose(
+                    torch.func.jacrev(_bvnu_taylor, argnums=0)(r, h, k), density.diag()
+                )
+
+    def test_bvnu_taylor_preserves_forward_and_limits(self) -> None:
+        devices = [torch.device("cpu")]
+        if torch.cuda.is_available():
+            devices.append(torch.device("cuda"))
+        for device in devices:
+            for dtype in (torch.float, torch.double):
+                with self.subTest(device=device, dtype=dtype):
+                    r = torch.tensor(
+                        [-1, -0.99, -0.925, 0.925, 0.99, 1],
+                        dtype=dtype,
+                        device=device,
+                        requires_grad=True,
+                    )
+                    h = torch.tensor(
+                        [0.4, -1e4, 0.2, 0.4, 1e4, 0.4],
+                        dtype=dtype,
+                        device=device,
+                        requires_grad=True,
+                    )
+                    k = torch.tensor(
+                        [-0.8, 0.3, -0.7, 0.4, 0.5, 0.8],
+                        dtype=dtype,
+                        device=device,
+                        requires_grad=True,
+                    )
+                    for num_points in (6, 12, 20):
+                        self.assertAllClose(
+                            _bvnu_taylor(r, h, k, num_points),
+                            _bvnu_taylor_impl(r, h, k, num_points),
+                            atol=0,
+                            rtol=0,
+                        )
+                    value = _bvnu_taylor(r, h, k)
+                    gradients = torch.autograd.grad(value.sum(), (r, h, k))
+                    self.assertTrue(
+                        all(gradient.isfinite().all() for gradient in gradients)
+                    )
+                    self.assertAllClose(gradients[0][[0, -1]], torch.zeros_like(r[:2]))
+                    self.assertAllClose(
+                        gradients[1][0],
+                        -torch.exp(-h[0].square() / 2) / (2 * torch.pi) ** 0.5,
+                    )
+                    self.assertEqual(gradients[1][-1].item(), 0)
 
     def test_bvnmom(self):
         r"""Monte Carlo unit test for ``bvn``."""

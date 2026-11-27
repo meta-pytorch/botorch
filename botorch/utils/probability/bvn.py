@@ -18,7 +18,8 @@ Methods for computing bivariate normal probabilities and statistics.
 
 from __future__ import annotations
 
-from math import pi as _pi
+from math import log as _log, pi as _pi
+from typing import Any
 
 import torch
 from botorch.exceptions import UnsupportedError
@@ -171,6 +172,98 @@ def _bvnu_polar(
 
 
 def _bvnu_taylor(r: Tensor, h: Tensor, k: Tensor, num_points: int = 20) -> Tensor:
+    r"""Evaluate the Taylor approximation using analytic Gaussian derivatives.
+
+    The forward approximation contains ``abs(h - sign(r) * k)`` and a maximum.
+    At equal bounds their nonsmooth derivatives do not cancel under double
+    backward, although the Gaussian probability is smooth for ``abs(r) < 1``.
+    Differentiate the probability analytically instead of these intermediates.
+    """
+    return _BVNUTaylor.apply(r, h, k, num_points)
+
+
+def _bvnu_taylor_partials(
+    r: Tensor, h: Tensor, k: Tensor
+) -> tuple[Tensor, Tensor, Tensor]:
+    r"""Gaussian probability partials, with fixed-correlation endpoint limits."""
+    interior = r.abs() < 1
+    corr = r.masked_fill(~interior, 0)
+    lower, upper = STANDARDIZED_RANGE
+    h_finite, k_finite = h.clamp(lower, upper), k.clamp(lower, upper)
+    std = (1 - corr.square()).sqrt()
+    residual = (h_finite - corr * k_finite) / std
+    log_density = (
+        -0.5 * (residual.square() + k_finite.square()) - std.log() - _log(_2pi)
+    )
+    # Mask before recomputing the density so its higher derivatives do not
+    # multiply underflowed exponentials by overflowed intermediate products.
+    underflow = log_density < (-105 if r.dtype == torch.float32 else -746)
+    safe_corr = corr.masked_fill(underflow, 0)
+    safe_h = h_finite.masked_fill(underflow, 0)
+    safe_k = k_finite.masked_fill(underflow, 0)
+    safe_std = (1 - safe_corr.square()).sqrt()
+    safe_residual = (safe_h - safe_corr * safe_k) / safe_std
+    dr = (
+        (-0.5 * (safe_residual.square() + safe_k.square())).exp() / (_2pi * safe_std)
+    ).masked_fill(underflow | ~interior, 0)
+    dh = -phi(h_finite) * Phi((corr * h_finite - k_finite) / std)
+    dk = -phi(k_finite) * Phi((corr * k_finite - h_finite) / std)
+
+    # At r = +/-1 the correlation derivative is singular. Retain the ordinary
+    # fixed-correlation bound subgradients of the limiting one-dimensional CDF.
+    positive_h = (h > k).to(r) + 0.5 * (h == k).to(r)
+    positive_k = (k > h).to(r) + 0.5 * (h == k).to(r)
+    negative_active = (h <= -k).to(r)
+    singular_h = -phi(h_finite) * torch.where(r > 0, positive_h, negative_active)
+    singular_k = -phi(k_finite) * torch.where(r > 0, positive_k, negative_active)
+    return (
+        dr,
+        torch.where(interior, dh, singular_h),
+        torch.where(interior, dk, singular_k),
+    )
+
+
+class _BVNUTaylor(torch.autograd.Function):
+    @staticmethod
+    def forward(r: Tensor, h: Tensor, k: Tensor, num_points: int) -> Tensor:
+        return _bvnu_taylor_impl(r, h, k, num_points)
+
+    @staticmethod
+    def setup_context(ctx: Any, inputs: tuple, output: Tensor) -> None:
+        ctx.save_for_backward(*inputs[:3])
+        ctx.save_for_forward(*inputs[:3])
+
+    @staticmethod
+    def backward(ctx: Any, grad_output: Tensor) -> tuple:
+        return (
+            *(
+                grad_output * partial
+                for partial in _bvnu_taylor_partials(*ctx.saved_tensors)
+            ),
+            None,
+        )
+
+    @staticmethod
+    def jvp(ctx: Any, dr: Tensor, dh: Tensor, dk: Tensor, _: None) -> Tensor:
+        return sum(
+            partial * tangent
+            for partial, tangent in zip(
+                _bvnu_taylor_partials(*ctx.saved_tensors), (dr, dh, dk)
+            )
+        )
+
+    @staticmethod
+    def vmap(info: Any, in_dims: tuple, *args: Any) -> tuple[Tensor, int]:
+        batched = [
+            arg.unsqueeze(0).expand(info.batch_size, *arg.shape)
+            if dim is None
+            else arg.movedim(dim, 0)
+            for dim, arg in zip(in_dims[:3], args[:3])
+        ]
+        return _BVNUTaylor.apply(*batched, args[3]), 0
+
+
+def _bvnu_taylor_impl(r: Tensor, h: Tensor, k: Tensor, num_points: int = 20) -> Tensor:
     r"""Solves for ``P(x > h, y > k)`` via Taylor expansion.
 
     Per Section 2.3 of [Genz2004bvnt]_, the bvnu equation (1) may be rewritten as
