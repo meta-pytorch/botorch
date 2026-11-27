@@ -1,0 +1,40 @@
+{
+  "packaging_note": "Sanitized metadata copy. Path strings changed; original file bytes were not edited. The original metadata SHA256 below is not this sanitized file's hash.",
+  "original_metadata_sha256": "4cf17a6aa5d74165f014263519a164cc1635f696c92673e3b8d04781c8b28434",
+  "record": {
+    "full_suite": {
+      "exit_code": 0,
+      "executed_items": 1261,
+      "passed": 1250,
+      "runtime_skipped": 11,
+      "failed": 0,
+      "errors": 0,
+      "collection_skipped_modules": 1,
+      "collection_skip_reason": "tests/test_hierarchical_oracle.py uses module-level pytest.importorskip('numpyro'); numpyro is absent in the tested interpreter.",
+      "count_method": "Executed outcomes counted from all pytest progress lines; module-level collection skip verified separately from its source and interpreter package availability. Double quiet configuration suppresses the final aggregate count.",
+      "approximate_elapsed_seconds": 680,
+      "approximate_elapsed": "11m20s",
+      "started_local": "2026-10-21 21:53:54 Europe/Berlin",
+      "last_log_write_local": "2026-10-21 22:05:14 Europe/Berlin",
+      "log": "validation_full_tests.txt",
+      "concurrency": "Other chats were running independent tests and a workflow benchmark on the same host. This validation time is not a performance benchmark."
+    },
+    "focused_replay_tests": {
+      "passed": 5,
+      "failed": 0
+    },
+    "paper_static_check": {
+      "exit_code": 0,
+      "result": "Inputs, references, citations and table shapes pass; zero TODO markers.",
+      "log": "validation_check_paper.txt",
+      "latex_compiled": false
+    },
+    "archive_integrity": {
+      "archives": 100,
+      "archived_trials": 5000,
+      "metadata_mismatches": 0,
+      "log": "archive_integrity.json"
+    },
+    "source_freeze": "Replay source and selector source remained unchanged during scoring and validation. All selector hashes were rechecked against manifest.json and matched."
+  }
+}

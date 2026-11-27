@@ -1,0 +1,11 @@
+{
+  "note": "Supplemental provenance captured after the benchmark; original protocol and measurements unchanged.",
+  "tested_python": "3.14.6 (main, Jul 18 2026, 17:08:46) [MSC v.1944 64 bit (AMD64)]",
+  "installed_optimize_module_sha256": "9ab9d630b9a89e738ae6ba7fd62bc6beac29efcdb10f5ad6ae4718ef925b2021",
+  "optimize_with_nsgaii_source_sha256": "9193f559a09578ff722307e84dcc44efcdfa53a8d74be97f5d9e6f6997fa31cf",
+  "source_equivalence": "Installed optimize.py equals the pinned current-upstream checkout after CRLF/LF translation only.",
+  "source_repository": "https://github.com/M-Colley/botorch",
+  "source_commit": "1579b22ab86517f78109b926eae869532b79443d",
+  "source_path": "botorch/utils/multi_objective/optimize.py",
+  "availability": "A same-version BoTorch0.18.1 installation can lack this helper; use the pinned upstream source containing optimize_with_nsgaii, not version number alone."
+}

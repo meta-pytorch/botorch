@@ -24,7 +24,12 @@
     "title": "Multi-Information Source BO with Augmented GP"
   },
   {
+    "id": "pareto_decision_making",
+    "title": "Preference-aware Pareto decisions and experimental FPBI"
+  },
+  {
     "id": "vbll_thompson_sampling",
     "title": "Variational Bayesian Last Layers for BO"
   }
 ]
+

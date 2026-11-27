@@ -1,0 +1,60 @@
+{
+  "scope": "Current GPU correction, fitted-GP experiment and private pilot",
+  "local_cpu": {
+    "passed": 66,
+    "cuda_skipped": 12,
+    "subtests_passed": 10
+  },
+  "converter_regressions": {
+    "passed": 4,
+    "subtests_passed": 4
+  },
+  "local_cpu_note": "Decision tests use Python3.14 CPU; converter tests use Python3.13 with documentation dependencies. One combined invocation initially failed collection because CPU venv lacks nbformat; separately provisioned checks passed.",
+  "cuda_facade_parity": {
+    "exact_comparisons": 192,
+    "large_front_included": [
+      2,
+      1025,
+      3
+    ]
+  },
+  "selector_and_fpbi_cpu_cuda": {
+    "passed": 38,
+    "subtests_passed": 10
+  },
+  "style": {
+    "ufmt": "passed",
+    "flake8": "passed"
+  },
+  "experiments": {
+    "fitted_gp_runs": 36,
+    "complete_failures": 0,
+    "gpu_followup_paired_configurations": [
+      48,
+      48
+    ],
+    "all_paired_outputs_exact": true
+  },
+  "previous_cloud_validation": {
+    "head": "829ca09b99227fcf28ad0dfe6fc8ca5c94755f38",
+    "url": "https://github.com/M-Colley/botorch/actions/runs/39738627474",
+    "result": "All six OS/Python jobs and full executed-notebook/Docusaurus job passed.",
+    "limits": "Precedes current GPU/GP/pilot additions. Final-head validation is reported with the PR checks."
+  },
+  "human_feedback": "Private workflow implemented and synthetic tests passed; no real responses or human-benefit result supplied.",
+  "source_sha256": {
+    "botorch_community/utils/multi_objective/decision_making.py": "1bb1e1caef43b0d91520ca2ad5d0c8bb8209023c8a32413602c6b66215ec01b7",
+    "botorch_community/utils/multi_objective/fpbi.py": "2296e1e87264431d52e712af82f6ef008d10935bd8147d11c5ee3b647b2697e4",
+    "botorch_community/utils/multi_objective/__init__.py": "eab5f920189c13ec9ce45935f91c6241acadd468950fac2d7a417363175499d3",
+    "test_community/utils/multi_objective/test_decision_making.py": "11dae146d4dedeafe9a57f125edaf8fc92d8cd68071e455471b20984387ad423",
+    "test_community/utils/multi_objective/test_fpbi.py": "0a7cde1f32e3abf7eff324dd5f9fed4e5c5239962072b9a04bb3b041e2cb65cc",
+    "test_community/utils/multi_objective/test_fpbi_benchmark.py": "a3d9078fa788898442cb84f2a72479df11eba998c0bb714e0cba80e4bbb5d43a",
+    "test_community/utils/multi_objective/test_gp_benchmark.py": "46b58bba7d87e7caf19f4260c1580de96b21fee28aea3e9adad5635bcd31220e",
+    "test_community/utils/multi_objective/test_human_feedback_pilot.py": "5b87750752d8155e817c4f0a4b45b8fc179bf5ae39aa0d70def5f9e05dc4cf71",
+    "test_community/utils/multi_objective/test_selector_benchmark.py": "f4258b1bcd96bd6ac1ae10d04b4331f60a6f60e8490d3fd0500838b69fedc789",
+    "notebooks_community/pareto_decision_making/experiments/benchmark_fpbi.py": "0333cc93992e4f5d945701af946c8e4db824ee1619f9505969006ef3389dd438",
+    "notebooks_community/pareto_decision_making/experiments/benchmark_gp_fpbi.py": "e6c3b189bd2c84154cfb56c7e17e5c0a3fd64e69786ff6db377b9a7d651d4346",
+    "notebooks_community/pareto_decision_making/experiments/benchmark_selector.py": "25cb4fcd0efa16a0b4ebbf64724186a1734cfca3557fa1881795028295bc8b24",
+    "notebooks_community/pareto_decision_making/experiments/human_feedback_pilot.py": "25c4cceb78e80ff618625caf6d65df84986a4d36047a57d1ae8c9c8f9c4fa8ef"
+  }
+}

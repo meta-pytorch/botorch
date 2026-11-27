@@ -1,0 +1,10 @@
+{
+  "captured_during": "evidence packaging, separately from original measurement metadata",
+  "external_repository": "https://github.com/M-Colley/hitl-mobo-robustness-tests",
+  "helpers": {
+    "scripts/analyse_boba_adaptations.py": "3e5a3038f6b1e331592994ae770d090aaa99cb6cd5d29b3651fdb9d9062bd2dc",
+    "scripts/replay_mo_front.py": "6c5daf34541cbb7c900ae4e9b8b8dc4b13837719b6617a0627aa2b67625e5b73",
+    "scripts/boba_benchmarks.py": "6037ab87afd719ae1036acadb06a7d41e64cd6696643c070ec2c8f91b987a337",
+    "scripts/boba_multiobjective.py": "e312c9683872507e6dbbb974b3d7a59ae3b1b6430240940c515245f93a89df6d"
+  }
+}

@@ -1,0 +1,62 @@
+{
+  "publication_note": "Sanitized copy; original measurement metadata unchanged locally.",
+  "original_sha256": "229dcddcb21bc16d376ec07f08f0d08c6058ae85f7ddafdd9ee0974b881243e5",
+  "data": {
+    "recorded_utc": "2026-10-22T07:08:23.358282+00:00",
+    "cases": [
+      [
+        1,
+        64,
+        2
+      ],
+      [
+        1,
+        256,
+        3
+      ],
+      [
+        32,
+        64,
+        3
+      ],
+      [
+        32,
+        256,
+        3
+      ],
+      [
+        32,
+        256,
+        5
+      ],
+      [
+        1,
+        1024,
+        3
+      ]
+    ],
+    "functions": [
+      "knee_region",
+      "select_preferred"
+    ],
+    "seed": 17,
+    "devices": [
+      "cpu",
+      "cuda"
+    ],
+    "dtypes": [
+      "float32",
+      "float64"
+    ],
+    "warmups": 2,
+    "repeats": 5,
+    "threads": 1,
+    "alpha": 0.5,
+    "maximize": true,
+    "timing": "synchronized perf_counter, full public functions",
+    "input_generation": "CPU float64 normal Y and uniform+0.1 batched preferences, cast/transfer before timing",
+    "order": "before/after counterbalanced by case+dtype+device+function index parity",
+    "conditions": "Fixed GPU tiling candidate compared directly with original per-batch prototype; prior measurements preserved; other packaging/docs tasks run concurrently.",
+    "command": "<cuda-python> <workspace>\\work\\botorch-contribution\\notebooks_community\\pareto_decision_making\\experiments\\benchmark_selector.py --before notebooks_community/pareto_decision_making/evidence/selector/source/before.py.txt --after botorch_community/utils/multi_objective/decision_making.py --output-dir <workspace>/outputs/selector-optimization-vs-original --conditions \"Fixed GPU tiling candidate compared directly with original per-batch prototype; prior measurements preserved; other packaging/docs tasks run concurrently.\""
+  }
+}

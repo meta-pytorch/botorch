@@ -1,0 +1,152 @@
+[
+  {
+    "path": "selector-optimization/protocol.json",
+    "sha256": "a881a84df4615f10f5f995cf5da4a569c3e393d52882975d684760b66f229cfc",
+    "bytes": 1933
+  },
+  {
+    "path": "selector-optimization/provenance.json",
+    "sha256": "83c2099cec9c2533cd062c1058756936b6f05aab33a3f0e079c4ff2cf512abad",
+    "bytes": 1548
+  },
+  {
+    "path": "selector-optimization/report.md",
+    "sha256": "0ba0ecdd7a1d32eaf3e550a8c249c030c54af533e53827df432960f78b0795f6",
+    "bytes": 4142
+  },
+  {
+    "path": "selector-optimization/timings.csv",
+    "sha256": "4effd49b17b5baa880138976916fc3e3c1aedee7e8b244b24ac238001148b5b6",
+    "bytes": 14514
+  },
+  {
+    "path": "selector-optimization/timings.json",
+    "sha256": "98fd16e63f59b73aa19aaab5dd87b900381d8fcd06c869344d8d4125a318faf0",
+    "bytes": 109457
+  },
+  {
+    "path": "selector-optimization/source/after.py.txt",
+    "sha256": "1bb1e1caef43b0d91520ca2ad5d0c8bb8209023c8a32413602c6b66215ec01b7",
+    "bytes": 8280
+  },
+  {
+    "path": "selector-optimization/source/before.py.txt",
+    "sha256": "6634aabaf017067c8197cf5df30a92202b48166334f46dc52fd4f33029585f0d",
+    "bytes": 6288
+  },
+  {
+    "path": "selector-optimization/source/benchmark_selector.py.txt",
+    "sha256": "25cb4fcd0efa16a0b4ebbf64724186a1734cfca3557fa1881795028295bc8b24",
+    "bytes": 16867
+  },
+  {
+    "path": "selector-optimization-vs-original/protocol.json",
+    "sha256": "673331291ac6e2aa9ff63aac5281a85523c21a4aec031cd4d34e631cfd261aed",
+    "bytes": 1926
+  },
+  {
+    "path": "selector-optimization-vs-original/provenance.json",
+    "sha256": "d9499b0b5c327361cfbe837c2ec829ea920437ab1790152df7b980b70ad0ae4b",
+    "bytes": 1600
+  },
+  {
+    "path": "selector-optimization-vs-original/report.md",
+    "sha256": "4910ec5e3ce33693b680f95fa67684188b2e40ef689af00d3c391de442206f0b",
+    "bytes": 4109
+  },
+  {
+    "path": "selector-optimization-vs-original/timings.csv",
+    "sha256": "ef06b34a42a01d96f14c47dd2085e39981c7f7c83b0976b984d109b5a2b3afc1",
+    "bytes": 14380
+  },
+  {
+    "path": "selector-optimization-vs-original/timings.json",
+    "sha256": "7e26d0891f5b025d68ad9e51c22c1164a0909420a981cd42828d0b0b63243941",
+    "bytes": 108980
+  },
+  {
+    "path": "selector-optimization-vs-original/source/after.py.txt",
+    "sha256": "1bb1e1caef43b0d91520ca2ad5d0c8bb8209023c8a32413602c6b66215ec01b7",
+    "bytes": 8280
+  },
+  {
+    "path": "selector-optimization-vs-original/source/before.py.txt",
+    "sha256": "21aa9fb1cc9f3cc243795f99b9ce303ce84721de386cac1173702b9f1fb5f15c",
+    "bytes": 5017
+  },
+  {
+    "path": "selector-optimization-vs-original/source/benchmark_selector.py.txt",
+    "sha256": "25cb4fcd0efa16a0b4ebbf64724186a1734cfca3557fa1881795028295bc8b24",
+    "bytes": 16867
+  },
+  {
+    "path": "fitted-gp-benchmark/completion.json",
+    "sha256": "e24a64d0611f6bd1e4ba806e944367c94b5a834369db3ea1c8fb44b6d5c580c0",
+    "bytes": 74
+  },
+  {
+    "path": "fitted-gp-benchmark/metrics-audit.json",
+    "sha256": "bdc170ef0017f4df208a231900e07463116c783c622345b6ab250ad3255085b5",
+    "bytes": 1602
+  },
+  {
+    "path": "fitted-gp-benchmark/protocol.json",
+    "sha256": "9490d88042e4245b10bc048d518602c0c568259ec7739b8dbaf98308bf4f9eff",
+    "bytes": 1855
+  },
+  {
+    "path": "fitted-gp-benchmark/report.md",
+    "sha256": "b1c1e9c601d00b19f7548f8eb78d4b706366036cacf069f774e4cd6195635168",
+    "bytes": 6201
+  },
+  {
+    "path": "fitted-gp-benchmark/runs.csv",
+    "sha256": "b08ec9d43d7163925ba42b13de68bd570b9b3a851b251085c60c3ccfad60aa30",
+    "bytes": 12217
+  },
+  {
+    "path": "fitted-gp-benchmark/runs.json",
+    "sha256": "1118f72912a9b32e00bfb98a4be0e941126ee92e2b28422c86e7cfd3d081e470",
+    "bytes": 225345
+  },
+  {
+    "path": "fitted-gp-benchmark/summary.csv",
+    "sha256": "db2026b933dd49f78508faa62f4eae54a4ca186b6ba6205b64d2bb3d7b633458",
+    "bytes": 2456
+  },
+  {
+    "path": "fitted-gp-benchmark/upstream-helper-provenance.json",
+    "sha256": "23e6d6c495a26e169dd1819e6b1f70b1dfd76e32b0c3fc647e77b0eedbc3849c",
+    "bytes": 915
+  },
+  {
+    "path": "fitted-gp-benchmark/validation-tests.log",
+    "sha256": "fa6fc5661d22be34c4438c1a5a44e41899ec93450478b7367727be02915c4a4f",
+    "bytes": 566
+  },
+  {
+    "path": "fitted-gp-benchmark/source/installed-botorch-optimize.py.txt",
+    "sha256": "9ab9d630b9a89e738ae6ba7fd62bc6beac29efcdb10f5ad6ae4718ef925b2021",
+    "bytes": 18911
+  },
+  {
+    "path": "fitted-gp-benchmark/source/notebooks_community/pareto_decision_making/experiments/benchmark_fpbi.py.txt",
+    "sha256": "0333cc93992e4f5d945701af946c8e4db824ee1619f9505969006ef3389dd438",
+    "bytes": 32406
+  },
+  {
+    "path": "fitted-gp-benchmark/source/notebooks_community/pareto_decision_making/experiments/benchmark_gp_fpbi.py.txt",
+    "sha256": "efa809a2c9319a583b93d687fccc3f2e82930040c51fa06f4f908e15f586719d",
+    "bytes": 18070
+  },
+  {
+    "path": "fitted-gp-benchmark/source/botorch_community/utils/multi_objective/decision_making.py.txt",
+    "sha256": "1bb1e1caef43b0d91520ca2ad5d0c8bb8209023c8a32413602c6b66215ec01b7",
+    "bytes": 8280
+  },
+  {
+    "path": "fitted-gp-benchmark/source/botorch_community/utils/multi_objective/fpbi.py.txt",
+    "sha256": "2296e1e87264431d52e712af82f6ef008d10935bd8147d11c5ee3b647b2697e4",
+    "bytes": 29193
+  }
+]
