@@ -637,11 +637,13 @@ def construct_inputs_qLogEI(
         eta: Temperature parameter(s) governing the smoothness of the sigmoid
             approximation to the constraint indicators. For more details, on this
             parameter, see the docs of ``compute_smoothed_feasibility_indicator``.
-        fat: Toggles the logarithmic / linear asymptotic behavior of the smooth
-            approximation to the ReLU.
-            A list sets the constraint transformation per constraint (an entry
-            ``None`` means that the constraint delivers a probability of
-            feasibility) and implies the fat-tailed approximations.
+        fat: Controls two smooth approximations: (1) of the ReLU and the maximum:
+            fat-tailed or softplus/logsumexp-based; (2) of the constraint indicators:
+            fatmoid or sigmoid. A boolean sets both: ``True`` fat-tailed and fatmoid,
+            ``False`` softplus/logsumexp and sigmoid. A list sets (2) per constraint,
+            where ``None`` means that the constraint delivers a probability of
+            feasibility that is used as is (see
+            ``compute_smoothed_feasibility_indicator``); (1) is then fat-tailed.
         tau_max: Temperature parameter controlling the sharpness of the smooth
             approximations to max.
         tau_relu: Temperature parameter controlling the sharpness of the smooth
@@ -698,11 +700,13 @@ def construct_inputs_LogPF(
         eta: Temperature parameter(s) governing the smoothness of the sigmoid
             approximation to the constraint indicators. For more details, on this
             parameter, see the docs of ``compute_smoothed_feasibility_indicator``.
-        fat: Toggles the logarithmic / linear asymptotic behavior of the smooth
-            approximation to the ReLU.
-            A list sets the constraint transformation per constraint (an entry
-            ``None`` means that the constraint delivers a probability of
-            feasibility) and implies the fat-tailed approximations.
+        fat: Controls two smooth approximations: (1) of the maximum over the ``q``
+            points: fat-tailed or softplus/logsumexp-based; (2) of the constraint
+            indicators: fatmoid or sigmoid. A boolean sets both: ``True`` fat-tailed and
+            fatmoid, ``False`` softplus/logsumexp and sigmoid. A list sets (2) per
+            constraint, where ``None`` means that the constraint delivers a probability
+            of feasibility that is used as is (see
+            ``compute_smoothed_feasibility_indicator``); (1) is then fat-tailed.
         tau_max: Temperature parameter controlling the sharpness of the smooth
             approximations to max.
 
@@ -844,11 +848,13 @@ def construct_inputs_qLogNEI(
         eta: Temperature parameter(s) governing the smoothness of the sigmoid
             approximation to the constraint indicators. For more details, on this
             parameter, see the docs of ``compute_smoothed_feasibility_indicator``.
-        fat: Toggles the use of the fat-tailed non-linearities to smoothly approximate
-            the constraints indicator function.
-            A list sets the constraint transformation per constraint (an entry
-            ``None`` means that the constraint delivers a probability of
-            feasibility) and implies the fat-tailed approximations.
+        fat: Controls two smooth approximations: (1) of the ReLU and the maximum:
+            fat-tailed or softplus/logsumexp-based; (2) of the constraint indicators:
+            fatmoid or sigmoid. A boolean sets both: ``True`` fat-tailed and fatmoid,
+            ``False`` softplus/logsumexp and sigmoid. A list sets (2) per constraint,
+            where ``None`` means that the constraint delivers a probability of
+            feasibility that is used as is (see
+            ``compute_smoothed_feasibility_indicator``); (1) is then fat-tailed.
         tau_max: Temperature parameter controlling the sharpness of the smooth
             approximations to max.
         tau_relu: Temperature parameter controlling the sharpness of the smooth
@@ -1348,11 +1354,13 @@ def construct_inputs_qLogNParEGO(
         eta: Temperature parameter(s) governing the smoothness of the sigmoid
             approximation to the constraint indicators. For more details, on this
             parameter, see the docs of ``compute_smoothed_feasibility_indicator``.
-        fat: Toggles the use of the fat-tailed non-linearities to smoothly approximate
-            the constraints indicator function.
-            A list sets the constraint transformation per constraint (an entry
-            ``None`` means that the constraint delivers a probability of
-            feasibility) and implies the fat-tailed approximations.
+        fat: Controls two smooth approximations: (1) of the ReLU and the maximum:
+            fat-tailed or softplus/logsumexp-based; (2) of the constraint indicators:
+            fatmoid or sigmoid. A boolean sets both: ``True`` fat-tailed and fatmoid,
+            ``False`` softplus/logsumexp and sigmoid. A list sets (2) per constraint,
+            where ``None`` means that the constraint delivers a probability of
+            feasibility that is used as is (see
+            ``compute_smoothed_feasibility_indicator``); (1) is then fat-tailed.
         tau_max: Temperature parameter controlling the sharpness of the smooth
             approximations to max.
         tau_relu: Temperature parameter controlling the sharpness of the smooth

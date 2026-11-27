@@ -113,12 +113,13 @@ class LogImprovementMCAcquisitionFunction(SampleReducingMCAcquisitionFunction):
                 the sigmoid approximation to the constraint indicators.
                 See the docs of ``compute_(log_)constraint_indicator``
                 for more details on this parameter.
-            fat: Toggles the logarithmic / linear asymptotic behavior of the smooth
-                approximation to the ReLU and of the constraint indicators.
-                A list sets the constraint transformation per constraint, see
-                ``compute_smoothed_feasibility_indicator``; an entry ``None`` means
-                that the constraint delivers a probability of feasibility. With a
-                list, the fat-tailed approximations are used.
+            fat: Controls two smooth approximations: (1) of the ReLU and the maximum:
+                fat-tailed or softplus/logsumexp-based; (2) of the constraint
+                indicators: fatmoid or sigmoid. A boolean sets both: ``True`` fat-tailed
+                and fatmoid, ``False`` softplus/logsumexp and sigmoid. A list sets (2)
+                per constraint, where ``None`` means that the constraint delivers a
+                probability of feasibility that is used as is (see
+                ``compute_smoothed_feasibility_indicator``); (1) is then fat-tailed.
             tau_max: Temperature parameter controlling the sharpness of the
                 approximation to the ``max`` operator over the ``q`` candidate points.
         """
@@ -210,12 +211,13 @@ class qLogExpectedImprovement(LogImprovementMCAcquisitionFunction):
                 the sigmoid approximation to the constraint indicators.
                 See the docs of
                 ``compute_(log_)smoothed_constraint_indicator`` for details.
-            fat: Toggles the logarithmic / linear asymptotic behavior of the smooth
-                approximation to the ReLU and of the constraint indicators.
-                A list sets the constraint transformation per constraint, see
-                ``compute_smoothed_feasibility_indicator``; an entry ``None`` means
-                that the constraint delivers a probability of feasibility. With a
-                list, the fat-tailed approximations are used.
+            fat: Controls two smooth approximations: (1) of the ReLU and the maximum:
+                fat-tailed or softplus/logsumexp-based; (2) of the constraint
+                indicators: fatmoid or sigmoid. A boolean sets both: ``True`` fat-tailed
+                and fatmoid, ``False`` softplus/logsumexp and sigmoid. A list sets (2)
+                per constraint, where ``None`` means that the constraint delivers a
+                probability of feasibility that is used as is (see
+                ``compute_smoothed_feasibility_indicator``); (1) is then fat-tailed.
             tau_max: Temperature parameter controlling the sharpness of the smooth
                 approximations to max.
             tau_relu: Temperature parameter controlling the sharpness of the smooth
@@ -327,12 +329,13 @@ class qLogNoisyExpectedImprovement(
                 the sigmoid approximation to the constraint indicators.
                 See the docs of
                 ``compute_(log_)smoothed_constraint_indicator`` for details.
-            fat: Toggles the logarithmic / linear asymptotic behavior of the smooth
-                approximation to the ReLU and of the constraint indicators.
-                A list sets the constraint transformation per constraint, see
-                ``compute_smoothed_feasibility_indicator``; an entry ``None`` means
-                that the constraint delivers a probability of feasibility. With a
-                list, the fat-tailed approximations are used.
+            fat: Controls two smooth approximations: (1) of the ReLU and the maximum:
+                fat-tailed or softplus/logsumexp-based; (2) of the constraint
+                indicators: fatmoid or sigmoid. A boolean sets both: ``True`` fat-tailed
+                and fatmoid, ``False`` softplus/logsumexp and sigmoid. A list sets (2)
+                per constraint, where ``None`` means that the constraint delivers a
+                probability of feasibility that is used as is (see
+                ``compute_smoothed_feasibility_indicator``); (1) is then fat-tailed.
             prune_baseline: If True, remove points in ``X_baseline`` that are
                 highly unlikely to be the best point. This can significantly
                 improve performance and is generally recommended. In order to
@@ -642,12 +645,13 @@ class qLogProbabilityOfFeasibility(LogImprovementMCAcquisitionFunction):
                 the sigmoid approximation to the constraint indicators.
                 See the docs of ``compute_(log_)constraint_indicator``
                 for more details on this parameter.
-            fat: Toggles the logarithmic / linear asymptotic behavior of the smooth
-                approximation to the ReLU and of the constraint indicators.
-                A list sets the constraint transformation per constraint, see
-                ``compute_smoothed_feasibility_indicator``; an entry ``None`` means
-                that the constraint delivers a probability of feasibility. With a
-                list, the fat-tailed approximations are used.
+            fat: Controls two smooth approximations: (1) of the maximum over the ``q``
+                points: fat-tailed or softplus/logsumexp-based; (2) of the constraint
+                indicators: fatmoid or sigmoid. A boolean sets both: ``True`` fat-tailed
+                and fatmoid, ``False`` softplus/logsumexp and sigmoid. A list sets (2)
+                per constraint, where ``None`` means that the constraint delivers a
+                probability of feasibility that is used as is (see
+                ``compute_smoothed_feasibility_indicator``); (1) is then fat-tailed.
             tau_max: Temperature parameter controlling the sharpness of the
                 approximation to the ``max`` operator over the ``q`` candidate points.
         """

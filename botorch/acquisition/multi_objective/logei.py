@@ -230,12 +230,13 @@ class qLogExpectedHypervolumeImprovement(
                 tensor the length of the tensor must match the number of provided
                 constraints. The i-th constraint is then estimated with the i-th
                 eta value.
-            fat: Toggles the logarithmic / linear asymptotic behavior of the smooth
-                approximation to the ReLU and the maximum, and of the constraint
-                indicators. A list sets the constraint transformation per
-                constraint, see ``compute_smoothed_feasibility_indicator``; an entry
-                ``None`` means that the constraint delivers a probability of
-                feasibility. With a list, the fat-tailed approximations are used.
+            fat: Controls two smooth approximations: (1) of the ReLU, the maximum and
+                the minimum in the hypervolume: fat-tailed or softplus/logsumexp-based;
+                (2) of the constraint indicators: fatmoid or sigmoid. A boolean sets
+                both: ``True`` fat-tailed and fatmoid, ``False`` softplus/logsumexp and
+                sigmoid. A list sets (2) per constraint, where ``None`` means that the
+                constraint delivers a probability of feasibility that is used as is (see
+                ``compute_smoothed_feasibility_indicator``); (1) is then fat-tailed.
             tau_relu: Temperature parameter controlling the sharpness of the
                 approximation to the ReLU over the ``q`` candidate points. For further
                 details, see the comments above the definition of ``TAU_RELU``.
@@ -580,6 +581,13 @@ class qLogNoisyExpectedHypervolumeImprovement(
                 ``q`` points.
             cache_root: A boolean indicating whether to cache the root
                 decomposition over ``X_baseline`` and use low-rank updates.
+            fat: Controls two smooth approximations: (1) of the ReLU, the maximum and
+                the minimum in the hypervolume: fat-tailed or softplus/logsumexp-based;
+                (2) of the constraint indicators: fatmoid or sigmoid. A boolean sets
+                both: ``True`` fat-tailed and fatmoid, ``False`` softplus/logsumexp and
+                sigmoid. A list sets (2) per constraint, where ``None`` means that the
+                constraint delivers a probability of feasibility that is used as is (see
+                ``compute_smoothed_feasibility_indicator``); (1) is then fat-tailed.
             marginalize_dim: A batch dimension that should be marginalized.
         """
         MultiObjectiveMCAcquisitionFunction.__init__(
