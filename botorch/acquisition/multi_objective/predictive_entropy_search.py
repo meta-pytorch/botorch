@@ -1029,7 +1029,7 @@ def _update_damping(
     jitter = jitter * torch.diag_embed(torch.ones(nat_cov.shape[:-1], **tkwargs))
     _, info = torch.linalg.cholesky_ex(nat_cov + jitter)
 
-    if torch.sum(info) > 1:
+    if torch.any(info != 0):
         raise ValueError(
             "The previous covariance is not positive semi-definite. "
             "This usually happens if the predictive covariance is "
@@ -1043,7 +1043,7 @@ def _update_damping(
     contains_nans = torch.any(torch.isnan(cholesky_factor)).item()
 
     run = 0
-    while torch.sum(info) > 1 or contains_nans:
+    while torch.any(info != 0) or contains_nans:
         # propose an alternate damping factor which is half the original
         df_alt = 0.5 * df
         # hard threshold at 1e-3
