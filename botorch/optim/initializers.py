@@ -327,7 +327,7 @@ def gen_batch_initial_conditions(
     sample_around_best = options.get("sample_around_best", False)
     if sample_around_best and equality_constraints:
         raise UnsupportedError(
-            "Option 'sample_around_best' is not supported when equality"
+            "Option 'sample_around_best' is not supported when equality "
             "constraints are present."
         )
     if sample_around_best and generator:
