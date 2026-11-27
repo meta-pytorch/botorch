@@ -22,7 +22,6 @@ from botorch.acquisition.multi_objective.objective import (
 from botorch.acquisition.objective import PosteriorTransform
 from botorch.exceptions.errors import UnsupportedError
 from botorch.models.model import Model
-from botorch.models.transforms.input import InputPerturbation
 from botorch.sampling.base import MCSampler
 from torch import Tensor
 
@@ -123,15 +122,15 @@ class MultiObjectiveMCAcquisitionFunction(AcquisitionFunction, MCSamplerMixin, A
                 "Multi-Objective MC acquisition functions."
             )
         if (
-            hasattr(model, "input_transform")
-            and isinstance(model.input_transform, InputPerturbation)
+            getattr(getattr(model, "input_transform", None), "is_one_to_many", False)
             and constraints is not None
         ):
             raise UnsupportedError(
-                "Constraints are not supported with input perturbations, due to"
-                "sample q-batch shape being different than that of the inputs."
-                "Use a composite objective that applies feasibility weighting to"
-                "samples before calculating the risk measure."
+                "Constraints are not supported with one-to-many input transforms "
+                "(e.g., input perturbations), due to sample q-batch shape being "
+                "different than that of the inputs. Use a composite objective that "
+                "applies feasibility weighting to samples before calculating the "
+                "risk measure."
             )
         self.add_module("objective", objective)
         self.constraints = constraints

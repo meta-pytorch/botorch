@@ -540,10 +540,14 @@ class qLogNoisyExpectedImprovement(
             obj_full = self.objective(samples_full, X=X_full)
             # Calculate the positive index for splitting the samples & objective values.
             split_dim = len(obj_full.shape) - 1
+            # With one-to-many input transforms (e.g., ``InputPerturbation``), there
+            # are ``n_w`` samples per input, which the objective (e.g., a risk
+            # measure) maps to one objective value per input.
+            n_w = samples_full.shape[split_dim] // (n_baseline + q)
             # assigning baseline buffers so ``best_f`` can be computed in
             # _sample_forward
             self.baseline_samples, samples = samples_full.split(
-                [n_baseline, q], dim=split_dim
+                [n_baseline * n_w, q * n_w], dim=split_dim
             )
             self.baseline_obj, obj = obj_full.split([n_baseline, q], dim=split_dim)
             return samples, obj
