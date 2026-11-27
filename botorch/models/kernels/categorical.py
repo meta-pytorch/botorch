@@ -46,7 +46,8 @@ class CategoricalKernel(Kernel):
         delta = x1.unsqueeze(-2) != x2.unsqueeze(-3)
         dists = delta / self.lengthscale.unsqueeze(-2)
         if last_dim_is_batch:
-            dists = dists.transpose(-3, -1)
+            # `... x n1 x n2 x d` -> `... x d x n1 x n2`
+            dists = dists.movedim(-1, -3)
         else:
             dists = dists.mean(-1)
         return torch.exp(-dists)

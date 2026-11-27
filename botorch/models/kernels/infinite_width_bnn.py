@@ -103,7 +103,7 @@ class InfiniteWidthBNNKernel(Kernel):
         """Computes the updated variance of x for next layer"""
         return self.weight_var * K / 2 + self.bias_var
 
-    def k(self, x1: Tensor, x2: Tensor) -> Tensor:
+    def k(self, x1: Tensor, x2: Tensor, diag: bool = False) -> Tensor:
         r"""
         For single-layer infinite-width neural networks with i.i.d. priors,
         the covariance between outputs can be computed by
@@ -121,11 +121,15 @@ class InfiniteWidthBNNKernel(Kernel):
         Args:
             x1: ``batch_shape x n1 x d``-dim Tensor
             x2: ``batch_shape x n2 x d``-dim Tensor
+            diag: If True, only computes the covariances between the ``i``-th rows
+                of ``x1`` and ``x2`` (which requires ``n1 = n2``), i.e. the
+                diagonal of the kernel matrix.
         """
-        K_12 = (
-            self.weight_var * (x1.matmul(x2.transpose(-2, -1)) / x1.shape[-1])
-            + self.bias_var
-        )
+        if diag:
+            inner_product = (x1 * x2).sum(dim=-1, keepdim=True)
+        else:
+            inner_product = x1.matmul(x2.transpose(-2, -1))
+        K_12 = self.weight_var * (inner_product / x1.shape[-1]) + self.bias_var
 
         for layer in range(self.depth):
             if layer == 0:
@@ -135,7 +139,10 @@ class InfiniteWidthBNNKernel(Kernel):
                 K_11 = self._update_var(K_11, x1)
                 K_22 = self._update_var(K_22, x2)
 
-            sqrt_term = torch.sqrt(K_11.matmul(K_22.transpose(-2, -1)))
+            if diag:
+                sqrt_term = torch.sqrt(K_11 * K_22)
+            else:
+                sqrt_term = torch.sqrt(K_11.matmul(K_22.transpose(-2, -1)))
 
             fraction = K_12 / sqrt_term
             fraction = torch.clamp(
@@ -150,7 +157,7 @@ class InfiniteWidthBNNKernel(Kernel):
                 + self.bias_var
             )
 
-        return K_12
+        return K_12.squeeze(-1) if diag else K_12
 
     def forward(
         self,
@@ -171,6 +178,9 @@ class InfiniteWidthBNNKernel(Kernel):
             raise RuntimeError("last_dim_is_batch not supported by this kernel.")
 
         if diag:
+            if not torch.equal(x1, x2):
+                return self.k(x1, x2, diag=True)
+            # compute the variances exactly (without clamping in the arc-cosine)
             K = self._initialize_var(x1)
             for _ in range(self.depth):
                 K = self._update_var(K, x1)

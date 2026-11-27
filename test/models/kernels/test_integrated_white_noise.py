@@ -9,6 +9,8 @@ Unit tests for the integrated white noise kernel.
 """
 
 import functools
+import math
+from fractions import Fraction
 
 import torch
 from botorch.models.kernels.integrated_white_noise import IntegratedWhiteNoiseKernel
@@ -167,3 +169,58 @@ class TestIntegratedWhiteNoiseKernel(NonStationary1DKernelTestMixin, BotorchTest
         # Diagonal closed form: k(t, t) = t^7 / (3!^2 * 7) = t^7 / 252.
         diag = kernel(x, x, diag=True)
         self.assertAllClose(diag, x.squeeze(-1) ** 7 / 252)
+
+    def test_large_orders(self) -> None:
+        """Orders whose ((p-1)!)^2 exceeds the int64 range (p >= 14)."""
+        tkwargs = self._get_tkwargs(torch.float64)
+        times = [Fraction(1, 2), Fraction(1), Fraction(3, 2)]
+        x = torch.tensor([[float(t)] for t in times], **tkwargs)
+        for order in (14, 20):
+            with self.subTest(order=order):
+                kernel = IntegratedWhiteNoiseKernel(order=order)
+                expected = torch.tensor(
+                    [[_exact_covariance(s, t, order) for t in times] for s in times],
+                    **tkwargs,
+                )
+                self.assertAllClose(
+                    kernel(x, x).to_dense(), expected, rtol=1e-10, atol=0.0
+                )
+                self.assertAllClose(
+                    kernel(x, diag=True), expected.diagonal(), rtol=1e-10, atol=0.0
+                )
+
+    def test_diag_with_distinct_inputs(self) -> None:
+        """diag=True with distinct inputs is the diagonal of K(x1, x2)."""
+        tkwargs = self._get_tkwargs(torch.float64)
+        x1 = torch.tensor([[2.0], [0.5], [1.5]], **tkwargs)
+        x2 = torch.tensor([[1.0], [3.0], [1.5]], **tkwargs)
+        batch_x1 = torch.rand(2, 4, 1, **tkwargs)
+        batch_x2 = torch.rand(2, 4, 1, **tkwargs)
+        for order in (1, 2, 3):
+            with self.subTest(order=order):
+                kernel = IntegratedWhiteNoiseKernel(order=order)
+                self.assertAllClose(
+                    kernel(x1, x2, diag=True), kernel(x1, x2).to_dense().diagonal()
+                )
+                self.assertAllClose(
+                    kernel(batch_x1, batch_x2, diag=True),
+                    kernel(batch_x1, batch_x2).to_dense().diagonal(dim1=-2, dim2=-1),
+                )
+
+
+def _exact_covariance(s: Fraction, t: Fraction, order: int) -> float:
+    r"""Evaluates the defining integral of the covariance in exact arithmetic.
+
+    Computes :math:`\int_0^{\min(s, t)} (s - u)^{p-1} (t - u)^{p-1} du / ((p-1)!)^2`
+    by expanding the integrand into a polynomial in :math:`u`.
+    """
+    p = order
+    m = min(s, t)
+    total = Fraction(0)
+    for a in range(p):
+        for b in range(p):
+            coeff = math.comb(p - 1, a) * math.comb(p - 1, b) * (-1) ** (a + b)
+            total += (
+                coeff * s ** (p - 1 - a) * t ** (p - 1 - b) * m ** (a + b + 1)
+            ) / (a + b + 1)
+    return float(total / math.factorial(p - 1) ** 2)
