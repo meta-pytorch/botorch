@@ -25,7 +25,6 @@ from botorch.acquisition.objective import (
     MCAcquisitionObjective,
     PosteriorTransform,
 )
-from botorch.generation.utils import _flip_sub_unique
 from botorch.models.model import Model
 from botorch.models.model_list_gp_regression import ModelListGP
 from botorch.models.multitask import MultiTaskGP
@@ -116,30 +115,28 @@ class MaxPosteriorSampling(SamplingStrategy):
             # if we allow replacement then things are simple(r)
             idcs = torch.argmax(obj, dim=-1)
         else:
-            # if we need to deduplicate we have to do some tensor acrobatics
-            # first we get the indices associated w/ the num_samples top samples
+            # if we need to deduplicate, the i-th sample selects its maximizer among
+            # the points that have not been selected by the previous samples. Since
+            # at most i points have been selected before, this is one of the top
+            # i + 1 points of the i-th sample.
             _, idcs_full = torch.topk(obj, num_samples, dim=-1)
-            # generate some indices to smartly index into the lower triangle of
-            # idcs_full (broadcasting across batch dimensions)
-            ridx, cindx = torch.tril_indices(num_samples, num_samples)
-            # pick the unique indices in order - since we look at the lower triangle
-            # of the index matrix and we don't sort, this achieves deduplication
-            sub_idcs = idcs_full[ridx, ..., cindx]
-            if sub_idcs.ndim == 1:
-                idcs = _flip_sub_unique(sub_idcs, num_samples)
-            elif sub_idcs.ndim == 2:
-                # TODO: Find a better way to do this
-                n_b = sub_idcs.size(-1)
-                idcs = torch.stack(
-                    [_flip_sub_unique(sub_idcs[:, i], num_samples) for i in range(n_b)],
-                    dim=-1,
-                )
-            else:
+            if idcs_full.ndim > 3:
                 # TODO: Find a general way to do this efficiently.
                 raise NotImplementedError(
                     "MaxPosteriorSampling without replacement for more than a single "
                     "batch dimension is not yet implemented."
                 )
+            # num_samples x num_batches x num_samples
+            top_idcs = idcs_full.reshape(num_samples, -1, num_samples).tolist()
+            selected = [set() for _ in top_idcs[0]]
+            idcs = []
+            for top_idcs_i in top_idcs:
+                idcs.append([])
+                for top_idcs_ib, selected_b in zip(top_idcs_i, selected):
+                    idx = next(j for j in top_idcs_ib if j not in selected_b)
+                    selected_b.add(idx)
+                    idcs[-1].append(idx)
+            idcs = torch.tensor(idcs, device=obj.device).view(obj.shape[:-1])
         # idcs is num_samples x batch_shape, to index into X we need to permute for it
         # to have shape batch_shape x num_samples
         if idcs.ndim > 1:
