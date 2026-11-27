@@ -121,7 +121,9 @@ class DownsamplingKernel(Kernel):
         x2_ = 1 - x2
 
         if diag:
-            return offset + (x1_ * x2_).sum(dim=-1).pow(exponent)
+            # the elementwise version of the matrix product below
+            exponent = exponent.unsqueeze(-1)  # unsqueeze enables batch evaluation
+            return offset + (x1_.pow(exponent) * x2_.pow(exponent)).sum(dim=-1)
 
         offset = offset.unsqueeze(-1)  # unsqueeze enables batch evaluation
         exponent = exponent.unsqueeze(-1)  # unsqueeze enables batch evaluation
