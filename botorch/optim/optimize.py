@@ -301,6 +301,7 @@ def _optimize_acqf_sequential_q(
     n_acq = len(acq_function_sequence)
 
     new_kwargs = {
+        "acq_function": acq_function_sequence[0],
         "q": 1,
         "batch_initial_conditions": None,
         "return_best_only": True,
@@ -310,30 +311,32 @@ def _optimize_acqf_sequential_q(
     }
     new_inputs = dataclasses.replace(opt_inputs, **new_kwargs)
 
-    for i in range(opt_inputs.q):
-        if n_acq > 1:
-            acq_function = acq_function_sequence[i]
-            new_kwargs["acq_function"] = acq_function
-            new_inputs = dataclasses.replace(opt_inputs, **new_kwargs)
-        if len(candidate_list) > 0:
-            candidates = torch.cat(candidate_list, dim=-2)
-            new_inputs.acq_function.set_X_pending(
-                torch.cat([base_X_pending[i % n_acq], candidates], dim=-2)
-                if base_X_pending[i % n_acq] is not None
-                else candidates
-            )
-        candidate, acq_value = _optimize_acqf_batch(new_inputs)
+    try:
+        for i in range(opt_inputs.q):
+            if n_acq > 1:
+                acq_function = acq_function_sequence[i]
+                new_kwargs["acq_function"] = acq_function
+                new_inputs = dataclasses.replace(opt_inputs, **new_kwargs)
+            if len(candidate_list) > 0:
+                candidates = torch.cat(candidate_list, dim=-2)
+                new_inputs.acq_function.set_X_pending(
+                    torch.cat([base_X_pending[i % n_acq], candidates], dim=-2)
+                    if base_X_pending[i % n_acq] is not None
+                    else candidates
+                )
+            candidate, acq_value = _optimize_acqf(new_inputs)
 
-        candidate_list.append(candidate)
-        acq_value_list.append(acq_value)
+            candidate_list.append(candidate)
+            acq_value_list.append(acq_value)
 
-        logger.info(f"Generated sequential candidate {i + 1} of {opt_inputs.q}")
-        model_name = type(new_inputs.acq_function.model).__name__
-        logger.debug(f"Used model {model_name} for candidate generation.")
+            logger.info(f"Generated sequential candidate {i + 1} of {opt_inputs.q}")
+            model_name = type(new_inputs.acq_function.model).__name__
+            logger.debug(f"Used model {model_name} for candidate generation.")
+    finally:
+        # Re-set X_pendings on the acquisitions to base values
+        for acqf, X_pending in zip(acq_function_sequence, base_X_pending):
+            acqf.set_X_pending(X_pending)
     candidates = torch.cat(candidate_list, dim=-2)
-    # Re-set X_pendings on the acquisitions to base values
-    for acqf, X_pending in zip(acq_function_sequence, base_X_pending):
-        acqf.set_X_pending(X_pending)
     if not opt_inputs.return_acq_values:
         return candidates, None
     return candidates, torch.stack(acq_value_list)
@@ -823,6 +826,10 @@ def optimize_acqf(
 
 
 def _optimize_acqf(opt_inputs: OptimizeAcqfInputs) -> tuple[Tensor, Tensor | None]:
+    # Perform sequential optimization via successive conditioning on pending points
+    if opt_inputs.sequential and opt_inputs.q > 1:
+        return _optimize_acqf_sequential_q(opt_inputs=opt_inputs)
+
     # Handle the trivial case when all features are fixed
     if (
         opt_inputs.fixed_features is not None
@@ -836,10 +843,6 @@ def _optimize_acqf(opt_inputs: OptimizeAcqfInputs) -> tuple[Tensor, Tensor | Non
             return_best_only=opt_inputs.return_best_only,
             return_acq_values=opt_inputs.return_acq_values,
         )
-
-    # Perform sequential optimization via successive conditioning on pending points
-    if opt_inputs.sequential and opt_inputs.q > 1:
-        return _optimize_acqf_sequential_q(opt_inputs=opt_inputs)
 
     # Batch optimization (including the case q=1)
     return _optimize_acqf_batch(opt_inputs=opt_inputs)
