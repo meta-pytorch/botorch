@@ -21,6 +21,7 @@ from collections.abc import Callable
 import torch
 from botorch.acquisition.acquisition import AcquisitionFunction
 from botorch.acquisition.analytic import (
+    ConstrainedAnalyticAcquisitionFunctionMixin,
     ConstrainedExpectedImprovement,
     ExpectedImprovement,
     NoisyExpectedImprovement,
@@ -1221,6 +1222,15 @@ def sample_points_around_best(
         # and for some acquisition functions the objective is None
         except (AttributeError, TypeError):
             f_pred = mean
+        if isinstance(acq_function, ConstrainedAnalyticAcquisitionFunctionMixin):
+            # The objective of analytic constrained acquisition functions is the
+            # output ``objective_index``. LogProbabilityOfFeasibility has none.
+            objective_index = getattr(acq_function, "objective_index", None)
+            f_pred = (
+                torch.zeros_like(mean[..., :1])
+                if objective_index is None
+                else mean[..., [objective_index]]
+            )
         if hasattr(acq_function, "maximize"):
             # make sure that the optimiztaion direction is set properly
             if not acq_function.maximize:
@@ -1229,9 +1239,19 @@ def sample_points_around_best(
             # handle constraints for EHVI-based acquisition functions
             constraints = acq_function.constraints
             if constraints is not None:
-                neg_violation = -torch.stack(
-                    [c(mean).clamp_min(0.0) for c in constraints], dim=-1
-                ).sum(dim=-1)
+                if isinstance(constraints, dict):
+                    # bounds on the outputs of analytic constrained acquisition
+                    # functions, see ConstrainedAnalyticAcquisitionFunctionMixin
+                    neg_violation = torch.zeros_like(mean[..., 0])
+                    for i, (lower, upper) in constraints.items():
+                        if lower is not None:
+                            neg_violation -= (lower - mean[..., i]).clamp_min(0.0)
+                        if upper is not None:
+                            neg_violation -= (mean[..., i] - upper).clamp_min(0.0)
+                else:
+                    neg_violation = -torch.stack(
+                        [c(mean).clamp_min(0.0) for c in constraints], dim=-1
+                    ).sum(dim=-1)
                 feas = neg_violation == 0
                 if feas.any():
                     f_pred[~feas] = float("-inf")
