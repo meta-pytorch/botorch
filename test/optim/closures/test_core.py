@@ -280,9 +280,14 @@ class TestBatchedNDarrayOptimizationClosure(BotorchTestCase):
         # _handle_numerical_errors returns NaN for singular errors
         self.assertTrue(np.isnan(values).all())
         self.assertEqual(values.shape, (2,))
-        # Grads should be zeros from the fallback path
-        np.testing.assert_array_equal(grads, 0.0)
+        # Gradients are NaN, as in NdarrayOptimizationClosure
+        self.assertTrue(np.isnan(grads).all())
         self.assertEqual(grads.shape, (2, closure._per_element_size))
+
+        # Errors that are not numerical are raised
+        closure.forward = MagicMock(side_effect=NotPSDError("foo"))
+        with self.assertRaisesRegex(NotPSDError, "foo"):
+            closure()
 
     def test_runtime_error_with_batch_indices(self):
         closure, model = self._make_closure(m=3, d=2)
@@ -297,5 +302,66 @@ class TestBatchedNDarrayOptimizationClosure(BotorchTestCase):
         # Should return filtered results for the requested batch indices
         self.assertTrue(np.isnan(values).all())
         self.assertEqual(values.shape, (2,))
-        np.testing.assert_array_equal(grads, 0.0)
+        self.assertTrue(np.isnan(grads).all())
         self.assertEqual(grads.shape, (2, closure._per_element_size))
+
+    def test_nan_covariance_of_one_element(self):
+        # A NaN parameter of element 1 makes its covariance NaN, so that the
+        # batched evaluation raises a ``NanError``. The other elements must get
+        # their values and gradients, element 1 NaN values and gradients.
+        closure, model = self._make_closure(m=3, d=2)
+        forward = closure.forward
+        rng = np.random.default_rng(0)
+        state = closure.state * rng.uniform(0.5, 1.5, size=closure.state.shape)
+        bad_state = state.copy()
+        bad_state[1] = float("nan")
+        closure.state = bad_state
+        with self.assertRaises(NanError):
+            forward()
+        expected_values, expected_grads = closure(state=state)
+
+        def check(values, grads, indices, failing):
+            for k, i in enumerate(indices):
+                if i in failing:
+                    self.assertTrue(np.isnan(values[k]))
+                    self.assertTrue(np.isnan(grads[k]).all())
+                else:
+                    np.testing.assert_allclose(values[k], expected_values[i])
+                    np.testing.assert_allclose(grads[k], expected_grads[i])
+
+        with self.subTest("first evaluation"):
+            fresh_closure = BatchedNDarrayOptimizationClosure(
+                forward=forward,
+                parameters=closure.parameters,
+                batch_shape=model._aug_batch_shape,
+            )
+            values, grads = fresh_closure(state=bad_state)
+            check(values, grads, indices=range(3), failing={1})
+            np.testing.assert_array_equal(fresh_closure.state, bad_state)
+
+        with self.subTest("after a successful evaluation"):
+            values, grads = closure(state=bad_state)
+            check(values, grads, indices=range(3), failing={1})
+            np.testing.assert_array_equal(closure.state, bad_state)
+
+        with self.subTest("batch_indices"):
+            closure(state=state)
+            mock_forward = MagicMock(side_effect=forward)
+            closure.forward = mock_forward
+            # Element 1 fails, element 2 gets its values and gradients.
+            indices = np.array([1, 2])
+            values, grads = closure(state=bad_state[indices], batch_indices=indices)
+            check(values, grads, indices=indices, failing={1})
+            # Element 1 stops at its failing point. Element 0 is evaluated, and
+            # element 1 is set to the last values at which it did not fail.
+            mock_forward.reset_mock()
+            indices = np.array([0])
+            values, grads = closure(state=state[indices], batch_indices=indices)
+            check(values, grads, indices=indices, failing=set())
+            self.assertEqual(mock_forward.call_count, 2)
+            np.testing.assert_array_equal(closure.state, state)
+            # The next evaluations are batched again.
+            mock_forward.reset_mock()
+            values, grads = closure(state=state[indices], batch_indices=indices)
+            check(values, grads, indices=indices, failing=set())
+            self.assertEqual(mock_forward.call_count, 1)

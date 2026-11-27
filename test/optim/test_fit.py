@@ -484,6 +484,67 @@ class TestFitGPyTorchMLLScipyIndependent(BotorchTestCase):
 
         self.assertEqual(result.status, OptimizationStatus.STOPPED)
 
+    def test_nan_covariance_of_one_output(self):
+        """A NaN covariance of one output must not stop the fit of the others."""
+        from botorch.models.utils.gpytorch_modules import (
+            get_gaussian_likelihood_with_gamma_prior,
+            get_matern_kernel_with_gamma_prior,
+        )
+
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        gen = torch.Generator().manual_seed(104)
+        train_X = torch.rand(12, 2, generator=gen, dtype=torch.double)
+        Y1 = torch.sin(6 * train_X[:, :1]) + train_X[:, 1:] ** 2
+        Y1 = Y1 + 0.05 * torch.randn(12, 1, generator=gen, dtype=torch.double)
+        gen = torch.Generator().manual_seed(2)
+        Y2 = torch.sin(3 * train_X[:, 1:])
+        Y2 = Y2 * (1 + torch.rand(1, generator=gen, dtype=torch.double))
+        Y2 = Y2 + 0.1 * torch.randn(12, 1, generator=gen, dtype=torch.double)
+        train_X, train_Y = train_X.to(**tkwargs), torch.cat([Y1, Y2], -1).to(**tkwargs)
+
+        def fit_model(train_Y, zero_lengthscale_of_first_output=False):
+            """Returns the fit result and the fitted parameters of each output."""
+            m = train_Y.shape[-1]
+            batch_shape = torch.Size([m] if m > 1 else [])
+            model = SingleTaskGP(
+                train_X,
+                train_Y,
+                covar_module=get_matern_kernel_with_gamma_prior(
+                    ard_num_dims=2, batch_shape=batch_shape
+                ),
+                likelihood=get_gaussian_likelihood_with_gamma_prior(
+                    batch_shape=batch_shape
+                ),
+            )
+            if zero_lengthscale_of_first_output:
+                # The lengthscale underflows to zero, the covariance is NaN.
+                with torch.no_grad():
+                    model.covar_module.base_kernel.raw_lengthscale[0] = -1e4
+            mll = ExactMarginalLogLikelihood(model.likelihood, model)
+            mll.train()
+            result = fit.fit_gpytorch_mll_scipy(mll)
+            params = torch.cat(
+                [p.detach().reshape(m, -1) for p in mll.parameters()], dim=-1
+            )
+            return result, params
+
+        unbatched_params = torch.cat(
+            [fit_model(train_Y[:, i : i + 1])[1] for i in range(2)]
+        )
+        with self.subTest("NaN covariance during the fit"):
+            # Output 0 visits zero lengthscales during the fit. This used to make
+            # output 1 stop at a NaN loss, far from its optimum.
+            result, params = fit_model(train_Y)
+            self.assertFalse(math.isnan(result.fval))
+            self.assertAllClose(params, unbatched_params, rtol=1e-5, atol=1e-6)
+
+        with self.subTest("NaN covariance at the initial point"):
+            # Output 0 cannot leave its initial point. This used to stop output 1
+            # at its initial point.
+            result, params = fit_model(train_Y, zero_lengthscale_of_first_output=True)
+            self.assertTrue(math.isnan(result.fval))
+            self.assertAllClose(params[1], unbatched_params[1], rtol=1e-5, atol=1e-6)
+
     def test_failure_status(self):
         """Test FAILURE status when outputs fail without hitting maxiter."""
         with torch.random.fork_rng():
