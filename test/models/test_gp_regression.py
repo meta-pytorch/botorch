@@ -445,6 +445,87 @@ class TestGPRegressionBase(BotorchTestCase):
 class TestSingleTaskGP(TestGPRegressionBase):
     model_class = SingleTaskGP
 
+    def test_subset_model_custom_covar_module(self):
+        from botorch.models.utils.gpytorch_modules import (
+            get_covar_module_with_dim_scaled_prior,
+        )
+        from gpytorch.kernels import AdditiveKernel, MaternKernel, ScaleKernel
+        from gpytorch.means import LinearMean
+
+        for batch_shape, dtype, use_yvar in itertools.product(
+            (torch.Size(), torch.Size([2])),
+            (torch.float, torch.double),
+            (False, True),
+        ):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            m = 3
+            d = 2
+            aug_batch = batch_shape + torch.Size([m])
+            train_X = torch.rand(*batch_shape, 5, d, **tkwargs)
+            train_Y = torch.rand(*batch_shape, 5, m, **tkwargs)
+            train_Yvar = torch.full_like(train_Y, 0.02) if use_yvar else None
+
+            covar_scaled = ScaleKernel(
+                get_covar_module_with_dim_scaled_prior(
+                    ard_num_dims=d,
+                    batch_shape=aug_batch,
+                    use_rbf_kernel=False,
+                    nu=1.5,
+                ),
+                batch_shape=aug_batch,
+            )
+            covar_add = AdditiveKernel(
+                MaternKernel(nu=1.5, ard_num_dims=d, batch_shape=aug_batch),
+                MaternKernel(nu=2.5, batch_shape=aug_batch),
+            )
+            for covar in (covar_scaled, covar_add):
+                model = SingleTaskGP(
+                    train_X=train_X,
+                    train_Y=train_Y,
+                    train_Yvar=train_Yvar,
+                    covar_module=covar,
+                    outcome_transform=Standardize(m=m, batch_shape=batch_shape),
+                )
+                X_test = torch.rand(*batch_shape, 3, d, **tkwargs)
+                p = model.posterior(X_test)
+                for idcs in ([1], [0, 2]):
+                    sub = model.subset_output(idcs)
+                    p_sub = sub.posterior(X_test)
+                    self.assertAllClose(
+                        p_sub.mean, p.mean[..., idcs], atol=1e-4, rtol=1e-4
+                    )
+                    self.assertAllClose(
+                        p_sub.variance, p.variance[..., idcs], atol=1e-4, rtol=1e-4
+                    )
+
+        # Unbatched LinearMean with d == m == 2 must not slice feature weights
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.rand(5, 2, **tkwargs)
+        train_Y = torch.rand(5, 2, **tkwargs)
+        model_lm = SingleTaskGP(
+            train_X=train_X,
+            train_Y=train_Y,
+            mean_module=LinearMean(input_size=2),
+            covar_module=RBFKernel(),
+        )
+        sub_lm = model_lm.subset_output([0])
+        X_test = torch.rand(3, 2, **tkwargs)
+        self.assertAllClose(
+            sub_lm.posterior(X_test).mean,
+            model_lm.posterior(X_test).mean[..., [0]],
+        )
+
+        # Mismatched non-empty batch_shape on custom covar_module preserves
+        # NotImplementedError
+        bad_covar = MaternKernel(nu=1.5, batch_shape=torch.Size([2]))
+        model_bad = SingleTaskGP(
+            train_X=torch.rand(2, 5, 2, **tkwargs),
+            train_Y=torch.rand(2, 5, 3, **tkwargs),
+            covar_module=bad_covar,
+        )
+        with self.assertRaises(NotImplementedError):
+            model_bad.subset_output([0])
+
 
 class TestSingleTaskGPFixedNoise(TestSingleTaskGP):
     def _get_model_and_data(

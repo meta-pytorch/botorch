@@ -16,9 +16,10 @@ method.
 
 from __future__ import annotations
 
+import math
 from abc import ABC, abstractmethod
 from collections import OrderedDict
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 from warnings import warn
 
@@ -2132,3 +2133,198 @@ class LearnedFeatureImputation(InputTransform, GPyTorchModule):
                 X_new[..., missing_cols],
             )
         return X_new
+
+
+class HierarchicalGateTransform(InputTransform, GPyTorchModule):
+    r"""An input transform for conditional / hierarchical feature gating.
+
+    In hierarchical design spaces (such as conditional hyperparameter tuning,
+    perceptual/UI parameterization, or formulation design), a parent feature
+    ``X[..., p]`` in ``[0, 1]`` controls whether a child feature ``X[..., c]``
+    has any effect on the outcome. When ``X[..., p]`` is at or below a
+    threshold ``tau``, ``X[..., c]`` collapses to a neutral anchor ``c_0``:
+
+        ``X'[..., c] = c_0 + g(X[..., p]) * (X[..., c] - c_0)``,
+
+    eliminating spurious kernel distances between configurations whose child
+    parameters are inactive. Multi-level hierarchies (e.g. ``0 -> 1 -> 2``) are
+    validated as a directed acyclic graph (DAG) at initialization and applied
+    in topological parent-before-child order using out-of-place tensor ops.
+    """
+
+    def __init__(
+        self,
+        d: int,
+        gates: Mapping[int, int],
+        thresholds: float | Mapping[int, float] = 0.0,
+        neutral_values: float | Mapping[int, float] = 0.0,
+        sharpness: float | Mapping[int, float] = 0.0,
+        transform_on_train: bool = True,
+        transform_on_eval: bool = True,
+        transform_on_fantasize: bool = True,
+    ) -> None:
+        r"""Initialize HierarchicalGateTransform.
+
+        Args:
+            d: Total number of input feature dimensions (must be ``>= 2``).
+            gates: A non-empty mapping ``{child_idx: parent_idx}`` specifying
+                which parent column in ``[0, d - 1]`` gates each child column.
+                Must form a directed acyclic graph with no self-loops.
+            thresholds: Normalized parent threshold ``tau`` in ``[0, 1)`` below
+                which the child collapses to ``neutral_values`` (either a scalar
+                shared across gated children or a ``{child_idx: tau}`` mapping).
+            neutral_values: Normalized anchor ``c_0`` in ``[0, 1]`` when gated
+                off (e.g. ``0.0`` for visibility/dropout rate, ``0.5`` for
+                chromatic hue when saturation is ``0``, ``1.0`` for clean
+                high-SNR anchors). Scalar or ``{child_idx: c_0}`` mapping.
+            sharpness: Non-negative slope ``kappa`` controlling gate shape.
+                ``0.0`` (default) uses the piecewise-linear ramp
+                ``clamp((u_p - tau) / (1 - tau), 0, 1)``; ``> 0`` uses an
+                endpoint-anchored logistic switch with exact ``g(0) = 0`` and
+                ``g(1) = 1`` for smooth acquisition gradients. Scalar or
+                ``{child_idx: kappa}`` mapping.
+            transform_on_train: If ``True``, apply the transform in train mode.
+            transform_on_eval: If ``True``, apply the transform in eval mode.
+            transform_on_fantasize: If ``True``, apply the transform inside
+                ``fantasize`` calls.
+        """
+        super().__init__()
+        if isinstance(d, bool) or not isinstance(d, int) or d < 2:
+            raise ValueError(f"`d` must be an integer >= 2, got {d!r}.")
+        if not gates:
+            raise ValueError("`gates` must be a non-empty mapping.")
+
+        self.d = d
+        self.transform_on_train = transform_on_train
+        self.transform_on_eval = transform_on_eval
+        self.transform_on_fantasize = transform_on_fantasize
+
+        def _resolve_param(
+            spec: float | Mapping[int, float],
+            child: int,
+            name: str,
+            default: float,
+        ) -> float:
+            raw = spec.get(child, default) if isinstance(spec, Mapping) else spec
+            val = float(raw)
+            if not math.isfinite(val):
+                raise ValueError(
+                    f"`{name}` for child feature {child} must be finite, got {raw!r}."
+                )
+            return val
+
+        raw_specs: dict[int, tuple[int, float, float, float]] = {}
+        for child_raw, parent_raw in gates.items():
+            if (
+                isinstance(child_raw, bool)
+                or not isinstance(child_raw, int)
+                or isinstance(parent_raw, bool)
+                or not isinstance(parent_raw, int)
+            ):
+                raise ValueError("Gate feature indices must be integers.")
+            if not (0 <= child_raw < d and 0 <= parent_raw < d):
+                raise ValueError(
+                    f"Gate feature indices must lie in [0, {d - 1}], "
+                    f"got {child_raw}: {parent_raw}."
+                )
+            if child_raw == parent_raw:
+                raise ValueError(f"Feature {child_raw} cannot be gated by itself.")
+
+            tau = _resolve_param(thresholds, child_raw, "thresholds", 0.0)
+            if tau < 0.0 or tau >= 1.0:
+                raise ValueError(
+                    f"`thresholds` for feature {child_raw} must lie in [0, 1), "
+                    f"got {tau}."
+                )
+            c0 = _resolve_param(neutral_values, child_raw, "neutral_values", 0.0)
+            if c0 < 0.0 or c0 > 1.0:
+                raise ValueError(
+                    f"`neutral_values` for feature {child_raw} must lie in [0, 1], "
+                    f"got {c0}."
+                )
+            kappa = _resolve_param(sharpness, child_raw, "sharpness", 0.0)
+            if kappa < 0.0:
+                raise ValueError(
+                    f"`sharpness` for feature {child_raw} must be >= 0, got {kappa}."
+                )
+            raw_specs[child_raw] = (parent_raw, tau, c0, kappa)
+
+        visit_state: dict[int, int] = {}
+        ordered: list[tuple[int, int, float, float, float]] = []
+
+        def _visit(node: int, trail: list[int]) -> None:
+            st = visit_state.get(node, 0)
+            if st == 2:
+                return
+            if st == 1:
+                cycle = trail[trail.index(node) :] + [node]
+                cycle_str = " -> ".join(str(idx) for idx in cycle)
+                raise ValueError(f"`gates` contains a cycle: {cycle_str}.")
+            visit_state[node] = 1
+            spec = raw_specs.get(node)
+            if spec is not None:
+                parent_idx, tau, c0, kappa = spec
+                if parent_idx in raw_specs:
+                    _visit(parent_idx, trail + [node])
+                ordered.append((node, parent_idx, tau, c0, kappa))
+            visit_state[node] = 2
+
+        for child_idx in sorted(raw_specs):
+            _visit(child_idx, [])
+
+        self._ordered_gates: tuple[tuple[int, int, float, float, float], ...] = tuple(
+            ordered
+        )
+
+    def transform(self, X: Tensor) -> Tensor:
+        r"""Apply hierarchical feature gating to normalized inputs ``X``.
+
+        Args:
+            X: A ``batch_shape x n x d``-dim tensor of inputs in ``[0, 1]^d``.
+
+        Returns:
+            A ``batch_shape x n x d``-dim tensor with gated child features
+            pulled toward their neutral anchors when their parent is inactive.
+        """
+        if X.dim() < 2:
+            raise BotorchTensorDimensionError(
+                f"`X` must have at least 2 dimensions, got {X.dim()}."
+            )
+        if X.shape[-1] != self.d:
+            raise BotorchTensorDimensionError(
+                f"`X` must have {self.d} features in its last dimension, "
+                f"got {X.shape[-1]}."
+            )
+
+        cols = [X[..., j] for j in range(self.d)]
+        for child_idx, parent_idx, tau, c0, kappa in self._ordered_gates:
+            u_parent = cols[parent_idx].clamp(0.0, 1.0)
+            u_child = cols[child_idx]
+            if kappa > 0.0:
+                sig_0 = 1.0 / (1.0 + math.exp(kappa * tau))
+                sig_1 = 1.0 / (1.0 + math.exp(-kappa * (1.0 - tau)))
+                denom = max(sig_1 - sig_0, 1e-12)
+                weight = (
+                    (torch.sigmoid(kappa * (u_parent - tau)) - sig_0) / denom
+                ).clamp(0.0, 1.0)
+            else:
+                denom = max(1.0 - tau, 1e-12)
+                weight = ((u_parent - tau) / denom).clamp(0.0, 1.0)
+            cols[child_idx] = c0 + weight * (u_child - c0)
+        return torch.stack(cols, dim=-1)
+
+    def equals(self, other: InputTransform) -> bool:
+        r"""Check if another input transform is equivalent.
+
+        Args:
+            other: Another input transform.
+
+        Returns:
+            A boolean indicating equivalence.
+        """
+        return (
+            super().equals(other)
+            and isinstance(other, HierarchicalGateTransform)
+            and self.d == other.d
+            and self._ordered_gates == other._ordered_gates
+        )

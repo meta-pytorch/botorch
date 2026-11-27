@@ -102,32 +102,44 @@ def get_covar_module_with_dim_scaled_prior(
     batch_shape: torch.Size | None = None,
     use_rbf_kernel: bool = True,
     active_dims: Sequence[int] | None = None,
+    nu: float = 2.5,
+    ard: bool = True,
 ) -> MaternKernel | RBFKernel:
     """Returns an RBF or Matern kernel with priors
     from  [Hvarfner2024vanilla]_.
 
     Args:
-        ard_num_dims: Number of feature dimensions for ARD.
+        ard_num_dims: Number of feature dimensions used to scale the
+            lengthscale prior (and the number of ARD lengthscales when
+            ``ard=True``).
         batch_shape: Batch shape for the covariance module.
         use_rbf_kernel: Whether to use an RBF kernel. If False, uses a Matern kernel.
         active_dims: The set of input dimensions to compute the covariances on.
             By default, the covariance is computed using the full input tensor.
             Set this if you'd like to ignore certain dimensions.
+        nu: Smoothness parameter (``0.5``, ``1.5``, or ``2.5``) for ``MaternKernel``
+            when ``use_rbf_kernel=False``. Ignored when ``use_rbf_kernel=True``.
+        ard: If ``True`` (default), uses one lengthscale per input dimension.
+            If ``False``, uses a single shared isotropic lengthscale while still
+            scaling the prior location by ``ard_num_dims``.
 
     Returns:
         A Kernel constructed according to the given arguments. The prior is constrained
         to have lengthscales larger than 0.025 for numerical stability.
     """
-    base_class = RBFKernel if use_rbf_kernel else MaternKernel
+    if not use_rbf_kernel and nu not in {0.5, 1.5, 2.5}:
+        raise ValueError(f"Expected `nu` to be 0.5, 1.5, or 2.5, got {nu}.")
     lengthscale_prior = LogNormalPrior(loc=SQRT2 + log(ard_num_dims) * 0.5, scale=SQRT3)
-    base_kernel = base_class(
-        ard_num_dims=ard_num_dims,
-        batch_shape=batch_shape,
-        lengthscale_prior=lengthscale_prior,
-        lengthscale_constraint=GreaterThan(
+    common_kwargs = {
+        "ard_num_dims": ard_num_dims if ard else None,
+        "batch_shape": batch_shape,
+        "lengthscale_prior": lengthscale_prior,
+        "lengthscale_constraint": GreaterThan(
             2.5e-2, transform=None, initial_value=lengthscale_prior.mode
         ),
         # pyre-ignore[6] GPyTorch type is unnecessarily restrictive.
-        active_dims=active_dims,
-    )
-    return base_kernel
+        "active_dims": active_dims,
+    }
+    if use_rbf_kernel:
+        return RBFKernel(**common_kwargs)
+    return MaternKernel(nu=nu, **common_kwargs)

@@ -23,6 +23,7 @@ from botorch.models.transforms.input import (
     BatchBroadcastedInputTransform,
     ChainedInputTransform,
     FilterFeatures,
+    HierarchicalGateTransform,
     InputPerturbation,
     InputStandardize,
     InputTransform,
@@ -2610,3 +2611,178 @@ class TestInputPerturbation(BotorchTestCase):
             sec_expected = X.unsqueeze(-2).expand(*X.shape[:-1], num_pert, -1)
             sec_expected = sec_expected.flatten(-3, -2)
             self.assertAllClose(subset_transformed[..., 2:], sec_expected)
+
+
+class TestHierarchicalGateTransform(BotorchTestCase):
+    def test_single_and_cascading_gates(self):
+        for dtype in (torch.float, torch.double):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            # Neutral anchor c_0 = 0.5, threshold tau = 0.2
+            tf = HierarchicalGateTransform(
+                d=2,
+                gates={1: 0},
+                thresholds=0.2,
+                neutral_values=0.5,
+            )
+            self.assertIsInstance(tf, InputTransform)
+            self.assertIsInstance(tf, GPyTorchModule)
+            X = torch.tensor(
+                [[0.0, 0.9], [0.2, 0.1], [0.6, 0.9], [1.0, 0.9]], **tkwargs
+            )
+            out = tf(X)
+            expected = torch.tensor(
+                [[0.0, 0.5], [0.2, 0.5], [0.6, 0.7], [1.0, 0.9]], **tkwargs
+            )
+            self.assertAllClose(out, expected)
+
+            # Multi-level cascading DAG declared out of order: 0 -> 1 -> 2
+            tf_dag = HierarchicalGateTransform(
+                d=3,
+                gates={2: 1, 1: 0},
+                thresholds={1: 0.0, 2: 0.5},
+                neutral_values={1: 0.0, 2: 1.0},
+            )
+            X_dag = torch.tensor(
+                [
+                    [0.0, 0.9, 0.2],  # p0=0 => c1=0 <= 0.5 => c2=1.0
+                    [0.5, 1.0, 0.2],  # p0=0.5 => c1=0.5 <= 0.5 => c2=1.0
+                    [1.0, 1.0, 0.2],  # p0=1.0 => c1=1.0 => w2=1 => c2=0.2
+                ],
+                **tkwargs,
+            )
+            expected_dag = torch.tensor(
+                [
+                    [0.0, 0.0, 1.0],
+                    [0.5, 0.5, 1.0],
+                    [1.0, 1.0, 0.2],
+                ],
+                **tkwargs,
+            )
+            self.assertAllClose(tf_dag(X_dag), expected_dag)
+
+            # Batch shapes (3D)
+            X_batch = X_dag.unsqueeze(0).expand(2, -1, -1).clone()
+            self.assertAllClose(
+                tf_dag(X_batch), expected_dag.unsqueeze(0).expand(2, -1, -1)
+            )
+
+    def test_smooth_sharpness_and_autograd(self):
+        for dtype in (torch.float, torch.double):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            tf = HierarchicalGateTransform(
+                d=2,
+                gates={1: 0},
+                thresholds=0.25,
+                neutral_values=0.5,
+                sharpness=20.0,
+            )
+            X_ends = torch.tensor([[0.0, 0.9], [1.0, 0.9]], **tkwargs)
+            self.assertAllClose(
+                tf(X_ends), torch.tensor([[0.0, 0.5], [1.0, 0.9]], **tkwargs)
+            )
+
+            X_grad = torch.tensor([[0.3, 0.9], [0.7, 0.2]], **tkwargs).requires_grad_(
+                True
+            )
+            loss = tf(X_grad).pow(2).sum()
+            (grad,) = torch.autograd.grad(loss, X_grad)
+            self.assertTrue(torch.isfinite(grad).all())
+            self.assertTrue((grad[:, 0].abs() > 0).all())
+
+    def test_modes_equals_and_gp_integration(self):
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        tf1 = HierarchicalGateTransform(
+            d=3,
+            gates={1: 0, 2: 1},
+            thresholds=0.1,
+            neutral_values={1: 0.0, 2: 0.5},
+            sharpness=10.0,
+        )
+        tf2 = HierarchicalGateTransform(
+            d=3,
+            gates={2: 1, 1: 0},
+            thresholds=0.1,
+            neutral_values={1: 0.0, 2: 0.5},
+            sharpness=10.0,
+        )
+        tf3 = HierarchicalGateTransform(d=3, gates={1: 0}, thresholds=0.1)
+        self.assertTrue(tf1.equals(tf2))
+        self.assertFalse(tf1.equals(tf3))
+        self.assertFalse(tf1.equals(Normalize(d=3)))
+
+        # Mode flags
+        tf_eval_only = HierarchicalGateTransform(
+            d=2,
+            gates={1: 0},
+            transform_on_train=False,
+            transform_on_eval=True,
+            transform_on_fantasize=False,
+        )
+        X = torch.tensor([[0.0, 0.8]], **tkwargs)
+        tf_eval_only.train()
+        self.assertAllClose(tf_eval_only(X), X)
+        tf_eval_only.eval()
+        self.assertAllClose(tf_eval_only(X), torch.tensor([[0.0, 0.0]], **tkwargs))
+        with fantasize():
+            self.assertAllClose(tf_eval_only(X), X)
+
+        # SingleTaskGP integration with ChainedInputTransform
+        from botorch.models.gp_regression import SingleTaskGP
+
+        bounds = torch.tensor([[0.0, -5.0, 10.0], [1.0, 5.0, 20.0]], **tkwargs)
+        chained = ChainedInputTransform(
+            normalize=Normalize(d=3, bounds=bounds),
+            gate=tf1,
+        )
+        train_X = torch.tensor(
+            [
+                [0.0, -4.0, 12.0],
+                [0.0, 4.0, 18.0],
+                [0.5, 0.0, 15.0],
+                [1.0, 3.0, 19.0],
+            ],
+            **tkwargs,
+        )
+        train_Y = torch.tensor([[1.0], [1.0], [2.0], [3.5]], **tkwargs)
+        model = SingleTaskGP(train_X, train_Y, input_transform=chained)
+        mll = ExactMarginalLogLikelihood(model.likelihood, model)
+        fit_gpytorch_mll(mll, optimizer_kwargs={"options": {"maxiter": 2}})
+        # Two configs with inactive parent p0=0 must produce identical posteriors
+        post = model.posterior(train_X[:2])
+        self.assertAllClose(post.mean[0], post.mean[1])
+
+    def test_validation_errors(self):
+        with self.assertRaisesRegex(ValueError, "`d` must be an integer >= 2"):
+            HierarchicalGateTransform(d=1, gates={0: 0})
+        with self.assertRaisesRegex(ValueError, "`d` must be an integer >= 2"):
+            HierarchicalGateTransform(d=True, gates={1: 0})
+        with self.assertRaisesRegex(ValueError, "`gates` must be a non-empty"):
+            HierarchicalGateTransform(d=2, gates={})
+        with self.assertRaisesRegex(ValueError, "must be integers"):
+            HierarchicalGateTransform(d=2, gates={True: 0})
+        with self.assertRaisesRegex(ValueError, "must lie in \\[0, 1\\]"):
+            HierarchicalGateTransform(d=2, gates={2: 0})
+        with self.assertRaisesRegex(ValueError, "cannot be gated by itself"):
+            HierarchicalGateTransform(d=2, gates={1: 1})
+        with self.assertRaisesRegex(ValueError, "contains a cycle"):
+            HierarchicalGateTransform(d=2, gates={0: 1, 1: 0})
+        with self.assertRaisesRegex(ValueError, "contains a cycle"):
+            HierarchicalGateTransform(d=3, gates={0: 1, 1: 2, 2: 0})
+        with self.assertRaisesRegex(
+            ValueError, "`thresholds` .* must lie in \\[0, 1\\)"
+        ):
+            HierarchicalGateTransform(d=2, gates={1: 0}, thresholds=1.0)
+        with self.assertRaisesRegex(ValueError, "must be finite"):
+            HierarchicalGateTransform(d=2, gates={1: 0}, thresholds=float("nan"))
+        with self.assertRaisesRegex(
+            ValueError, "`neutral_values` .* must lie in \\[0, 1\\]"
+        ):
+            HierarchicalGateTransform(d=2, gates={1: 0}, neutral_values=1.5)
+        with self.assertRaisesRegex(ValueError, "`sharpness` .* must be >= 0"):
+            HierarchicalGateTransform(d=2, gates={1: 0}, sharpness=-1.0)
+
+        tf = HierarchicalGateTransform(d=2, gates={1: 0})
+        with self.assertRaises(BotorchTensorDimensionError):
+            tf(torch.tensor([0.2, 0.8]))
+        with self.assertRaises(BotorchTensorDimensionError):
+            tf(torch.zeros(3, 3))
