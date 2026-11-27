@@ -490,6 +490,30 @@ class TestPairwiseGP(BotorchTestCase):
             with self.assertRaises(NotPSDError):
                 _ensure_psd_with_jitter(bad_M)
 
+    def test_pairwise_likelihood_numerical_stability_and_log_flag(self) -> None:
+        tkwargs = {"device": self.device, "dtype": self.dtype}
+        # Large utilities (> 88) previously overflowed exp() in PairwiseLogitLikelihood
+        utility = torch.tensor([120.0, -120.0, 0.0], **tkwargs)
+        D = torch.tensor(
+            [[1.0, -1.0, 0.0], [0.0, 1.0, -1.0], [0.5, 0.5, -1.0]], **tkwargs
+        )
+        logit_lh = PairwiseLogitLikelihood()
+        grad_logit = logit_lh.negative_log_gradient_sum(utility=utility, D=D)
+        self.assertTrue(torch.all(torch.isfinite(grad_logit)))
+        self.assertTrue(
+            torch.allclose(
+                logit_lh.p(utility=utility, D=D, log=True),
+                logit_lh.log_p(utility=utility, D=D),
+            )
+        )
+
+        probit_lh = PairwiseProbitLikelihood()
+        log_p_probit = probit_lh.p(utility=utility, D=D, log=True)
+        self.assertTrue(torch.all(torch.isfinite(log_p_probit)))
+        self.assertTrue(
+            torch.allclose(log_p_probit, probit_lh.log_p(utility=utility, D=D))
+        )
+
 
 class TestPairwiseGP_float32(TestPairwiseGP):
     """Runs tests from TestPairwiseGP in single precision."""
