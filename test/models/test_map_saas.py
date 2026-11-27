@@ -35,6 +35,7 @@ from botorch.models.transforms.outcome import Standardize
 from botorch.optim.utils import get_parameters_and_bounds, sample_all_priors
 from botorch.posteriors.fully_bayesian import GaussianMixturePosterior
 from botorch.posteriors.gpytorch import GPyTorchPosterior
+from botorch.sampling.normal import SobolQMCNormalSampler
 from botorch.test_utils.mock import mock_optimize
 from botorch.utils.constraints import LogTransformedInterval
 from botorch.utils.datasets import SupervisedDataset
@@ -610,6 +611,72 @@ class TestMapSaas(BotorchTestCase):
         model_with_yvar = EnsembleMapSaasSingleTaskGP(**inputs_with_yvar)
         self.assertIsInstance(model_with_yvar, EnsembleMapSaasSingleTaskGP)
         self.assertEqual(model_with_yvar.batch_shape, torch.Size([3]))
+
+    def test_ensemble_map_saas_fantasize(self) -> None:
+        num_taus, num_fantasies, n, d = 3, 4, 2, 3
+        for dtype, with_options, batch_shape in itertools.product(
+            (torch.float, torch.double), (False, True), (torch.Size(), torch.Size([5]))
+        ):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            train_X = torch.rand(8, d, **tkwargs)
+            train_Y = torch.rand(8, 1, **tkwargs)
+            extra_inputs = (
+                {
+                    "train_Yvar": torch.full_like(train_Y, 0.05),
+                    "input_transform": Normalize(d=d),
+                }
+                if with_options
+                else {}
+            )
+            model = EnsembleMapSaasSingleTaskGP(
+                train_X=train_X, train_Y=train_Y, num_taus=num_taus, **extra_inputs
+            )
+            model.eval()
+            X = torch.rand(*batch_shape, n, d, **tkwargs)
+            sampler = SobolQMCNormalSampler(
+                sample_shape=torch.Size([num_fantasies]), seed=0
+            )
+            fantasy_model = model.fantasize(X, sampler)
+            fantasy_batch_shape = (
+                torch.Size([num_fantasies]) + batch_shape + torch.Size([num_taus])
+            )
+            self.assertIsInstance(fantasy_model, EnsembleMapSaasSingleTaskGP)
+            self.assertEqual(fantasy_model.batch_shape, fantasy_batch_shape)
+            # Each member is conditioned on ``X`` and on fantasies sampled from its
+            # own posterior at ``X``.
+            X_members = X.unsqueeze(-3).expand(*batch_shape, num_taus, n, d)
+            observation_noise = (
+                model.likelihood.noise.unsqueeze(-1).mean(dim=-2, keepdim=True)
+                if with_options
+                else True
+            )
+            members_posterior = SingleTaskGP.posterior(
+                model, X_members, observation_noise=observation_noise
+            )
+            fantasies, _ = model.outcome_transform(sampler(members_posterior))
+            self.assertAllClose(
+                fantasy_model.train_targets[..., -n:], fantasies.squeeze(-1)
+            )
+            fantasy_inputs = fantasy_model.train_inputs[0][..., -n:, :]
+            self.assertAllClose(
+                fantasy_inputs,
+                model.transform_inputs(X_members).expand_as(fantasy_inputs),
+            )
+            # The fantasy model is an ensemble.
+            test_X = torch.rand(num_fantasies, *batch_shape, 6, d, **tkwargs)
+            posterior = fantasy_model.posterior(test_X)
+            self.assertIsInstance(posterior, GaussianMixturePosterior)
+            self.assertEqual(posterior.mean.shape, fantasy_batch_shape + (6, 1))
+            self.assertEqual(posterior.mixture_mean.shape, test_X.shape[:-1] + (1,))
+            # Empty X.
+            fantasy_model = model.fantasize(X[..., :0, :], sampler)
+            self.assertEqual(fantasy_model.batch_shape, fantasy_batch_shape)
+            if not with_options:
+                # Conditioning all members on the same observations.
+                conditioned_model = model.condition_on_observations(
+                    X=X.reshape(-1, n, d)[0], Y=torch.rand(n, 1, **tkwargs)
+                )
+                self.assertEqual(conditioned_model.batch_shape, torch.Size([num_taus]))
 
     def _compute_gradients(
         self, model: EnsembleMapSaasSingleTaskGP, mll: ExactMarginalLogLikelihood
