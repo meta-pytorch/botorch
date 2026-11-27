@@ -202,6 +202,31 @@ class TestQLogExpectedImprovement(BotorchTestCase):
             with self.assertRaisesRegex(ValueError, "tau_relu is non-positive:"):
                 qLogExpectedImprovement(model=mm, best_f=0, tau_relu=-2)
 
+    def test_best_f_scalar_precision(self):
+        """A Python-float best_f and a double-Tensor best_f must agree."""
+        previous_dtype = torch.get_default_dtype()
+        try:
+            torch.set_default_dtype(torch.float)
+            # best_f sits just below the sampled maximum; rounding it through
+            # the default dtype used to snap it to the sample value and zero
+            # out the improvement entirely
+            samples = torch.ones(1, 1, 1, device=self.device, dtype=torch.double)
+            mm = MockModel(MockPosterior(samples=samples))
+            X = torch.zeros(1, 1, device=self.device, dtype=torch.double)
+            sampler = IIDNormalSampler(sample_shape=torch.Size([2]))
+            best_f = 1.0 - 1e-8
+            acqf_scalar = qLogExpectedImprovement(
+                model=mm, best_f=best_f, sampler=sampler
+            )
+            acqf_tensor = qLogExpectedImprovement(
+                model=mm,
+                best_f=torch.tensor(best_f, dtype=torch.double),
+                sampler=sampler,
+            )
+            self.assertAllClose(acqf_scalar(X), acqf_tensor(X))
+        finally:
+            torch.set_default_dtype(previous_dtype)
+
     def test_q_log_expected_improvement_batch(self):
         for dtype in (torch.float, torch.double):
             # the event shape is ``b x q x t`` = 2 x 2 x 1

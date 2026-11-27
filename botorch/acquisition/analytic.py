@@ -506,7 +506,14 @@ class ConstrainedAnalyticAcquisitionFunctionMixin(ABC):
             ("con_upper", con_upper),
         ]:
             # tensor-based indexing is much faster than list-based advanced indexing
-            self.register_buffer(name, tensor=torch.as_tensor(value))
+            if name in ("con_lower", "con_upper", "con_both"):
+                # keep Python-float bound values at full precision; they are
+                # cast to the posterior's dtype in _compute_log_prob_feas
+                self.register_buffer(
+                    name, tensor=torch.as_tensor(value, dtype=torch.double)
+                )
+            else:
+                self.register_buffer(name, tensor=torch.as_tensor(value))
 
     def _compute_log_prob_feas(
         self,
@@ -531,9 +538,9 @@ class ConstrainedAnalyticAcquisitionFunctionMixin(ABC):
             con_lower_inds=self.con_lower_inds,
             con_upper_inds=self.con_upper_inds,
             con_both_inds=self.con_both_inds,
-            con_lower=self.con_lower,
-            con_upper=self.con_upper,
-            con_both=self.con_both,
+            con_lower=self.con_lower.to(means),
+            con_upper=self.con_upper.to(means),
+            con_both=self.con_both.to(means),
             means=means,
             sigmas=sigmas,
         )
