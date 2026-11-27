@@ -5,11 +5,14 @@
 # LICENSE file in the root directory of this source tree.
 
 
+import itertools
+
 import torch
 from botorch.utils.multitask import separate_mtmvn
 from botorch.utils.testing import BotorchTestCase
 from gpytorch.distributions import MultitaskMultivariateNormal
 from gpytorch.distributions.multivariate_normal import MultivariateNormal
+from linear_operator.operators import BlockDiagLinearOperator
 
 
 class TestSeparateMTMVN(BotorchTestCase):
@@ -48,3 +51,31 @@ class TestSeparateMTMVN(BotorchTestCase):
                     idx = torch.arange(c * num_data, (c + 1) * num_data)
                 expected_covar = dense_covar[..., idx, :][..., :, idx]
                 self.assertAllClose(mvn_c.covariance_matrix, expected_covar, atol=1e-5)
+
+    def test_separate_mtmvn_block_diagonal(self) -> None:
+        # Independent tasks have a block-diagonal covariance with one block per task,
+        # e.g. the posteriors of batched multi-output models. This previously returned
+        # wrong covariances if num_data was divisible by num_tasks.
+        for batch_shape, (num_data, num_tasks), dtype in itertools.product(
+            (torch.Size([]), torch.Size([3])),
+            ((4, 2), (3, 2), (6, 3)),
+            (torch.float, torch.double),
+        ):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            mvns = []
+            for _ in range(num_tasks):
+                a = torch.rand(*batch_shape, num_data, num_data, **tkwargs)
+                covar = a @ a.transpose(-1, -2) + torch.eye(num_data, **tkwargs)
+                mean = torch.rand(*batch_shape, num_data, **tkwargs)
+                mvns.append(MultivariateNormal(mean, covar))
+            mtmvn = MultitaskMultivariateNormal.from_independent_mvns(mvns)
+            self.assertIsInstance(mtmvn.lazy_covariance_matrix, BlockDiagLinearOperator)
+            mtmvn_list = separate_mtmvn(mtmvn)
+
+            self.assertEqual(len(mtmvn_list), num_tasks)
+            for mvn_c, expected_mvn in zip(mtmvn_list, mvns):
+                self.assertIsInstance(mvn_c, MultivariateNormal)
+                self.assertTrue(torch.equal(mvn_c.mean, expected_mvn.mean))
+                self.assertAllClose(
+                    mvn_c.covariance_matrix, expected_mvn.covariance_matrix
+                )

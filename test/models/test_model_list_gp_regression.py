@@ -25,7 +25,7 @@ from botorch.sampling.list_sampler import ListSampler
 from botorch.sampling.normal import IIDNormalSampler
 from botorch.utils.testing import BotorchTestCase, get_random_data
 from gpytorch.distributions import MultitaskMultivariateNormal, MultivariateNormal
-from gpytorch.kernels import RBFKernel
+from gpytorch.kernels import GridInterpolationKernel, RBFKernel, ScaleKernel
 from gpytorch.likelihoods import LikelihoodList
 from gpytorch.likelihoods.gaussian_likelihood import (
     FixedNoiseGaussianLikelihood,
@@ -397,6 +397,62 @@ class TestModelListGP(BotorchTestCase):
 
     def test_ModelListGP_multi_task_outcome_transform(self):
         self.test_ModelListGP_multi_task(use_outcome_transform=True)
+
+    def test_ModelListGP_batched_multi_output(self) -> None:
+        # The posterior of a batched multi-output sub-model has a block-diagonal
+        # covariance. The joint posterior must contain its per-output blocks.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.rand(10, 2, **tkwargs)
+        train_Y = torch.randn(10, 3, **tkwargs)
+        model1 = SingleTaskGP(train_X, train_Y[:, :2])
+        model2 = SingleTaskGP(train_X, train_Y[:, 2:])
+        model = ModelListGP(model1, model2).eval()
+        weights = torch.tensor([1.0, 2.0, 0.5], **tkwargs)
+        post_tf = ScalarizedPosteriorTransform(weights=weights)
+        for q in (3, 4):
+            X = torch.rand(q, 2, **tkwargs)
+            with torch.no_grad():
+                posterior = model.posterior(X)
+                posterior_tf = model.posterior(X, posterior_transform=post_tf)
+                posterior1 = model1.posterior(X)
+                posterior2 = model2.posterior(X)
+            # The covariance of `posterior1` is in output-major order.
+            covar1 = posterior1.covariance_matrix
+            blocks = [covar1[:q, :q], covar1[q:, q:], posterior2.covariance_matrix]
+            self.assertAllClose(posterior.covariance_matrix, torch.block_diag(*blocks))
+            expected_mean = torch.cat([posterior1.mean, posterior2.mean], dim=-1)
+            self.assertAllClose(posterior.mean, expected_mean)
+            # Scalarizing the posterior of q > 1 points previously errored out.
+            self.assertAllClose(posterior_tf.mean, expected_mean @ weights[:, None])
+            expected_covar_tf = sum(w**2 * block for w, block in zip(weights, blocks))
+            self.assertAllClose(posterior_tf.covariance_matrix, expected_covar_tf)
+
+    def test_ModelListGP_batched_multi_output_interpolated_kernel(self) -> None:
+        # With a SKI kernel, the blocks of the sub-model's covariance contain
+        # `InterpolatedLinearOperator`s, which cannot be indexed lazily.
+        tkwargs = {"device": self.device, "dtype": torch.double}
+        train_X = torch.rand(20, 1, **tkwargs)
+        train_Y = torch.randn(20, 3, **tkwargs)
+        covar_module = ScaleKernel(
+            GridInterpolationKernel(
+                RBFKernel(batch_shape=torch.Size([2])),
+                grid_size=16,
+                num_dims=1,
+                grid_bounds=[(0.0, 1.0)],
+            ),
+            batch_shape=torch.Size([2]),
+        )
+        model1 = SingleTaskGP(train_X, train_Y[:, :2], covar_module=covar_module)
+        model2 = SingleTaskGP(train_X, train_Y[:, 2:])
+        model = ModelListGP(model1, model2).eval()
+        for q in (2, 3):
+            X = torch.rand(q, 1, **tkwargs)
+            with torch.no_grad():
+                covar = model.posterior(X).covariance_matrix
+                covar1 = model1.posterior(X).covariance_matrix
+                covar2 = model2.posterior(X).covariance_matrix
+            expected = torch.block_diag(covar1[:q, :q], covar1[q:, q:], covar2)
+            self.assertAllClose(covar, expected)
 
     def test_transform_revert_train_inputs(self):
         tkwargs = {"device": self.device, "dtype": torch.float}
