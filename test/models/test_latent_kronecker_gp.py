@@ -445,6 +445,7 @@ class TestLatentKroneckerGP(BotorchTestCase):
                     posterior = model.posterior(test_X, train_T)
                 n_x, n_t = test_X.shape[-2], train_T.shape[-2]
                 model_mean = model_mean.reshape(*model_mean.shape[:-1], n_x, n_t)
+                model_mean, _ = model.outcome_transform.untransform(model_mean)
                 self.assertAllClose(
                     model_mean,
                     posterior.mean.reshape(model_mean.shape),

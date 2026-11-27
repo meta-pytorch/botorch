@@ -37,6 +37,7 @@ from botorch.models.transforms.input import InputTransform
 from botorch.models.transforms.outcome import OutcomeTransform, Standardize
 from botorch.posteriors.gpytorch import GPyTorchPosterior
 from botorch.posteriors.latent_kronecker import LatentKroneckerGPPosterior
+from botorch.posteriors.transformed import TransformedPosterior
 from botorch.utils.datasets import SupervisedDataset
 from botorch.utils.types import _DefaultType, DEFAULT
 from gpytorch.distributions import Distribution, MultivariateNormal
@@ -349,7 +350,9 @@ class LatentKroneckerGP(GPyTorchModel, ExactGP, FantasizeMixin):
         # Compute prior mean on test set
         test_mean = self._get_mean(X_test, T_test)
 
-        batch_shape = torch.broadcast_shapes(X_train.shape[:-2], X_test.shape[:-2])
+        batch_shape = torch.broadcast_shapes(
+            X_train.shape[:-2], T_train.shape[:-2], X_test.shape[:-2], T_test.shape[:-2]
+        )
         test_shape = torch.Size([n_test])
 
         return (
@@ -417,7 +420,7 @@ class LatentKroneckerGP(GPyTorchModel, ExactGP, FantasizeMixin):
         observation_noise: bool | Tensor = False,
         posterior_transform: PosteriorTransform | None = None,
         **kwargs: Any,
-    ) -> GPyTorchPosterior:
+    ) -> GPyTorchPosterior | TransformedPosterior:
         r"""Computes the posterior over model outputs at the provided points.
 
         Leverages GPyTorch's inference stack with our custom Kronecker-structured
@@ -478,7 +481,37 @@ class LatentKroneckerGP(GPyTorchModel, ExactGP, FantasizeMixin):
         # LatentKroneckerGPPosterior.rsample_from_base_samples.
         distribution = self(X_test, T)
 
-        return LatentKroneckerGPPosterior(self, distribution, X, T)
+        posterior = LatentKroneckerGPPosterior(
+            self, distribution, X, T, untransform=False
+        )
+        if getattr(self, "outcome_transform", None) is None:
+            return posterior
+
+        # Transform the flattened single-output Gaussian before exposing grid
+        # axes. In particular, Standardize(m=1) applies to every grid cell.
+        transformed = self.outcome_transform.untransform_posterior(
+            GPyTorchPosterior(distribution), X=X
+        )
+        if isinstance(transformed, GPyTorchPosterior):
+            return LatentKroneckerGPPosterior(self, transformed.distribution, X, T)
+
+        def untransform_samples(samples: Tensor) -> Tensor:
+            values, _ = self.outcome_transform.untransform(
+                samples.flatten(-2).unsqueeze(-1), X=X
+            )
+            return values.reshape(samples.shape)
+
+        output_shape = posterior._extended_shape()
+        return TransformedPosterior(
+            posterior,
+            sample_transform=untransform_samples,
+            mean_transform=lambda mean, variance: transformed.mean.reshape(
+                output_shape
+            ),
+            variance_transform=lambda mean, variance: transformed.variance.reshape(
+                output_shape
+            ),
+        )
 
     def _rsample_from_base_samples(
         self,
@@ -486,6 +519,8 @@ class LatentKroneckerGP(GPyTorchModel, ExactGP, FantasizeMixin):
         T: Tensor,
         base_samples: Tensor,
         observation_noise: bool | Tensor = False,
+        *,
+        untransform: bool = True,
     ) -> Tensor:
         r"""Sample from the posterior distribution at the provided points ``X``
         using Matheron's rule, requiring ``n + 2 n_train`` base samples.
@@ -499,6 +534,9 @@ class LatentKroneckerGP(GPyTorchModel, ExactGP, FantasizeMixin):
             base_samples: A Tensor of ``N(0, I)`` base samples of shape
                 ``sample_shape x base_sample_shape``, typically obtained from
                 a ``Sampler``. This is used for deterministic optimization.
+            untransform: Whether to undo the outcome transform. Internal posterior
+                wrappers use False when applying their own output transformation.
+
         Returns:
             Samples from the posterior, a tensor of shape
             ``self._extended_shape(sample_shape=sample_shape)``.
@@ -562,23 +600,23 @@ class LatentKroneckerGP(GPyTorchModel, ExactGP, FantasizeMixin):
         K_train_test_T = self.covar_module_T(self.train_T, T).evaluate_kernel()
 
         L_train_test_X = L_train_train_X.solve_triangular(
-            K_train_test_X.tensor, upper=False
+            K_train_test_X.to_dense(), upper=False
         )
         L_train_test_T = L_train_train_T.solve_triangular(
-            K_train_test_T.tensor, upper=False
+            K_train_test_T.to_dense(), upper=False
         )
-
-        L_test_test_X = (
-            K_test_test_X - L_train_test_X.transpose(-2, -1) @ L_train_test_X
-        ).cholesky(upper=False)
-        L_test_test_T = (
-            K_test_test_T - L_train_test_T.transpose(-2, -1) @ L_train_test_T
-        ).cholesky(upper=False)
 
         L_test_train = KroneckerProductLinearOperator(
             L_train_test_X.transpose(-2, -1), L_train_test_T.transpose(-2, -1)
         )
-        L_test_test = KroneckerProductLinearOperator(L_test_test_X, L_test_test_T)
+        # The joint Schur complement is Kxx (x) Ktt - Ax (x) At.
+        # A product of factor-wise complements discards the mixed terms and
+        # collapses feature uncertainty when test T coincides with train T.
+        test_prior_covar = KroneckerProductLinearOperator(K_test_test_X, K_test_test_T)
+        conditional_covar = test_prior_covar - L_test_train @ L_test_train.transpose(
+            -2, -1
+        )
+        L_test_test = conditional_covar.cholesky(upper=False)
 
         # match dimensions for broadcasting
         broadcast_shape = L_test_train.shape[:-2]
@@ -601,8 +639,11 @@ class LatentKroneckerGP(GPyTorchModel, ExactGP, FantasizeMixin):
         # samples.shape = (*sample_shape, *broadcast_shape, n_test_x * n_t, 1)
         samples = samples.reshape(*samples.shape[:-2], X_test.shape[-2], T.shape[-2])
         # samples.shape = (*sample_shape, *broadcast_shape, n_test_x, n_t)
-        if hasattr(self, "outcome_transform") and self.outcome_transform is not None:
-            samples, _ = self.outcome_transform.untransform(samples, X=X)
+        if untransform and getattr(self, "outcome_transform", None) is not None:
+            values, _ = self.outcome_transform.untransform(
+                samples.flatten(-2).unsqueeze(-1), X=X
+            )
+            samples = values.reshape(samples.shape)
         return samples
 
     def condition_on_observations(
