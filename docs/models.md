@@ -172,7 +172,7 @@ easy to do. See Ax's
 [Modular BoTorch tutorial](https://ax.dev/docs/tutorials/modular_botorch/)
 tutorial for an example for this and how to use such a custom model in Ax.
 
-The BoTorch `Model` interface is light-weight and easy to extend. The only
+The BoTorch `Model` interface is light-weight and easy to extend. The core
 requirement for using BoTorch's Monte-Carlo based acquisition functions is that
 the model has a `posterior` method. It takes in a Tensor `X` of design points,
 and returns a Posterior object describing the (joint) probability distribution
@@ -180,6 +180,32 @@ of the model output(s) over the design points in `X`. The `Posterior` object
 must implement an `rsample()` method for sampling from the posterior of the
 model. If you wish to use gradient-based optimization algorithms, the model
 should allow back-propagating gradients through the samples to the model input.
+
+In practice, the acquisition functions call a few more things on a custom model
+than this minimal description suggests. Methods and properties that
+`Model` defines without making them abstract (they raise `NotImplementedError`
+by default) are easy to overlook. Depending on which acquisition function you
+use, you may also need the following:
+
+- `posterior` should follow the signature of `Model.posterior`, in particular
+  accepting the `posterior_transform` keyword argument, because acquisition
+  functions and utilities such as `prune_inferior_points` pass it on.
+- The model needs a `num_outputs` property. For example,
+  `MCAcquisitionFunction` reads `model.num_outputs` when no `objective` is
+  given.
+- Acquisition functions that draw samples with a default sampler (for example
+  `qNoisyExpectedImprovement`, whose default `prune_baseline` step calls
+  `prune_inferior_points`) look the sampler up with `get_sampler`. If your
+  `Posterior` subclass is not covered by an existing sampler, register one
+  with `@GetSampler.register(YourPosterior)`. Passing a `sampler` argument to
+  the acquisition function does not help for the baseline pruning step, because
+  `qNoisyExpectedImprovement` does not forward it to `prune_inferior_points`.
+  `get_sampler` and its registered implementations live in
+  `botorch/sampling/get_sampler.py`.
+
+If you are unsure which of these your use case needs, the `Model` and
+`Posterior` base classes (in `botorch/models/model.py` and
+`botorch/posteriors/posterior.py`) are the reference for the full interface.
 
 If you happen to implement a model that would be useful for other researchers as
 well (and involves more than just swapping out the RBF kernel for a Matérn
