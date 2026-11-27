@@ -31,6 +31,7 @@ from botorch.utils.multi_objective.box_decompositions.non_dominated import (
     FastNondominatedPartitioning,
     NondominatedPartitioning,
 )
+from botorch.utils.objective import compute_feasibility_indicator
 from torch import Tensor
 
 
@@ -55,6 +56,7 @@ def get_acquisition_function(
     ref_point: None | list[float] | Tensor = None,
     Y: Tensor | None = None,
     alpha: float = 0.0,
+    fat: list[bool | None] | bool | None = None,
 ) -> MCAcquisitionFunction:
     r"""Convenience function for initializing botorch acquisition functions.
 
@@ -77,6 +79,13 @@ def get_acquisition_function(
             tensor the length of the tensor must match the number of provided
             constraints. The i-th constraint is then estimated with the i-th
             eta value. Used for all acquisition functions except qSR and qUCB.
+        fat: Whether to apply a fat-tailed smooth approximation to the constraint
+            indicators, either for all constraints or per constraint as a list. A
+            list entry ``None`` means that the constraint delivers a probability of
+            feasibility, which is considered satisfied for observed points if it is
+            at least 0.5. See ``compute_smoothed_feasibility_indicator`` for
+            details. If not provided, each acquisition function's default is used.
+            Used for all acquisition functions except qSR and qUCB.
         mc_samples: The number of samples to use for (q)MC evaluation of the
             acquisition function.
         seed: If provided, perform deterministic optimization (i.e. the
@@ -113,6 +122,8 @@ def get_acquisition_function(
             "PosteriorTransforms are not yet implemented for multi-objective "
             "acquisition functions."
         )
+    # only pass fat on if given, so that each acquisition function keeps its default
+    fat_kwargs = {} if fat is None else {"fat": fat}
     # instantiate and return the requested acquisition function
     if acquisition_function_name in ("qEI", "qLogEI", "qPI"):
         # Since these are the non-noisy variants, use the posterior mean at the observed
@@ -127,6 +138,7 @@ def get_acquisition_function(
             objective=objective,
             posterior_transform=posterior_transform,
             X_baseline=X_observed,
+            fat=False if fat is None else fat,
         )
     if acquisition_function_name in ["qEI", "qLogEI"]:
         acqf_class = (
@@ -143,6 +155,7 @@ def get_acquisition_function(
             X_pending=X_pending,
             constraints=constraints,
             eta=eta,
+            **fat_kwargs,
         )
     elif acquisition_function_name == "qPI":
         return monte_carlo.qProbabilityOfImprovement(
@@ -155,6 +168,7 @@ def get_acquisition_function(
             tau=tau,
             constraints=constraints,
             eta=eta,
+            **fat_kwargs,
         )
     elif acquisition_function_name == "qLogPF":
         return logei.qLogProbabilityOfFeasibility(
@@ -165,6 +179,7 @@ def get_acquisition_function(
             posterior_transform=posterior_transform,
             X_pending=X_pending,
             eta=eta,
+            **fat_kwargs,
         )
     elif acquisition_function_name in ["qNEI", "qLogNEI"]:
         acqf_class = (
@@ -184,6 +199,7 @@ def get_acquisition_function(
             cache_root=cache_root,
             constraints=constraints,
             eta=eta,
+            **fat_kwargs,
         )
     elif acquisition_function_name == "qSR":
         return monte_carlo.qSimpleRegret(
@@ -213,7 +229,11 @@ def get_acquisition_function(
             )
         # get feasible points
         if constraints is not None:
-            feas = torch.stack([c(Y) <= 0 for c in constraints], dim=-1).all(dim=-1)
+            feas = compute_feasibility_indicator(
+                constraints=constraints,
+                samples=Y,
+                fat=False if fat is None else fat,
+            )
             Y = Y[feas]
         obj = objective(Y)
         if alpha > 0:
@@ -240,6 +260,7 @@ def get_acquisition_function(
             objective=objective,
             constraints=constraints,
             eta=eta,
+            **fat_kwargs,
             X_pending=X_pending,
         )
     elif acquisition_function_name in ["qNEHVI", "qLogNEHVI"]:
@@ -260,6 +281,7 @@ def get_acquisition_function(
             objective=objective,
             constraints=constraints,
             eta=eta,
+            **fat_kwargs,
             prune_baseline=prune_baseline,
             alpha=alpha,
             X_pending=X_pending,

@@ -30,7 +30,7 @@ class qLogNParEGO(qLogNoisyExpectedImprovement, MultiObjectiveMCAcquisitionFunct
         constraints: list[Callable[[Tensor], Tensor]] | None = None,
         X_pending: Tensor | None = None,
         eta: Tensor | float = 1e-3,
-        fat: bool = True,
+        fat: list[bool | None] | bool = True,
         prune_baseline: bool = False,
         cache_root: bool | None = None,
         tau_relu: float = TAU_RELU,
@@ -75,8 +75,13 @@ class qLogNParEGO(qLogNoisyExpectedImprovement, MultiObjectiveMCAcquisitionFunct
             eta: Temperature parameter(s) governing the smoothness of the sigmoid
                 approximation to the constraint indicators. See the docs of
                 ``compute_(log_)smoothed_constraint_indicator`` for details.
-            fat: Toggles the logarithmic / linear asymptotic behavior of the smooth
-                approximation to the ReLU.
+            fat: Controls two smooth approximations: (1) of the ReLU and the maximum:
+                fat-tailed or softplus/logsumexp-based; (2) of the constraint
+                indicators: fatmoid or sigmoid. A boolean sets both: ``True`` fat-tailed
+                and fatmoid, ``False`` softplus/logsumexp and sigmoid. A list sets (2)
+                per constraint, where ``None`` means that the constraint delivers a
+                probability of feasibility that is used as is (see
+                ``compute_smoothed_feasibility_indicator``); (1) is then fat-tailed.
             prune_baseline: If True, remove points in ``X_baseline`` that are
                 highly unlikely to be the best point. This can significantly
                 improve performance and is generally recommended. In order to

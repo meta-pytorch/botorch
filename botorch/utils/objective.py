@@ -68,11 +68,12 @@ def apply_constraints_nonnegative_soft(
     constraints: list[Callable[[Tensor], Tensor]],
     samples: Tensor,
     eta: Tensor | float,
+    fat: list[bool | None] | bool = False,
 ) -> Tensor:
     r"""Applies constraints to a non-negative objective.
 
     This function uses a sigmoid approximation to an indicator function for
-    each constraint.
+    each constraint, unless ``fat`` asks for another one.
 
     Args:
         obj: A ``n_samples x b x q (x m')``-dim Tensor of objective values.
@@ -86,22 +87,50 @@ def apply_constraints_nonnegative_soft(
             constraint in constraints. In case of a tensor the length of the tensor
             must match the number of provided constraints. The i-th constraint is
             then estimated with the i-th eta value.
+        fat: Whether to apply a fat-tailed approximation to the feasibility
+            indicator instead of the sigmoid, either for all constraints or per
+            constraint as a list. A list entry ``None`` means that the constraint
+            delivers a probability of feasibility, see
+            ``compute_smoothed_feasibility_indicator``.
 
     Returns:
         A ``n_samples x b x q (x m')``-dim tensor of feasibility-weighted objectives.
     """
     w = compute_smoothed_feasibility_indicator(
-        constraints=constraints, samples=samples, eta=eta
+        constraints=constraints, samples=samples, eta=eta, fat=fat
     )
     if obj.dim() == samples.dim():
         w = w.unsqueeze(-1)  # Need to unsqueeze to accommodate the outcome dimension.
     return obj.clamp_min(0).mul(w)  # Enforce non-negativity of obj, apply constraints.
 
 
+def _normalize_fat(
+    fat: list[bool | None] | bool, n_constraints: int
+) -> list[bool | None]:
+    r"""Expands ``fat`` to one entry per constraint.
+
+    Args:
+        fat: A boolean applied to all constraints, or a list with one entry per
+            constraint.
+        n_constraints: The number of constraints.
+
+    Returns:
+        A list of length ``n_constraints``.
+    """
+    if not isinstance(fat, list):
+        return [fat] * n_constraints
+    if len(fat) != n_constraints:
+        raise ValueError(
+            "Number of provided constraints and number of provided fats do not match."
+        )
+    return fat
+
+
 def compute_feasibility_indicator(
     constraints: list[Callable[[Tensor], Tensor]] | None,
     samples: Tensor,
     marginalize_dim: int | None = None,
+    fat: list[bool | None] | bool = False,
 ) -> Tensor:
     r"""Computes the feasibility of a list of constraints given posterior samples.
 
@@ -113,14 +142,23 @@ def compute_feasibility_indicator(
         marginalize_dim: A batch dimension that should be marginalized.
             For example, this is useful when using a batched fully Bayesian
             model.
+        fat: The per-constraint setting used for the smoothed feasibility
+            indicator, see ``compute_smoothed_feasibility_indicator``. Only ``None``
+            entries matter here: such a constraint delivers a probability of
+            feasibility and is considered satisfied if it is at least 0.5. All
+            other constraints are satisfied if they are non-positive.
 
     Returns:
         A ``batch_shape x q``-dim tensor of Boolean feasibility values.
     """
     ind = torch.ones(samples.shape[:-1], dtype=torch.bool, device=samples.device)
     if constraints is not None:
-        for constraint in constraints:
-            ind = ind.logical_and(constraint(samples) <= 0)
+        fat = _normalize_fat(fat=fat, n_constraints=len(constraints))
+        for constraint, fat_ in zip(constraints, fat):
+            if fat_ is None:
+                ind = ind.logical_and(constraint(samples) >= 0.5)
+            else:
+                ind = ind.logical_and(constraint(samples) <= 0)
     if ind.ndim >= 3 and marginalize_dim is not None:
         # make sure marginalize_dim is not negative
         if marginalize_dim < 0:
@@ -177,9 +215,11 @@ def compute_smoothed_feasibility_indicator(
             the i-th fat value is ``None``, no fatmoid/sigmoid transformation is
             applied to the i-th constraint and it is assumed that the constraint
             by itself delivers values in the interval [0, 1]. This is especially useful
-            for using classifiers as constraints. If a boolean is provided and its
-            value is ``True``, a fatmoid transformation is applied, if its value is
-            ``False``, a sigmoid transformation is applied.
+            for using classifiers as constraints. Values of zero are clamped to the
+            smallest positive number of the dtype, so that their logarithm is
+            finite. If a boolean is provided and its value is ``True``, a fatmoid
+            transformation is applied, if its value is ``False``, a sigmoid
+            transformation is applied.
 
 
     Returns:
@@ -187,15 +227,10 @@ def compute_smoothed_feasibility_indicator(
     """
     if type(eta) is not Tensor:
         eta = torch.full((len(constraints),), eta)
-    if type(fat) is not list:
-        fat = [fat] * len(constraints)
+    fat = _normalize_fat(fat=fat, n_constraints=len(constraints))
     if len(eta) != len(constraints):
         raise ValueError(
             "Number of provided constraints and number of provided etas do not match."
-        )
-    if len(fat) != len(constraints):
-        raise ValueError(
-            "Number of provided constraints and number of provided fats do not match."
         )
     if not (eta > 0).all():
         raise ValueError("eta must be positive.")
@@ -203,7 +238,10 @@ def compute_smoothed_feasibility_indicator(
 
     for constraint, eta_, fat_ in zip(constraints, eta, fat):
         if fat_ is None:
-            is_feasible = is_feasible + constraint(samples).log()
+            # clamp, so that a probability of exactly zero stays finite in log space
+            prob = constraint(samples)
+            prob = prob.clamp_min(torch.finfo(prob.dtype).tiny)
+            is_feasible = is_feasible + prob.log()
         else:
             log_sigmoid = log_fatmoid if fat_ else logexpit
             is_feasible = is_feasible + log_sigmoid(-constraint(samples) / eta_)
@@ -217,6 +255,7 @@ def apply_constraints(
     samples: Tensor,
     infeasible_cost: float,
     eta: Tensor | float = 1e-3,
+    fat: list[bool | None] | bool = False,
 ) -> Tensor:
     r"""Apply constraints using an infeasible_cost ``M`` for negative objectives.
 
@@ -239,6 +278,11 @@ def apply_constraints(
             constraint in constraints. In case of a tensor the length of the tensor
             must match the number of provided constraints. The i-th constraint is
             then estimated with the i-th eta value.
+        fat: Whether to apply a fat-tailed approximation to the feasibility
+            indicator instead of the sigmoid, either for all constraints or per
+            constraint as a list. A list entry ``None`` means that the constraint
+            delivers a probability of feasibility, see
+            ``compute_smoothed_feasibility_indicator``.
 
     Returns:
         A ``n_samples x b x q (x m')``-dim tensor of feasibility-weighted objectives.
@@ -250,5 +294,6 @@ def apply_constraints(
         constraints=constraints,
         samples=samples,
         eta=eta,
+        fat=fat,
     )
     return obj.add(-infeasible_cost)

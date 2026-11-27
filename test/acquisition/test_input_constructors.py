@@ -98,6 +98,7 @@ from botorch.acquisition.multi_objective.parego import qLogNParEGO
 from botorch.acquisition.multi_objective.utils import get_default_partitioning_alpha
 from botorch.acquisition.objective import (
     ConstrainedMCObjective,
+    GenericMCObjective,
     IdentityMCObjective,
     LinearMCObjective,
     ScalarizedPosteriorTransform,
@@ -934,6 +935,56 @@ class TestMCAcquisitionFunctionInputConstructors(InputConstructorBaseTestCase):
         acqf = qProbabilityOfImprovement(**kwargs)
         self.assertIs(acqf.model, mock_model)
         self.assertIs(acqf.objective, objective)
+
+    def test_construct_inputs_probability_constraint(self) -> None:
+        # outputs: objective, probability of feasibility
+        Y = torch.tensor([[1.0, 0.9], [3.0, 0.1], [2.0, 0.6]])
+        training_data = SupervisedDataset(
+            torch.rand(3, 2),
+            Y,
+            feature_names=["X1", "X2"],
+            outcome_names=["Y", "P"],
+        )
+        objective = GenericMCObjective(lambda Y, X: Y[..., 0])
+        constraints = [lambda Y: Y[..., 1]]
+        for acqf_class in (
+            qExpectedImprovement,
+            qLogExpectedImprovement,
+            qProbabilityOfImprovement,
+        ):
+            with self.subTest(acqf_class=acqf_class):
+                c = get_acqf_input_constructor(acqf_class)
+                kwargs = c(
+                    model=self.mock_model,
+                    training_data=training_data,
+                    objective=objective,
+                    constraints=constraints,
+                    fat=[None],
+                )
+                self.assertEqual(kwargs["fat"], [None])
+                # the best feasible observation, not the infeasible 3.0
+                self.assertEqual(kwargs["best_f"].item(), 2.0)
+        for acqf_class in (
+            qNoisyExpectedImprovement,
+            qLogNoisyExpectedImprovement,
+            qLogProbabilityOfFeasibility,
+        ):
+            with self.subTest(acqf_class=acqf_class):
+                c = get_acqf_input_constructor(acqf_class)
+                kwargs = c(
+                    model=self.mock_model,
+                    training_data=training_data,
+                    objective=objective,
+                    constraints=constraints,
+                    fat=[None],
+                )
+                self.assertEqual(kwargs["fat"], [None])
+        # without ``fat``, the non-log constructors leave the default to the acqf
+        c = get_acqf_input_constructor(qExpectedImprovement)
+        kwargs = c(
+            model=self.mock_model, training_data=training_data, objective=objective
+        )
+        self.assertNotIn("fat", kwargs)
 
 
 class TestQUpperConfidenceBoundInputConstructor(InputConstructorBaseTestCase):

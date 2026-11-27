@@ -523,6 +523,7 @@ class NoisyExpectedHypervolumeMixin(CachedCholeskyMCSamplerMixin):
         incremental_nehvi: bool = True,
         cache_root: bool | None = None,
         marginalize_dim: int | None = None,
+        fat: list[bool | None] | bool = False,
     ):
         """Initialize a mixin that contains functions for the batched Pareto-frontier
         partitioning used by the noisy hypervolume-improvement-based acquisition
@@ -574,8 +575,13 @@ class NoisyExpectedHypervolumeMixin(CachedCholeskyMCSamplerMixin):
                 decomposition over ``X_baseline`` and use low-rank updates.
             marginalize_dim: A batch dimension that should be marginalized. For example,
                 this is useful when using a batched fully Bayesian model.
+            fat: The per-constraint setting of the feasibility indicator, see
+                ``compute_smoothed_feasibility_indicator``. A constraint with
+                ``None`` delivers a probability of feasibility; a baseline point is
+                considered feasible under it if the probability is at least 0.5.
         """
         super().__init__(model=model, cache_root=cache_root, sampler=sampler)
+        self.fat = fat
         if len(ref_point) < 2:
             raise ValueError(
                 "NoisyExpectedHypervolumeMixin supports m>=2 outcomes "
@@ -598,6 +604,7 @@ class NoisyExpectedHypervolumeMixin(CachedCholeskyMCSamplerMixin):
                 constraints=constraints,
                 ref_point=ref_point,
                 marginalize_dim=marginalize_dim,
+                fat=fat,
             )
 
         self.alpha = alpha
@@ -739,7 +746,7 @@ class NoisyExpectedHypervolumeMixin(CachedCholeskyMCSamplerMixin):
             feas = None
         else:
             feas = compute_feasibility_indicator(
-                constraints=self.constraints, samples=samples
+                constraints=self.constraints, samples=samples, fat=self.fat
             )
 
         self._batch_sample_shape = obj.shape[:-2]

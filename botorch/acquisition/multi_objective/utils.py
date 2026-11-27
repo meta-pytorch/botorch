@@ -71,6 +71,7 @@ def prune_inferior_points_multi_objective(
     num_samples: int = 2048,
     max_frac: float = 1.0,
     marginalize_dim: int | None = None,
+    fat: list[bool | None] | bool = False,
 ) -> Tensor:
     r"""Prune points from an input tensor that are unlikely to be pareto optimal.
 
@@ -99,6 +100,10 @@ def prune_inferior_points_multi_objective(
         marginalize_dim: A batch dimension that should be marginalized.
             For example, this is useful when using a batched fully Bayesian
             model.
+        fat: The per-constraint setting of the feasibility indicator, see
+            ``compute_smoothed_feasibility_indicator``. A constraint with ``None``
+            delivers a probability of feasibility and is considered satisfied if it
+            is at least 0.5.
 
     Returns:
         A ``n' x d`` with subset of points in ``X``, where
@@ -117,6 +122,7 @@ def prune_inferior_points_multi_objective(
         num_samples=num_samples,
         max_frac=max_frac,
         marginalize_dim=marginalize_dim,
+        fat=fat,
     )
     if infeas.any():
         obj_vals[infeas] = ref_point

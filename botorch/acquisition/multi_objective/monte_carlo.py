@@ -63,7 +63,7 @@ class qExpectedHypervolumeImprovement(
         constraints: list[Callable[[Tensor], Tensor]] | None = None,
         X_pending: Tensor | None = None,
         eta: Tensor | float = 1e-3,
-        fat: bool = False,
+        fat: list[bool | None] | bool = False,
     ) -> None:
         r"""q-Expected Hypervolume Improvement supporting m>=2 outcomes.
 
@@ -105,7 +105,9 @@ class qExpectedHypervolumeImprovement(
                 constraints. The i-th constraint is then estimated with the i-th
                 eta value.
             fat: A Boolean flag indicating whether to use the heavy-tailed approximation
-                of the constraint indicator.
+                of the constraint indicator. A list sets it per constraint, see
+                ``compute_smoothed_feasibility_indicator``; an entry ``None`` means
+                that the constraint delivers a probability of feasibility.
         """
         legacy_ei_numerics_warning(legacy_name=type(self).__name__)
         if len(ref_point) != partitioning.num_outcomes:
@@ -243,7 +245,7 @@ class qNoisyExpectedHypervolumeImprovement(
         constraints: list[Callable[[Tensor], Tensor]] | None = None,
         X_pending: Tensor | None = None,
         eta: Tensor | float = 1e-3,
-        fat: bool = False,
+        fat: list[bool | None] | bool = False,
         prune_baseline: bool = False,
         alpha: float = 0.0,
         cache_pending: bool = True,
@@ -293,7 +295,9 @@ class qNoisyExpectedHypervolumeImprovement(
                 ``eta`` value. For more details, on this parameter, see the docs of
                 ``compute_smoothed_feasibility_indicator``.
             fat: A Boolean flag indicating whether to use the heavy-tailed approximation
-                of the constraint indicator.
+                of the constraint indicator. A list sets it per constraint, see
+                ``compute_smoothed_feasibility_indicator``; an entry ``None`` means
+                that the constraint delivers a probability of feasibility.
             prune_baseline: If True, remove points in ``X_baseline`` that are
                 highly unlikely to be the pareto optimal and better than the
                 reference point. This can significantly improve computation time and
@@ -344,8 +348,8 @@ class qNoisyExpectedHypervolumeImprovement(
             incremental_nehvi=incremental_nehvi,
             cache_root=cache_root,
             marginalize_dim=marginalize_dim,
+            fat=fat,
         )
-        self.fat = fat
 
     @t_batch_mode_transform()
     @average_over_ensemble_models

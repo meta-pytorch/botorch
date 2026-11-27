@@ -112,6 +112,7 @@ from botorch.utils.multi_objective.box_decompositions.non_dominated import (
     FastNondominatedPartitioning,
     NondominatedPartitioning,
 )
+from botorch.utils.objective import compute_feasibility_indicator
 from botorch.utils.sampling import draw_sobol_samples
 from torch import Tensor
 
@@ -544,6 +545,7 @@ def construct_inputs_qEI(
     best_f: float | Tensor | None = None,
     constraints: list[Callable[[Tensor], Tensor]] | None = None,
     eta: Tensor | float = 1e-3,
+    fat: list[bool | None] | bool | None = None,
 ) -> dict[str, Any]:
     r"""Construct kwargs for the ``qExpectedImprovement`` constructor.
 
@@ -566,6 +568,12 @@ def construct_inputs_qEI(
         eta: Temperature parameter(s) governing the smoothness of the sigmoid
             approximation to the constraint indicators. For more details, on this
             parameter, see the docs of ``compute_smoothed_feasibility_indicator``.
+        fat: Whether to apply a fat-tailed smooth approximation to the constraint
+            indicators or the canonical sigmoid approximation. A list sets it per
+            constraint; an entry ``None`` means that the constraint delivers a
+            probability of feasibility. For more details, see the docs of
+            ``compute_smoothed_feasibility_indicator``. If omitted, the acquisition
+            function's default is used.
 
     Returns:
         A dict mapping kwarg names of the constructor to values.
@@ -577,6 +585,7 @@ def construct_inputs_qEI(
             posterior_transform=posterior_transform,
             constraints=constraints,
             model=model,
+            fat=False if fat is None else fat,
         )
 
     return {
@@ -588,6 +597,7 @@ def construct_inputs_qEI(
         "best_f": best_f,
         "constraints": constraints,
         "eta": eta,
+        **({} if fat is None else {"fat": fat}),
     }
 
 
@@ -602,7 +612,7 @@ def construct_inputs_qLogEI(
     best_f: float | Tensor | None = None,
     constraints: list[Callable[[Tensor], Tensor]] | None = None,
     eta: Tensor | float = 1e-3,
-    fat: bool = True,
+    fat: list[bool | None] | bool = True,
     tau_max: float = TAU_MAX,
     tau_relu: float = TAU_RELU,
 ) -> dict[str, Any]:
@@ -627,8 +637,13 @@ def construct_inputs_qLogEI(
         eta: Temperature parameter(s) governing the smoothness of the sigmoid
             approximation to the constraint indicators. For more details, on this
             parameter, see the docs of ``compute_smoothed_feasibility_indicator``.
-        fat: Toggles the logarithmic / linear asymptotic behavior of the smooth
-            approximation to the ReLU.
+        fat: Controls two smooth approximations: (1) of the ReLU and the maximum:
+            fat-tailed or softplus/logsumexp-based; (2) of the constraint indicators:
+            fatmoid or sigmoid. A boolean sets both: ``True`` fat-tailed and fatmoid,
+            ``False`` softplus/logsumexp and sigmoid. A list sets (2) per constraint,
+            where ``None`` means that the constraint delivers a probability of
+            feasibility that is used as is (see
+            ``compute_smoothed_feasibility_indicator``); (1) is then fat-tailed.
         tau_max: Temperature parameter controlling the sharpness of the smooth
             approximations to max.
         tau_relu: Temperature parameter controlling the sharpness of the smooth
@@ -648,6 +663,7 @@ def construct_inputs_qLogEI(
             best_f=best_f,
             constraints=constraints,
             eta=eta,
+            fat=fat,
         ),
         "fat": fat,
         "tau_max": tau_max,
@@ -663,7 +679,7 @@ def construct_inputs_LogPF(
     X_pending: Tensor | None = None,
     sampler: MCSampler | None = None,
     eta: Tensor | float = 1e-3,
-    fat: bool = True,
+    fat: list[bool | None] | bool = True,
     tau_max: float = TAU_MAX,
 ) -> dict[str, Any]:
     r"""Construct kwargs for the ``qLogProbabilityOfFeasibility`` constructor.
@@ -684,8 +700,13 @@ def construct_inputs_LogPF(
         eta: Temperature parameter(s) governing the smoothness of the sigmoid
             approximation to the constraint indicators. For more details, on this
             parameter, see the docs of ``compute_smoothed_feasibility_indicator``.
-        fat: Toggles the logarithmic / linear asymptotic behavior of the smooth
-            approximation to the ReLU.
+        fat: Controls two smooth approximations: (1) of the maximum over the ``q``
+            points: fat-tailed or softplus/logsumexp-based; (2) of the constraint
+            indicators: fatmoid or sigmoid. A boolean sets both: ``True`` fat-tailed and
+            fatmoid, ``False`` softplus/logsumexp and sigmoid. A list sets (2) per
+            constraint, where ``None`` means that the constraint delivers a probability
+            of feasibility that is used as is (see
+            ``compute_smoothed_feasibility_indicator``); (1) is then fat-tailed.
         tau_max: Temperature parameter controlling the sharpness of the smooth
             approximations to max.
 
@@ -717,6 +738,7 @@ def construct_inputs_qNEI(
     cache_root: bool | None = None,
     constraints: list[Callable[[Tensor], Tensor]] | None = None,
     eta: Tensor | float = 1e-3,
+    fat: list[bool | None] | bool | None = None,
 ) -> dict[str, Any]:
     r"""Construct kwargs for the ``qNoisyExpectedImprovement`` constructor.
 
@@ -749,6 +771,12 @@ def construct_inputs_qNEI(
         eta: Temperature parameter(s) governing the smoothness of the sigmoid
             approximation to the constraint indicators. For more details, on this
             parameter, see the docs of ``compute_smoothed_feasibility_indicator``.
+        fat: Whether to apply a fat-tailed smooth approximation to the constraint
+            indicators or the canonical sigmoid approximation. A list sets it per
+            constraint; an entry ``None`` means that the constraint delivers a
+            probability of feasibility. For more details, see the docs of
+            ``compute_smoothed_feasibility_indicator``. If omitted, the acquisition
+            function's default is used.
 
     Returns:
         A dict mapping kwarg names of the constructor to values.
@@ -771,6 +799,7 @@ def construct_inputs_qNEI(
         "cache_root": cache_root,
         "constraints": constraints,
         "eta": eta,
+        **({} if fat is None else {"fat": fat}),
     }
 
 
@@ -787,7 +816,7 @@ def construct_inputs_qLogNEI(
     cache_root: bool | None = None,
     constraints: list[Callable[[Tensor], Tensor]] | None = None,
     eta: Tensor | float = 1e-3,
-    fat: bool = True,
+    fat: list[bool | None] | bool = True,
     tau_max: float = TAU_MAX,
     tau_relu: float = TAU_RELU,
     incremental: bool = True,
@@ -819,8 +848,13 @@ def construct_inputs_qLogNEI(
         eta: Temperature parameter(s) governing the smoothness of the sigmoid
             approximation to the constraint indicators. For more details, on this
             parameter, see the docs of ``compute_smoothed_feasibility_indicator``.
-        fat: Toggles the use of the fat-tailed non-linearities to smoothly approximate
-            the constraints indicator function.
+        fat: Controls two smooth approximations: (1) of the ReLU and the maximum:
+            fat-tailed or softplus/logsumexp-based; (2) of the constraint indicators:
+            fatmoid or sigmoid. A boolean sets both: ``True`` fat-tailed and fatmoid,
+            ``False`` softplus/logsumexp and sigmoid. A list sets (2) per constraint,
+            where ``None`` means that the constraint delivers a probability of
+            feasibility that is used as is (see
+            ``compute_smoothed_feasibility_indicator``); (1) is then fat-tailed.
         tau_max: Temperature parameter controlling the sharpness of the smooth
             approximations to max.
         tau_relu: Temperature parameter controlling the sharpness of the smooth
@@ -845,6 +879,7 @@ def construct_inputs_qLogNEI(
             cache_root=cache_root,
             constraints=constraints,
             eta=eta,
+            fat=fat,
         ),
         "fat": fat,
         "tau_max": tau_max,
@@ -865,6 +900,7 @@ def construct_inputs_qPI(
     best_f: float | Tensor | None = None,
     constraints: list[Callable[[Tensor], Tensor]] | None = None,
     eta: Tensor | float = 1e-3,
+    fat: list[bool | None] | bool | None = None,
 ) -> dict[str, Any]:
     r"""Construct kwargs for the ``qProbabilityOfImprovement`` constructor.
 
@@ -893,6 +929,12 @@ def construct_inputs_qPI(
         eta: Temperature parameter(s) governing the smoothness of the sigmoid
             approximation to the constraint indicators. For more details, on this
             parameter, see the docs of ``compute_smoothed_feasibility_indicator``.
+        fat: Whether to apply a fat-tailed smooth approximation to the constraint
+            indicators or the canonical sigmoid approximation. A list sets it per
+            constraint; an entry ``None`` means that the constraint delivers a
+            probability of feasibility. For more details, see the docs of
+            ``compute_smoothed_feasibility_indicator``. If omitted, the acquisition
+            function's default is used.
 
     Returns:
         A dict mapping kwarg names of the constructor to values.
@@ -904,6 +946,7 @@ def construct_inputs_qPI(
             posterior_transform=posterior_transform,
             constraints=constraints,
             model=model,
+            fat=False if fat is None else fat,
         )
 
     return {
@@ -916,6 +959,7 @@ def construct_inputs_qPI(
         "best_f": best_f,
         "constraints": constraints,
         "eta": eta,
+        **({} if fat is None else {"fat": fat}),
     }
 
 
@@ -1058,6 +1102,7 @@ def construct_inputs_qEHVI(
     sampler: MCSampler | None = None,
     X_pending: Tensor | None = None,
     eta: float = 1e-3,
+    fat: list[bool | None] | bool | None = None,
     mc_samples: int = 128,
     qmc: bool = True,
     ref_point: Tensor | None = None,
@@ -1079,7 +1124,11 @@ def construct_inputs_qEHVI(
     # For HV-based acquisition functions we pass the constraint transform directly
     if constraints is not None:
         # Adjust ``Y_pmean`` to contain feasible points only.
-        feas = torch.stack([c(Y_pmean) <= 0 for c in constraints], dim=-1).all(dim=-1)
+        feas = compute_feasibility_indicator(
+            constraints=constraints,
+            samples=Y_pmean,
+            fat=False if fat is None else fat,
+        )
         Y_pmean = Y_pmean[feas]
 
     ref_point = _get_ref_point(
@@ -1125,6 +1174,8 @@ def construct_inputs_qEHVI(
         "X_pending": X_pending,
         "constraints": constraints,
         "eta": eta,
+        # only pass fat on if given, so that qEHVI and qLogEHVI keep their defaults
+        **({} if fat is None else {"fat": fat}),
         "objective": objective,
     }
 
@@ -1141,7 +1192,7 @@ def construct_inputs_qNEHVI(
     sampler: MCSampler | None = None,
     X_pending: Tensor | None = None,
     eta: float = 1e-3,
-    fat: bool = False,
+    fat: list[bool | None] | bool = False,
     mc_samples: int = 128,
     qmc: bool = True,
     prune_baseline: bool = True,
@@ -1215,7 +1266,7 @@ def construct_inputs_qLogNEHVI(
     sampler: MCSampler | None = None,
     X_pending: Tensor | None = None,
     eta: float = 1e-3,
-    fat: bool = True,
+    fat: list[bool | None] | bool = True,
     mc_samples: int = 128,
     qmc: bool = True,
     prune_baseline: bool = True,
@@ -1270,7 +1321,7 @@ def construct_inputs_qLogNParEGO(
     cache_root: bool | None = None,
     constraints: list[Callable[[Tensor], Tensor]] | None = None,
     eta: Tensor | float = 1e-3,
-    fat: bool = True,
+    fat: list[bool | None] | bool = True,
     tau_max: float = TAU_MAX,
     tau_relu: float = TAU_RELU,
 ):
@@ -1303,8 +1354,13 @@ def construct_inputs_qLogNParEGO(
         eta: Temperature parameter(s) governing the smoothness of the sigmoid
             approximation to the constraint indicators. For more details, on this
             parameter, see the docs of ``compute_smoothed_feasibility_indicator``.
-        fat: Toggles the use of the fat-tailed non-linearities to smoothly approximate
-            the constraints indicator function.
+        fat: Controls two smooth approximations: (1) of the ReLU and the maximum:
+            fat-tailed or softplus/logsumexp-based; (2) of the constraint indicators:
+            fatmoid or sigmoid. A boolean sets both: ``True`` fat-tailed and fatmoid,
+            ``False`` softplus/logsumexp and sigmoid. A list sets (2) per constraint,
+            where ``None`` means that the constraint delivers a probability of
+            feasibility that is used as is (see
+            ``compute_smoothed_feasibility_indicator``); (1) is then fat-tailed.
         tau_max: Temperature parameter controlling the sharpness of the smooth
             approximations to max.
         tau_relu: Temperature parameter controlling the sharpness of the smooth
@@ -1782,6 +1838,7 @@ def get_best_f_mc(
     posterior_transform: PosteriorTransform | None = None,
     constraints: list[Callable[[Tensor], Tensor]] | None = None,
     model: Model | None = None,
+    fat: list[bool | None] | bool = False,
 ) -> Tensor:
     """
     Computes the maximum value of the objective over the training data.
@@ -1797,6 +1854,10 @@ def get_best_f_mc(
         constraints: For assessing feasibility.
         model: Used by ``compute_best_feasible_objective`` when there are no
             feasible observations.
+        fat: The per-constraint setting of the feasibility indicator, see
+            ``compute_smoothed_feasibility_indicator``. A constraint with ``None``
+            delivers a probability of feasibility and is considered satisfied if it
+            is at least 0.5.
 
     Returns:
         A Tensor of shape ``batch_shape``.
@@ -1848,6 +1909,7 @@ def get_best_f_mc(
         objective=objective,
         posterior_transform=posterior_transform,
         X_baseline=X_baseline,
+        fat=fat,
     )
 
 

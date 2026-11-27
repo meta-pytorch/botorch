@@ -192,6 +192,32 @@ class TestConstraintUtils(BotorchTestCase):
                             model=mm,
                         )
 
+    def test_compute_best_feasible_objective_probability_constraint(self):
+        for dtype in (torch.float, torch.double):
+            tkwargs = {"dtype": dtype, "device": self.device}
+            # outputs: objective, probability of feasibility
+            samples = torch.tensor(
+                [[[1.0, 0.9], [3.0, 0.1], [2.0, 0.6]]], **tkwargs
+            )  # 1 x 3 x 2
+            obj = samples[..., 0]
+            constraints = [lambda Y: Y[..., 1]]
+            best_f = compute_best_feasible_objective(
+                samples=samples,
+                obj=obj,
+                constraints=constraints,
+                fat=[None],
+            )
+            self.assertAllClose(best_f, torch.tensor([2.0], **tkwargs))
+            # without ``fat=None``, no point counts as feasible
+            infeasible_obj = torch.tensor(-10.0, **tkwargs)
+            best_f = compute_best_feasible_objective(
+                samples=samples,
+                obj=obj,
+                constraints=constraints,
+                infeasible_obj=infeasible_obj,
+            )
+            self.assertAllClose(best_f, torch.tensor([-10.0], **tkwargs))
+
     def test_get_infeasible_cost(self):
         for dtype in (torch.float, torch.double):
             tkwargs = {"dtype": dtype, "device": self.device}
@@ -325,6 +351,36 @@ class TestPruneInferiorPoints(BotorchTestCase):
                 constraints=constraints,
             )
             self.assertTrue(torch.equal(X_pruned, X[[-1]]))
+
+    def test_prune_inferior_points_probability_constraint(self):
+        for dtype in (torch.float, torch.double):
+            tkwargs = {"dtype": dtype, "device": self.device}
+            X = torch.rand(3, 2, **tkwargs)
+            objective = GenericMCObjective(objective=lambda Y, X: Y[..., 0])
+            constraints = [lambda Y: Y[..., 1]]
+            # outputs: objective, probability of feasibility; only the last point
+            # is feasible and it has the worst objective value
+            samples = torch.tensor([[1.0, 0.1], [0.0, 0.2], [-1.0, 0.8]], **tkwargs)
+            mm = MockModel(MockPosterior(samples=samples))
+            X_pruned = prune_inferior_points(
+                model=mm,
+                X=X,
+                objective=objective,
+                constraints=constraints,
+                fat=[None],
+            )
+            self.assertTrue(torch.equal(X_pruned, X[[-1]]))
+            # if no point is feasible, the most probably feasible one is kept
+            samples = torch.tensor([[1.0, 0.1], [0.0, 0.4], [-1.0, 0.2]], **tkwargs)
+            mm = MockModel(MockPosterior(samples=samples))
+            X_pruned = prune_inferior_points(
+                model=mm,
+                X=X,
+                objective=objective,
+                constraints=constraints,
+                fat=[None],
+            )
+            self.assertTrue(torch.equal(X_pruned, X[[1]]))
 
     def test_prune_inferior_points_with_augmented_objective_samples(self) -> None:
         """Apply each outcome sample's feasibility mask to its utility draws."""

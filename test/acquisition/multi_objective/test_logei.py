@@ -15,7 +15,13 @@ from botorch.acquisition.multi_objective.logei import (
     qLogExpectedHypervolumeImprovement,
     qLogNoisyExpectedHypervolumeImprovement,
 )
-from botorch.acquisition.multi_objective.objective import MCMultiOutputObjective
+from botorch.acquisition.multi_objective.monte_carlo import (
+    qNoisyExpectedHypervolumeImprovement,
+)
+from botorch.acquisition.multi_objective.objective import (
+    IdentityMCMultiOutputObjective,
+    MCMultiOutputObjective,
+)
 from botorch.models import SingleTaskGP
 from botorch.sampling.normal import IIDNormalSampler, SobolQMCNormalSampler
 from botorch.utils.multi_objective.box_decompositions.non_dominated import (
@@ -461,3 +467,39 @@ class TestFusedKernelCorrectness(BotorchTestCase):
 
         self.assertAllClose(val_fallback, val_fused, atol=1e-6, rtol=1e-6)
         self.assertAllClose(grad_fallback, grad_fused, atol=1e-6, rtol=1e-6)
+
+
+class TestNoisyHypervolumeProbabilityConstraint(BotorchTestCase):
+    def test_baseline_pareto_front_with_probability_constraint(self):
+        # outputs: two objectives, probability of feasibility; only the first
+        # (dominated) baseline point is feasible
+        samples = torch.tensor(
+            [[[1.0, 1.0, 0.9], [2.0, 2.0, 0.1]]], device=self.device
+        ).double()
+        mm = MockModel(MockPosterior(samples=samples))
+        for acqf_class, fat in itertools.product(
+            (
+                qLogNoisyExpectedHypervolumeImprovement,
+                qNoisyExpectedHypervolumeImprovement,
+            ),
+            ([None], True),
+        ):
+            with self.subTest(acqf_class=acqf_class, fat=fat):
+                acqf = acqf_class(
+                    model=mm,
+                    ref_point=[0.0, 0.0],
+                    X_baseline=torch.zeros(2, 1, device=self.device).double(),
+                    sampler=IIDNormalSampler(sample_shape=torch.Size([1])),
+                    objective=IdentityMCMultiOutputObjective(outcomes=[0, 1]),
+                    constraints=[lambda Y: Y[..., 2]],
+                    fat=fat,
+                    prune_baseline=False,
+                    cache_root=False,
+                )
+                self.assertEqual(acqf.fat, fat)
+                pareto_Y = acqf.partitioning.pareto_Y
+                if fat is None or isinstance(fat, list):
+                    self.assertEqual(pareto_Y.tolist(), [[[1.0, 1.0]]])
+                else:
+                    # probabilities are positive, so nothing counts as feasible
+                    self.assertEqual(pareto_Y.shape[-2], 0)
