@@ -4,6 +4,8 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
+import itertools
+
 import torch
 from botorch.exceptions.errors import UnsupportedError
 from botorch.posteriors import GPyTorchPosterior
@@ -35,6 +37,32 @@ class TestNormalMCSampler(BotorchTestCase):
     def test_abstract_raises(self):
         with self.assertRaises(TypeError):
             NormalMCSampler(sample_shape=torch.Size([4]))
+
+    def test_update_base_samples(self):
+        # The base samples of ``base_sampler`` are re-used for the first points of the
+        # new posterior, for both one- and multi-dimensional sample shapes.
+        for cls, sample_shape, dtype in itertools.product(
+            (IIDNormalSampler, SobolQMCNormalSampler),
+            (torch.Size([4]), torch.Size([2, 3])),
+            (torch.float, torch.double),
+        ):
+            base_sampler = cls(sample_shape=sample_shape, seed=0)
+            base_sampler(_get_test_posterior(device=self.device, dtype=dtype))
+            # a batched posterior over three points
+            mean = torch.zeros(3, 3, device=self.device, dtype=dtype)
+            cov = torch.eye(3, device=self.device, dtype=dtype).repeat(3, 1, 1)
+            posterior = GPyTorchPosterior(MultivariateNormal(mean, cov))
+            sampler = cls(sample_shape=sample_shape, seed=1)
+            sampler._update_base_samples(posterior=posterior, base_sampler=base_sampler)
+            self.assertEqual(sampler.base_samples.shape, sample_shape + (1, 3))
+            self.assertTrue(
+                torch.equal(
+                    sampler.base_samples[..., :2],
+                    base_sampler.base_samples.unsqueeze(-2),
+                )
+            )
+            samples = sampler(posterior)
+            self.assertEqual(samples.shape, sample_shape + (3, 3, 1))
 
 
 class TestIIDNormalSampler(BotorchTestCase):

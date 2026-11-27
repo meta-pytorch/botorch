@@ -162,7 +162,10 @@ class LinearEllipticalSliceSampler(PolytopeSampler):
         self._z = self._transform(self._x)
 
         # Expand the shape to (d, num_chains) for running parallel Markov chains.
+        # NOTE: The state ``_x`` also needs to be expanded since ``_untransform`` uses
+        # it to fill in the values of the fixed features.
         if num_chains > 1:
+            self._x = self._x.expand(-1, num_chains).clone()
             self._z = self._z.expand(-1, num_chains).clone()
 
         # We will need the following repeatedly, let's allocate them once
