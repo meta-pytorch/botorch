@@ -2463,6 +2463,45 @@ class TestFilterFeatures(BotorchTestCase):
 
 
 class TestInputPerturbation(BotorchTestCase):
+    def test_cached_fixed_perturbations_state_dict_roundtrip(self) -> None:
+        devices = [torch.device("cpu")]
+        if torch.cuda.is_available():
+            devices.append(torch.device("cuda"))
+        for device in devices:
+            for dtype in (torch.float, torch.double):
+                with self.subTest(device=device, dtype=dtype):
+                    perturbations = torch.tensor(
+                        [[0.1, -0.2], [-0.3, 0.4]], device=device, dtype=dtype
+                    ).requires_grad_()
+                    transform = InputPerturbation(perturbations).eval()
+                    X = torch.tensor(
+                        [[0.2, 0.7], [0.5, 0.4], [0.8, 0.1]],
+                        device=device,
+                        dtype=dtype,
+                        requires_grad=True,
+                    )
+                    output = transform(X)
+                    state = {
+                        name: value.detach().clone()
+                        for name, value in transform.state_dict().items()
+                    }
+                    transform.load_state_dict(state)
+                    self.assertAllClose(transform(X), output)
+                    input_grad, perturbation_grad = torch.autograd.grad(
+                        output.square().sum(), (X, perturbations), create_graph=True
+                    )
+                    self.assertAllClose(
+                        input_grad, 2 * (X.unsqueeze(-2) + perturbations).sum(-2)
+                    )
+                    self.assertAllClose(
+                        perturbation_grad, 2 * (X.unsqueeze(-2) + perturbations).sum(-3)
+                    )
+                    second = torch.autograd.grad(
+                        input_grad.sum() + perturbation_grad.sum(), (X, perturbations)
+                    )
+                    for value in second:
+                        self.assertTrue(torch.isfinite(value).all())
+
     def test_input_perturbation(self) -> None:
         with self.assertRaisesRegex(ValueError, "-dim tensor!"):
             InputPerturbation(torch.ones(1))
