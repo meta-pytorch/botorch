@@ -13,6 +13,7 @@ from unittest import mock
 from unittest.mock import patch
 
 import jax.numpy as jnp
+import numpy as np
 import numpyro
 import torch
 from botorch import utils
@@ -303,6 +304,44 @@ class TestPyroModelWarp(BotorchTestCase):
             self.assertIsNotNone(X.grad)
             self.assertFalse(X.grad.isnan().any())
             self.assertFalse(X.grad.isinf().any())
+
+    def test_warp_jax_matches_loaded_warp(self) -> None:
+        # The warping used by NUTS must match the ``Warp`` transform that the
+        # sampled concentrations are loaded into.
+        tkwargs = {"dtype": torch.double, "device": self.device}
+        for indices in (None, [1]):
+            train_X = torch.rand(8, 2, **tkwargs)
+            model = SaasFullyBayesianSingleTaskGP(
+                train_X=train_X,
+                train_Y=torch.randn(8, 1, **tkwargs),
+                use_input_warping=True,
+                indices_to_warp=indices,
+            )
+            d = 2 if indices is None else len(indices)
+            c0 = torch.tensor([[2.0, 0.5]], **tkwargs)[:, :d]
+            c1 = torch.tensor([[0.5, 3.0]], **tkwargs)[:, :d]
+            model.load_mcmc_samples(
+                {
+                    "mean": torch.zeros(1, **tkwargs),
+                    "noise": torch.ones(1, **tkwargs),
+                    "outputscale": torch.ones(1, **tkwargs),
+                    "lengthscale": torch.ones(1, 2, **tkwargs),
+                    "c0": c0,
+                    "c1": c1,
+                }
+            )
+            X = torch.rand(5, 2, **tkwargs)
+            warped_jax = model.pyro_model._warp_jax(
+                X=jnp.asarray(X.cpu().numpy()),
+                c0=jnp.asarray(c0[0].cpu().numpy()),
+                c1=jnp.asarray(c1[0].cpu().numpy()),
+            )
+            warped_jax = torch.tensor(np.array(warped_jax), **tkwargs)
+            # JAX uses single precision by default.
+            self.assertAllClose(warped_jax, model.input_transform(X)[0], atol=1e-5)
+            self.assertAllClose(
+                warped_jax, model.pyro_model.warp(X, c0=c0[0], c1=c1[0]), atol=1e-5
+            )
 
 
 class TestSaasFullyBayesianSingleTaskGP(BotorchTestCase):
