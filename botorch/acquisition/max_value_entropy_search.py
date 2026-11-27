@@ -42,6 +42,7 @@ from botorch.acquisition.cost_aware import CostAwareUtility, InverseCostWeighted
 from botorch.acquisition.objective import PosteriorTransform
 from botorch.exceptions.errors import UnsupportedError
 from botorch.models.cost import AffineFidelityCostModel
+from botorch.models.gpytorch import MultiTaskGPyTorchModel
 from botorch.models.model import Model
 from botorch.models.utils import check_no_nans
 from botorch.sampling.normal import SobolQMCNormalSampler
@@ -124,6 +125,23 @@ class MaxValueBase(AcquisitionFunction, ABC):
                     f"supported by `{self.__class__.__name__}`."
                 )
             train_inputs = match_batch_shape(train_inputs, candidate_set)
+            if (
+                isinstance(model, MultiTaskGPyTorchModel)
+                and candidate_set.shape[-1] == model.num_non_task_features
+                and train_inputs.shape[-1] == candidate_set.shape[-1] + 1
+            ):
+                # Ordinary designs use model.output_tasks. Training inputs are
+                # long-format and additionally contain a categorical task column.
+                # Only remove it for task-free designs; explicit task-labelled
+                # candidates retain their original full-column baseline.
+                task_feature = model._task_feature
+                train_inputs = torch.cat(
+                    (
+                        train_inputs[..., :task_feature],
+                        train_inputs[..., task_feature + 1 :],
+                    ),
+                    dim=-1,
+                )
             candidate_set = torch.cat([candidate_set, train_inputs], dim=0)
 
         self.candidate_set = candidate_set
