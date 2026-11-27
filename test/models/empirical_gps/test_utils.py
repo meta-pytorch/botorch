@@ -118,9 +118,8 @@ class TestUtils(BotorchTestCase):
                 rtol=tol,
             )
 
-            # Wide matrix (m < n): eigh truncates to r = min(m, n) = m rows
-            # (matching the economy SVD); dropped rows have zero eigenvalues,
-            # so the Gram matrix is preserved.
+            # Wide matrix (m < n): the row Gram produces m orthogonal rows,
+            # matching the economy-SVD shape and preserving the column Gram.
             mw, nw = 30, 100
             Aw = torch.randn(mw, nw, dtype=dtype, device=self.device)
             Bw = compute_orthogonal_basis(Aw, method="eigh")
@@ -130,6 +129,83 @@ class TestUtils(BotorchTestCase):
         # Unknown method raises.
         with self.assertRaisesRegex(ValueError, "Unknown method"):
             compute_orthogonal_basis(A, method="bogus")
+
+    def test_compute_orthogonal_basis_eigh_gram_gradients(self) -> None:
+        devices = [torch.device("cpu")]
+        if torch.cuda.is_available():
+            devices.append(torch.device("cuda"))
+        for device in devices:
+            for dtype in (torch.float32, torch.float64):
+                tol = 1e-4 if dtype == torch.float32 else 1e-10
+                for m, n in ((3, 8), (8, 3), (3, 3)):
+                    for batched in (False, True):
+                        with self.subTest(
+                            device=device, dtype=dtype, shape=(m, n), batched=batched
+                        ):
+                            A = torch.zeros(m, n, dtype=dtype, device=device)
+                            r = min(m, n)
+                            A[:r, :r] = torch.diag(
+                                torch.arange(1, r + 1, dtype=dtype, device=device)
+                            )
+                            if batched:
+                                A = torch.stack((A, A * 1.3))
+                            A.requires_grad_()
+                            B = compute_orthogonal_basis(A, method="eigh")
+                            self.assertEqual(B.shape, (*A.shape[:-2], r, n))
+                            gram, expected = B.mT @ B, A.mT @ A
+                            self.assertAllClose(gram, expected, atol=tol, rtol=tol)
+                            row_gram = B @ B.mT
+                            self.assertAllClose(
+                                row_gram,
+                                row_gram.diagonal(dim1=-2, dim2=-1).diag_embed(),
+                                atol=tol,
+                                rtol=tol,
+                            )
+                            weights = torch.linspace(
+                                0.7, 1.2, n * n, dtype=dtype, device=device
+                            ).reshape(n, n)
+                            gradient = torch.autograd.grad(
+                                (gram.square() * weights).sum(), A, create_graph=True
+                            )[0]
+                            expected_gradient = torch.autograd.grad(
+                                (expected.square() * weights).sum(),
+                                A,
+                                create_graph=True,
+                            )[0]
+                            self.assertTrue(torch.isfinite(gradient).all())
+                            self.assertAllClose(
+                                gradient, expected_gradient, atol=tol, rtol=tol
+                            )
+                            direction = torch.linspace(
+                                -0.3, 0.7, A.numel(), dtype=dtype, device=device
+                            ).reshape_as(A)
+                            hessian_vector = torch.autograd.grad(
+                                (gradient * direction).sum(), A
+                            )[0]
+                            expected_hessian_vector = torch.autograd.grad(
+                                (expected_gradient * direction).sum(), A
+                            )[0]
+                            self.assertTrue(torch.isfinite(hessian_vector).all())
+                            self.assertAllClose(
+                                hessian_vector,
+                                expected_hessian_vector,
+                                atol=tol,
+                                rtol=tol,
+                            )
+
+    def test_compute_orthogonal_basis_eigh_wide_gram_gradcheck(self) -> None:
+        # The rectangular matrix is full row rank with distinct positive
+        # singular values, but its column Gram has an artificial zero eigenspace.
+        A = torch.zeros(3, 8, dtype=torch.double)
+        A[:, :3] = torch.diag(torch.tensor([1.0, 2.0, 3.0], dtype=A.dtype))
+        A.requires_grad_()
+
+        def gram(value: Tensor) -> Tensor:
+            basis = compute_orthogonal_basis(value, method="eigh")
+            return basis.mT @ basis
+
+        self.assertTrue(torch.autograd.gradcheck(gram, A, fast_mode=True))
+        self.assertTrue(torch.autograd.gradgradcheck(gram, A, fast_mode=True))
 
     def test_covariance_computation_helpers(self) -> None:
         """Test helper functions for covariance computation."""

@@ -49,10 +49,11 @@ def compute_orthogonal_basis(A: Tensor, method: str = "svd") -> Tensor:
     Two algorithms produce a basis with the same Gram matrix (``B.T @ B = A.T @ A``):
 
     - ``"svd"`` (default): economy SVD of ``A``. Numerically robust.
-    - ``"eigh"``: eigendecomposition of the Gram matrix ``A.T @ A``. This avoids
-      forming the ``(m, r)`` left singular vectors, so it is typically faster when
-      ``m >> n``, at the cost of squaring the condition number (reduced accuracy for
-      the smallest singular values).
+    - ``"eigh"``: eigendecomposition of the smaller Gram matrix. For tall or
+      square matrices, use ``A.T @ A``; this avoids forming the left singular
+      vectors. For wide matrices, use ``A @ A.T`` and return ``U.T @ A``, avoiding
+      the larger column Gram's artificial nullspace. Gram eigendecomposition
+      squares the condition number, reducing accuracy for small singular values.
 
     Example:
         >>> A = torch.randn(10000, 50)  # tall matrix with m >> n
@@ -77,6 +78,13 @@ def compute_orthogonal_basis(A: Tensor, method: str = "svd") -> Tensor:
         # Return S @ Vh, shape (..., r, n)
         return S.unsqueeze(-1) * Vh
     if method == "eigh":
+        if A.shape[-2] < A.shape[-1]:
+            # A @ A.T = U @ diag(lambda) @ U.T, so B = U.T @ A has
+            # orthogonal rows and B.T @ B = A.T @ A. The smaller row Gram
+            # avoids an artificial repeated zero eigenspace in the column
+            # Gram, which makes its eigenvector backward produce NaNs.
+            _, eigvecs = torch.linalg.eigh(A @ A.transpose(-2, -1))
+            return eigvecs.flip(-1).transpose(-2, -1) @ A
         # A.T @ A = V @ diag(lambda) @ V.T, so B = diag(sqrt(lambda)) @ V.T
         # satisfies B.T @ B = A.T @ A.
         gram = A.transpose(-2, -1) @ A
@@ -85,12 +93,7 @@ def compute_orthogonal_basis(A: Tensor, method: str = "svd") -> Tensor:
         # and clamp tiny negative eigenvalues from round-off before the sqrt.
         eigvals = eigvals.flip(-1).clamp_min(0.0)
         eigvecs = eigvecs.flip(-1)
-        B = eigvals.sqrt().unsqueeze(-1) * eigvecs.transpose(-2, -1)
-        # Truncate to r = min(m, n) rows to match the economy-SVD shape.
-        # When m < n the dropped rows have zero eigenvalues, so B.T @ B
-        # is unchanged.
-        r = min(A.shape[-2], A.shape[-1])
-        return B[..., :r, :]
+        return eigvals.sqrt().unsqueeze(-1) * eigvecs.transpose(-2, -1)
     raise ValueError(f"Unknown method: {method!r}. Must be 'svd' or 'eigh'.")
 
 
