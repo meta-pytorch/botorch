@@ -26,6 +26,38 @@ from torch import nn, Tensor
 
 
 class TestOrthogonalAdditiveKernel(BotorchTestCase):
+    def test_module_device_and_dtype_migration(self):
+        devices = [torch.device("cpu")]
+        if torch.cuda.is_available():
+            devices.append(torch.device("cuda"))
+        for second_order, device in itertools.product((False, True), devices):
+            with self.subTest(second_order=second_order, device=device):
+                # Construct in default float32 on CPU, then migrate both
+                # precision and device through the standard Module API.
+                kernel = OrthogonalAdditiveKernel(
+                    3, quad_deg=8, second_order=second_order
+                )
+                kernel.to(device=device, dtype=torch.double)
+                x = torch.rand(
+                    3, 3, device=device, dtype=torch.double, requires_grad=True
+                )
+                actual = kernel(x).to_dense()
+                self.assertEqual(actual.device.type, device.type)
+                self.assertEqual(actual.dtype, torch.double)
+                first = torch.autograd.grad(actual.square().sum(), x)[0]
+                self.assertTrue(torch.isfinite(first).all())
+                for buffer in (kernel.z, kernel.w):
+                    self.assertEqual(buffer.device.type, device.type)
+                    self.assertEqual(buffer.dtype, torch.double)
+                if second_order:
+                    self.assertEqual(kernel._rev_triu_indices.device.type, device.type)
+                    self.assertEqual(kernel._rev_triu_indices.dtype, torch.long)
+                    self.assertEqual(kernel._quad_zero.device.type, device.type)
+                    self.assertEqual(kernel._quad_zero.dtype, torch.double)
+                kernel.cpu()
+                expected = kernel(x.detach().cpu()).to_dense()
+                self.assertAllClose(actual.detach().cpu(), expected)
+
     def test_orthogonal_additive_kernel(self):
         self._test_kernel()
         self._test_default_base_kernel()
