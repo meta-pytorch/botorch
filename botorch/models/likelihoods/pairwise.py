@@ -199,9 +199,10 @@ class PairwiseLogitLikelihood(PairwiseLikelihood):
         indices_shape = utility.shape[:-1] + (-1,)
         winner_indices = (D == 1).nonzero(as_tuple=True)[-1].reshape(indices_shape)
         loser_indices = (D == -1).nonzero(as_tuple=True)[-1].reshape(indices_shape)
-        ex = torch.exp(torch.gather(utility, -1, winner_indices))
-        ey = torch.exp(torch.gather(utility, -1, loser_indices))
-        unsigned_grad = ey / (ex + ey)
+        winner_utility = torch.gather(utility, -1, winner_indices)
+        loser_utility = torch.gather(utility, -1, loser_indices)
+        # exp(f_l) / (exp(f_w) + exp(f_l)), computed without overflowing exp
+        unsigned_grad = torch.sigmoid(loser_utility - winner_utility)
         grad = (unsigned_grad.unsqueeze(-2) @ (-D)).squeeze(-2)
         return grad
 
