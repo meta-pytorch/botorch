@@ -24,6 +24,7 @@ from botorch.generation.sampling import (
 )
 from botorch.models import SingleTaskGP
 from botorch.models.model_list_gp_regression import ModelListGP
+from botorch.utils.sampling import batched_multinomial
 from botorch.utils.testing import BotorchTestCase, MockModel, MockPosterior
 
 
@@ -148,6 +149,31 @@ class TestBoltzmannSampling(BotorchTestCase):
             BS = BoltzmannSampling(acqf, eta=10.0)
             samples = BS(X, num_samples=1)
             self.assertTrue(torch.equal(samples, X[max_idx, :]))
+
+    def test_boltzmann_sampling_batched(self):
+        # The acquisition values are standardized over the N points of each batch,
+        # so the weights of each batch are those of the unbatched samplers.
+        N, d, eta = 6, 2, 2.0
+        for batch_shape, dtype in itertools.product(
+            (torch.Size([1]), torch.Size([3]), torch.Size([2, 3])),
+            (torch.float, torch.double),
+        ):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            X = torch.rand(*batch_shape, N, d, **tkwargs)
+            acqval = torch.randn(N, *batch_shape, **tkwargs)
+            BS = BoltzmannSampling(mock.Mock(return_value=acqval), eta=eta)
+            with mock.patch(
+                "botorch.generation.sampling.batched_multinomial",
+                wraps=batched_multinomial,
+            ) as mock_multinomial:
+                samples = BS(X, num_samples=4)
+            self.assertEqual(samples.shape, batch_shape + torch.Size([4, d]))
+            weights = mock_multinomial.call_args.kwargs["weights"]
+            self.assertEqual(weights.shape, batch_shape + torch.Size([N]))
+            for idx in itertools.product(*(range(b) for b in batch_shape)):
+                vals = acqval[(slice(None), *idx)]
+                expected = torch.exp(eta * (vals - vals.mean()) / vals.std())
+                self.assertAllClose(weights[idx], expected)
 
 
 class TestConstrainedMaxPosteriorSampling(BotorchTestCase):
