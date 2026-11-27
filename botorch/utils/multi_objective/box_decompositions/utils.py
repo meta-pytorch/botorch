@@ -178,14 +178,13 @@ def get_partition_bounds(Z: Tensor, U: Tensor, ref_point: Tensor) -> Tensor:
             bounding each hypercell.
     """
     bounds = torch.empty(2, U.shape[0], U.shape[-1], dtype=U.dtype, device=U.device)
-    for u_idx in range(U.shape[0]):
-        # z_1^1(u)
-        bounds[0, u_idx, 0] = Z[u_idx, 0, 0]
-        # z_1^r(u)
-        bounds[1, u_idx, 0] = ref_point[0]
-        for j in range(1, U.shape[-1]):
-            bounds[0, u_idx, j] = Z[u_idx, :j, j].max()
-            bounds[1, u_idx, j] = U[u_idx, j]
+    # z_1^1(u)
+    bounds[0, :, 0] = Z[:, 0, 0]
+    # z_1^r(u)
+    bounds[1, :, 0] = ref_point[0]
+    for j in range(1, U.shape[-1]):
+        bounds[0, :, j] = Z[:, :j, j].max(dim=-1).values
+        bounds[1, :, j] = U[:, j]
     # remove empty partitions
     # Note: the equality will evaluate as True if the lower and upper bound
     # are both (-inf), which could happen if the reference point is -inf.

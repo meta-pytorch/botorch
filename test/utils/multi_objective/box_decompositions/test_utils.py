@@ -6,8 +6,13 @@
 
 from __future__ import annotations
 
+from itertools import product
+
 import torch
 from botorch.exceptions.errors import BotorchTensorDimensionError, UnsupportedError
+from botorch.utils.multi_objective.box_decompositions.non_dominated import (
+    FastNondominatedPartitioning,
+)
 from botorch.utils.multi_objective.box_decompositions.utils import (
     _expand_ref_point,
     _pad_batch_pareto_frontier,
@@ -366,3 +371,33 @@ class TestFastPartitioningUtils(BotorchTestCase):
             )
             expected_bounds = expected_bounds_raw.to(dtype=dtype)
             self.assertTrue(torch.equal(bounds, expected_bounds))
+
+    def test_get_partition_bounds_matches_loop(self):
+        # Compare against a direct implementation of Equation 2 in [Lacour17]_.
+        def get_partition_bounds_loop(Z, U, ref_point):
+            bounds = torch.empty(2, *U.shape, dtype=U.dtype, device=U.device)
+            for u_idx in range(U.shape[0]):
+                bounds[0, u_idx, 0] = Z[u_idx, 0, 0]
+                bounds[1, u_idx, 0] = ref_point[0]
+                for j in range(1, U.shape[-1]):
+                    bounds[0, u_idx, j] = Z[u_idx, :j, j].max()
+                    bounds[1, u_idx, j] = U[u_idx, j]
+            empty = (bounds[1] <= bounds[0]).any(dim=-1)
+            return bounds[:, ~empty]
+
+        for dtype, m in product((torch.float, torch.double), (3, 4)):
+            tkwargs = {"device": self.device, "dtype": dtype}
+            # Use the local upper bounds and defining points of both steps.
+            bd = FastNondominatedPartitioning(
+                ref_point=torch.zeros(m, **tkwargs), Y=torch.rand(10, m, **tkwargs)
+            )
+            for Z, U, ref_point in (
+                (bd._Z, bd._U, bd._neg_ref_point.view(-1)),
+                (bd._Z2, bd._U2, torch.full((m,), float("inf"), **tkwargs)),
+            ):
+                self.assertTrue(
+                    torch.equal(
+                        get_partition_bounds(Z=Z, U=U, ref_point=ref_point),
+                        get_partition_bounds_loop(Z=Z, U=U, ref_point=ref_point),
+                    )
+                )

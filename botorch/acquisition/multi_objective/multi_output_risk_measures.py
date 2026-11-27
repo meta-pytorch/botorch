@@ -231,6 +231,40 @@ class MultiOutputWorstCase(MultiOutputRiskMeasureMCObjective):
         return prepared_samples.min(dim=-2).values
 
 
+def _is_maximal_alpha_level_point(cdf: Tensor, alpha_count: int, m: int) -> Tensor:
+    r"""Find the maximal grid points that are dominated by ``alpha_count`` samples.
+
+    A grid point dominated by at least ``alpha_count`` samples is an MVaR point (i.e.,
+    it is not dominated by any other such point) if and only if moving to the next
+    grid point along any of the outputs leaves fewer than ``alpha_count`` samples
+    dominating it. Without ties in the samples, these points are dominated by exactly
+    ``alpha_count`` samples. With ties, they can be dominated by more samples.
+
+    Args:
+        cdf: A ``batch_shape x n_1 x ... x n_m``-dim tensor with the number of samples
+            dominating each grid point, where the grid values are sorted in ascending
+            order along each of the last ``m`` dimensions. The largest grid value of
+            each output must be its independent VaR, so that fewer than
+            ``alpha_count`` samples dominate any point beyond the grid.
+        alpha_count: The number of samples that must dominate an MVaR point.
+        m: The number of outputs.
+
+    Returns:
+        A boolean tensor of the same shape as ``cdf`` indicating the MVaR points.
+    """
+    is_maximal = cdf >= alpha_count
+    for dim in range(cdf.dim() - m, cdf.dim()):
+        next_cdf = torch.cat(
+            [
+                cdf.narrow(dim, 1, cdf.shape[dim] - 1),
+                torch.zeros_like(cdf.narrow(dim, 0, 1)),
+            ],
+            dim=dim,
+        )
+        is_maximal &= next_cdf < alpha_count
+    return is_maximal
+
+
 class MVaR(MultiOutputRiskMeasureMCObjective):
     r"""The multivariate Value-at-Risk as introduced in [Prekopa2012MVaR]_.
 
@@ -302,8 +336,9 @@ class MVaR(MultiOutputRiskMeasureMCObjective):
 
         This first calculates the CDF for each point on the extended domain of the
         random variable (the grid defined by the given samples), then takes the
-        values with CDF equal to (rounded if necessary) ``alpha``. The non-dominated
-        subset of these form the MVaR set.
+        values with CDF equal to (rounded if necessary) ``alpha``, as well as the
+        maximal values with a larger CDF (which can occur with ties in the samples).
+        The non-dominated subset of these form the MVaR set.
 
         This implementation processes each batch of ``Y`` in a for loop using a counting
         based implementation. It requires less memory than the vectorized implementation
@@ -360,15 +395,17 @@ class MVaR(MultiOutputRiskMeasureMCObjective):
 
         # Get the count alpha-level points should have.
         alpha_count = ceil(self.alpha * self.n_w)
+        is_alpha_level = counter_tensor == alpha_count
+        # With ties in ``Y``, MVaR points can have a count larger than
+        # ``alpha_count``. This requires ties in each output.
+        if all(len(outcomes) < Y_sorted.shape[0] for outcomes in unique_outcomes_list):
+            # The unique outcomes are sorted in descending order.
+            dims = tuple(range(m))
+            is_alpha_level |= _is_maximal_alpha_level_point(
+                cdf=counter_tensor.flip(dims), alpha_count=alpha_count, m=m
+            ).flip(dims)
         # Get the alpha level indices.
-        alpha_level_indices = (counter_tensor == alpha_count).nonzero(as_tuple=False)
-        # If there are no exact alpha level points, get the smallest alpha' > alpha
-        # and find the corresponding alpha level indices.
-        if alpha_level_indices.numel() == 0:
-            min_greater_than_alpha = counter_tensor[counter_tensor > alpha_count].min()
-            alpha_level_indices = (counter_tensor == min_greater_than_alpha).nonzero(
-                as_tuple=False
-            )
+        alpha_level_indices = is_alpha_level.nonzero(as_tuple=False)
         unique_outcomes = [
             torch.as_tensor(list(outcomes.keys()), device=Y.device, dtype=Y.dtype)
             for outcomes in unique_outcomes
@@ -393,8 +430,9 @@ class MVaR(MultiOutputRiskMeasureMCObjective):
 
         This first calculates the CDF for each point on the extended domain of the
         random variable (the grid defined by the given samples), then takes the
-        values with CDF equal to (rounded if necessary) ``alpha``. The non-dominated
-        subset of these form the MVaR set.
+        values with CDF equal to (rounded if necessary) ``alpha``, as well as the
+        maximal values with a larger CDF (which can occur with ties in the samples).
+        The non-dominated subset of these form the MVaR set.
 
         This implementation computes the CDF of each point using highly vectorized
         operations. As such, it may use large amounts of memory, particularly when the
@@ -447,15 +485,20 @@ class MVaR(MultiOutputRiskMeasureMCObjective):
         cdf = (Y.unsqueeze(-2) >= y_grid.unsqueeze(-3)).all(dim=-1).sum(dim=-2)
         # Get the alpha level points
         alpha_count = ceil(self.alpha * self.n_w)
+        is_alpha_level = cdf == alpha_count
+        # With ties in ``Y``, MVaR points can have a CDF larger than ``alpha_count``.
+        # This requires ties in each output.
+        if (Y_sorted[:, 1:] == Y_sorted[:, :-1]).any(dim=-2).all(dim=-1).any():
+            # The grid values are sorted in ascending order along each output.
+            is_alpha_level |= _is_maximal_alpha_level_point(
+                cdf=cdf.view(batch, *(n_points for _ in range(m))),
+                alpha_count=alpha_count,
+                m=m,
+            ).view(batch, -1)
         # NOTE: Need to loop here since mvar may have different shapes.
         mvar = []
         for b in range(batch):
-            alpha_level_points = y_grid[b][cdf[b] == alpha_count]
-            # If there are no exact alpha level points, get the smallest alpha' > alpha
-            # and find the corresponding alpha level indices.
-            if alpha_level_points.numel() == 0:
-                min_greater_than_alpha = cdf[b][cdf[b] > alpha_count].min()
-                alpha_level_points = y_grid[b][cdf[b] == min_greater_than_alpha]
+            alpha_level_points = y_grid[b][is_alpha_level[b]]
             # MVaR is the non-dominated subset of alpha level points.
             if self.filter_dominated:
                 mask = is_non_dominated(alpha_level_points)
@@ -506,8 +549,10 @@ class MVaR(MultiOutputRiskMeasureMCObjective):
             ``k'`` by repeating the last element. If ``self.pad_to_n_w``, we set
             ``k' = self.n_w``, producing a deterministic return shape.
         """
-        batch_shape, m = samples.shape[:-2], samples.shape[-1]
+        batch_shape = samples.shape[:-2]
         prepared_samples = self._prepare_samples(samples)
+        # The preprocessing function may change the number of outcomes (m -> m').
+        m = prepared_samples.shape[-1]
         # This is -1 x n_w x m.
         prepared_samples = prepared_samples.reshape(-1, *prepared_samples.shape[-2:])
         with torch.no_grad():

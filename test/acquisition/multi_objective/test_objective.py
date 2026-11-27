@@ -136,3 +136,28 @@ class TestFeasibilityWeightedMCMultiOutputObjective(BotorchTestCase):
                     X_baseline=X,
                     constraint_idcs=[1, -1],
                 )
+
+    def test_feasibility_weighted_multiple_constraints(self):
+        # Each constraint must check its own outcome. Regression test for all
+        # constraints evaluating the last constraint index.
+        for dtype in (torch.float, torch.double):
+            tkwargs = {"dtype": dtype, "device": self.device}
+            # Outcomes: two objectives, followed by two constraints.
+            # The infeasible cost will be 0.0.
+            means = torch.tensor([[1.0, 2.0, 1.0, 1.0]], **tkwargs)
+            mm = MockModel(MockPosterior(mean=means, variance=torch.zeros_like(means)))
+            feas_obj = FeasibilityWeightedMCMultiOutputObjective(
+                model=mm,
+                X_baseline=torch.zeros(1, 1, **tkwargs),
+                constraint_idcs=[2, 3],
+            )
+            samples = torch.tensor(
+                [
+                    [1.0, 2.0, 1.0, 1.0],  # Both constraints satisfied.
+                    [1.0, 2.0, -1.0, 1.0],  # First constraint violated.
+                    [1.0, 2.0, 1.0, -1.0],  # Second constraint violated.
+                ],
+                **tkwargs,
+            )
+            expected = torch.tensor([[1.0, 2.0], [0.0, 0.0], [0.0, 0.0]], **tkwargs)
+            self.assertAllClose(feas_obj(samples), expected)
