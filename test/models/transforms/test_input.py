@@ -517,6 +517,14 @@ class TestInputTransforms(BotorchTestCase):
             ):
                 stdz(torch.randn(X.shape[-1], dtype=dtype))
 
+            # a single observation has no standard deviation and is left unchanged
+            for batch_shape in (torch.Size(), torch.Size([3])):
+                stdz = InputStandardize(d=2, batch_shape=batch_shape)
+                X = torch.rand(*batch_shape, 1, 2, device=self.device, dtype=dtype)
+                self.assertAllClose(stdz(X), X)
+                self.assertTrue(torch.all(stdz.stds == 1.0))
+                self.assertTrue(torch.all(stdz.means == 0.0))
+
             # basic usage
             for batch_shape in (torch.Size(), torch.Size([3])):
                 stdz = InputStandardize(d=2, batch_shape=batch_shape)
