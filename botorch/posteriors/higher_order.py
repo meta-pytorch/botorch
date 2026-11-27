@@ -98,6 +98,7 @@ class HigherOrderGPPosterior(GPyTorchPosterior):
     def _prepare_base_samples(
         self, sample_shape: torch.Size, base_samples: Tensor = None
     ) -> Tensor:
+        sample_shape = torch.Size(sample_shape)
         covariance_matrix = self.joint_covariance_matrix
         joint_size = covariance_matrix.shape[-1]
         batch_shape = covariance_matrix.batch_shape
@@ -156,8 +157,17 @@ class HigherOrderGPPosterior(GPyTorchPosterior):
             noise_base_samples = base_samples[..., joint_size:]
             base_samples = base_samples[..., :joint_size]
 
-        perm_list = [*range(1, base_samples.ndim), 0]
-        return base_samples.permute(*perm_list), noise_base_samples.permute(*perm_list)
+        def flatten_samples(value: Tensor) -> Tensor:
+            tail = value.shape[len(sample_shape) :]
+            missing = len(batch_shape) + 1 - len(tail)
+            if missing > 0:
+                value = value.reshape(*sample_shape, *([1] * missing), *tail)
+            value = value.expand(*sample_shape, *batch_shape, value.shape[-1])
+            return value.reshape(
+                sample_shape.numel(), *batch_shape, value.shape[-1]
+            ).movedim(0, -1)
+
+        return flatten_samples(base_samples), flatten_samples(noise_base_samples)
 
     def rsample_from_base_samples(
         self,
@@ -200,22 +210,14 @@ class HigherOrderGPPosterior(GPyTorchPosterior):
             ..., : self.train_train_covar.shape[-1], :
         ]
         test_marginal_samples = samples[..., self.train_train_covar.shape[-1] :, :]
-        # we need to add noise to the train_joint_samples
-        # THIS ASSUMES CONSTANT NOISE
-        # The following assumes test_train_covar is a SumLinearOperator. TODO: Improve
-        noise_std = self.train_train_covar.linear_ops[1]._diag[..., 0] ** 0.5
-        # TODO: cleanup the reshaping here
-        # expands the noise to allow broadcasting against the noise base samples
-        # reshape_as or view_as don't work here because we need to expand to
-        # broadcast against ``samples x batch_shape x output_shape`` while noise_std
-        # is ``batch_shape x 1``.
-        if self.num_outputs > 1 or noise_std.ndim > 1:
-            ntms_dims = [
-                i == noise_std.shape[0] for i in noiseless_train_marginal_samples.shape
-            ]
-            for matched in ntms_dims:
-                if not matched:
-                    noise_std = noise_std.unsqueeze(-1)
+        # Recover the observation-noise diagonal without depending on training
+        # cache wrapper types or guessing matching batch dimensions by size.
+        count = self.train_train_covar.shape[-1]
+        noise_variance = (
+            self.train_train_covar.diagonal()
+            - covariance_matrix.diagonal()[..., :count]
+        )
+        noise_std = noise_variance.clamp_min(0).sqrt().unsqueeze(-1)
 
         # we need to add noise into the noiseless samples
         noise_marginal_samples = noise_std * noise_base_samples
